@@ -115,6 +115,16 @@ class PrePushInvariantTests(unittest.TestCase):
         return subprocess.run(['bash', '-c', spelling], cwd=self.repo, env=self.env,
                               capture_output=True, text=True, timeout=30)
 
+    def test_hook_policy_matches_the_campaign_runtime(self):
+        """The self-contained hook must recognise receipts written by the current runtime."""
+        import importlib.util
+        modules = {}
+        for name in ('review_flow', 'review_prepush'):
+            spec = importlib.util.spec_from_file_location(name, FLOW.with_name(name + '.py'))
+            modules[name] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(modules[name])
+        self.assertEqual(modules['review_prepush'].POLICY, modules['review_flow'].POLICY)
+
     def test_hook_installed_by_start(self):
         """The receipt check is the repository's own pre-push hook."""
         hook = self.repo / '.git/hooks/pre-push'

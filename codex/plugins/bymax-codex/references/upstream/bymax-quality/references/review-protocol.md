@@ -89,7 +89,7 @@ Report format (the helper supplies exact `head` and `base` in its prompt):
 Kinds: `defect`, `policy`, `nit`, `preexisting`. Priorities P0–P3 retain the reviewer's
 original assessment. Applicable explicit policy can make a convention blocking; do not
 turn generic style preferences into policy defects. Every earlier **open** disposition
-must appear in each new report's `resolutions` as `{ "id": "claude/<finding-id>",
+must appear in each new report's `resolutions` as `{ "id": "claude::<finding-id>",
 "evidence": "how the fix was verified, or why it remains broken" }` (similarly `codex/`).
 If still broken, also include it in the new findings. This prevents silent disappearance
 from being reported as a verified fix.
@@ -100,7 +100,7 @@ from being reported as a verified fix.
 python3 "$FLOW" triage --report <dispositions.json>
 ```
 
-The file is a JSON list with **every** report finding keyed by `claude/<id>` or `codex/<id>`:
+The file is a JSON list with **every** report finding keyed by `claude::<id>` or `codex::<id>`:
 
 ```json
 [
@@ -141,11 +141,10 @@ addressed the instance, not the cause. `start` refuses the next round unless it 
 declared `--design-round`, records the reopened ids, and tells both reviewers the round is
 about the approach; a patch to the same instance is then itself a finding. A still-open
 defect repeated under the prefixed id a reviewer saw in an earlier disposition still names
-the same invariant: `record` removes leading `claude/` and `codex/` segments one at a time,
-stopping at the first remaining path that exists in the tree, and keeps the result only when
-it names an invariant already known from a previous disposition or earlier in the same
-report — so a copied prefix collapses, a repeat within one report is a duplicate, and a real
-path under a `codex/` directory is never rewritten.
+the same invariant: keys are `reviewer::<id>`, and no path begins with `claude::` or
+`codex::`, so `record` strips those prefixes from a finding id however many were copied,
+a repeat within one report is a duplicate, and a finding on a real file under a `codex/`
+directory is exactly what it says.
 
 The Claude pass on a correction delta is performed by a fresh-context subagent given only
 the generated prompt, never by the session that authored the fix.

@@ -206,13 +206,13 @@ class ReviewFlowTests(unittest.TestCase):
         bug = dict(id='guard:spelling', kind='defect', priority='P1', evidence='Bypass')
         self.report('claude', [bug])
         self.report('codex')
-        self.triage([dict(id='claude/guard:spelling', status='open', evidence='Reproduced')])
+        self.triage([dict(id='claude::guard:spelling', status='open', evidence='Reproduced')])
         self.commit('patch one instance')
         self.start(correction=True)
-        resolutions = [dict(id='claude/guard:spelling', evidence='Adjacent form fixed; -C form still open')]
+        resolutions = [dict(id='claude::guard:spelling', evidence='Adjacent form fixed; -C form still open')]
         self.report('claude', [bug], resolutions=resolutions)
         self.report('codex', resolutions=resolutions)
-        self.triage([dict(id='claude/guard:spelling', status='open', evidence='Still bypassed via -C')])
+        self.triage([dict(id='claude::guard:spelling', status='open', evidence='Still bypassed via -C')])
         self.commit('patch another instance')
         result = self.start(ok=False, correction=True)
         # Reopened invariants are reported without the reviewer prefix.
@@ -249,17 +249,17 @@ class ReviewFlowTests(unittest.TestCase):
         bug = dict(id='guard:spelling', kind='defect', priority='P1', evidence='Bypass')
         self.report('claude', [bug])
         self.report('codex')
-        self.triage([dict(id='claude/guard:spelling', status='open', evidence='Reproduced')])
+        self.triage([dict(id='claude::guard:spelling', status='open', evidence='Reproduced')])
         self.commit('patch')
         self.start(ok=False, correction=True, design=True)  # nothing reopened yet
         self.start(correction=True)
-        resolutions = [dict(id='claude/guard:spelling', evidence='Not fixed')]
+        resolutions = [dict(id='claude::guard:spelling', evidence='Not fixed')]
         self.report('claude', resolutions=resolutions)
         # The other reviewer repeats it under the PREFIXED id it saw in the dispositions;
         # record strips the prefix, so it is still the same invariant.
-        prefixed = dict(bug, id='claude/guard:spelling')
+        prefixed = dict(bug, id='claude::guard:spelling')
         self.report('codex', [prefixed], resolutions=resolutions)
-        self.triage([dict(id='codex/guard:spelling', status='open', evidence='Still bypassed')])
+        self.triage([dict(id='codex::guard:spelling', status='open', evidence='Still bypassed')])
         self.commit('patch again')
         result = self.start(ok=False, correction=True)
         self.assertIn('Reopened after a claimed fix: guard:spelling', result.stderr)
@@ -284,84 +284,44 @@ class ReviewFlowTests(unittest.TestCase):
                      'config.test.toml'):
             self.assertFalse(flow.is_test_path(path), path)
 
-    def codex_tree(self):
-        """Commit a real codex/ directory that mirrors root files, as this repository has."""
-        (self.repo / 'codex/scripts').mkdir(parents=True)
-        (self.repo / 'codex/scripts/bundle.py').write_text('# real file under codex/\n')
+    def test_reviewer_keys_cannot_collide_with_paths(self):
+        """A copied reviewer key collapses to the bare id; a path under codex/ is never touched.
+
+        Keys are reviewer::<id>, and no path begins with `claude::` or `codex::`, so a
+        root file and its mirror under a real codex/ directory stay distinct through
+        record, triage, resolutions and the reopened comparison.
+        """
+        (self.repo / 'codex').mkdir()
         (self.repo / 'codex/README.md').write_text('codex readme\n')
         (self.repo / 'README.md').write_text('root readme\n')
         self.git('add', '.')
-        self.git('commit', '-qm', 'add codex tree')
-
-    def test_prefix_stripped_only_for_a_copied_id_never_for_a_real_path(self):
-        """A copied disposition id collapses to the known invariant; a real codex/ path is kept.
-
-        A reviewer prefix and a path segment can spell the same thing, so identity is
-        decided against the tree: an existing path is never rewritten, a copied prefix
-        over a known invariant is, and a repeat inside one report is a duplicate.
-        """
-        self.codex_tree()
+        self.git('commit', '-qm', 'add codex mirror')
         self.start()
-        real = [dict(id='codex/scripts/bundle.py:drift', kind='nit', priority='P3', evidence='x'),
-                dict(id='README.md:x', kind='nit', priority='P3', evidence='y'),
-                dict(id='codex/README.md:x', kind='nit', priority='P3', evidence='z'),
-                dict(id='guard:spelling', kind='defect', priority='P1', evidence='w'),
-                dict(id=' guard:spelling ', kind='nit', priority='P3', evidence='dup by whitespace')]
-        self.report('claude', real, ok=False)  # the whitespace variant is a duplicate
-        self.report('claude', real[:4])
-        stored = [f['id'] for f in self.flow('status')['reviews']['claude']['findings']]
-        self.assertEqual(stored, ['codex/scripts/bundle.py:drift', 'README.md:x',
-                                  'codex/README.md:x', 'guard:spelling'])
-        self.report('codex')
-        open_ids = ('guard:spelling', 'codex/scripts/bundle.py:drift')
-        self.triage([dict(id='claude/' + f['id'], status='open' if f['id'] in open_ids else 'deferred',
-                          evidence='e') for f in real[:4]])
+        root = dict(id='README.md:x', kind='defect', priority='P1', evidence='root')
+        mirror = dict(id='codex/README.md:x', kind='defect', priority='P1', evidence='mirror')
+        self.report('claude', [mirror, dict(root, id=' README.md:x ')])
+        self.report('codex', [root, dict(id='codex::README.md:x', kind='nit', priority='P3', evidence='dup')], ok=False)
+        self.report('codex', [root])
+        self.assertEqual([f['id'] for f in self.flow('status')['reviews']['claude']['findings']],
+                         ['codex/README.md:x', 'README.md:x'])
+        keys = ['claude::codex/README.md:x', 'claude::README.md:x', 'codex::README.md:x']
+        self.triage([dict(id=k, status='open', evidence='e') for k in keys])
         self.commit('fix')
         self.start(correction=True)
-        # A copied prefixed id names the known invariant; a prefixed REAL path keeps its
-        # codex/ segment, however many prefixes were copied in front of it.
-        again = [dict(id='claude/guard:spelling', kind='defect', priority='P1', evidence='still'),
-                 dict(id='codex/claude/codex/scripts/bundle.py:drift', kind='nit', priority='P3', evidence='n')]
-        resolutions = [dict(id='claude/guard:spelling', evidence='still open'),
-                       dict(id='claude/codex/scripts/bundle.py:drift', evidence='still open')]
-        self.report('claude', again, resolutions=resolutions)
-        stored = [f['id'] for f in self.flow('status')['reviews']['claude']['findings']]
-        self.assertEqual(stored, ['guard:spelling', 'codex/scripts/bundle.py:drift'])
-        self.report('codex', [dict(id='guard:c', kind='nit', priority='P3', evidence='x'),
-                              dict(id='codex/guard:c', kind='nit', priority='P3', evidence='y')],
-                    resolutions=resolutions, ok=False)
-
-    def test_reopened_over_real_and_mirrored_paths_needs_a_design_round(self):
-        """A root file mirrored under codex/, reported by Codex, is still recognised as reopened.
-
-        Triage keys begin with the reviewer segment the helper constructs; that segment
-        is dropped before the tree is consulted, so codex/README.md:x reported by Codex
-        names root README.md, not the mirror under codex/.
-        """
-        self.codex_tree()
-        self.start()
-        by_codex = [dict(id='README.md:x', kind='defect', priority='P1', evidence='stale')]
-        by_claude = [dict(id='codex/scripts/bundle.py:drift', kind='defect', priority='P1', evidence='d')]
-        self.report('claude', by_claude)
-        self.report('codex', by_codex)
-        self.triage([dict(id='claude/codex/scripts/bundle.py:drift', status='open', evidence='e'),
-                     dict(id='codex/README.md:x', status='open', evidence='e')])
-        self.commit('fix')
-        self.start(correction=True)
-        resolutions = [dict(id='claude/codex/scripts/bundle.py:drift', evidence='still'),
-                       dict(id='codex/README.md:x', evidence='still')]
-        # One resolution cannot cover both README.md:x and codex/README.md:x.
-        self.report('claude', by_claude, resolutions=resolutions[:1], ok=False)
-        self.report('claude', by_claude, resolutions=resolutions)
-        self.report('codex', by_codex, resolutions=resolutions)
-        self.triage([dict(id='claude/codex/scripts/bundle.py:drift', status='open', evidence='e'),
-                     dict(id='codex/README.md:x', status='open', evidence='e')])
+        # A resolution for the root file does not cover its mirror, and vice versa.
+        self.report('claude', resolutions=[dict(id=k, evidence='still') for k in keys[1:]], ok=False)
+        resolutions = [dict(id=k, evidence='still') for k in keys]
+        # Copied keys, even doubled, name the bare invariants; the mirror path survives as itself.
+        self.report('claude', [dict(mirror, id='codex::claude::codex/README.md:x'), dict(root, id='claude::README.md:x')],
+                    resolutions=resolutions)
+        self.assertEqual([f['id'] for f in self.flow('status')['reviews']['claude']['findings']],
+                         ['codex/README.md:x', 'README.md:x'])
+        self.report('codex', [root], resolutions=resolutions)
+        self.triage([dict(id=k, status='open', evidence='e') for k in keys])
         self.commit('fix again')
         result = self.start(ok=False, correction=True)
-        self.assertIn('README.md:x', result.stderr)
-        self.assertIn('codex/scripts/bundle.py:drift', result.stderr)
-        state = self.start(correction=True, design=True)
-        self.assertEqual(state['reopened'], ['README.md:x', 'codex/scripts/bundle.py:drift'])
+        self.assertIn('Reopened after a claimed fix: README.md:x, codex/README.md:x', result.stderr)
+        self.assertEqual(self.start(correction=True, design=True)['reopened'], ['README.md:x', 'codex/README.md:x'])
 
     def test_legacy_round_state_yields_no_fabricated_evidence(self):
         """A state without a probe key carries no author evidence and must not be presented as probed."""
@@ -411,7 +371,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('claude', [finding])
         self.report('codex')
         self.triage(ok=False)
-        self.triage([dict(id='claude/code:invariant', status='deferred', evidence='Later')])
+        self.triage([dict(id='claude::code:invariant', status='deferred', evidence='Later')])
         self.checks()
         self.flow('finish', ok=False)
 
@@ -420,12 +380,12 @@ class ReviewFlowTests(unittest.TestCase):
         self.start()
         self.report('claude', [dict(id='bug', kind='defect', priority='P1', evidence='Proof')])
         self.report('codex')
-        self.triage([dict(id='claude/bug', status='open', evidence='Reproduced')])
+        self.triage([dict(id='claude::bug', status='open', evidence='Reproduced')])
         self.commit('repair')
         state = self.start(correction=True)
         self.assertNotEqual(state['base'], state['review_base'])
         self.report('claude', ok=False)
-        resolutions = [dict(id='claude/bug', evidence='Regression test now passes; caller checked')]
+        resolutions = [dict(id='claude::bug', evidence='Regression test now passes; caller checked')]
         self.report('claude', resolutions=resolutions)
         self.report('codex', resolutions=resolutions)
 

@@ -10,7 +10,7 @@ import re
 import subprocess
 import sys
 
-POLICY = 1
+POLICY = 2
 
 
 def git(*args):
@@ -143,7 +143,11 @@ def start(args, directory):
 
 
 TEST_PATH = re.compile(r'(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]+\.py$|_test\.|\.test\.|\.spec\.')
-REVIEWERS = ('claude/', 'codex/')
+# Triage and resolution keys are reviewer::<id>. No path begins with `claude::` or
+# `codex::`, so a copied key is recognised by its prefix alone and a finding on a real
+# file under a codex/ directory can never be mistaken for one.
+SEPARATOR = '::'
+REVIEWERS = ('claude' + SEPARATOR, 'codex' + SEPARATOR)
 
 
 TEST_DIRECTORY = re.compile(r'(^|/)(tests?|spec|__tests__)/')
@@ -161,57 +165,21 @@ def is_test_path(path):
     return bool(TEST_DIRECTORY.search(path)) or not lower.endswith(INSIDE_ONLY_SUFFIXES)
 
 
-def repo_root():
-    """The repository root, so path checks do not depend on the working directory."""
-    return Path(git('rev-parse', '--show-toplevel'))
+def key(reviewer, finding_id):
+    """The triage/resolution key for a reviewer's finding."""
+    return reviewer + SEPARATOR + finding_id
 
 
-def invariant(finding_id):
-    """The id with every leading reviewer prefix removed: lenient, for matching resolutions."""
+def bare(finding_id):
+    """The finding id with every copied reviewer key prefix removed and whitespace trimmed.
+
+    Reviewers see prefixed keys in previous dispositions and may copy one, or two,
+    when they repeat a still-open defect; each layer is a prefix no path can carry.
+    """
     finding_id = finding_id.strip()
     while finding_id.startswith(REVIEWERS):
-        finding_id = finding_id.split('/', 1)[1].strip()
+        finding_id = finding_id.split(SEPARATOR, 1)[1].strip()
     return finding_id
-
-
-def unprefixed(finding_id, root):
-    """Remove copied reviewer prefixes one at a time, stopping at the first real path.
-
-    A reviewer prefix and a path segment can spell the same thing -- this repository
-    has a real codex/ directory -- so each segment is checked against the tree before it
-    is treated as a prefix: `claude/codex/README.md:x` loses `claude/` and keeps
-    `codex/README.md`, which exists; `codex/claude/guard:x` loses both.
-    """
-    finding_id = finding_id.strip()
-    while finding_id.startswith(REVIEWERS) and not (root / finding_id.split(':', 1)[0]).exists():
-        finding_id = finding_id.split('/', 1)[1].strip()
-    return finding_id
-
-
-def disposition_invariant(key, root):
-    """The invariant behind a triage or resolution key.
-
-    Such keys always begin with the reviewer segment the helper itself constructs, so
-    that one segment is dropped unconditionally before the path-aware rule runs; a
-    real codex/ path can only begin after it.
-    """
-    key = key.strip()
-    if key.startswith(REVIEWERS):
-        key = key.split('/', 1)[1]
-    return unprefixed(key, root)
-
-
-def known_invariants(dispositions, root):
-    """Invariants a reviewer may legitimately refer to by a copied prefixed id."""
-    return {disposition_invariant(i['id'], root) for i in dispositions}
-
-
-def canonical(finding_id, known, root=None):
-    """A copied prefix collapses to the invariant it names; anything else is kept as written."""
-    root = root or repo_root()
-    finding_id = finding_id.strip()
-    stripped = unprefixed(finding_id, root)
-    return stripped if stripped in known else finding_id
 
 
 def reopened(old):
@@ -220,13 +188,8 @@ def reopened(old):
     Compared without the reviewer prefix: a defect Claude reported and Codex re-reports
     is the same reopened invariant.
     """
-    root = repo_root()
-    previous = old.get('previous_triage', [])
-    known = known_invariants(previous, root)
-    # Both rounds go through the same path-aware rule, so a real codex/ path and a
-    # copied prefix are each treated identically on either side of the comparison.
-    before = {disposition_invariant(i['id'], root) for i in previous if i['status'] == 'open'}
-    after = {canonical(i['id'].split('/', 1)[1], known, root) for i in old['triage'] if i['status'] == 'open'}
+    before = {bare(i['id']) for i in old.get('previous_triage', []) if i['status'] == 'open'}
+    after = {bare(i['id']) for i in old['triage'] if i['status'] == 'open'}
     return sorted(before & after)
 
 
@@ -307,8 +270,8 @@ For every finding provide stable id (file + invariant), priority P0/P1/P2/P3,
 kind defect/policy/nit/preexisting, and concrete evidence. No findings is valid; do not invent a quota.
 On correction rounds inspect the delta and its effects, plus verification of previous fixes.
 Include resolutions: a list of id/evidence objects for EVERY previous open disposition
-(using its full claude/ or codex/ id). Explain the verified fix, or repeat a still-open defect in findings
-with the same file:invariant id; any reviewer prefix you copy is stripped on record, so the same
+(using its full claude:: or codex:: key). Explain the verified fix, or repeat a still-open defect in findings
+with the same file:invariant id; a claude:: or codex:: prefix you copy is stripped on record, so the same
 invariant reported again is recognised as reopened.
 If you cannot complete the requested coverage, set status to incomplete; never claim success.
 Return JSON: {{"status":"completed","head":"{state['head']}","base":"{state['review_base']}","summary":"coverage and limitations","findings":[{{"id":"file:invariant","priority":"P1","kind":"defect","evidence":"trigger, file:line, affected path and impact"}}]}}.
@@ -325,23 +288,18 @@ def record(args, directory, state):
     require(isinstance(report.get('summary'), str) and report['summary'].strip(), 'Missing coverage summary.')
     require(isinstance(report.get('findings'), list), 'Missing findings list.')
     ids = set()
-    root = repo_root()
-    known = known_invariants(state['previous_triage'], root)
     for item in report['findings']:
         require(item.get('priority') in ('P0', 'P1', 'P2', 'P3'), 'Invalid priority.')
         require(item.get('kind') in ('defect', 'policy', 'nit', 'preexisting'), 'Invalid finding kind.')
         require(isinstance(item.get('id'), str) and item['id'].strip(), 'Missing finding id.')
-        # Ids already in this report are known too: a prefixed repeat is a duplicate.
-        item['id'] = canonical(item['id'], known | ids, root)
+        item['id'] = bare(item['id'])
         require(item['id'] and item['id'] not in ids, 'Missing/duplicate finding id.')
         require(isinstance(item.get('evidence'), str) and item['evidence'].strip(), 'Missing finding evidence.')
         ids.add(item['id'])
-    # Matched by the same path-aware rule as everything else, so two distinct files that
-    # share an invariant name each need their own resolution.
-    unresolved = {disposition_invariant(i['id'], root) for i in state['previous_triage'] if i['status'] == 'open'}
+    unresolved = {bare(i['id']) for i in state['previous_triage'] if i['status'] == 'open'}
     resolutions = report.get('resolutions', [])
     require(isinstance(resolutions, list), 'Invalid previous-finding resolutions.')
-    resolved = {disposition_invariant(i['id'], root) for i in resolutions
+    resolved = {bare(i['id']) for i in resolutions
                 if isinstance(i.get('id'), str) and isinstance(i.get('evidence'), str) and i['evidence'].strip()}
     require(unresolved <= resolved, 'Recheck every previous open finding, with evidence, including any still open.')
     require(args.reviewer not in state['reviews'], 'Reviewer already recorded for this candidate; reuse it.')
@@ -356,7 +314,7 @@ def triage(args, directory, state):
     require(set(state['reviews']) == {'claude', 'codex'}, 'Both reviewer reports are required.')
     items = json.loads(Path(args.report).read_text())
     require(isinstance(items, list), 'Triage must be a JSON list.')
-    expected = {name + '/' + f['id'] for name, r in state['reviews'].items() for f in r['findings']}
+    expected = {key(name, f['id']) for name, r in state['reviews'].items() for f in r['findings']}
     require(len(items) == len(expected) and {i.get('id') for i in items} == expected, 'Disposition missing or duplicated.')
     for item in items:
         require(item.get('status') in ('open', 'rejected', 'deferred'), 'Use open until the next reviewers verify a committed fix.')
@@ -394,7 +352,7 @@ def finish(directory, state):
     dispositions = {i['id']: i for i in state['triage']}
     for name, report in state['reviews'].items():
         for item in report['findings']:
-            disposition = dispositions[name + '/' + item['id']]
+            disposition = dispositions[key(name, item['id'])]
             require(disposition['status'] != 'open', 'Unresolved finding: ' + item['id'])
             blocking = item['kind'] in ('defect', 'policy') and item['priority'] != 'P3'
             require(not blocking or disposition['status'] == 'rejected', 'Confirmed blocker cannot be deferred: ' + item['id'])

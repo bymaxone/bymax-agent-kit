@@ -12,7 +12,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-POLICY = 1
+# Must equal review_flow.POLICY: this file is copied into hooks directories on its own
+# and cannot import it. test_review_prepush asserts the two agree.
+POLICY = 2
 DELETION = '0' * 40
 
 
