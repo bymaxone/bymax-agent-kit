@@ -284,19 +284,23 @@ class ReviewFlowTests(unittest.TestCase):
                      'config.test.toml'):
             self.assertFalse(flow.is_test_path(path), path)
 
-    def test_prefix_stripped_only_for_a_copied_id_never_for_a_real_path(self):
-        """A copied disposition id collapses to the known invariant; a real codex/ path is kept.
-
-        A reviewer prefix and a path segment can spell the same thing, so identity is
-        decided against the tree: an existing path is never rewritten, a copied prefix
-        over a known invariant is, and both rounds of a reopened finding compare equal.
-        """
+    def codex_tree(self):
+        """Commit a real codex/ directory that mirrors root files, as this repository has."""
         (self.repo / 'codex/scripts').mkdir(parents=True)
         (self.repo / 'codex/scripts/bundle.py').write_text('# real file under codex/\n')
         (self.repo / 'codex/README.md').write_text('codex readme\n')
         (self.repo / 'README.md').write_text('root readme\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add codex tree')
+
+    def test_prefix_stripped_only_for_a_copied_id_never_for_a_real_path(self):
+        """A copied disposition id collapses to the known invariant; a real codex/ path is kept.
+
+        A reviewer prefix and a path segment can spell the same thing, so identity is
+        decided against the tree: an existing path is never rewritten, a copied prefix
+        over a known invariant is, and a repeat inside one report is a duplicate.
+        """
+        self.codex_tree()
         self.start()
         real = [dict(id='codex/scripts/bundle.py:drift', kind='nit', priority='P3', evidence='x'),
                 dict(id='README.md:x', kind='nit', priority='P3', evidence='y'),
@@ -314,8 +318,8 @@ class ReviewFlowTests(unittest.TestCase):
                           evidence='e') for f in real[:4]])
         self.commit('fix')
         self.start(correction=True)
-        # Round 2: a copied prefixed id names the known invariant; a prefixed REAL path
-        # keeps its codex/ segment, however many prefixes were copied in front of it.
+        # A copied prefixed id names the known invariant; a prefixed REAL path keeps its
+        # codex/ segment, however many prefixes were copied in front of it.
         again = [dict(id='claude/guard:spelling', kind='defect', priority='P1', evidence='still'),
                  dict(id='codex/claude/codex/scripts/bundle.py:drift', kind='nit', priority='P3', evidence='n')]
         resolutions = [dict(id='claude/guard:spelling', evidence='still open'),
@@ -323,23 +327,44 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('claude', again, resolutions=resolutions)
         stored = [f['id'] for f in self.flow('status')['reviews']['claude']['findings']]
         self.assertEqual(stored, ['guard:spelling', 'codex/scripts/bundle.py:drift'])
-        # Within one report, a prefixed repeat of an id already listed is a duplicate.
         self.report('codex', [dict(id='guard:c', kind='nit', priority='P3', evidence='x'),
                               dict(id='codex/guard:c', kind='nit', priority='P3', evidence='y')],
                     resolutions=resolutions, ok=False)
-        self.report('codex', resolutions=resolutions)
-        # Both open again: the real path and the bare invariant are each reopened.
-        self.triage([dict(id='claude/guard:spelling', status='open', evidence='e'),
-                     dict(id='claude/codex/scripts/bundle.py:drift', status='open', evidence='e')])
+
+    def test_reopened_over_real_and_mirrored_paths_needs_a_design_round(self):
+        """A root file mirrored under codex/, reported by Codex, is still recognised as reopened.
+
+        Triage keys begin with the reviewer segment the helper constructs; that segment
+        is dropped before the tree is consulted, so codex/README.md:x reported by Codex
+        names root README.md, not the mirror under codex/.
+        """
+        self.codex_tree()
+        self.start()
+        by_codex = [dict(id='README.md:x', kind='defect', priority='P1', evidence='stale')]
+        by_claude = [dict(id='codex/scripts/bundle.py:drift', kind='defect', priority='P1', evidence='d')]
+        self.report('claude', by_claude)
+        self.report('codex', by_codex)
+        self.triage([dict(id='claude/codex/scripts/bundle.py:drift', status='open', evidence='e'),
+                     dict(id='codex/README.md:x', status='open', evidence='e')])
+        self.commit('fix')
+        self.start(correction=True)
+        resolutions = [dict(id='claude/codex/scripts/bundle.py:drift', evidence='still'),
+                       dict(id='codex/README.md:x', evidence='still')]
+        # One resolution cannot cover both README.md:x and codex/README.md:x.
+        self.report('claude', by_claude, resolutions=resolutions[:1], ok=False)
+        self.report('claude', by_claude, resolutions=resolutions)
+        self.report('codex', by_codex, resolutions=resolutions)
+        self.triage([dict(id='claude/codex/scripts/bundle.py:drift', status='open', evidence='e'),
+                     dict(id='codex/README.md:x', status='open', evidence='e')])
         self.commit('fix again')
         result = self.start(ok=False, correction=True)
+        self.assertIn('README.md:x', result.stderr)
         self.assertIn('codex/scripts/bundle.py:drift', result.stderr)
-        self.assertIn('guard:spelling', result.stderr)
         state = self.start(correction=True, design=True)
-        self.assertEqual(state['reopened'], ['codex/scripts/bundle.py:drift', 'guard:spelling'])
+        self.assertEqual(state['reopened'], ['README.md:x', 'codex/scripts/bundle.py:drift'])
 
     def test_legacy_round_state_yields_no_fabricated_evidence(self):
-        """A round frozen before evidence recording must not be presented as probed."""
+        """A state without a probe key carries no author evidence and must not be presented as probed."""
         self.start()
         self.report('claude')
         self.report('codex')

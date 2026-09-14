@@ -188,9 +188,22 @@ def unprefixed(finding_id, root):
     return finding_id
 
 
+def disposition_invariant(key, root):
+    """The invariant behind a triage or resolution key.
+
+    Such keys always begin with the reviewer segment the helper itself constructs, so
+    that one segment is dropped unconditionally before the path-aware rule runs; a
+    real codex/ path can only begin after it.
+    """
+    key = key.strip()
+    if key.startswith(REVIEWERS):
+        key = key.split('/', 1)[1]
+    return unprefixed(key, root)
+
+
 def known_invariants(dispositions, root):
     """Invariants a reviewer may legitimately refer to by a copied prefixed id."""
-    return {unprefixed(i['id'], root) for i in dispositions}
+    return {disposition_invariant(i['id'], root) for i in dispositions}
 
 
 def canonical(finding_id, known, root=None):
@@ -212,7 +225,7 @@ def reopened(old):
     known = known_invariants(previous, root)
     # Both rounds go through the same path-aware rule, so a real codex/ path and a
     # copied prefix are each treated identically on either side of the comparison.
-    before = {unprefixed(i['id'], root) for i in previous if i['status'] == 'open'}
+    before = {disposition_invariant(i['id'], root) for i in previous if i['status'] == 'open'}
     after = {canonical(i['id'].split('/', 1)[1], known, root) for i in old['triage'] if i['status'] == 'open'}
     return sorted(before & after)
 
@@ -323,10 +336,12 @@ def record(args, directory, state):
         require(item['id'] and item['id'] not in ids, 'Missing/duplicate finding id.')
         require(isinstance(item.get('evidence'), str) and item['evidence'].strip(), 'Missing finding evidence.')
         ids.add(item['id'])
-    unresolved = {invariant(i['id']) for i in state['previous_triage'] if i['status'] == 'open'}
+    # Matched by the same path-aware rule as everything else, so two distinct files that
+    # share an invariant name each need their own resolution.
+    unresolved = {disposition_invariant(i['id'], root) for i in state['previous_triage'] if i['status'] == 'open'}
     resolutions = report.get('resolutions', [])
     require(isinstance(resolutions, list), 'Invalid previous-finding resolutions.')
-    resolved = {invariant(i['id']) for i in resolutions
+    resolved = {disposition_invariant(i['id'], root) for i in resolutions
                 if isinstance(i.get('id'), str) and isinstance(i.get('evidence'), str) and i['evidence'].strip()}
     require(unresolved <= resolved, 'Recheck every previous open finding, with evidence, including any still open.')
     require(args.reviewer not in state['reviews'], 'Reviewer already recorded for this candidate; reuse it.')
