@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# Universal pre-commit hook — runs lint-staged on the staged files.
+# Bypassing with --no-verify is banned by /bymax-workflow:standards §8.
+
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Detect package manager and run lint-staged.
+if [ -f "pnpm-lock.yaml" ]; then
+  pnpm exec lint-staged
+elif [ -f "yarn.lock" ]; then
+  yarn lint-staged
+elif [ -f "bun.lockb" ]; then
+  bunx lint-staged
+else
+  npx lint-staged
+fi

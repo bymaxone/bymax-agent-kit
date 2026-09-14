@@ -1,7 +1,7 @@
 {
   "name": "bymax-quality",
-  "description": "Quality gates and review tooling for TypeScript and Rust: /bymax-quality:code-review (deterministic mechanical gate + bug hunt with adversarial verification, plus an independent Codex review in every mode when Codex is installed, an opt-in adversarial second one behind --adversarial, and Claude's own built-in review in full and deep (high, then max) \u2014 absent, logged-out or slow Codex degrades to a one-line status and changes nothing; modes quick/full/deep, CRITICAL\u2192LOW severity, blocks on CRITICAL/HIGH), /bymax-quality:codex-setup (installs and authenticates the Codex CLI, verifying with a real review run), /bymax-quality:review-md (generates a repo REVIEW.md so Anthropic's cloud Code Review enforces the same rules), /bymax-quality:tdd (red-green-refactor), multi-stack tester skill, seven specialist sub-agents, and pre/post hooks (secret-scanner blocks credential commits, console-log-scan warns on stale logs).",
-  "version": "1.6.3",
+  "description": "Evidence-based quality gates: bounded Claude and Codex review with pinned candidates, verified findings, correction deltas and regression checks; TDD, stack-specific reviewers and security hooks.",
+  "version": "1.7.0",
   "author": {
     "name": "Bymax One",
     "email": "support@bymax.one",

@@ -1,0 +1,88 @@
+{
+  "type": "object",
+  "properties": {
+    "head": {
+      "type": "string"
+    },
+    "base": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P0",
+              "P1",
+              "P2",
+              "P3"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "defect",
+              "policy",
+              "nit",
+              "preexisting"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "priority",
+          "kind",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "resolutions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "incomplete"
+      ]
+    }
+  },
+  "required": [
+    "head",
+    "base",
+    "summary",
+    "findings",
+    "resolutions",
+    "status"
+  ],
+  "additionalProperties": false
+}

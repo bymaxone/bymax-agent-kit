@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Universal commit-msg hook — enforces Conventional Commits via commitlint.
+
+. "$(dirname -- "$0")/_/husky.sh"
+
+if [ -f "pnpm-lock.yaml" ]; then
+  pnpm exec commitlint --edit "$1"
+elif [ -f "yarn.lock" ]; then
+  yarn commitlint --edit "$1"
+elif [ -f "bun.lockb" ]; then
+  bunx commitlint --edit "$1"
+else
+  npx --no-install commitlint --edit "$1"
+fi

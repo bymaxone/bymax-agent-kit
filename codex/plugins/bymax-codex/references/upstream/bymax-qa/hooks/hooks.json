@@ -1,0 +1,16 @@
+{
+  "description": "bymax-qa hooks — qa-guard is a floor under the audit scope while a run is active (.claude/qa/.active present): a network tool in command position may only reach hosts listed in .claude/qa/scope.md allowed-hosts, and a Write/Edit/MultiEdit tool call may only land in this project's .claude/qa/. It is not a full sandbox (an arbitrary Bash file write or an unlisted network binary is the skill's 'never edit the target' discipline). Inert outside an audit; never blocks otherwise.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/qa-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

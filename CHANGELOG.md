@@ -11,9 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Local review guard** — reject post-push directory changes and commands hidden after heredocs; recover interrupted Codex reservations with an OS execution lock while preserving the retry budget.
+
+- **Review flow: marketplace `1.14.0`, quality `1.7.0`, workflow `1.6.1`** — replace unbounded apply-all review loops with shared Claude/Codex context, immutable candidates, evidence-based triage, at most two correction rounds, and exact-source push receipts. Add a backed-up local installer and regression tests for stale reports, linked worktrees, failed gates and round limits.
+
 - **`bymax-qa` `1.0.1`** — post-release hardening of the `qa-guard` hook and `qa-probe` wrapper: reject SOCKS proxy destination overrides (`--socks4`/`--socks4a`/`--socks5`/`--socks5-hostname`); redact `--proxy-pass`, `--proxy-tlspassword` and `--proxy-cert` credentials from captured evidence; validate the physical `.claude/qa` workspace root during `init`, before the guard is armed; route the reachability probe through `--noproxy '*'`; and state that free text cannot enable live mode (only `--live` does).
 
 ### Added
+
+- **Codex integration `1.0.1`** — separate local marketplace and self-contained package with 27 native skill entrypoints, bundled shared Bymax resources, a read-only Git review scope helper, evidence-based code review, and capability-aware runtime adapters. Add `scripts/install-codex.sh`, installation guidance in `CODEX.md`, and independent packaging/Git/installation validation. Claude hooks are not registered in Codex.
 
 - **`bymax-qa` — whole-system QA and security audit** (`1.0.0`). `/bymax-qa:audit` runs the session
   as the Security QA engineer of a peer agent team. It is pointed at a **target**, resolved

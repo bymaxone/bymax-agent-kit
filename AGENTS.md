@@ -291,3 +291,18 @@ guidance by file location, does not read a 26 KB fictional project's spec as thi
 adopts the starter renames it to `AGENTS.md` on copy; `templates/README.md` says so, and the
 links in `templates/CLAUDE.md` already target that adopted name — unresolved here by design. Do not
 apply the starter's rules to this repository, and do not rename it back here.
+
+
+## Codex integration
+
+For requests to install this repository into Codex, follow `CODEX.md` and
+`scripts/install-codex.sh`. `scripts/install.sh` restores personal Claude settings
+and is not the Codex installer. The Codex marketplace root is `codex/`.
+
+Codex-only runtime code and packaging live under `codex/`. Preserve the existing
+Claude runtime tree when changing Codex adapters. Run both `./scripts/validate.sh`
+and `./scripts/validate-codex.sh`; regenerate bundled references with
+`python3 codex/scripts/bundle.py` when their canonical sources change. Apply the
+shared executable-source rules to the native Python files in `codex/scripts/`,
+`codex/tests/` and `codex/plugins/bymax-codex/scripts/`; the copied resources under
+`codex/plugins/bymax-codex/references/upstream/` are generated output.

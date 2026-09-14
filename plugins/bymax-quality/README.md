@@ -9,20 +9,27 @@ claude plugin marketplace add bymaxone/bymax-claude-code
 claude plugin install bymax-quality@bymax-claude-code
 ```
 
-### Optional — the two Codex reviews
+### Claude + Codex review
 
-`/bymax-quality:code-review` works with neither of these and says so in one line where the second
-opinion would go. Each one buys a review:
+Push certification requires the Codex CLI with an active login and the Claude review
+pass. Run `/bymax-quality:codex-setup` if needed. The optional OpenAI Codex plugin is not
+required by this flow; keep its Stop review gate disabled to avoid a second loop.
 
-| Want | Install |
-|---|---|
-| **Review B, standard** (is this correct?) — optional, runs in every mode | the `codex` CLI with an active session: run `/bymax-quality:codex-setup` |
-| **Review C, adversarial** (is this the right approach?) — optional, only under `--adversarial` | the above, plus OpenAI's Codex plugin: `claude plugin marketplace add openai/codex-plugin-cc` then `claude plugin install codex@openai-codex` |
+The default campaign uses shared context, one full review pair, then at most two
+correction-delta pairs. All findings are verified before edits. Nits and unrelated
+pre-existing bugs do not force new rounds. Missing reviewers leave the review incomplete.
+Read [the protocol](references/review-protocol.md) for receipts, evidence and limitations.
 
-Note the three names in that last row — plugin `codex`, marketplace `openai-codex`, repo
-`openai/codex-plugin-cc`. `claude plugin install` accepts no version, so you get what the
-marketplace publishes; `/bymax-quality:codex-setup` covers what to do when that version is not one this
-plugin has verified.
+To install the global guard and policy from this checkout, including a backed-up local
+overlay of the installed quality/workflow plugins:
+
+```bash
+python3 scripts/install-review-flow.py --local-plugin-overlay
+```
+
+Run this from the marketplace root. Restart Claude afterward. Local overlays are replaced
+by official plugin updates; publish these plugin versions before relying on remote updates.
+The installer preserves unrelated settings and reports its rollback directory.
 
 ## What you get
 
@@ -30,8 +37,8 @@ plugin has verified.
 
 | Command         | Purpose                                                                                                                                                  |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/bymax-quality:code-review`  | CRITICAL → HIGH → MEDIUM → LOW review (TypeScript and Rust) with selectable depth: `quick` \| `full` \| `deep` and an optional target (branch, ref range, PR#, file). Deterministic mechanical gate (grep-exact findings for suppressions, `console.*`, Tailwind canonical forms), then a bug hunt (`deep` fans out to the stack + security reviewer agents), then adversarial verification — every non-mechanical candidate is re-checked against the file before it is reported. Blocks suppression comments (`@ts-ignore`, `eslint-disable`, `as any`, Rust `#[allow]`/`unsafe`). `--fix` applies mechanical fixes after the report. In **every** mode, `quick` included, an **independent Codex review** runs in a background shell (is this correct?); `--adversarial` adds the adversarial one (is this the right approach?), off by default because it drives a runtime upstream gated to user invocation — and `full`/`deep` additionally run Claude's own built-in review (`high` in `full`, `max` in `deep`) as a different method, not a third independent voice. All are reported side by side with a cross-read. The standard review needs only the `codex` binary with an active session; the adversarial one drives the openai-codex plugin's runtime, so it reports `adversarial-absent` whenever that runtime cannot be used. Each degrades to a one-line status when absent, logged out, rate-limited or slow. `--no-codex` skips whichever Codex review was going to run; `--no-builtin` skips Review D. |
-| `/bymax-quality:codex-setup`  | Gets the Codex CLI ready so `code-review` can run its independent second review: diagnoses what is missing (binary, session, or nothing), installs through the right channel (`brew install --cask codex` on macOS, `npm install -g @openai/codex` elsewhere), walks the user through the interactive `codex login`, and verifies with a real review run rather than an exit code. Optional — the plugin works without Codex. |
+| `/bymax-quality:code-review` | Bounded Claude + Codex review with shared context, pinned scope, evidence-based triage and regression verification. Modes quick/full/deep; --preview is advisory, --fix permits minimal verified repairs. |
+| `/bymax-quality:codex-setup`  | Gets the Codex CLI ready so `code-review` can run its independent second review: diagnoses what is missing (binary, session, or nothing), installs through the right channel (`brew install --cask codex` on macOS, `npm install -g @openai/codex` elsewhere), walks the user through the interactive `codex login`, and verifies with a real review run rather than an exit code. Codex is required for dual-review certification. |
 | `/bymax-quality:review-md`    | Generates a repo-root `REVIEW.md` — the distilled Bymax rules injected verbatim into Anthropic's built-in Code Review (cloud `@claude review` on PRs, `/code-review ultra`), so the cloud engine enforces the same invariants the local gate blocks on. |
 | `/bymax-quality:tdd`          | Strict red-green-refactor cycle (Jest/Vitest or Rust `#[test]`/`cargo test`). Forces failing test before implementation. 80%+ coverage minimum (100% on critical paths). Every `it()` / `#[test]` carries a block comment. |
 

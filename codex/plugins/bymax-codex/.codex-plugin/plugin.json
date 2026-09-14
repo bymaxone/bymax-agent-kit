@@ -1,0 +1,26 @@
+{
+  "name": "bymax-codex",
+  "version": "1.0.1+codex.20260914201649",
+  "description": "Bymax workflows for Codex: evidence-based code review, planning, testing, PR management and capability-aware orchestration.",
+  "author": {
+    "name": "Bymax One",
+    "url": "https://github.com/bymaxone"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Bymax Codex",
+    "shortDescription": "Bymax review, testing and engineering workflows.",
+    "longDescription": "Codex-native entrypoints with bundled Bymax rules, read-only review scope capture, and explicit adapters for browser and agent workflows. Claude hooks are not installed.",
+    "developerName": "Bymax One",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Review my changes with Bymax code review.",
+      "Plan a feature with Bymax.",
+      "Write tests with Bymax tester."
+    ]
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/bymaxone/bymax-claude-code",
+  "repository": "https://github.com/bymaxone/bymax-claude-code"
+}

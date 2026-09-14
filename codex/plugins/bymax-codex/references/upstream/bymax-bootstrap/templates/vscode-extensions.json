@@ -1,0 +1,20 @@
+{
+  "//": "Recommended workspace extensions — install on first open via the prompt.",
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "editorconfig.editorconfig",
+    "bradlc.vscode-tailwindcss",
+    "streetsidesoftware.code-spell-checker",
+    "yoavbls.pretty-ts-errors",
+    "usernamehw.errorlens",
+    "mikestead.dotenv",
+    "eamodio.gitlens",
+    "redhat.vscode-yaml",
+    "ms-azuretools.vscode-docker"
+  ],
+  "unwantedRecommendations": [
+    "hookyqr.beautify",
+    "ms-vscode.vscode-typescript-tslint-plugin"
+  ]
+}

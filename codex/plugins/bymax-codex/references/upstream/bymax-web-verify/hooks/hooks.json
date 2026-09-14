@@ -1,0 +1,15 @@
+{
+  "description": "bymax-web-verify hooks — on SessionStart, check whether the agent-browser CLI is installed; if not, inject a note so Claude can offer /bymax-web-verify:setup. Silent when present, never blocks.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-agent-browser.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

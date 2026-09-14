@@ -1,0 +1,26 @@
+{
+  "description": "bymax-quality hooks — secret-scanner blocks Write/Edit/MultiEdit when staged content looks like credentials; console-log-scan flags stale console.* lines on Stop.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/secret-scanner.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/console-log-scan.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

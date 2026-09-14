@@ -46,3 +46,11 @@ jobs:
         # checks shell-script executable bits, shellcheck, command/skill/agent
         # frontmatter, and required project files.
         run: ./scripts/validate.sh
+
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: Validate Codex package and isolated installation
+        env:
+          BYMAX_REQUIRE_CODEX_TEST: '1'
+        run: ./scripts/validate-codex.sh
