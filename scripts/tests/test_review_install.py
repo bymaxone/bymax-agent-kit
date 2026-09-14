@@ -54,6 +54,18 @@ class InstallTests(unittest.TestCase):
             self.assertIn(unrelated, settings)
             self.assertEqual(settings.count('bymax-review/review_push.py'), 1)
 
+    def test_legacy_name_as_an_argument_is_not_ownership(self):
+        """Printing a hook's name is not invoking it, so the entry stays."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            mentions = 'echo code-review-require.sh'
+            (home / 'settings.json').write_text(json.dumps(dict(hooks={
+                'PreToolUse': [dict(matcher='Bash', hooks=[dict(command=mentions)])]})))
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
+                                     '--claude-home', tmp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(mentions, (home / 'settings.json').read_text())
+
     def test_compound_legacy_hook_is_not_silently_dropped(self):
         """A legacy guard chained to another action needs a hand migration, not deletion."""
         with tempfile.TemporaryDirectory() as tmp:

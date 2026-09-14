@@ -41,17 +41,26 @@ def policy(text):
     return replacement + '\n\n' + text
 
 
-LEGACY_HOOKS = ('code-review-require.sh', 'code-review-record.sh')
+# Each legacy hook, with the directory this installer places it in. A file of the same
+# name somewhere else belongs to somebody else and is not ours to remove.
+LEGACY_HOOKS = {'code-review-require.sh': 'hooks', 'code-review-record.sh': 'hooks',
+                'review_push.py': 'bymax-review'}
+RUNNERS = {'python', 'python3', 'bash', 'sh', 'zsh'}
 
 
-def invokes_legacy(word):
-    """Match the legacy script actually invoked, not a substring of another path.
+def invokes_legacy(words):
+    """Match a legacy hook this installer owns, invoked as the command itself.
 
-    `/opt/hooks/audit-code-review-require.sh` contains a legacy name but is somebody
-    else's hook, so compare the path's own components rather than the raw command.
+    Ownership is the invoked path, not any argument that shares a filename:
+    `echo code-review-require.sh` prints a name, and
+    `/opt/unrelated/code-review-require.sh` is another tool with the same basename.
     """
-    path = Path(word)
-    return path.name in LEGACY_HOOKS or (path.name == 'review_push.py' and path.parent.name == 'bymax-review')
+    if not words:
+        return False
+    runner = Path(words[0]).name in RUNNERS and len(words) > 1
+    path = Path(words[1] if runner else words[0])
+    directory = LEGACY_HOOKS.get(path.name)
+    return directory is not None and path.parent.name in (directory, '')
 
 
 def superseded(command):
@@ -60,7 +69,7 @@ def superseded(command):
         words = shlex.split(command)
     except ValueError:
         words = command.split()
-    if not any(invokes_legacy(word) for word in words):
+    if not invokes_legacy(words):
         return False
     # Dropping the whole entry would silently delete the unrelated actions chained to it.
     if any(shell in command for shell in ('&&', '||', ';', '|', '\n')):

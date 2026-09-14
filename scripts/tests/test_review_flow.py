@@ -141,10 +141,29 @@ class ReviewFlowTests(unittest.TestCase):
         self.commit('unreviewed')
         for prefix in ('command', 'env', 'sudo', 'nohup', 'xargs', 'timeout 60'):
             self.push(prefix + ' git push origin HEAD', ok=False)
-        self.push('GIT_TRACE=1 git push origin HEAD', ok=False)
+        self.push('FOO=1 git push origin HEAD', ok=False)
         self.git('reset', '-q', '--hard', 'HEAD~1')
-        self.push('GIT_TRACE=1 git push origin HEAD')
+        self.push('FOO=1 git push origin HEAD')
         self.push('env FOO=1 grep push notes.txt')
+
+    def test_shell_control_forms_cannot_skip_the_receipt(self):
+        """A keyword or negation before git still runs it, so the form must fail closed."""
+        self.start()
+        self.complete()
+        self.commit('unreviewed')
+        for form in ('if true; then git push origin HEAD; fi',
+                     '! git push origin HEAD',
+                     'while true; do git push origin HEAD; done',
+                     '{ git push origin HEAD; }'):
+            self.push(form, ok=False)
+
+    def test_git_environment_overrides_are_refused(self):
+        """GIT_DIR would publish another repository while this one's receipt is read."""
+        self.start()
+        self.complete()
+        for override in ('GIT_DIR=/other/.git', 'GIT_WORK_TREE=/other', 'GIT_OBJECT_DIRECTORY=/other'):
+            self.push(override + ' git push origin HEAD', ok=False)
+        self.push('git push origin HEAD')
 
     def test_quoted_shift_text_is_not_a_heredoc(self):
         """'<<' inside an argument is data; only the operator introduces a document."""
@@ -153,6 +172,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.push('git log --grep="git push << example"')
         self.push('python3 -c "print(1 << 3)"')
         self.push('grep -rn "a << b" docs/')
+        self.push('printf "%s %s" "<<" example')
 
     def test_heredoc_cannot_hide_following_push(self):
         """Only a standalone literal document may bypass command parsing."""
