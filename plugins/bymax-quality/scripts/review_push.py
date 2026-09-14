@@ -20,12 +20,6 @@ PUNCTUATION = '();<>|&\n'
 # Interpreters take the command as a STRING argument, so both words land in one token.
 INTERPRETERS = {'sh', 'bash', 'zsh', 'dash', 'ksh', 'eval', 'ssh', 'script'}
 ASSIGNMENT = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)=')
-# Words after which the NEXT word is a command rather than an argument: the shell
-# keywords, which are a closed set, and the exec prefixes that run the rest of argv.
-OPENS_A_COMMAND = {'if', 'then', 'elif', 'else', 'while', 'until', 'for', 'do', 'case',
-                   'in', 'function', 'select', '{', '}', '(', ')', '!', '[[',
-                   'command', 'env', 'exec', 'nohup', 'time', 'timeout', 'sudo', 'doas',
-                   'setsid', 'nice', 'ionice', 'stdbuf', 'xargs', 'watch'}
 # These decide which repository git operates on, so the guard would inspect one
 # repository's receipts while the command published another's commits.
 REDIRECTING = 'GIT_'
@@ -105,15 +99,22 @@ def command_words(words):
 
 
 def names_a_push(words):
-    """Report a push standing where this guard cannot account for it.
+    """Report a git push standing anywhere but this segment's own command word.
 
-    Shell grammar introduces a command in more ways than the supported shape covers:
-    after a keyword, after a negation, or after an exec prefix that runs the rest of
-    argv. Those positions fail closed. Detection reuses git_push so the option forms
-    it already understands, `-C` in particular, cannot drift out of the catch-all;
-    an ordinary command's ARGUMENTS are not command position and never trigger it.
+    Three rounds of listing the words after which a command can begin each missed
+    another member of the same class -- exec prefixes, then shell keywords, then
+    `eval`, `coproc`, `builtin`, `caffeinate`, `unbuffer`, `script`. Resolving which
+    token the shell really runs would need every wrapper's option grammar, because
+    `timeout 60 git push` and `sudo -u me git push` put an operand where a command
+    word would otherwise be, and guessing wrong reopens a bypass rather than
+    producing a false positive. So no list is kept and the default is closed: a push
+    shape anywhere other than argv[0] is refused, whatever precedes it.
+
+    The cost is borne by commands that pass a literal `git push` as trailing
+    arguments, such as `printf "%s %s" git push`, which are refused too. A quoted
+    "git push" is one token and is unaffected, so searching for the phrase still works.
     """
-    if not words or Path(words[0]).name not in OPENS_A_COMMAND:
+    if not words or Path(words[0]).name == 'git':
         return False
     return any(Path(word).name == 'git' and git_push(words[index:]) is not None
                for index, word in enumerate(words))

@@ -160,17 +160,44 @@ class ReviewFlowTests(unittest.TestCase):
                      '! git -C . push origin HEAD',
                      'while true; do git -C . push origin HEAD; done',
                      'command git -C . push origin HEAD',
-                     'env git -C . push origin HEAD'):
+                     'env git -C . push origin HEAD',
+                     # Wrappers and builtins that no enumeration of openers caught.
+                     'eval git push origin HEAD',
+                     'coproc git push origin HEAD',
+                     'builtin git push origin HEAD',
+                     'builtin command git push origin HEAD',
+                     'builtin exec git push origin HEAD',
+                     'caffeinate git push origin HEAD',
+                     'unbuffer git push origin HEAD',
+                     'script -q /dev/null git push origin HEAD',
+                     'timeout 60 git push origin HEAD',
+                     'sudo -u me git push origin HEAD',
+                     'eval git -C . push origin HEAD',
+                     'caffeinate git -C . push origin HEAD'):
             self.push(form, ok=False)
 
-    def test_arguments_of_an_ordinary_command_are_not_command_position(self):
-        """Only a keyword or exec prefix opens a command; a plain command's args do not."""
+    def test_git_subcommands_and_quoted_mentions_stay_allowed(self):
+        """The rule keys on a bare git token in argv, so other git work and text are free."""
         self.start()
         self.complete()
-        self.push('printf "%s %s" git push')
         self.push('git stash push')
+        self.push('git log --grep=push')
         self.push('if true; then git status; fi')
-        self.push('echo git push > notes.txt')
+        self.push('grep -rn "git push" docs/')
+        self.push('env FOO=1 grep push notes.txt')
+
+    def test_literal_push_arguments_are_refused_by_design(self):
+        """Fail closed is the chosen side: a trailing literal `git push` costs a refusal.
+
+        Distinguishing these from a real invocation needs each wrapper's option grammar
+        (`timeout 60 git push` puts an operand where a command word would be), and
+        guessing wrong reopens a bypass instead of producing a false positive.
+        """
+        self.start()
+        self.complete()
+        for command in ('printf "%s %s" git push', 'echo git push > notes.txt',
+                        'env printf "%s %s" git push'):
+            self.push(command, ok=False)
 
     def test_git_environment_overrides_are_refused(self):
         """GIT_DIR would publish another repository while this one's receipt is read."""
