@@ -40,6 +40,20 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(len(backups), 2)
             self.assertTrue(any(json.loads(p.read_text()) == original for p in backups))
 
+    def test_unrelated_hook_sharing_a_legacy_substring_survives(self):
+        """Somebody else's script is not this installer's to remove, however it is named."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            unrelated = '/opt/hooks/audit-code-review-require.sh'
+            (home / 'settings.json').write_text(json.dumps(dict(hooks={
+                'PreToolUse': [dict(matcher='Bash', hooks=[dict(command=unrelated)])]})))
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
+                                     '--claude-home', tmp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            settings = json.dumps(json.loads((home / 'settings.json').read_text()))
+            self.assertIn(unrelated, settings)
+            self.assertEqual(settings.count('bymax-review/review_push.py'), 1)
+
     def test_compound_legacy_hook_is_not_silently_dropped(self):
         """A legacy guard chained to another action needs a hand migration, not deletion."""
         with tempfile.TemporaryDirectory() as tmp:

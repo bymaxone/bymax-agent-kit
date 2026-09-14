@@ -134,6 +134,26 @@ class ReviewFlowTests(unittest.TestCase):
         self.push(f'cd "{sibling}" extra && git push origin HEAD', ok=False)
         self.push('cd - && git push origin HEAD', ok=False)
 
+    def test_exec_prefixes_cannot_skip_the_receipt(self):
+        """An exec prefix still reaches git, so it must not turn the guard off."""
+        self.start()
+        self.complete()
+        self.commit('unreviewed')
+        for prefix in ('command', 'env', 'sudo', 'nohup', 'xargs', 'timeout 60'):
+            self.push(prefix + ' git push origin HEAD', ok=False)
+        self.push('GIT_TRACE=1 git push origin HEAD', ok=False)
+        self.git('reset', '-q', '--hard', 'HEAD~1')
+        self.push('GIT_TRACE=1 git push origin HEAD')
+        self.push('env FOO=1 grep push notes.txt')
+
+    def test_quoted_shift_text_is_not_a_heredoc(self):
+        """'<<' inside an argument is data; only the operator introduces a document."""
+        self.start()
+        self.complete()
+        self.push('git log --grep="git push << example"')
+        self.push('python3 -c "print(1 << 3)"')
+        self.push('grep -rn "a << b" docs/')
+
     def test_heredoc_cannot_hide_following_push(self):
         """Only a standalone literal document may bypass command parsing."""
         document = "cat <<'EOF' > notes.txt\ngit push origin HEAD\nEOF\n"

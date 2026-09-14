@@ -17,8 +17,14 @@ def git(cwd, *args):
 
 
 PUNCTUATION = '();<>|&\n'
-WRAPPERS = {'sh', 'bash', 'zsh', 'dash', 'ksh', 'env', 'command', 'exec', 'eval', 'xargs',
-            'nohup', 'time', 'timeout', 'sudo', 'doas', 'ssh', 'watch', 'script', 'setsid'}
+# Interpreters take the command as a STRING argument, so both words land in one token.
+INTERPRETERS = {'sh', 'bash', 'zsh', 'dash', 'ksh', 'eval', 'ssh', 'script'}
+# Exec prefixes take the command as the REST of argv, so `command git push` reaches git
+# with argv[0] no longer git. Their own options cannot be modelled here, so a prefixed
+# push is refused outright rather than parsed.
+PREFIXES = {'command', 'env', 'exec', 'nohup', 'time', 'timeout', 'sudo', 'doas',
+            'setsid', 'nice', 'ionice', 'stdbuf', 'xargs', 'watch'}
+ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
 # Shell expansions that turn one written argument into several actual refs, plus the
 # revision operators that would let a refspec name a commit other than the literal one.
 EXPANSIONS = '*?[]{}~^+,!'
@@ -62,6 +68,14 @@ def segments(command):
     return parts
 
 
+def command_words(words):
+    """Drop leading VAR=value assignments so the real command word is argv[0]."""
+    index = 0
+    while index < len(words) and ASSIGNMENT.match(words[index]):
+        index += 1
+    return words[index:]
+
+
 def git_push(words):
     """Return (-C directory, push arguments) for a literal git push, else None."""
     if not words or Path(words[0]).name != 'git':
@@ -86,38 +100,50 @@ def parse(command, cwd):
     spellings such as `pu""sh` normalize to `push` and are still checked, while a
     command that merely mentions a push in an argument is not treated as one.
     """
-    if '<<' in command:
-        literal_heredoc(command)
-        return None
     try:
         parts = segments(command)
     except ValueError:
+        # An apostrophe inside a heredoc body is unbalanced to shlex but is still data.
+        if '<<' in command:
+            literal_heredoc(command)
+            return None
         require(not re.search(r'\bgit\b.*\bpush\b', command),
                 'Unparsable command naming a git push; issue an explicit git push.')
         return None
+    # A heredoc is the '<<' OPERATOR token, never the characters inside a quoted argument.
+    if any(o is not None and o.startswith('<<') for o, _ in parts):
+        literal_heredoc(command)
+        return None
     found = None
-    for _, words in parts:
-        if Path(words[0]).name in WRAPPERS:
+    for _, raw in parts:
+        words = command_words(raw)
+        require(bool(words), 'Name a command, not only environment assignments.')
+        name = Path(words[0]).name
+        if name in INTERPRETERS:
             require(not any(re.search(r'\bgit\b.*\bpush\b', word) for word in words[1:]),
                     'Do not wrap git push in another shell.')
+        if name in PREFIXES:
+            require(not ('push' in words[1:] and any(Path(w).name == 'git' for w in words[1:])),
+                    'Run git push directly, without an exec prefix such as ' + name + '.')
         result = git_push(words)
         if result is None:
             continue
         require(found is None, 'Issue one explicit git push per command.')
-        found = (words, result)
+        found = (raw, result)
     if found is None:
         return None
-    words, (directory, arguments) = found
-    require(parts[-1][1] is words and all(w is words or w[0] == 'cd' for _, w in parts),
+    raw, (directory, arguments) = found
+    require(parts[-1][1] is raw and all(w is raw or command_words(w)[:1] == ['cd'] for _, w in parts),
             'Issue git push as its own command, optionally preceded by cd <path> &&.')
     require(all(o in (None, '&&') for o, _ in parts),
             'Chain a push only with && so it cannot follow an unchecked command.')
     require(not any(x in command for x in ('$', '`')), 'Use a literal git push without shell substitution.')
     for _, other in parts:
-        if other is not words:
-            require(len(other) == 2 and not other[1].startswith('-')
-                    and not any(c in other[1] for c in EXPANSIONS), 'Name the directory explicitly: cd <path> && git push ...')
-            cwd = (Path(cwd) / other[1]).resolve()
+        if other is not raw:
+            change = command_words(other)
+            require(len(change) == 2 and not change[1].startswith('-')
+                    and not any(c in change[1] for c in EXPANSIONS), 'Name the directory explicitly: cd <path> && git push ...')
+            cwd = (Path(cwd) / change[1]).resolve()
     return ((Path(cwd) / directory).resolve() if directory else cwd), arguments
 
 

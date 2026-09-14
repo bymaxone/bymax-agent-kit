@@ -41,12 +41,26 @@ def policy(text):
     return replacement + '\n\n' + text
 
 
-LEGACY_HOOKS = ('code-review-require.sh', 'code-review-record.sh', 'bymax-review/review_push.py')
+LEGACY_HOOKS = ('code-review-require.sh', 'code-review-record.sh')
+
+
+def invokes_legacy(word):
+    """Match the legacy script actually invoked, not a substring of another path.
+
+    `/opt/hooks/audit-code-review-require.sh` contains a legacy name but is somebody
+    else's hook, so compare the path's own components rather than the raw command.
+    """
+    path = Path(word)
+    return path.name in LEGACY_HOOKS or (path.name == 'review_push.py' and path.parent.name == 'bymax-review')
 
 
 def superseded(command):
     """Identify a hook this installer replaces, refusing to guess at compound commands."""
-    if not any(name in command for name in LEGACY_HOOKS):
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = command.split()
+    if not any(invokes_legacy(word) for word in words):
         return False
     # Dropping the whole entry would silently delete the unrelated actions chained to it.
     if any(shell in command for shell in ('&&', '||', ';', '|', '\n')):
