@@ -143,25 +143,55 @@ def start(args, directory):
 
 
 TEST_PATH = re.compile(r'(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]+\.py$|_test\.|\.test\.|\.spec\.')
-DOCUMENT_SUFFIXES = ('.md', '.markdown', '.txt', '.rst', '.adoc')
 REVIEWERS = ('claude/', 'codex/')
 
 
+TEST_DIRECTORY = re.compile(r'(^|/)(tests?|spec|__tests__)/')
+PROSE_SUFFIXES = ('.md', '.markdown', '.adoc')
+TEXT_SUFFIXES = ('.txt', '.rst')
+
+
 def is_test_path(path):
-    """A test by location or name, never a document that merely lives under tests/."""
-    return bool(TEST_PATH.search(path)) and not path.lower().endswith(DOCUMENT_SUFFIXES)
+    """A test by location or name; prose never, plain text only inside a test directory.
+
+    docs/tests/plan.md is a document. tests/golden/expected.txt and tests/api.rst are
+    test material (golden files, doctest files) and count.
+    """
+    lower = path.lower()
+    if not TEST_PATH.search(path) or lower.endswith(PROSE_SUFFIXES):
+        return False
+    return not (lower.endswith(TEXT_SUFFIXES) and not TEST_DIRECTORY.search(path))
 
 
 def invariant(finding_id):
-    """The file:invariant part of an id, with every reviewer prefix removed.
-
-    Ids are normalized here and at record time, so a reviewer who repeats a defect
-    under the prefixed id it saw in a previous disposition still names the same
-    invariant; nothing depends on reviewers reproducing a spelling.
-    """
+    """The id with every leading reviewer prefix removed, for lenient matching."""
+    finding_id = finding_id.strip()
     while finding_id.startswith(REVIEWERS):
-        finding_id = finding_id.split('/', 1)[1]
+        finding_id = finding_id.split('/', 1)[1].strip()
     return finding_id
+
+
+def canonical(finding_id, known):
+    """Strip a copied reviewer prefix; keep a genuine path that happens to start like one.
+
+    A reviewer prefix and a path segment can spell the same thing -- this repository
+    has a real codex/ directory -- so text alone cannot decide. The prefix is removed
+    only when the fully stripped id already names a known invariant AND the prefixed
+    file does not exist in the tree. A copied disposition id satisfies both; a finding
+    on a real file under codex/ satisfies neither and is kept exactly as written.
+    """
+    finding_id = finding_id.strip()
+    stripped = invariant(finding_id)
+    if stripped == finding_id or stripped not in known:
+        return finding_id
+    if Path(finding_id.split(':', 1)[0]).exists():
+        return finding_id
+    return stripped
+
+
+def known_invariants(dispositions):
+    """Invariants a reviewer may legitimately refer to by a copied prefixed id."""
+    return {invariant(i['id']) for i in dispositions}
 
 
 def reopened(old):
@@ -170,8 +200,12 @@ def reopened(old):
     Compared without the reviewer prefix: a defect Claude reported and Codex re-reports
     is the same reopened invariant.
     """
-    before = {invariant(i['id']) for i in old.get('previous_triage', []) if i['status'] == 'open'}
-    after = {invariant(i['id']) for i in old['triage'] if i['status'] == 'open'}
+    previous = old.get('previous_triage', [])
+    before = {invariant(i['id']) for i in previous if i['status'] == 'open'}
+    known = known_invariants(previous)
+    # Triage keys are reviewer/<stored id>; drop that one constructed prefix, then apply
+    # the same path-aware rule record uses, so both rounds name invariants alike.
+    after = {canonical(i['id'].split('/', 1)[1], known) for i in old['triage'] if i['status'] == 'open'}
     return sorted(before & after)
 
 
@@ -270,11 +304,13 @@ def record(args, directory, state):
     require(isinstance(report.get('summary'), str) and report['summary'].strip(), 'Missing coverage summary.')
     require(isinstance(report.get('findings'), list), 'Missing findings list.')
     ids = set()
+    known = known_invariants(state['previous_triage'])
     for item in report['findings']:
         require(item.get('priority') in ('P0', 'P1', 'P2', 'P3'), 'Invalid priority.')
         require(item.get('kind') in ('defect', 'policy', 'nit', 'preexisting'), 'Invalid finding kind.')
         require(isinstance(item.get('id'), str) and item['id'].strip(), 'Missing finding id.')
-        item['id'] = invariant(item['id'])
+        # Ids already in this report are known too: a prefixed repeat is a duplicate.
+        item['id'] = canonical(item['id'], known | ids)
         require(item['id'] and item['id'] not in ids, 'Missing/duplicate finding id.')
         require(isinstance(item.get('evidence'), str) and item['evidence'].strip(), 'Missing finding evidence.')
         ids.add(item['id'])

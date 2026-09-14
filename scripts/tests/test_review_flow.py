@@ -273,30 +273,55 @@ class ReviewFlowTests(unittest.TestCase):
         spec.loader.exec_module(flow)
         for path in ('src/__tests__/foo.ts', 'app/(tabs)/__tests__/index.tsx', 'tests/test_x.py',
                      'scripts/tests/test_review_flow.py', 'pkg/foo_test.go', 'a/b.test.tsx',
-                     'a/b.spec.js', 'spec/models/user_spec.rb', 'test_alone.py', 'tests/fixtures/data.json'):
+                     'a/b.spec.js', 'spec/models/user_spec.rb', 'test_alone.py', 'tests/fixtures/data.json',
+                     'tests/golden/expected.txt', 'tests/api.rst', 'tests/doctest_cases.txt'):
             self.assertTrue(flow.is_test_path(path), path)
         for path in ('docs/spec.md', 'openapi/spec.yaml', 'test.txt', 'tests.md', 'src/latest.ts',
                      'contest.py', 'attestation.json', 'docs/spec/overview.md', 'spec/README.md',
-                     'docs/tests/plan.md', 'notes_test.txt', 'latest.spec.md', 'tests/GUIDE.rst'):
+                     'docs/tests/plan.md', 'notes_test.txt', 'latest.spec.md', 'tests/README.md',
+                     'tests/plan.markdown', 'tests/notes.adoc'):
             self.assertFalse(flow.is_test_path(path), path)
 
-    def test_record_normalizes_reviewer_prefixes(self):
-        """A prefixed or double-prefixed finding id is stored bare, so ids never nest."""
+    def test_prefix_stripped_only_for_a_copied_id_never_for_a_real_path(self):
+        """A copied disposition id collapses to the known invariant; a codex/ path is kept.
+
+        The stripping rule was changed from unconditional to path-aware, so the earlier
+        expectation that any prefixed id is stored bare no longer holds; see the
+        path-segment-mistaken-for-reviewer-prefix disposition.
+        """
+        (self.repo / 'codex/scripts').mkdir(parents=True)
+        (self.repo / 'codex/scripts/bundle.py').write_text('# real file under codex/\n')
+        (self.repo / 'codex/README.md').write_text('codex readme\n')
+        (self.repo / 'README.md').write_text('root readme\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'add codex tree')
         self.start()
-        findings = [dict(id='claude/guard:a', kind='nit', priority='P3', evidence='x'),
-                    dict(id='codex/claude/guard:b', kind='nit', priority='P3', evidence='y')]
-        self.report('claude', findings)
+        real = [dict(id='codex/scripts/bundle.py:drift', kind='nit', priority='P3', evidence='x'),
+                dict(id='README.md:x', kind='nit', priority='P3', evidence='y'),
+                dict(id='codex/README.md:x', kind='nit', priority='P3', evidence='z'),
+                dict(id='guard:spelling', kind='defect', priority='P1', evidence='w'),
+                dict(id=' guard:spelling ', kind='nit', priority='P3', evidence='dup by whitespace')]
+        self.report('claude', real, ok=False)  # the whitespace variant is a duplicate
+        self.report('claude', real[:4])
         stored = [f['id'] for f in self.flow('status')['reviews']['claude']['findings']]
-        self.assertEqual(stored, ['guard:a', 'guard:b'])
+        self.assertEqual(stored, ['codex/scripts/bundle.py:drift', 'README.md:x',
+                                  'codex/README.md:x', 'guard:spelling'])
         self.report('codex')
-        self.triage([dict(id='claude/guard:a', status='deferred', evidence='nit'),
-                     dict(id='claude/guard:b', status='deferred', evidence='nit')])
-        # A duplicate hidden behind different prefixes is still a duplicate.
-        self.commit('next')
+        self.triage([dict(id='claude/' + f['id'], status='open' if f['id'] == 'guard:spelling' else 'deferred',
+                          evidence='e') for f in real[:4]])
+        self.commit('fix')
         self.start(correction=True)
-        dupes = [dict(id='guard:c', kind='nit', priority='P3', evidence='x'),
-                 dict(id='codex/guard:c', kind='nit', priority='P3', evidence='y')]
-        self.report('claude', dupes, ok=False)
+        # Round 2: a copied prefixed id names the known invariant; a prefixed REAL path stays.
+        again = [dict(id='claude/guard:spelling', kind='defect', priority='P1', evidence='still'),
+                 dict(id='codex/claude/codex/scripts/bundle.py:drift', kind='nit', priority='P3', evidence='n')]
+        resolutions = [dict(id='claude/guard:spelling', evidence='still open')]
+        self.report('claude', again, resolutions=resolutions)
+        stored = [f['id'] for f in self.flow('status')['reviews']['claude']['findings']]
+        self.assertEqual(stored, ['guard:spelling', 'codex/scripts/bundle.py:drift'])
+        # Within one report, a prefixed repeat of an id already listed is a duplicate.
+        self.report('codex', [dict(id='guard:c', kind='nit', priority='P3', evidence='x'),
+                              dict(id='codex/guard:c', kind='nit', priority='P3', evidence='y')],
+                    resolutions=resolutions, ok=False)
 
     def test_legacy_round_state_yields_no_fabricated_evidence(self):
         """A round frozen before evidence recording must not be presented as probed."""
