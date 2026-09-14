@@ -275,7 +275,7 @@ class ReviewFlowTests(unittest.TestCase):
                      'scripts/tests/test_review_flow.py', 'pkg/foo_test.go', 'a/b.test.tsx',
                      'a/b.spec.js', 'spec/models/user_spec.rb', 'test_alone.py', 'tests/fixtures/data.json',
                      'tests/golden/expected.txt', 'tests/api.rst', 'tests/doctest_cases.txt',
-                     'tests/fixtures/config.spec.yaml'):
+                     'tests/fixtures/config.spec.yaml', 'Tests/x.py', 'src/__TESTS__/a.ts', 'a/b.Test.tsx'):
             self.assertTrue(flow.is_test_path(path), path)
         for path in ('docs/spec.md', 'openapi/spec.yaml', 'test.txt', 'tests.md', 'src/latest.ts',
                      'contest.py', 'attestation.json', 'docs/spec/overview.md', 'spec/README.md',
@@ -323,23 +323,17 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('Reopened after a claimed fix: README.md:x, codex/README.md:x', result.stderr)
         self.assertEqual(self.start(correction=True, design=True)['reopened'], ['README.md:x', 'codex/README.md:x'])
 
-    def test_legacy_round_state_yields_no_fabricated_evidence(self):
-        """A state without a probe key carries no author evidence and must not be presented as probed."""
+    def test_policy_mismatch_is_refused_with_instructions(self):
+        """A campaign frozen under another policy is neither misread nor deleted."""
         self.start()
-        self.report('claude')
-        self.report('codex')
-        self.triage()
-        self.commit('fix')
-        self.start(correction=True)
         state_path = Path(self.flow('status')['directory']) / 'state.json'
         state = json.loads(state_path.read_text())
-        for key in ('probe', 'regression_tests', 'no_regression_reason', 'design_round', 'reopened'):
-            state.pop(key, None)
+        state['policy'] = 1
         state_path.write_text(json.dumps(state))
-        prompt = self.flow('prompt').stdout
-        self.assertIn('predates probe and regression-test recording', prompt)
-        self.assertNotIn('Shallow probing', prompt)
-        self.assertNotIn('No test changed', prompt)
+        result = self.flow('status', ok=False)
+        self.assertIn('frozen under policy 1', result.stderr)
+        self.assertIn('runtime is policy 2', result.stderr)
+        self.assertEqual(json.loads(state_path.read_text())['policy'], 1)
 
     def test_correction_without_tests_needs_a_recorded_reason(self):
         """A correction that touches no test must say why, and the reason reaches reviewers."""
@@ -351,18 +345,28 @@ class ReviewFlowTests(unittest.TestCase):
         result = self.start(ok=False, correction=True, reason='')
         self.assertIn('touches no test', result.stderr)
         self.start(ok=False, correction=True, reason='   ')
-        self.start(correction=True, reason='docs-only change')
-        self.assertIn('docs-only change', self.flow('prompt').stdout)
-        self.report('claude')
-        self.report('codex')
-        self.triage()
+        # Adding the regression on top of the same candidate lifts the requirement.
         (self.repo / 'tests').mkdir()
         (self.repo / 'tests/test_fix.py').write_text('def test_fix(): pass\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add regression')
         state = self.start(correction=True, reason='')
+        self.assertEqual(state['round'], 2)
         self.assertEqual(state['regression_tests'], ['tests/test_fix.py'])
         self.assertIn('Tests changed in this delta: tests/test_fix.py', self.flow('prompt').stdout)
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        # Deleting that test is not a regression: the next round needs a reason again,
+        # and the reason reaches both reviewers. This is round 3, inside the limit.
+        (self.repo / 'tests/test_fix.py').unlink()
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'remove the test')
+        result = self.start(ok=False, correction=True, reason='')
+        self.assertIn('touches no test', result.stderr)
+        state = self.start(correction=True, reason='removed a flaky test on purpose')
+        self.assertEqual(state['round'], 3)
+        self.assertIn('removed a flaky test on purpose', self.flow('prompt').stdout)
 
     def test_confirmed_blocker_cannot_be_deferred(self):
         """A P2 correctness finding needs repair or concrete rejection, not deferral."""

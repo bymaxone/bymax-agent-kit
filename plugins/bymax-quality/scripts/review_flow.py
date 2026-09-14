@@ -53,7 +53,10 @@ def read_state(directory):
     path = directory / 'state.json'
     require(path.exists(), 'No review campaign. Run code-review and start with an explicit base/context.')
     state = json.loads(path.read_text())
-    require(state['policy'] == POLICY, 'Review policy changed; inspect and restart the campaign.')
+    require(state['policy'] == POLICY,
+            f"Review policy changed: this campaign was frozen under policy {state['policy']}, the runtime "
+            f"is policy {POLICY}. Keep state.json and its round files aside (rename them) and start a new "
+            'campaign; nothing is migrated or deleted.')
     return state
 
 
@@ -142,7 +145,7 @@ def start(args, directory):
     return state
 
 
-TEST_PATH = re.compile(r'(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]+\.py$|_test\.|\.test\.|\.spec\.')
+TEST_PATH = re.compile(r'(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]+\.py$|_test\.|\.test\.|\.spec\.', re.IGNORECASE)
 # Triage and resolution keys are reviewer::<id>. No path begins with `claude::` or
 # `codex::`, so a copied key is recognised by its prefix alone and a finding on a real
 # file under a codex/ directory can never be mistaken for one.
@@ -150,7 +153,7 @@ SEPARATOR = '::'
 REVIEWERS = ('claude' + SEPARATOR, 'codex' + SEPARATOR)
 
 
-TEST_DIRECTORY = re.compile(r'(^|/)(tests?|spec|__tests__)/')
+TEST_DIRECTORY = re.compile(r'(^|/)(tests?|spec|__tests__)/', re.IGNORECASE)
 PROSE_SUFFIXES = ('.md', '.markdown', '.adoc')
 # Plain text and data formats are test material only inside a test directory:
 # tests/golden/expected.txt and tests/fixtures/data.json count, openapi/v1.spec.yaml does not.
@@ -214,7 +217,8 @@ def correction_contract(args, old, head):
         isinstance(p, dict) and all(isinstance(p.get(k), str) and p[k].strip()
                                     for k in ('command', 'expected', 'observed')) for p in probe),
             'Probe must be a nonempty list of {command, expected, observed} strings.')
-    changed = git('diff', '--name-only', old['head'], head).splitlines()
+    # Added or modified only: deleting the test that caught a defect is not a regression.
+    changed = git('diff', '--name-only', '--diff-filter=AM', old['head'], head).splitlines()
     tests = [p for p in changed if is_test_path(p)]
     reason = (args.no_regression_reason or '').strip()
     require(tests or reason,
@@ -228,11 +232,6 @@ def correction_brief(state):
     """Tell both reviewers what the correction round claims, so they test the claim."""
     if state['round'] == 1:
         return ''
-    if 'probe' not in state:
-        # A state without a probe key carries no author evidence; say so rather than
-        # present an empty probe or a no-tests claim as the author's.
-        return ('This correction round predates probe and regression-test recording; no author '
-                'evidence is available. Probe the delta yourself and check its tests directly.')
     lines = []
     if state.get('design_round'):
         lines.append('DESIGN ROUND. These findings were reopened after a claimed fix: '

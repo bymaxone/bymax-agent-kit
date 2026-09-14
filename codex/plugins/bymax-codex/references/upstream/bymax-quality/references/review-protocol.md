@@ -90,7 +90,7 @@ Kinds: `defect`, `policy`, `nit`, `preexisting`. Priorities P0–P3 retain the r
 original assessment. Applicable explicit policy can make a convention blocking; do not
 turn generic style preferences into policy defects. Every earlier **open** disposition
 must appear in each new report's `resolutions` as `{ "id": "claude::<finding-id>",
-"evidence": "how the fix was verified, or why it remains broken" }` (similarly `codex/`).
+"evidence": "how the fix was verified, or why it remains broken" }` (similarly `codex::`).
 If still broken, also include it in the new findings. This prevents silent disappearance
 from being reported as a verified fix.
 
@@ -104,7 +104,7 @@ The file is a JSON list with **every** report finding keyed by `claude::<id>` or
 
 ```json
 [
-  {"id": "claude/src/job.py:restart-state", "status": "open",
+  {"id": "claude::src/job.py:restart-state", "status": "open",
    "evidence": "Reproduced with test_restart; repair only startup transition"}
 ]
 ```
