@@ -203,8 +203,11 @@ shipping includes the review. Do it in this order:
    `finish`. Correct accepted blockers in one batch, commit, and advance the campaign
    with `--probe`; obey the round limit and the reopened-finding rule.
 3. Stop only when the protocol itself blocks: an unresolved P0–P2 at the round limit, a
-   reviewer that did not complete, or a failing gate. Then report the blocker and a scope
-   proposal. Never push around it, never disable a reviewer, never clear a receipt.
+   reviewer that did not complete, a failing gate, or a worktree that is not clean after
+   the commit — the staged-only flow in Step 2 can leave unstaged or untracked work, and
+   a campaign reviews only a clean tree, never staged or stashed around. In that case
+   report that the remaining changes are the user's to commit or set aside, and do not
+   push. Never push around a block, never disable a reviewer, never clear a receipt.
 
 Then push, as its own literal command so the adapter checks it:
 
@@ -277,8 +280,8 @@ push result, and the PR URL (or the compare URL when no PR was requested). If a 
 was skipped (no remote, existing PR), say so and how to finish manually.
 
 Suggest the natural next step when relevant: `/bymax-pr:babysit-pr <PR#>` to shepherd
-the new PR to green, or `/bymax-quality:code-review` first if the work never went
-through a review gate.
+the new PR to green. The push itself already carried a completed review receipt, so
+do not suggest a review as a next step.
 
 ## Hard rules (always)
 

@@ -215,11 +215,12 @@ class ReviewFlowTests(unittest.TestCase):
         self.triage([dict(id='claude/guard:spelling', status='open', evidence='Still bypassed via -C')])
         self.commit('patch another instance')
         result = self.start(ok=False, correction=True)
-        self.assertIn('Reopened after a claimed fix: claude/guard:spelling', result.stderr)
+        # Reopened invariants are reported without the reviewer prefix.
+        self.assertIn('Reopened after a claimed fix: guard:spelling', result.stderr)
         self.assertIn('--design-round', result.stderr)
         state = self.start(correction=True, design=True)
         self.assertTrue(state['design_round'])
-        self.assertEqual(state['reopened'], ['claude/guard:spelling'])
+        self.assertEqual(state['reopened'], ['guard:spelling'])
         prompt = self.flow('prompt')
         self.assertIn('DESIGN ROUND', prompt.stdout)
 
@@ -232,12 +233,66 @@ class ReviewFlowTests(unittest.TestCase):
         self.commit('fix')
         result = self.start(ok=False)
         self.assertIn('--probe', result.stderr)
-        result = self.start(ok=False, correction=True, probe=[dict(command='x', expected='y')])
-        self.assertIn('expected, observed', result.stderr)
+        for hollow in ([], {}, 'text', [dict(command='x', expected='y')],
+                       [dict(command='x', expected='y', observed=1)],
+                       [dict(command=' ', expected=' ', observed=' ')]):
+            self.start(ok=False, correction=True, probe=hollow)
+            self.assertEqual(self.flow('status')['round'], 1, f'advanced on hollow probe {hollow!r}')
         self.start(correction=True, probe=[dict(command='eval git push', expected='blocked', observed='blocked')])
         prompt = self.flow('prompt')
         self.assertIn('eval git push', prompt.stdout)
         self.assertIn('Shallow probing is a finding', prompt.stdout)
+
+    def test_reopened_is_an_invariant_not_an_id_and_needs_no_design_round_otherwise(self):
+        """The other reviewer re-reporting the defect still counts; --design-round alone does not."""
+        self.start()
+        bug = dict(id='guard:spelling', kind='defect', priority='P1', evidence='Bypass')
+        self.report('claude', [bug])
+        self.report('codex')
+        self.triage([dict(id='claude/guard:spelling', status='open', evidence='Reproduced')])
+        self.commit('patch')
+        self.start(ok=False, correction=True, design=True)  # nothing reopened yet
+        self.start(correction=True)
+        resolutions = [dict(id='claude/guard:spelling', evidence='Not fixed')]
+        self.report('claude', resolutions=resolutions)
+        self.report('codex', [bug], resolutions=resolutions)  # same invariant, other reviewer
+        self.triage([dict(id='codex/guard:spelling', status='open', evidence='Still bypassed')])
+        self.commit('patch again')
+        result = self.start(ok=False, correction=True)
+        self.assertIn('Reopened after a claimed fix: guard:spelling', result.stderr)
+        self.assertEqual(self.start(correction=True, design=True)['reopened'], ['guard:spelling'])
+
+    def test_test_path_classification(self):
+        """Jest's __tests__ and Python's test_ files count; a spec document does not."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('flow', FLOW)
+        flow = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(flow)
+        for path in ('src/__tests__/foo.ts', 'app/(tabs)/__tests__/index.tsx', 'tests/test_x.py',
+                     'scripts/tests/test_review_flow.py', 'pkg/foo_test.go', 'a/b.test.tsx',
+                     'a/b.spec.js', 'spec/models/user_spec.rb', 'test_alone.py'):
+            self.assertTrue(flow.TEST_PATH.search(path), path)
+        for path in ('docs/spec.md', 'openapi/spec.yaml', 'test.txt', 'tests.md', 'src/latest.ts',
+                     'contest.py', 'attestation.json'):
+            self.assertFalse(flow.TEST_PATH.search(path), path)
+
+    def test_legacy_round_state_yields_no_fabricated_evidence(self):
+        """A round frozen before evidence recording must not be presented as probed."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        self.commit('fix')
+        self.start(correction=True)
+        state_path = Path(self.flow('status')['directory']) / 'state.json'
+        state = json.loads(state_path.read_text())
+        for key in ('probe', 'regression_tests', 'no_regression_reason', 'design_round', 'reopened'):
+            state.pop(key, None)
+        state_path.write_text(json.dumps(state))
+        prompt = self.flow('prompt').stdout
+        self.assertIn('predates probe and regression-test recording', prompt)
+        self.assertNotIn('Shallow probing', prompt)
+        self.assertNotIn('No test changed', prompt)
 
     def test_correction_without_tests_needs_a_recorded_reason(self):
         """A correction that touches no test must say why, and the reason reaches reviewers."""
