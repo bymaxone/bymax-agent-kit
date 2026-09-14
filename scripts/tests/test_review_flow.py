@@ -154,8 +154,23 @@ class ReviewFlowTests(unittest.TestCase):
         for form in ('if true; then git push origin HEAD; fi',
                      '! git push origin HEAD',
                      'while true; do git push origin HEAD; done',
-                     '{ git push origin HEAD; }'):
+                     '{ git push origin HEAD; }',
+                     # The -C option separates git from push; detection must not need adjacency.
+                     'if true; then git -C . push origin HEAD; fi',
+                     '! git -C . push origin HEAD',
+                     'while true; do git -C . push origin HEAD; done',
+                     'command git -C . push origin HEAD',
+                     'env git -C . push origin HEAD'):
             self.push(form, ok=False)
+
+    def test_arguments_of_an_ordinary_command_are_not_command_position(self):
+        """Only a keyword or exec prefix opens a command; a plain command's args do not."""
+        self.start()
+        self.complete()
+        self.push('printf "%s %s" git push')
+        self.push('git stash push')
+        self.push('if true; then git status; fi')
+        self.push('echo git push > notes.txt')
 
     def test_git_environment_overrides_are_refused(self):
         """GIT_DIR would publish another repository while this one's receipt is read."""

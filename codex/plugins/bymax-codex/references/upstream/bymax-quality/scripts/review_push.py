@@ -20,6 +20,12 @@ PUNCTUATION = '();<>|&\n'
 # Interpreters take the command as a STRING argument, so both words land in one token.
 INTERPRETERS = {'sh', 'bash', 'zsh', 'dash', 'ksh', 'eval', 'ssh', 'script'}
 ASSIGNMENT = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)=')
+# Words after which the NEXT word is a command rather than an argument: the shell
+# keywords, which are a closed set, and the exec prefixes that run the rest of argv.
+OPENS_A_COMMAND = {'if', 'then', 'elif', 'else', 'while', 'until', 'for', 'do', 'case',
+                   'in', 'function', 'select', '{', '}', '(', ')', '!', '[[',
+                   'command', 'env', 'exec', 'nohup', 'time', 'timeout', 'sudo', 'doas',
+                   'setsid', 'nice', 'ionice', 'stdbuf', 'xargs', 'watch'}
 # These decide which repository git operates on, so the guard would inspect one
 # repository's receipts while the command published another's commits.
 REDIRECTING = 'GIT_'
@@ -99,16 +105,18 @@ def command_words(words):
 
 
 def names_a_push(words):
-    """Report an adjacent `git push` the supported shape did not account for.
+    """Report a push standing where this guard cannot account for it.
 
-    Shell grammar introduces a command in more ways than this guard recognises --
-    `then`, `do`, `!`, `{`, and every exec prefix -- so an unrecognised form that
-    still names a push is refused rather than ignored.
+    Shell grammar introduces a command in more ways than the supported shape covers:
+    after a keyword, after a negation, or after an exec prefix that runs the rest of
+    argv. Those positions fail closed. Detection reuses git_push so the option forms
+    it already understands, `-C` in particular, cannot drift out of the catch-all;
+    an ordinary command's ARGUMENTS are not command position and never trigger it.
     """
-    if not words or Path(words[0]).name == 'git':
+    if not words or Path(words[0]).name not in OPENS_A_COMMAND:
         return False
-    return any(Path(word).name == 'git' and following == 'push'
-               for word, following in zip(words, words[1:]))
+    return any(Path(word).name == 'git' and git_push(words[index:]) is not None
+               for index, word in enumerate(words))
 
 
 def git_push(words):

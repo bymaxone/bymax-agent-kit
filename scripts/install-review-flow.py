@@ -41,35 +41,38 @@ def policy(text):
     return replacement + '\n\n' + text
 
 
-# Each legacy hook, with the directory this installer places it in. A file of the same
-# name somewhere else belongs to somebody else and is not ours to remove.
-LEGACY_HOOKS = {'code-review-require.sh': 'hooks', 'code-review-record.sh': 'hooks',
-                'review_push.py': 'bymax-review'}
+LEGACY_HOOKS = ('hooks/code-review-require.sh', 'hooks/code-review-record.sh',
+                'bymax-review/review_push.py')
 RUNNERS = {'python', 'python3', 'bash', 'sh', 'zsh'}
 
 
-def invokes_legacy(words):
-    """Match a legacy hook this installer owns, invoked as the command itself.
+def managed(home):
+    """Return the absolute paths this installer places under the selected home."""
+    return {(home / relative).resolve() for relative in LEGACY_HOOKS}
 
-    Ownership is the invoked path, not any argument that shares a filename:
-    `echo code-review-require.sh` prints a name, and
-    `/opt/unrelated/code-review-require.sh` is another tool with the same basename.
+
+def invokes_legacy(words, home):
+    """Match a hook this installer owns: the invoked path, under this Claude home.
+
+    Neither a shared filename nor a shared parent directory establishes ownership --
+    `/opt/unrelated/hooks/code-review-require.sh` and
+    `python3 /opt/unrelated/bymax-review/review_push.py` are somebody else's tools,
+    and `echo code-review-require.sh` only prints a name.
     """
     if not words:
         return False
     runner = Path(words[0]).name in RUNNERS and len(words) > 1
-    path = Path(words[1] if runner else words[0])
-    directory = LEGACY_HOOKS.get(path.name)
-    return directory is not None and path.parent.name in (directory, '')
+    invoked = Path(words[1] if runner else words[0])
+    return invoked.is_absolute() and invoked.resolve() in managed(home)
 
 
-def superseded(command):
+def superseded(command, home):
     """Identify a hook this installer replaces, refusing to guess at compound commands."""
     try:
         words = shlex.split(command)
     except ValueError:
         words = command.split()
-    if not invokes_legacy(words):
+    if not invokes_legacy(words, home):
         return False
     # Dropping the whole entry would silently delete the unrelated actions chained to it.
     if any(shell in command for shell in ('&&', '||', ';', '|', '\n')):
@@ -78,13 +81,13 @@ def superseded(command):
     return True
 
 
-def hook_settings(settings, hook):
+def hook_settings(settings, hook, home):
     """Remove only the named legacy hooks and register one replacement Bash guard."""
     hooks = settings.setdefault('hooks', {})
     for event in ('PreToolUse', 'PostToolUse'):
         entries = []
         for group in hooks.get(event, []):
-            kept = [h for h in group.get('hooks', []) if not superseded(h.get('command', ''))]
+            kept = [h for h in group.get('hooks', []) if not superseded(h.get('command', ''), home)]
             if kept:
                 entries.append(dict(group, hooks=kept))
         if event in hooks:
@@ -124,7 +127,7 @@ def install(home, overlay):
     settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
     updated_policy = policy(policy_path.read_text() if policy_path.exists() else '')
     runtime = home / 'bymax-review'
-    updated_settings = hook_settings(settings, runtime / 'review_push.py')
+    updated_settings = hook_settings(settings, runtime / 'review_push.py', home)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     backup_dir = home / 'backups' / ('bymax-review-' + stamp)
     backup_dir.mkdir(parents=True, mode=0o700)

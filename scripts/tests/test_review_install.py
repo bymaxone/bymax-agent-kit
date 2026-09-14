@@ -16,10 +16,12 @@ class InstallTests(unittest.TestCase):
         """Install twice without duplicating the hook or losing other user instructions."""
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
+            # Absolute paths under this home, which is what the installer itself writes.
             original = dict(enabledPlugins={'unrelated': True}, hooks={
                 'PreToolUse': [dict(matcher='Bash', hooks=[dict(command='other-check'),
-                    dict(command='$HOME/.claude/hooks/code-review-require.sh')])],
-                'PostToolUse': [dict(matcher='Skill', hooks=[dict(command='code-review-record.sh')])],
+                    dict(command=str(home / 'hooks/code-review-require.sh'))])],
+                'PostToolUse': [dict(matcher='Skill', hooks=[
+                    dict(command=str(home / 'hooks/code-review-record.sh'))])],
                 'Stop': [dict(hooks=[dict(command='keep-stop-hook')])]})
             (home / 'settings.json').write_text(json.dumps(original))
             (home / 'CLAUDE.md').write_text('## Personal instructions\nKeep this material.\n')
@@ -44,15 +46,19 @@ class InstallTests(unittest.TestCase):
         """Somebody else's script is not this installer's to remove, however it is named."""
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            unrelated = '/opt/hooks/audit-code-review-require.sh'
+            # Same filename, same parent directory name, different owner: all must survive.
+            others = ['/opt/hooks/audit-code-review-require.sh',
+                      '/opt/unrelated/hooks/code-review-require.sh',
+                      'python3 /opt/unrelated/bymax-review/review_push.py']
             (home / 'settings.json').write_text(json.dumps(dict(hooks={
-                'PreToolUse': [dict(matcher='Bash', hooks=[dict(command=unrelated)])]})))
+                'PreToolUse': [dict(matcher='Bash', hooks=[dict(command=c) for c in others])]})))
             result = subprocess.run([sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
                                      '--claude-home', tmp], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             settings = json.dumps(json.loads((home / 'settings.json').read_text()))
-            self.assertIn(unrelated, settings)
-            self.assertEqual(settings.count('bymax-review/review_push.py'), 1)
+            for command in others:
+                self.assertIn(command, settings)
+            self.assertEqual(settings.count(str(home / 'bymax-review/review_push.py')), 1)
 
     def test_legacy_name_as_an_argument_is_not_ownership(self):
         """Printing a hook's name is not invoking it, so the entry stays."""
@@ -71,7 +77,7 @@ class InstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             settings = dict(hooks={'PreToolUse': [dict(matcher='Bash', hooks=[dict(
-                command='$HOME/.claude/hooks/code-review-require.sh && $HOME/hooks/security-check.sh')])]})
+                command=str(home / 'hooks/code-review-require.sh') + ' && /opt/hooks/security-check.sh')])]})
             (home / 'settings.json').write_text(json.dumps(settings))
             result = subprocess.run([sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
                                      '--claude-home', tmp], capture_output=True, text=True)
