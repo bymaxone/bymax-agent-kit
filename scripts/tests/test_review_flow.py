@@ -213,7 +213,17 @@ class ReviewFlowTests(unittest.TestCase):
         self.push('`which git` push origin HEAD', ok=False)
         self.push("git $'push' origin HEAD", ok=False)
         self.push('bash -c \'git pu""sh origin HEAD\'', ok=False)
+        # Double quotes do not suppress expansion, and ANSI-C escapes are not decoded.
+        self.push('"$(which git)" push origin HEAD', ok=False)
+        self.push('$(which git) pu""sh origin HEAD', ok=False)
+        self.push("git $'pu\\x73h' origin HEAD", ok=False)
+        # A separator inside an interpreter's string must not hide what follows it.
+        self.push("bash -c 'true;git push origin HEAD'", ok=False)
+        # Substitution that names no push, and pushes named by an inert command, are free.
         self.push('grep -rn "$HOME" docs/')
+        self.push('echo $HOME push')
+        self.push('echo $HOME git push')
+        self.push('git log --grep=push --format=$FORMAT')
 
     def test_git_environment_overrides_are_refused(self):
         """GIT_DIR would publish another repository while this one's receipt is read."""

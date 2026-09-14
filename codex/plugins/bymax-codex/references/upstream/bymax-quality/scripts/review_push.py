@@ -23,8 +23,11 @@ ASSIGNMENT = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)=')
 # Commands whose arguments are inert text. This allowlist is safe in the way the
 # earlier denylist of command openers was not: an unknown command still fails closed,
 # so a name added here can only narrow a false positive, never open a bypass.
+# sed (e flag), awk (system()), less and more (shell escape) all execute what this
+# list calls inert, so they are deliberately absent. Only members whose arguments
+# genuinely cannot be executed belong here.
 PRINTS_ARGUMENTS = {'echo', 'printf', 'cat', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack',
-                    'sed', 'awk', 'head', 'tail', 'less', 'more', 'comm', 'diff'}
+                    'head', 'tail', 'comm', 'diff', 'wc', 'sort', 'uniq'}
 # These decide which repository git operates on, so the guard would inspect one
 # repository's receipts while the command published another's commits.
 REDIRECTING = 'GIT_'
@@ -103,12 +106,37 @@ def command_words(words):
     return words[:index], words[index:]
 
 
+def substitutes(command):
+    """Report $ or backtick that the shell would expand.
+
+    Only SINGLE quotes suppress expansion. An earlier version treated double quotes
+    as suppressing too, which let `"$(which git)" push` through.
+    """
+    quote, index = None, 0
+    while index < len(command):
+        character = command[index]
+        if quote == "'":
+            quote = None if character == "'" else quote
+        elif character == '\\':
+            index += 1
+        elif character in '$`':
+            return True
+        elif quote == '"':
+            quote = None if character == '"' else quote
+        elif character in '\'"':
+            quote = character
+        index += 1
+    return False
+
+
 def nested_push(argument):
     """Report a git push inside an interpreter's command STRING, however it is spelled."""
-    if not re.search(r'\bgit\b', argument) and 'git' not in argument:
+    if 'git' not in argument:
         return False
     try:
-        nested = shlex.split(argument)
+        # Punctuation-aware, like the top level: plain shlex.split leaves `true;git`
+        # as a single token and the push behind it goes unseen.
+        nested = [word for _, words in segments(argument) for word in words]
     except ValueError:
         return True
     return any(Path(word).name == 'git' and git_push(nested[index:]) is not None
@@ -169,17 +197,23 @@ def parse(command, cwd):
     if unquoted(command, '<<'):
         literal_heredoc(command)
         return None
-    # Refuse substitution BEFORE detection, not after: when it supplies the command word
-    # itself, as in `$(which git) push`, there is no git token left to detect.
-    require(not (re.search(r'\bpush\b', command) and
-                 (unquoted(command, '$') or unquoted(command, '`'))),
-            'Use a literal git push without shell substitution.')
     try:
         parts = segments(command)
     except ValueError:
         require(not re.search(r'\bgit\b.*\bpush\b', command),
                 'Unparsable command naming a git push; issue an explicit git push.')
         return None
+    tokens = [word for _, words in parts for word in words]
+    opening = command_words(parts[0][1])[1] if parts else []
+    # Classify first: an inert command's arguments are data, whatever they contain.
+    if not (opening and Path(opening[0]).name in PRINTS_ARGUMENTS):
+        require(not any(Path(word).name == 'git' for word in tokens) or "$'" not in command,
+                "Run git without $'...' quoting; its escapes are not decoded here.")
+        # Refuse substitution BEFORE detection: when it supplies the command word itself,
+        # as in `$(which git) push`, no git token survives for detection to find. The
+        # trigger is a standalone push TOKEN, so `--grep=push` does not arm it.
+        require(not ('push' in tokens and substitutes(command)),
+                'Use a literal git push without shell substitution.')
     found, unrecognized = None, False
     for _, raw in parts:
         assignments, words = command_words(raw)
