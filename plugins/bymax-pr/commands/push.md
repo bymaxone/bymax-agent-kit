@@ -185,10 +185,31 @@ If it reports TOO LONG, rewrite and re-check until it passes. Project hooks
 and re-commit. **NEVER** `--no-verify`, `--no-gpg-sign`, or any bypass. If your
 harness prompts for approval on `git commit`/`git push`, that is expected — let it.
 
-## Step 4 — Push
+## Step 4 — Review receipt, then push
+
+A push through Claude needs a completed Claude + Codex review receipt for the exact
+HEAD; the repository's `pre-push` hook and the Bash adapter both refuse it otherwise.
+This step obtains that receipt **without stopping to ask** — the user asked to ship, and
+shipping includes the review. Do it in this order:
+
+1. `python3 ~/.claude/bymax-review/review_flow.py status`. If it reports the current HEAD
+   with `cleared: true`, reuse it and push. Never start a review merely to recreate a
+   marker for a commit that already has one.
+2. Otherwise run the bounded campaign from `/bymax-quality:code-review` end to end:
+   write the context (intent, acceptance, constraints, scope, the project's real gate
+   commands), `start` against the resolved base, run `codex` in the background, perform
+   the Claude pass (a fresh-context subagent when this session authored the commit),
+   `record` both reports, verify and `triage` every finding, `check` every declared gate,
+   `finish`. Correct accepted blockers in one batch, commit, and advance the campaign
+   with `--probe`; obey the round limit and the reopened-finding rule.
+3. Stop only when the protocol itself blocks: an unresolved P0–P2 at the round limit, a
+   reviewer that did not complete, or a failing gate. Then report the blocker and a scope
+   proposal. Never push around it, never disable a reviewer, never clear a receipt.
+
+Then push, as its own literal command so the adapter checks it:
 
 ```bash
-git push -u origin <branch>
+git push -u origin HEAD:<branch>
 ```
 
 **Never force-push** (`--force` / `--force-with-lease`) from this command, and never

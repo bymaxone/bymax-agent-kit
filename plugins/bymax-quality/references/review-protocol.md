@@ -121,6 +121,30 @@ an explicit code-path proof and the verification limitation. Do not invent tests
 merely mirror the proposed fix. If the minimal safe fix crosses the agreed scope, stop and
 propose splitting the work. Do not broaden a UI change into an unrelated backend rewrite.
 
+A correction round carries evidence the helper requires and both reviewers see:
+
+```bash
+python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--design-round] \
+    [--no-regression-reason "<why>"]
+```
+
+`--probe` is a nonempty JSON list of `{"command", "expected", "observed"}`: what the author
+ran against the correction before committing it. The prompt shows it to both reviewers
+with the instruction to verify each entry and go beyond it; shallow probing is a finding.
+The helper lists every test file changed in the delta in the prompt, so a flipped
+expectation — as opposed to an added case — must be justified in triage or is a finding.
+A correction that changes no test is refused unless `--no-regression-reason` records
+why, and that reason reaches both reviewers for judgement.
+
+A finding open in two consecutive triages has been **reopened**: the previous fix
+addressed the instance, not the cause. `start` refuses the next round unless it is
+declared `--design-round`, records the reopened ids, and tells both reviewers the round is
+about the approach; a patch to the same instance is then itself a finding. Three campaigns
+on a shell-text push guard each reopened the same invariant before this rule existed.
+
+The Claude pass on a correction delta is performed by a fresh-context subagent given only
+the generated prompt, never by the session that authored the fix.
+
 Run every required gate named in the context after the final candidate commit:
 
 ```bash

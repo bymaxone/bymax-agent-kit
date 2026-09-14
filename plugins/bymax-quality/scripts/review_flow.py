@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -129,14 +130,73 @@ def start(args, directory):
         require(set(old['reviews']) == {'claude', 'codex'}, 'Complete both reviews before advancing a correction round.')
         require(old.get('triage') is not None, 'Record every finding disposition before advancing.')
         require(git('merge-base', old['head'], head) == old['head'], 'History rewritten; stop and reassess full coverage.')
+        correction = correction_contract(args, old, head)
         (directory / f"round-{old['round']}.json").write_text(json.dumps(old, indent=2))
     state = dict(policy=POLICY, head=head, base=base, context=context,
                  round=old['round'] + 1 if old else 1,
                  review_base=old['head'] if old else base,
                  previous_triage=old.get('triage', []) if old else [],
-                 reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False)
+                 reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
+                 **(correction if old else {}))
     save(directory, state)
     return state
+
+
+def reopened(old):
+    """List findings open in two consecutive triages: a claimed fix that did not hold."""
+    before = {i['id'] for i in old.get('previous_triage', []) if i['status'] == 'open'}
+    after = {i['id'] for i in old['triage'] if i['status'] == 'open'}
+    return sorted(before & after)
+
+
+def correction_contract(args, old, head):
+    """Require the evidence a correction round must carry before reviewers see it.
+
+    A reopened finding means the previous patch addressed the instance and not the
+    cause; the next round is spent on the approach, and the caller says so explicitly.
+    The author's own probe of the fix and any missing regression test are recorded so
+    both reviewers judge them rather than discover their absence.
+    """
+    again = reopened(old)
+    require(not again or args.design_round,
+            'Reopened after a claimed fix: ' + ', '.join(again)
+            + '. Spend this round on the approach, not another patch: rerun start with --design-round.')
+    require(args.probe, 'A correction round needs --probe <file>: the commands you ran against '
+            'your own fix before committing, each with expected and observed results.')
+    probe = json.loads(Path(args.probe).read_text())
+    require(isinstance(probe, list) and probe and all(
+        isinstance(p, dict) and all(isinstance(p.get(k), str) and p[k].strip()
+                                    for k in ('command', 'expected', 'observed')) for p in probe),
+            'Probe must be a nonempty list of {command, expected, observed} strings.')
+    changed = git('diff', '--name-only', old['head'], head).splitlines()
+    tests = [p for p in changed if re.search(r'(^|/)(tests?|spec)(/|_|\.)|_test\.|\.test\.|\.spec\.', p)]
+    reason = (args.no_regression_reason or '').strip()
+    require(tests or reason,
+            'This correction touches no test. Add the failing regression first, or record why '
+            'that is infeasible with --no-regression-reason "<why>".')
+    return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
+                regression_tests=tests, no_regression_reason=reason)
+
+
+def correction_brief(state):
+    """Tell both reviewers what the correction round claims, so they test the claim."""
+    if state['round'] == 1:
+        return ''
+    lines = []
+    if state.get('design_round'):
+        lines.append('DESIGN ROUND. These findings were reopened after a claimed fix: '
+                     + ', '.join(state['reopened']) + '. Judge whether this delta changes the '
+                     'approach; a patch to the same instance is itself a finding.')
+    lines.append('The author probed the correction before committing; verify each probe and go '
+                 'beyond it. Shallow probing is a finding:\n' + json.dumps(state.get('probe', []), indent=1))
+    if state.get('regression_tests'):
+        lines.append('Tests changed in this delta: ' + ', '.join(state['regression_tests'])
+                     + '. A test whose expectation was flipped rather than added must be justified '
+                     'in the triage evidence; report an unjustified flip.')
+    else:
+        lines.append('No test changed in this delta. Recorded reason: '
+                     + state.get('no_regression_reason', '') + '. Judge whether that is justified.')
+    return '\n'.join(lines)
 
 
 def prompt(state):
@@ -150,6 +210,7 @@ Context and acceptance contract:
 {state['context']}
 Previous dispositions (recheck fixes; do not reopen rejected findings without new evidence):
 {json.dumps(state['previous_triage'])}
+{correction_brief(state)}
 Find introduced correctness, security, data integrity and explicit policy defects.
 Prove the trigger, affected path and impact from this tree. A grep hit is only a candidate.
 Do not report style preferences, issues CI already enforces, or unrelated pre-existing bugs as blockers.
@@ -305,6 +366,11 @@ def parser():
     begin = sub.add_parser('start')
     begin.add_argument('--base', required=True)
     begin.add_argument('--context', required=True)
+    begin.add_argument('--probe', help='Correction rounds: JSON list of {command, expected, observed}.')
+    begin.add_argument('--design-round', action='store_true',
+                       help='Acknowledge a reopened finding and review the approach, not the instance.')
+    begin.add_argument('--no-regression-reason', default='',
+                       help='Correction rounds that touch no test: why a regression is infeasible.')
     for action in ('status', 'prompt', 'finish', 'codex'):
         sub.add_parser(action)
     rec = sub.add_parser('record')

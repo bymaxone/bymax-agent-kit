@@ -51,9 +51,17 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0 if ok else 2, result.stderr)
         return json.loads(result.stdout) if result.returncode == 0 and result.stdout.startswith('{') else result
 
-    def start(self, ok=True):
-        """Start or reuse the current bounded review candidate."""
-        return self.flow('start', '--base', self.base, '--context', str(self.context), ok=ok)
+    def start(self, ok=True, correction=False, design=False, probe=None, reason='fixture: no test needed'):
+        """Start or reuse a candidate; a correction round carries its probe and test evidence."""
+        args = ['start', '--base', self.base, '--context', str(self.context)]
+        if correction:
+            path = self.root / 'probe.json'
+            path.write_text(json.dumps(probe if probe is not None else [
+                dict(command='python3 -c "print(1)"', expected='1', observed='1')]))
+            args += ['--probe', str(path), '--no-regression-reason', reason]
+        if design:
+            args.append('--design-round')
+        return self.flow(*args, ok=ok)
 
     def report(self, name, findings=None, resolutions=None, ok=True):
         """Provide a completed reviewer fixture for the current endpoints."""
@@ -188,9 +196,71 @@ class ReviewFlowTests(unittest.TestCase):
             self.report('codex')
             self.triage()
             self.commit('fix' + str(round_number))
-            result = self.start(ok=round_number < 3)
+            result = self.start(ok=round_number < 3, correction=True)
             if round_number < 3:
                 self.assertEqual(result['round'], round_number + 1)
+
+    def test_reopened_finding_requires_a_design_round(self):
+        """A finding open in two consecutive triages is a failed approach, not a missed patch."""
+        self.start()
+        bug = dict(id='guard:spelling', kind='defect', priority='P1', evidence='Bypass')
+        self.report('claude', [bug])
+        self.report('codex')
+        self.triage([dict(id='claude/guard:spelling', status='open', evidence='Reproduced')])
+        self.commit('patch one instance')
+        self.start(correction=True)
+        resolutions = [dict(id='claude/guard:spelling', evidence='Adjacent form fixed; -C form still open')]
+        self.report('claude', [bug], resolutions=resolutions)
+        self.report('codex', resolutions=resolutions)
+        self.triage([dict(id='claude/guard:spelling', status='open', evidence='Still bypassed via -C')])
+        self.commit('patch another instance')
+        result = self.start(ok=False, correction=True)
+        self.assertIn('Reopened after a claimed fix: claude/guard:spelling', result.stderr)
+        self.assertIn('--design-round', result.stderr)
+        state = self.start(correction=True, design=True)
+        self.assertTrue(state['design_round'])
+        self.assertEqual(state['reopened'], ['claude/guard:spelling'])
+        prompt = self.flow('prompt')
+        self.assertIn('DESIGN ROUND', prompt.stdout)
+
+    def test_correction_round_carries_the_authors_probe(self):
+        """The author's own probe is required, validated, and shown to both reviewers."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        self.commit('fix')
+        result = self.start(ok=False)
+        self.assertIn('--probe', result.stderr)
+        result = self.start(ok=False, correction=True, probe=[dict(command='x', expected='y')])
+        self.assertIn('expected, observed', result.stderr)
+        self.start(correction=True, probe=[dict(command='eval git push', expected='blocked', observed='blocked')])
+        prompt = self.flow('prompt')
+        self.assertIn('eval git push', prompt.stdout)
+        self.assertIn('Shallow probing is a finding', prompt.stdout)
+
+    def test_correction_without_tests_needs_a_recorded_reason(self):
+        """A correction that touches no test must say why, and the reason reaches reviewers."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        self.commit('fix without test')
+        result = self.start(ok=False, correction=True, reason='')
+        self.assertIn('touches no test', result.stderr)
+        self.start(ok=False, correction=True, reason='   ')
+        self.start(correction=True, reason='docs-only change')
+        self.assertIn('docs-only change', self.flow('prompt').stdout)
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests').mkdir()
+        (self.repo / 'tests/test_fix.py').write_text('def test_fix(): pass\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'add regression')
+        state = self.start(correction=True, reason='')
+        self.assertEqual(state['regression_tests'], ['tests/test_fix.py'])
+        self.assertIn('Tests changed in this delta: tests/test_fix.py', self.flow('prompt').stdout)
 
     def test_confirmed_blocker_cannot_be_deferred(self):
         """A P2 correctness finding needs repair or concrete rejection, not deferral."""
@@ -210,7 +280,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex')
         self.triage([dict(id='claude/bug', status='open', evidence='Reproduced')])
         self.commit('repair')
-        state = self.start()
+        state = self.start(correction=True)
         self.assertNotEqual(state['base'], state['review_base'])
         self.report('claude', ok=False)
         resolutions = [dict(id='claude/bug', evidence='Regression test now passes; caller checked')]

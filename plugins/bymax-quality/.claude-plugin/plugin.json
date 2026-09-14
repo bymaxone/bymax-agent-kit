@@ -1,7 +1,7 @@
 {
   "name": "bymax-quality",
   "description": "Evidence-based quality gates: bounded Claude and Codex review with pinned candidates, verified findings, correction deltas and regression checks; TDD, stack-specific reviewers and security hooks.",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "author": {
     "name": "Bymax One",
     "email": "support@bymax.one",

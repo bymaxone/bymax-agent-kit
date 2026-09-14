@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Correction rounds carry evidence: marketplace `1.15.0`, quality `1.8.0`, pr `1.2.0`, codex `1.0.2`** — `review_flow.py start` on a correction round requires `--probe` (the author's own attempts to defeat the fix, shown to both reviewers), lists every test file the delta changed so a flipped expectation is a finding, refuses a correction that touches no test unless `--no-regression-reason` records why, and refuses a round whose previous fix reopened a finding unless it is declared `--design-round` — that round reviews the approach, not the instance. The Claude pass on a correction delta runs in a fresh-context subagent, never in the authoring session. `/bymax-pr:push` now obtains the review receipt itself, end to end, before pushing; it stops only when the protocol blocks. Six review rounds on the push guard each reopened the same invariant before these rules existed.
+
 ### Fixed
 
 - **Local review guard** — reject post-push directory changes and commands hidden after heredocs; recover interrupted Codex reservations with an OS execution lock while preserving the retry budget.

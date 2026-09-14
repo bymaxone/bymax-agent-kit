@@ -58,6 +58,10 @@ a separate design audit, report it separately from this campaign.
    context with the explicit diff and task contract, and persists its completed report.
    While it runs, perform the Claude pass using `review_flow.py prompt` and the relevant
    checklist below. Read enough callers and tests to prove each proposed finding.
+   On a correction round, or whenever this session authored the candidate, delegate the
+   Claude pass to a fresh-context subagent (`general-purpose`, read-only) given exactly
+   the generated prompt and nothing from this conversation; record its JSON report as
+   the Claude report. The author's own reading is not the Claude review.
 3. Save the Claude JSON report and record it. Await the Codex shell's completion;
    inspect its exit status and `status`. Missing, malformed, failed or timed-out review
    means **INCOMPLETE**, never an approval and never a reason to edit the product.
@@ -66,12 +70,41 @@ a separate design audit, report it separately from this campaign.
    Agreement is not proof; rejection needs concrete counterevidence. Report at most
    five nits; group the rest. Confirmed introduced P0/P1/P2 defects and explicit policy
    violations block; nits and unrelated pre-existing work can be deferred with reasons.
-5. Fix accepted blockers in one small batch. First reproduce the failure or document
-   a concrete code-path proof, then make the minimum change preserving neighboring
-   behavior. Check affected callers, error paths and lifecycle transitions. Run the
-   regression and project gates. If authorized, commit the fixes and advance the same
-   campaign: both reviewers inspect the correction delta and verify prior open findings.
-6. At three candidate rounds (initial + two correction rounds), stop if still blocked.
+5. Fix accepted blockers in one small batch, in this order, and do not reorder it:
+   1. **Regression first.** Turn each accepted finding's reproduction into a permanent
+      test case that fails on the current candidate, in the suite the campaign's
+      `checks` already runs. The suite is the cumulative invariant matrix: every case
+      from every round stays, so a later fix that breaks an earlier case is caught by
+      the gate, not by a reviewer. Assert the invariant (what must and must not
+      happen), never the fix's mechanism, and never the shell's or a parser's verdict
+      when the real effect can be observed instead.
+   2. **Extend, do not replace.** Make the minimum change preserving neighboring
+      behavior. A correction that deletes an existing check must first run every case
+      that check covered against the replacement; a cruder check's blind spots are not
+      the new check's blind spots, and removing it removes coverage.
+   3. **Never flip a test.** An existing test's expectation may not change in a
+      correction round without a triage entry saying why; a flipped expectation is
+      evidence the test mirrored a design choice, and `start` shows every changed
+      test to both reviewers so an unjustified flip is a finding.
+   4. **Probe your own fix before committing.** Spend bounded effort trying to defeat
+      the correction the way a reviewer would, record each attempt as
+      `{command, expected, observed}`, and pass that file to `start --probe`. It is
+      required for every correction round and both reviewers see it. What you find
+      here costs nothing; the same hole found after commit costs a round.
+   5. Check affected callers, error paths and lifecycle transitions. Run the regression
+      suite and project gates. If authorized, commit and advance the same campaign.
+      A correction that touches no test needs `--no-regression-reason`, which is
+      recorded and shown to both reviewers.
+   6. **The author does not review the correction.** The Claude pass on a correction
+      delta runs in a fresh-context subagent given only the generated prompt, never in
+      the session that wrote the fix. Authorship is not independence, and the reviewer
+      that has no stake in the design is the one that finds what the author cannot.
+6. **A reopened finding ends patching.** If a finding is open in two consecutive
+   triages, the previous correction addressed the instance and not the cause; `start`
+   refuses the next round unless it is declared `--design-round`, and that round is
+   spent on the approach — a design proposal for the human, or a change that removes
+   the class — not on another patch. Both reviewers are told it is a design round.
+7. At three candidate rounds (initial + two correction rounds), stop if still blocked.
    Present unresolved invariants, attempted fixes and a proposed scope split. Do not
    reset the campaign, change branches, disable Codex or clear a receipt to evade the
    limit. A limit is a handoff, never automatic approval. These limits are operational
