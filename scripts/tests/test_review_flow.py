@@ -186,18 +186,34 @@ class ReviewFlowTests(unittest.TestCase):
         self.push('grep -rn "git push" docs/')
         self.push('env FOO=1 grep push notes.txt')
 
-    def test_literal_push_arguments_are_refused_by_design(self):
-        """Fail closed is the chosen side: a trailing literal `git push` costs a refusal.
-
-        Distinguishing these from a real invocation needs each wrapper's option grammar
-        (`timeout 60 git push` puts an operand where a command word would be), and
-        guessing wrong reopens a bypass instead of producing a false positive.
-        """
+    def test_commands_whose_arguments_are_text_stay_allowed(self):
+        """An allowlist of inert commands is safe: an unknown one still fails closed."""
         self.start()
         self.complete()
         for command in ('printf "%s %s" git push', 'echo git push > notes.txt',
-                        'env printf "%s %s" git push'):
-            self.push(command, ok=False)
+                        'printf "%s" "git" "push"', 'grep -rn git push docs/'):
+            self.push(command)
+        # A wrapper in front of one of them leaves the guard unable to tell, and it
+        # refuses rather than guess; that residue is accepted, not a bypass.
+        self.push('env printf "%s %s" git push', ok=False)
+
+    def test_git_cannot_reach_git_through_a_subcommand(self):
+        """`git submodule foreach git push` publishes, though its command word is git."""
+        self.start()
+        self.complete()
+        self.commit('unreviewed')
+        self.push('git submodule foreach git push', ok=False)
+        self.push('git submodule foreach git -C . push origin HEAD', ok=False)
+
+    def test_substitution_cannot_supply_the_command_word(self):
+        """Substitution hides the git token the rule keys on, so it is refused first."""
+        self.start()
+        self.complete()
+        self.push('$(which git) push origin HEAD', ok=False)
+        self.push('`which git` push origin HEAD', ok=False)
+        self.push("git $'push' origin HEAD", ok=False)
+        self.push('bash -c \'git pu""sh origin HEAD\'', ok=False)
+        self.push('grep -rn "$HOME" docs/')
 
     def test_git_environment_overrides_are_refused(self):
         """GIT_DIR would publish another repository while this one's receipt is read."""

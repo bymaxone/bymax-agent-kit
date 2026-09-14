@@ -86,6 +86,36 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(json.loads((home / 'settings.json').read_text()), settings)
             self.assertFalse((home / 'CLAUDE.md').exists())
 
+    def test_background_chained_hook_is_not_silently_dropped(self):
+        """A bare & separates commands too, so the entry needs a hand migration."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            settings = dict(hooks={'PreToolUse': [dict(matcher='Bash', hooks=[dict(
+                command=str(home / 'hooks/code-review-require.sh') + ' & /opt/hooks/audit.sh')])]})
+            (home / 'settings.json').write_text(json.dumps(settings))
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
+                                     '--claude-home', tmp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('audit.sh', result.stderr)
+            self.assertEqual(json.loads((home / 'settings.json').read_text()), settings)
+
+    def test_sections_between_the_policy_delimiters_survive(self):
+        """Replacing up to a named later heading deleted every user section in between."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / 'CLAUDE.md').write_text(
+                '# Global\n\n## Code review antes de QUALQUER push\nold\n\n'
+                '## Deployment restrictions\nNEVER deploy on Friday.\n\n'
+                '## Comentário de review em PR — NUNCA deixe em aberto\nkeep\n')
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
+                                     '--claude-home', tmp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            policy = (home / 'CLAUDE.md').read_text()
+            for kept in ('# Global', '## Deployment restrictions', 'NEVER deploy on Friday',
+                         '## Comentário de review em PR', 'keep'):
+                self.assertIn(kept, policy)
+            self.assertNotIn('## Code review antes de QUALQUER push', policy)
+
     def test_unknown_policy_boundary_is_not_overwritten(self):
         """An incomplete managed section fails before settings or policy change."""
         with tempfile.TemporaryDirectory() as tmp:

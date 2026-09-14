@@ -32,12 +32,16 @@ def policy(text):
             raise ValueError('Incomplete managed review policy markers.')
         return before + replacement + rest.split(END, 1)[1]
     old = '## Code review antes de QUALQUER push'
-    following = '## Comentário de review em PR'
     if old in text:
         start = text.index(old)
-        if following not in text[start:]:
+        # End at the NEXT heading of any name. Splicing to a specific later heading
+        # swallowed every user section in between, deleting active instructions.
+        rest = text[start + len(old):]
+        boundary = rest.find('\n## ')
+        if boundary < 0:
             raise ValueError('Cannot delimit the existing review policy safely.')
-        return text[:start] + replacement + '\n\n' + text[text.index(following, start):]
+        preserved = rest[boundary:].lstrip('\n')
+        return text[:start] + replacement + '\n\n' + preserved
     return replacement + '\n\n' + text
 
 
@@ -75,7 +79,9 @@ def superseded(command, home):
     if not invokes_legacy(words, home):
         return False
     # Dropping the whole entry would silently delete the unrelated actions chained to it.
-    if any(shell in command for shell in ('&&', '||', ';', '|', '\n')):
+    # A bare & separates commands as effectively as the others; omitting it dropped
+    # whatever ran in the background alongside the hook.
+    if any(shell in command for shell in ('&&', '||', ';', '|', '&', '\n')):
         raise ValueError('Hook command mixes the review guard with other actions; '
                          'migrate it by hand: ' + command)
     return True

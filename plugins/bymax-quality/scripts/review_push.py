@@ -20,6 +20,11 @@ PUNCTUATION = '();<>|&\n'
 # Interpreters take the command as a STRING argument, so both words land in one token.
 INTERPRETERS = {'sh', 'bash', 'zsh', 'dash', 'ksh', 'eval', 'ssh', 'script'}
 ASSIGNMENT = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)=')
+# Commands whose arguments are inert text. This allowlist is safe in the way the
+# earlier denylist of command openers was not: an unknown command still fails closed,
+# so a name added here can only narrow a false positive, never open a bypass.
+PRINTS_ARGUMENTS = {'echo', 'printf', 'cat', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack',
+                    'sed', 'awk', 'head', 'tail', 'less', 'more', 'comm', 'diff'}
 # These decide which repository git operates on, so the guard would inspect one
 # repository's receipts while the command published another's commits.
 REDIRECTING = 'GIT_'
@@ -98,6 +103,18 @@ def command_words(words):
     return words[:index], words[index:]
 
 
+def nested_push(argument):
+    """Report a git push inside an interpreter's command STRING, however it is spelled."""
+    if not re.search(r'\bgit\b', argument) and 'git' not in argument:
+        return False
+    try:
+        nested = shlex.split(argument)
+    except ValueError:
+        return True
+    return any(Path(word).name == 'git' and git_push(nested[index:]) is not None
+               for index, word in enumerate(nested)) or names_a_push(nested)
+
+
 def names_a_push(words):
     """Report a git push standing anywhere but this segment's own command word.
 
@@ -114,10 +131,12 @@ def names_a_push(words):
     arguments, such as `printf "%s %s" git push`, which are refused too. A quoted
     "git push" is one token and is unaffected, so searching for the phrase still works.
     """
-    if not words or Path(words[0]).name == 'git':
+    if not words or Path(words[0]).name in PRINTS_ARGUMENTS:
         return False
+    # Skip index 0 by POSITION, not by name: `git submodule foreach git push` has git
+    # as its own command word and still publishes through the git at index 3.
     return any(Path(word).name == 'git' and git_push(words[index:]) is not None
-               for index, word in enumerate(words))
+               for index, word in enumerate(words) if index)
 
 
 def git_push(words):
@@ -144,10 +163,17 @@ def parse(command, cwd):
     spellings such as `pu""sh` normalize to `push` and are still checked, while a
     command that merely mentions a push in an argument is not treated as one.
     """
+    # Bash removes a backslash-newline before parsing, so `git pu\<newline>sh` is one word.
+    command = command.replace('\\\n', '')
     # A heredoc is the '<<' operator; the same characters inside a quoted argument are data.
     if unquoted(command, '<<'):
         literal_heredoc(command)
         return None
+    # Refuse substitution BEFORE detection, not after: when it supplies the command word
+    # itself, as in `$(which git) push`, there is no git token left to detect.
+    require(not (re.search(r'\bpush\b', command) and
+                 (unquoted(command, '$') or unquoted(command, '`'))),
+            'Use a literal git push without shell substitution.')
     try:
         parts = segments(command)
     except ValueError:
@@ -160,7 +186,9 @@ def parse(command, cwd):
         if not words:
             continue
         if Path(words[0]).name in INTERPRETERS:
-            require(not any(re.search(r'\bgit\b.*\bpush\b', word) for word in words[1:]),
+            # Re-tokenize the nested command: a quoted spelling defeats a regex on the
+            # raw text exactly as it defeated the original raw-text detection.
+            require(not any(nested_push(word) for word in words[1:]),
                     'Do not wrap git push in another shell.')
         unrecognized = unrecognized or names_a_push(words)
         result = git_push(words)
