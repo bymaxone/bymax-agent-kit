@@ -82,8 +82,35 @@ def context_contract(path):
     return text, checks
 
 
+HOOK_MARKER = 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.'
+
+
+def install_hook():
+    """Place the pre-push receipt check in this repository, refusing to displace another.
+
+    The hook is the enforcement boundary: git hands it the pushed SHAs directly, so it
+    holds regardless of how the push command was spelled. A foreign hook or a custom
+    core.hooksPath is reported for the human to reconcile rather than overwritten.
+    """
+    custom = subprocess.run(['git', 'config', '--get', 'core.hooksPath'], capture_output=True, text=True)
+    require(custom.returncode != 0, 'core.hooksPath is set to ' + custom.stdout.strip()
+            + '; install the pre-push receipt check there by hand before starting a campaign.')
+    source = Path(__file__).with_name('review_prepush.py')
+    target = Path(git('rev-parse', '--git-common-dir')).resolve() / 'hooks' / 'pre-push'
+    if target.exists():
+        require(HOOK_MARKER in target.read_text(errors='replace'),
+                'A pre-push hook not managed by this campaign exists at ' + str(target)
+                + '; merge the receipt check into it by hand before starting.')
+        if target.read_bytes() == source.read_bytes():
+            return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(source.read_bytes())
+    target.chmod(0o755)
+
+
 def start(args, directory):
     """Freeze a full baseline or advance a campaign to a correction delta."""
+    install_hook()
     head = clean_head()
     base = git('rev-parse', '--verify', args.base + '^{commit}')
     require(git('merge-base', base, head) == base, 'Base must be an ancestor; use the target merge-base.')

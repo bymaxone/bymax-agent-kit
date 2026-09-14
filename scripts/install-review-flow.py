@@ -79,8 +79,8 @@ def superseded(command, home):
     if not invokes_legacy(words, home):
         return False
     # Dropping the whole entry would silently delete the unrelated actions chained to it.
-    # A bare & separates commands as effectively as the others; omitting it dropped
-    # whatever ran in the background alongside the hook.
+    # A bare & is a command separator like the others: what runs alongside the hook
+    # is not ours to remove.
     if any(shell in command for shell in ('&&', '||', ';', '|', '&', '\n')):
         raise ValueError('Hook command mixes the review guard with other actions; '
                          'migrate it by hand: ' + command)

@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Claude hook adapter: validate explicit push sources against review receipts."""
+"""Claude hook adapter: an early receipt check for the one literal push shape.
+
+The enforcement boundary is the git pre-push hook that review_flow.py installs, which
+receives the pushed SHAs from git itself and therefore holds however the push command
+was spelled. This adapter does two smaller jobs before git runs: it recognises the exact
+`[cd <path> &&] [VAR=value ...] git [-C <dir>] push <remote> <refspec>...` form so a
+missing receipt is reported with a useful message, and it refuses the few options that
+would disable or redirect that hook. Every other command passes through untouched.
+A push deliberately spelled so that neither check sees it is outside what a local guard
+can prevent; review-protocol.md names CI as the boundary for that.
+"""
 import json
 import os
 from pathlib import Path
@@ -10,253 +20,55 @@ import sys
 
 from review_flow import POLICY, require
 
+# Anything that would skip the pre-push hook or point git at another repository. These
+# are matched as substrings of the raw command, wherever they appear: position does not
+# matter, so no shell parsing is involved and none can be defeated by rearrangement.
+DISARMS = ('no-verify', 'hooksPath', 'hooks-path', 'GIT_DIR', '--git-dir',
+           'GIT_WORK_TREE', '--work-tree', 'GIT_COMMON_DIR', '.git/hooks', 'hooks/pre-push')
+# Expansions that turn one written refspec into several, and revision operators that
+# would let a refspec name a commit other than the literal one.
+EXPANSIONS = '*?[]{}~^+,!'
+ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
+
 
 def git(cwd, *args):
     """Read repository state for the command's explicit working directory."""
     return subprocess.check_output(['git', '-C', str(cwd), *args], text=True, stderr=subprocess.DEVNULL).strip()
 
 
-PUNCTUATION = '();<>|&\n'
-# Interpreters take the command as a STRING argument, so both words land in one token.
-INTERPRETERS = {'sh', 'bash', 'zsh', 'dash', 'ksh', 'eval', 'ssh', 'script'}
-ASSIGNMENT = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)=')
-# Commands whose arguments are inert text. This allowlist is safe in the way the
-# earlier denylist of command openers was not: an unknown command still fails closed,
-# so a name added here can only narrow a false positive, never open a bypass.
-# sed (e flag), awk (system()), less and more (shell escape) all execute what this
-# list calls inert, so they are deliberately absent. Only members whose arguments
-# genuinely cannot be executed belong here.
-PRINTS_ARGUMENTS = {'echo', 'printf', 'cat', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack',
-                    'head', 'tail', 'comm', 'diff', 'wc', 'sort', 'uniq'}
-# These decide which repository git operates on, so the guard would inspect one
-# repository's receipts while the command published another's commits.
-REDIRECTING = 'GIT_'
-# Shell expansions that turn one written argument into several actual refs, plus the
-# revision operators that would let a refspec name a commit other than the literal one.
-EXPANSIONS = '*?[]{}~^+,!'
+def parse(command, cwd):
+    """Return (directory, push arguments) for the literal shape; None for anything else.
 
-
-def operator(token):
-    """Recognize a shell control token, which shlex emits separately from arguments."""
-    return bool(token) and all(character in PUNCTUATION for character in token)
-
-
-def literal_heredoc(command):
-    """Allow a standalone literal cat document; reject other heredocs explicitly."""
-    header, separator, body = command.partition('\n')
-    match = re.fullmatch(r"cat\s+(?:(?:>|>>)\s*[\w./-]+\s+)?<<\s*(['\"])([\w-]+)\1(?:\s+(?:>|>>)\s*[\w./-]+)?\s*", header)
-    require(match is not None and separator,
-            'Issue heredocs separately: use a standalone cat with a quoted delimiter and literal output path.')
-    lines = body.splitlines()
-    delimiter = match.group(2)
-    require(delimiter in lines, 'Unterminated heredoc.')
-    end = lines.index(delimiter)
-    require(not any(line.strip() for line in lines[end + 1:]),
-            'Issue commands after a heredoc separately so each push can be checked.')
-    return True
-
-
-def segments(command):
-    """Split into (preceding-operator, argv) pairs; newlines are command boundaries."""
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=PUNCTUATION)
-    lexer.whitespace_split = True
-    lexer.whitespace = ' \t\r'
-    parts, preceding, words = [], None, []
-    for token in lexer:
-        if operator(token):
-            if words:
-                parts.append((preceding, words))
-            preceding, words = token, []
-        else:
-            words.append(token)
-    if words:
-        parts.append((preceding, words))
-    return parts
-
-
-def unquoted(command, needle):
-    """Report whether needle occurs as syntax, outside single and double quotes.
-
-    shlex discards quoting, so a quoted "<<" argument is indistinguishable from the
-    heredoc operator once tokenized. Decide that question on the raw text instead.
+    None means this adapter has no opinion: the command is run and the pre-push hook
+    decides. Only the literal shape earns a receipt lookup here.
     """
-    quote, index = None, 0
-    while index < len(command):
-        character = command[index]
-        if quote:
-            if character == quote:
-                quote = None
-            elif quote == '"' and character == '\\':
-                index += 1
-        elif character in '\'"':
-            quote = character
-        elif character == '\\':
-            index += 1
-        elif command.startswith(needle, index):
-            return True
-        index += 1
-    return False
-
-
-def command_words(words):
-    """Split leading VAR=value assignments from the command they prefix."""
-    index = 0
-    while index < len(words) and ASSIGNMENT.match(words[index]):
-        index += 1
-    return words[:index], words[index:]
-
-
-def substitutes(command):
-    """Report $ or backtick that the shell would expand.
-
-    Only SINGLE quotes suppress expansion. An earlier version treated double quotes
-    as suppressing too, which let `"$(which git)" push` through.
-    """
-    quote, index = None, 0
-    while index < len(command):
-        character = command[index]
-        if quote == "'":
-            quote = None if character == "'" else quote
-        elif character == '\\':
-            index += 1
-        elif character in '$`':
-            return True
-        elif quote == '"':
-            quote = None if character == '"' else quote
-        elif character in '\'"':
-            quote = character
-        index += 1
-    return False
-
-
-def nested_push(argument):
-    """Report a git push inside an interpreter's command STRING, however it is spelled."""
-    if 'git' not in argument:
-        return False
+    require(not any(token in command for token in DISARMS),
+            'That would disable or redirect the pre-push receipt check; run a plain git push.')
     try:
-        # Punctuation-aware, like the top level: plain shlex.split leaves `true;git`
-        # as a single token and the push behind it goes unseen.
-        nested = [word for _, words in segments(argument) for word in words]
+        words = shlex.split(command)
     except ValueError:
-        return True
-    return any(Path(word).name == 'git' and git_push(nested[index:]) is not None
-               for index, word in enumerate(nested)) or names_a_push(nested)
-
-
-def names_a_push(words):
-    """Report a git push standing anywhere but this segment's own command word.
-
-    Three rounds of listing the words after which a command can begin each missed
-    another member of the same class -- exec prefixes, then shell keywords, then
-    `eval`, `coproc`, `builtin`, `caffeinate`, `unbuffer`, `script`. Resolving which
-    token the shell really runs would need every wrapper's option grammar, because
-    `timeout 60 git push` and `sudo -u me git push` put an operand where a command
-    word would otherwise be, and guessing wrong reopens a bypass rather than
-    producing a false positive. So no list is kept and the default is closed: a push
-    shape anywhere other than argv[0] is refused, whatever precedes it.
-
-    The cost is borne by commands that pass a literal `git push` as trailing
-    arguments, such as `printf "%s %s" git push`, which are refused too. A quoted
-    "git push" is one token and is unaffected, so searching for the phrase still works.
-    """
-    if not words or Path(words[0]).name in PRINTS_ARGUMENTS:
-        return False
-    # Skip index 0 by POSITION, not by name: `git submodule foreach git push` has git
-    # as its own command word and still publishes through the git at index 3.
-    return any(Path(word).name == 'git' and git_push(words[index:]) is not None
-               for index, word in enumerate(words) if index)
-
-
-def git_push(words):
-    """Return (-C directory, push arguments) for a literal git push, else None."""
+        return None
+    tail = command
+    if words[:1] == ['cd'] and len(words) > 3 and words[2] == '&&':
+        cwd = (Path(cwd) / words[1]).resolve()
+        words, tail = words[3:], command.split('&&', 1)[1]
+    while words and ASSIGNMENT.match(words[0]):
+        words = words[1:]
     if not words or Path(words[0]).name != 'git':
         return None
-    directory, rest = None, words[1:]
-    if rest[:1] == ['-C']:
-        require(len(rest) > 1, 'Missing -C directory.')
-        directory, rest = rest[1], rest[2:]
-    if rest[:1] == ['push']:
-        return directory, rest[1:]
-    # Another subcommand (git log, git stash push) publishes nothing and is left alone,
-    # but a global option before push hides the real argv from this parser.
-    require(not (rest and rest[0].startswith('-') and 'push' in rest),
-            'Push with global git options is unsupported; use git -C <path> push.')
-    return None
-
-
-def parse(command, cwd):
-    """Accept one literal push, optionally preceded by cd; reject ambiguous pushes.
-
-    Decisions come from the shell-tokenized argv rather than the raw text, so quoted
-    spellings such as `pu""sh` normalize to `push` and are still checked, while a
-    command that merely mentions a push in an argument is not treated as one.
-    """
-    # Bash removes a backslash-newline before parsing, so `git pu\<newline>sh` is one word.
-    command = command.replace('\\\n', '')
-    # A heredoc is the '<<' operator; the same characters inside a quoted argument are data.
-    if unquoted(command, '<<'):
-        literal_heredoc(command)
+    words = words[1:]
+    if words[:1] == ['-C'] and len(words) > 1:
+        cwd, words = (Path(cwd) / words[1]).resolve(), words[2:]
+    if words[:1] != ['push']:
         return None
-    try:
-        parts = segments(command)
-    except ValueError:
-        require(not re.search(r'\bgit\b.*\bpush\b', command),
-                'Unparsable command naming a git push; issue an explicit git push.')
-        return None
-    tokens = [word for _, words in parts for word in words]
-    opening = command_words(parts[0][1])[1] if parts else []
-    # Classify first: an inert command's arguments are data, whatever they contain.
-    if not (opening and Path(opening[0]).name in PRINTS_ARGUMENTS):
-        require(not any(Path(word).name == 'git' for word in tokens) or "$'" not in command,
-                "Run git without $'...' quoting; its escapes are not decoded here.")
-        # Refuse substitution BEFORE detection: when it supplies the command word itself,
-        # as in `$(which git) push`, no git token survives for detection to find. The
-        # trigger is a standalone push TOKEN, so `--grep=push` does not arm it.
-        require(not ('push' in tokens and substitutes(command)),
-                'Use a literal git push without shell substitution.')
-    found, unrecognized = None, False
-    for _, raw in parts:
-        assignments, words = command_words(raw)
-        if not words:
-            continue
-        if Path(words[0]).name in INTERPRETERS:
-            # Re-tokenize the nested command: a quoted spelling defeats a regex on the
-            # raw text exactly as it defeated the original raw-text detection.
-            require(not any(nested_push(word) for word in words[1:]),
-                    'Do not wrap git push in another shell.')
-        unrecognized = unrecognized or names_a_push(words)
-        result = git_push(words)
-        if result is None:
-            continue
-        require(not any(ASSIGNMENT.match(a).group(1).startswith(REDIRECTING) for a in assignments),
-                'Run git push without GIT_* overrides; they change which repository git uses.')
-        require(found is None, 'Issue one explicit git push per command.')
-        found = (raw, result)
-    if found is None:
-        require(not unrecognized,
-                'This names a git push in a form the guard cannot verify; issue an explicit git push.')
-        return None
-    raw, (directory, arguments) = found
-    require(not unrecognized, 'Issue one explicit git push per command.')
-    require(parts[-1][1] is raw and all(w is raw or command_words(w)[1][:1] == ['cd'] for _, w in parts),
-            'Issue git push as its own command, optionally preceded by cd <path> &&.')
-    require(all(o in (None, '&&') for o, _ in parts),
-            'Chain a push only with && so it cannot follow an unchecked command.')
-    require(not any(x in command for x in ('$', '`')), 'Use a literal git push without shell substitution.')
-    for _, other in parts:
-        if other is not raw:
-            change = command_words(other)[1]
-            require(len(change) == 2 and not change[1].startswith('-')
-                    and not any(c in change[1] for c in EXPANSIONS), 'Name the directory explicitly: cd <path> && git push ...')
-            cwd = (Path(cwd) / change[1]).resolve()
-    return ((Path(cwd) / directory).resolve() if directory else cwd), arguments
+    # The shape matched, so from here the command is a push and must be exactly one.
+    require(not any(c in tail for c in '$`;|&<>\n'), 'Use a literal git push in its own command.')
+    return cwd, words[1:]
 
 
 def sources(words):
     """Require explicit remote/refspecs and reject implicit or wildcard pushes."""
     allowed = {'-u', '--set-upstream', '--force-with-lease', '--atomic', '--porcelain', '--verbose', '-v'}
-    # Checked across every argument, not only refspecs: an expansion in the remote slot
-    # (`origin{,evil}`) becomes an extra unreviewed refspec that this parser never sees.
     require(not any(c in word for word in words for c in EXPANSIONS),
             'Use literal remote and refspec arguments without shell expansion.')
     positional = []

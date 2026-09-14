@@ -122,134 +122,41 @@ class ReviewFlowTests(unittest.TestCase):
         self.push('git push origin sibling HEAD', ok=False)
         self.push(f'git -C "{sibling}" push origin HEAD')
 
-    def test_directory_changes_only_precede_push(self):
-        """A trailing cd cannot substitute a reviewed worktree for the pushed one."""
-        self.start()
-        self.complete()
-        sibling = self.root / 'reviewed'
-        self.git('worktree', 'add', '-qb', 'reviewed', str(sibling))
-        self.commit('unreviewed')
-        self.push(f'git push origin HEAD && cd "{sibling}"', ok=False)
-        self.push(f'cd "{sibling}" && git push origin HEAD')
-        self.push(f'cd "{sibling}" extra && git push origin HEAD', ok=False)
-        self.push('cd - && git push origin HEAD', ok=False)
-
-    def test_exec_prefixes_cannot_skip_the_receipt(self):
-        """An exec prefix still reaches git, so it must not turn the guard off."""
+    def test_adapter_checks_only_the_literal_shape(self):
+        """The adapter reports a missing receipt early for the exact form; the hook is the net."""
         self.start()
         self.complete()
         self.commit('unreviewed')
-        for prefix in ('command', 'env', 'sudo', 'nohup', 'xargs', 'timeout 60'):
-            self.push(prefix + ' git push origin HEAD', ok=False)
-        self.push('FOO=1 git push origin HEAD', ok=False)
-        self.git('reset', '-q', '--hard', 'HEAD~1')
-        self.push('FOO=1 git push origin HEAD')
-        self.push('env FOO=1 grep push notes.txt')
+        for literal in ('git push origin HEAD', 'FOO=1 git push origin HEAD', 'git -C . push origin HEAD',
+                        'cd . && git push origin HEAD', 'git pu""sh origin HEAD'):
+            self.push(literal, ok=False)
+        # Any other arrangement is not this adapter's call: it passes, and pre-push decides.
+        for other in ('eval git push origin HEAD', 'if true; then git push origin HEAD; fi',
+                      'git log --grep=push --format=$FORMAT', 'echo git push > notes.txt',
+                      'grep -rn "git push" docs/', 'python3 -c "print(1 << 3)"',
+                      "cat <<'EOF' > f\ngit push origin HEAD\nEOF\n", 'git stash push', 'FOO=bar'):
+            self.push(other)
 
-    def test_shell_control_forms_cannot_skip_the_receipt(self):
-        """A keyword or negation before git still runs it, so the form must fail closed."""
+    def test_adapter_refuses_what_would_disarm_the_hook(self):
+        """Options that skip hooks or redirect git are refused wherever they appear."""
         self.start()
         self.complete()
-        self.commit('unreviewed')
-        for form in ('if true; then git push origin HEAD; fi',
-                     '! git push origin HEAD',
-                     'while true; do git push origin HEAD; done',
-                     '{ git push origin HEAD; }',
-                     # The -C option separates git from push; detection must not need adjacency.
-                     'if true; then git -C . push origin HEAD; fi',
-                     '! git -C . push origin HEAD',
-                     'while true; do git -C . push origin HEAD; done',
-                     'command git -C . push origin HEAD',
-                     'env git -C . push origin HEAD',
-                     # Wrappers and builtins that no enumeration of openers caught.
-                     'eval git push origin HEAD',
-                     'coproc git push origin HEAD',
-                     'builtin git push origin HEAD',
-                     'builtin command git push origin HEAD',
-                     'builtin exec git push origin HEAD',
-                     'caffeinate git push origin HEAD',
-                     'unbuffer git push origin HEAD',
-                     'script -q /dev/null git push origin HEAD',
-                     'timeout 60 git push origin HEAD',
-                     'sudo -u me git push origin HEAD',
-                     'eval git -C . push origin HEAD',
-                     'caffeinate git -C . push origin HEAD'):
-            self.push(form, ok=False)
+        for command in ('git push --no-verify origin HEAD', 'eval git push --no-verify origin HEAD',
+                        'git -c core.hooksPath=/dev/null push origin HEAD',
+                        'GIT_DIR=/other/.git git push origin HEAD', 'git --git-dir=/x push origin HEAD',
+                        'echo --no-verify', 'echo x > .git/hooks/pre-push && git push origin HEAD',
+                        'rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push'):
+            self.push(command, ok=False)
 
-    def test_git_subcommands_and_quoted_mentions_stay_allowed(self):
-        """The rule keys on a bare git token in argv, so other git work and text are free."""
+    def test_adapter_refuses_ambiguous_literal_pushes(self):
+        """A literal push that names no source, or a wildcard one, is refused rather than guessed."""
         self.start()
         self.complete()
-        self.push('git stash push')
-        self.push('git log --grep=push')
-        self.push('if true; then git status; fi')
-        self.push('grep -rn "git push" docs/')
-        self.push('env FOO=1 grep push notes.txt')
-
-    def test_commands_whose_arguments_are_text_stay_allowed(self):
-        """An allowlist of inert commands is safe: an unknown one still fails closed."""
-        self.start()
-        self.complete()
-        for command in ('printf "%s %s" git push', 'echo git push > notes.txt',
-                        'printf "%s" "git" "push"', 'grep -rn git push docs/'):
-            self.push(command)
-        # A wrapper in front of one of them leaves the guard unable to tell, and it
-        # refuses rather than guess; that residue is accepted, not a bypass.
-        self.push('env printf "%s %s" git push', ok=False)
-
-    def test_git_cannot_reach_git_through_a_subcommand(self):
-        """`git submodule foreach git push` publishes, though its command word is git."""
-        self.start()
-        self.complete()
-        self.commit('unreviewed')
-        self.push('git submodule foreach git push', ok=False)
-        self.push('git submodule foreach git -C . push origin HEAD', ok=False)
-
-    def test_substitution_cannot_supply_the_command_word(self):
-        """Substitution hides the git token the rule keys on, so it is refused first."""
-        self.start()
-        self.complete()
-        self.push('$(which git) push origin HEAD', ok=False)
-        self.push('`which git` push origin HEAD', ok=False)
-        self.push("git $'push' origin HEAD", ok=False)
-        self.push('bash -c \'git pu""sh origin HEAD\'', ok=False)
-        # Double quotes do not suppress expansion, and ANSI-C escapes are not decoded.
-        self.push('"$(which git)" push origin HEAD', ok=False)
-        self.push('$(which git) pu""sh origin HEAD', ok=False)
-        self.push("git $'pu\\x73h' origin HEAD", ok=False)
-        # A separator inside an interpreter's string must not hide what follows it.
-        self.push("bash -c 'true;git push origin HEAD'", ok=False)
-        # Substitution that names no push, and pushes named by an inert command, are free.
-        self.push('grep -rn "$HOME" docs/')
-        self.push('echo $HOME push')
-        self.push('echo $HOME git push')
-        self.push('git log --grep=push --format=$FORMAT')
-
-    def test_git_environment_overrides_are_refused(self):
-        """GIT_DIR would publish another repository while this one's receipt is read."""
-        self.start()
-        self.complete()
-        for override in ('GIT_DIR=/other/.git', 'GIT_WORK_TREE=/other', 'GIT_OBJECT_DIRECTORY=/other'):
-            self.push(override + ' git push origin HEAD', ok=False)
-        self.push('git push origin HEAD')
-
-    def test_quoted_shift_text_is_not_a_heredoc(self):
-        """'<<' inside an argument is data; only the operator introduces a document."""
-        self.start()
-        self.complete()
-        self.push('git log --grep="git push << example"')
-        self.push('python3 -c "print(1 << 3)"')
-        self.push('grep -rn "a << b" docs/')
-        self.push('printf "%s %s" "<<" example')
-
-    def test_heredoc_cannot_hide_following_push(self):
-        """Only a standalone literal document may bypass command parsing."""
-        document = "cat <<'EOF' > notes.txt\ngit push origin HEAD\nEOF\n"
-        self.push(document)
-        self.push(document + 'git push origin HEAD', ok=False)
-        self.push(document + 'git pu""sh origin HEAD', ok=False)
-        self.push('cat <<EOF\n$(git push origin HEAD)\nEOF', ok=False)
-        self.push('git status\ngit push origin HEAD', ok=False)
+        for command in ('git push', 'git push --all origin', 'git push origin :branch',
+                        'git push origin "refs/heads/*:refs/heads/*"', 'git push origin{,evil} HEAD',
+                        'git push origin $BRANCH', 'git push origin HEAD && echo done',
+                        'git push origin HEAD; rm -rf x'):
+            self.push(command, ok=False)
 
     def test_abandoned_codex_reservation_keeps_retry_budget(self):
         """A dead owner permits one retry without resetting the attempt count."""
@@ -319,52 +226,6 @@ class ReviewFlowTests(unittest.TestCase):
         self.flow('check', '--', sys.executable, '-c', 'raise SystemExit(1)', ok=False)
         self.checks()
         self.flow('finish', ok=False)
-
-    def test_ambiguous_push_rejected_and_reads_allowed(self):
-        """Unsupported shell/refspec forms fail rather than picking an unrelated tip."""
-        self.start()
-        self.complete()
-        for cmd in ('git push', 'git push --all origin', 'git push origin :branch',
-                    'git push origin "refs/heads/*:refs/heads/*"', 'git push origin $BRANCH',
-                    "bash -c 'git push origin HEAD'"):
-            self.push(cmd, ok=False)
-        self.push('git status')
-        self.push('rg push README.md')
-
-    def test_quoted_push_spellings_are_still_checked(self):
-        """Shell quoting that still runs git push cannot skip the receipt lookup."""
-        self.start()
-        self.complete()
-        reviewed = self.git('rev-parse', 'HEAD')
-        self.commit('unreviewed')
-        for spelling in ('git pu""sh', "git 'pu'sh", 'git p\\ush', 'git "push"'):
-            self.push(spelling + ' origin HEAD', ok=False)
-            self.push(spelling + ' origin ' + reviewed)
-
-    def test_expansion_cannot_smuggle_an_extra_ref(self):
-        """A brace expansion in the remote slot would publish a ref the guard never read."""
-        self.start()
-        self.complete()
-        self.push('git push origin{,evil} HEAD', ok=False)
-        self.push('git push origin HEAD{,~1}', ok=False)
-        self.push('git push origin HEAD')
-
-    def test_commands_that_only_mention_a_push_are_allowed(self):
-        """Reading or writing text about a push publishes nothing and must not be blocked."""
-        self.start()
-        self.complete()
-        for command in ('git log --grep=push', 'git stash push', 'grep -rn "git push" docs/',
-                        'echo "run git push later" > notes.txt', 'git show HEAD --stat'):
-            self.push(command)
-        self.push("bash -c 'git push origin HEAD'", ok=False)
-
-    def test_push_cannot_follow_an_unchecked_command(self):
-        """A chained command could rewrite HEAD after the guard read it."""
-        self.start()
-        self.complete()
-        self.push('git commit --allow-empty -m x; git push origin HEAD', ok=False)
-        self.push('git push origin HEAD && echo done', ok=False)
-        self.push('cd . && git push origin HEAD')
 
     def test_interrupted_check_cannot_leave_a_cleared_receipt(self):
         """A gate that never reports an exit status invalidates the previous clearance."""
