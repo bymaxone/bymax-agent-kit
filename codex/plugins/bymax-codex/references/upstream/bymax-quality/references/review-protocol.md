@@ -141,9 +141,11 @@ addressed the instance, not the cause. `start` refuses the next round unless it 
 declared `--design-round`, records the reopened ids, and tells both reviewers the round is
 about the approach; a patch to the same instance is then itself a finding. A still-open
 defect repeated under the prefixed id a reviewer saw in an earlier disposition still names
-the same invariant: `record` strips a leading `claude/` or `codex/` only when the stripped id
-is an invariant already known from a previous disposition and the prefixed file does not
-exist in the tree, so a real path under a `codex/` directory is never rewritten.
+the same invariant: `record` removes leading `claude/` and `codex/` segments one at a time,
+stopping at the first remaining path that exists in the tree, and keeps the result only when
+it names an invariant already known from a previous disposition or earlier in the same
+report — so a copied prefix collapses, a repeat within one report is a duplicate, and a real
+path under a `codex/` directory is never rewritten.
 
 The Claude pass on a correction delta is performed by a fresh-context subagent given only
 the generated prompt, never by the session that authored the fix.

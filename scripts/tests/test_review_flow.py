@@ -274,20 +274,22 @@ class ReviewFlowTests(unittest.TestCase):
         for path in ('src/__tests__/foo.ts', 'app/(tabs)/__tests__/index.tsx', 'tests/test_x.py',
                      'scripts/tests/test_review_flow.py', 'pkg/foo_test.go', 'a/b.test.tsx',
                      'a/b.spec.js', 'spec/models/user_spec.rb', 'test_alone.py', 'tests/fixtures/data.json',
-                     'tests/golden/expected.txt', 'tests/api.rst', 'tests/doctest_cases.txt'):
+                     'tests/golden/expected.txt', 'tests/api.rst', 'tests/doctest_cases.txt',
+                     'tests/fixtures/config.spec.yaml'):
             self.assertTrue(flow.is_test_path(path), path)
         for path in ('docs/spec.md', 'openapi/spec.yaml', 'test.txt', 'tests.md', 'src/latest.ts',
                      'contest.py', 'attestation.json', 'docs/spec/overview.md', 'spec/README.md',
                      'docs/tests/plan.md', 'notes_test.txt', 'latest.spec.md', 'tests/README.md',
-                     'tests/plan.markdown', 'tests/notes.adoc'):
+                     'tests/plan.markdown', 'tests/notes.adoc', 'openapi/v1.spec.yaml', 'api.spec.json',
+                     'config.test.toml'):
             self.assertFalse(flow.is_test_path(path), path)
 
     def test_prefix_stripped_only_for_a_copied_id_never_for_a_real_path(self):
-        """A copied disposition id collapses to the known invariant; a codex/ path is kept.
+        """A copied disposition id collapses to the known invariant; a real codex/ path is kept.
 
-        The stripping rule was changed from unconditional to path-aware, so the earlier
-        expectation that any prefixed id is stored bare no longer holds; see the
-        path-segment-mistaken-for-reviewer-prefix disposition.
+        A reviewer prefix and a path segment can spell the same thing, so identity is
+        decided against the tree: an existing path is never rewritten, a copied prefix
+        over a known invariant is, and both rounds of a reopened finding compare equal.
         """
         (self.repo / 'codex/scripts').mkdir(parents=True)
         (self.repo / 'codex/scripts/bundle.py').write_text('# real file under codex/\n')
@@ -307,14 +309,17 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(stored, ['codex/scripts/bundle.py:drift', 'README.md:x',
                                   'codex/README.md:x', 'guard:spelling'])
         self.report('codex')
-        self.triage([dict(id='claude/' + f['id'], status='open' if f['id'] == 'guard:spelling' else 'deferred',
+        open_ids = ('guard:spelling', 'codex/scripts/bundle.py:drift')
+        self.triage([dict(id='claude/' + f['id'], status='open' if f['id'] in open_ids else 'deferred',
                           evidence='e') for f in real[:4]])
         self.commit('fix')
         self.start(correction=True)
-        # Round 2: a copied prefixed id names the known invariant; a prefixed REAL path stays.
+        # Round 2: a copied prefixed id names the known invariant; a prefixed REAL path
+        # keeps its codex/ segment, however many prefixes were copied in front of it.
         again = [dict(id='claude/guard:spelling', kind='defect', priority='P1', evidence='still'),
                  dict(id='codex/claude/codex/scripts/bundle.py:drift', kind='nit', priority='P3', evidence='n')]
-        resolutions = [dict(id='claude/guard:spelling', evidence='still open')]
+        resolutions = [dict(id='claude/guard:spelling', evidence='still open'),
+                       dict(id='claude/codex/scripts/bundle.py:drift', evidence='still open')]
         self.report('claude', again, resolutions=resolutions)
         stored = [f['id'] for f in self.flow('status')['reviews']['claude']['findings']]
         self.assertEqual(stored, ['guard:spelling', 'codex/scripts/bundle.py:drift'])
@@ -322,6 +327,16 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex', [dict(id='guard:c', kind='nit', priority='P3', evidence='x'),
                               dict(id='codex/guard:c', kind='nit', priority='P3', evidence='y')],
                     resolutions=resolutions, ok=False)
+        self.report('codex', resolutions=resolutions)
+        # Both open again: the real path and the bare invariant are each reopened.
+        self.triage([dict(id='claude/guard:spelling', status='open', evidence='e'),
+                     dict(id='claude/codex/scripts/bundle.py:drift', status='open', evidence='e')])
+        self.commit('fix again')
+        result = self.start(ok=False, correction=True)
+        self.assertIn('codex/scripts/bundle.py:drift', result.stderr)
+        self.assertIn('guard:spelling', result.stderr)
+        state = self.start(correction=True, design=True)
+        self.assertEqual(state['reopened'], ['codex/scripts/bundle.py:drift', 'guard:spelling'])
 
     def test_legacy_round_state_yields_no_fabricated_evidence(self):
         """A round frozen before evidence recording must not be presented as probed."""
