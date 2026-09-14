@@ -255,7 +255,10 @@ class ReviewFlowTests(unittest.TestCase):
         self.start(correction=True)
         resolutions = [dict(id='claude/guard:spelling', evidence='Not fixed')]
         self.report('claude', resolutions=resolutions)
-        self.report('codex', [bug], resolutions=resolutions)  # same invariant, other reviewer
+        # The other reviewer repeats it under the PREFIXED id it saw in the dispositions;
+        # record strips the prefix, so it is still the same invariant.
+        prefixed = dict(bug, id='claude/guard:spelling')
+        self.report('codex', [prefixed], resolutions=resolutions)
         self.triage([dict(id='codex/guard:spelling', status='open', evidence='Still bypassed')])
         self.commit('patch again')
         result = self.start(ok=False, correction=True)
@@ -270,11 +273,30 @@ class ReviewFlowTests(unittest.TestCase):
         spec.loader.exec_module(flow)
         for path in ('src/__tests__/foo.ts', 'app/(tabs)/__tests__/index.tsx', 'tests/test_x.py',
                      'scripts/tests/test_review_flow.py', 'pkg/foo_test.go', 'a/b.test.tsx',
-                     'a/b.spec.js', 'spec/models/user_spec.rb', 'test_alone.py'):
-            self.assertTrue(flow.TEST_PATH.search(path), path)
+                     'a/b.spec.js', 'spec/models/user_spec.rb', 'test_alone.py', 'tests/fixtures/data.json'):
+            self.assertTrue(flow.is_test_path(path), path)
         for path in ('docs/spec.md', 'openapi/spec.yaml', 'test.txt', 'tests.md', 'src/latest.ts',
-                     'contest.py', 'attestation.json'):
-            self.assertFalse(flow.TEST_PATH.search(path), path)
+                     'contest.py', 'attestation.json', 'docs/spec/overview.md', 'spec/README.md',
+                     'docs/tests/plan.md', 'notes_test.txt', 'latest.spec.md', 'tests/GUIDE.rst'):
+            self.assertFalse(flow.is_test_path(path), path)
+
+    def test_record_normalizes_reviewer_prefixes(self):
+        """A prefixed or double-prefixed finding id is stored bare, so ids never nest."""
+        self.start()
+        findings = [dict(id='claude/guard:a', kind='nit', priority='P3', evidence='x'),
+                    dict(id='codex/claude/guard:b', kind='nit', priority='P3', evidence='y')]
+        self.report('claude', findings)
+        stored = [f['id'] for f in self.flow('status')['reviews']['claude']['findings']]
+        self.assertEqual(stored, ['guard:a', 'guard:b'])
+        self.report('codex')
+        self.triage([dict(id='claude/guard:a', status='deferred', evidence='nit'),
+                     dict(id='claude/guard:b', status='deferred', evidence='nit')])
+        # A duplicate hidden behind different prefixes is still a duplicate.
+        self.commit('next')
+        self.start(correction=True)
+        dupes = [dict(id='guard:c', kind='nit', priority='P3', evidence='x'),
+                 dict(id='codex/guard:c', kind='nit', priority='P3', evidence='y')]
+        self.report('claude', dupes, ok=False)
 
     def test_legacy_round_state_yields_no_fabricated_evidence(self):
         """A round frozen before evidence recording must not be presented as probed."""

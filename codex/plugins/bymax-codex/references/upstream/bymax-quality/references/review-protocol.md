@@ -139,8 +139,10 @@ why, and that reason reaches both reviewers for judgement.
 A finding open in two consecutive triages has been **reopened**: the previous fix
 addressed the instance, not the cause. `start` refuses the next round unless it is
 declared `--design-round`, records the reopened ids, and tells both reviewers the round is
-about the approach; a patch to the same instance is then itself a finding. Ids are compared
-without the reviewer prefix, and a still-open defect must be repeated under its original id.
+about the approach; a patch to the same instance is then itself a finding. Finding ids are
+normalized at `record` — every leading `claude/` or `codex/` prefix is stripped — and compared
+that way, so a still-open defect repeated under the prefixed id a reviewer saw in an earlier
+disposition still names the same invariant.
 
 The Claude pass on a correction delta is performed by a fresh-context subagent given only
 the generated prompt, never by the session that authored the fix.
