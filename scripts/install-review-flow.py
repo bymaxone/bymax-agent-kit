@@ -34,8 +34,8 @@ def policy(text):
     old = '## Code review antes de QUALQUER push'
     if old in text:
         start = text.index(old)
-        # End at the NEXT heading of any name. Splicing to a specific later heading
-        # swallowed every user section in between, deleting active instructions.
+        # The managed section ends at the next heading of any name: every user
+        # section after it, whatever it is called, is preserved untouched.
         rest = text[start + len(old):]
         boundary = rest.find('\n## ')
         if boundary < 0:
@@ -143,7 +143,9 @@ def install(home, overlay):
     if overlay:
         overlays(home, backup_dir)
     runtime.mkdir(parents=True, exist_ok=True)
-    for name in ('review_flow.py', 'review_push.py', 'review-report.schema.json'):
+    # review_flow.start installs review_prepush.py from beside itself, so the hook
+    # source must travel with the runtime or no repository ever gets the hook.
+    for name in ('review_flow.py', 'review_push.py', 'review_prepush.py', 'review-report.schema.json'):
         shutil.copy2(ROOT / 'plugins/bymax-quality/scripts' / name, runtime / name)
     settings_path.write_text(json.dumps(updated_settings, indent=2) + '\n')
     policy_path.write_text(updated_policy)

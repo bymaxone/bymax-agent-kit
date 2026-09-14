@@ -1,5 +1,6 @@
 """Installation regression layer: preserve unrelated Claude configuration and backups."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -100,7 +101,7 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(json.loads((home / 'settings.json').read_text()), settings)
 
     def test_sections_between_the_policy_delimiters_survive(self):
-        """Replacing up to a named later heading deleted every user section in between."""
+        """Only the managed section is replaced; every other user heading is preserved."""
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             (home / 'CLAUDE.md').write_text(
@@ -115,6 +116,46 @@ class InstallTests(unittest.TestCase):
                          '## Comentário de review em PR', 'keep'):
                 self.assertIn(kept, policy)
             self.assertNotIn('## Code review antes de QUALQUER push', policy)
+
+    def test_installed_runtime_installs_the_hook(self):
+        """A campaign started from the INSTALLED runtime places the pre-push hook.
+
+        The fixtures elsewhere run the repository copy of review_flow.py, beside which
+        the hook source always exists; only this path proves the deployed runtime ships it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / 'home'
+            home.mkdir()
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
+                                     '--claude-home', str(home)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            runtime = home / 'bymax-review/review_flow.py'
+            self.assertTrue((home / 'bymax-review/review_prepush.py').exists())
+            repo = Path(tmp) / 'repo'
+            repo.mkdir()
+            env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+
+            def git(*args):
+                return subprocess.check_output(['git', *args], cwd=repo, env=env, text=True).strip()
+            git('init', '-q')
+            git('config', 'user.name', 'Fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            (repo / 'a').write_text('1')
+            git('add', '.')
+            git('commit', '-qm', 'base')
+            base = git('rev-parse', 'HEAD')
+            (repo / 'a').write_text('2')
+            git('add', '.')
+            git('commit', '-qm', 'candidate')
+            context = Path(tmp) / 'context.json'
+            context.write_text(json.dumps(dict(intent='i', acceptance=['a'], constraints=['c'],
+                                               scope='s', checks=[[sys.executable, '-c', 'pass']])))
+            result = subprocess.run([sys.executable, str(runtime), 'start', '--base', base,
+                                     '--context', str(context)], cwd=repo, env=env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            hook = repo / '.git/hooks/pre-push'
+            self.assertTrue(hook.exists() and os.access(hook, os.X_OK), 'hook missing from real install')
 
     def test_unknown_policy_boundary_is_not_overwritten(self):
         """An incomplete managed section fails before settings or policy change."""

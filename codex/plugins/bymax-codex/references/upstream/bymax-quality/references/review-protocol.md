@@ -147,19 +147,29 @@ overlay with backups. It removes the old invocation-only recorder and clear asse
 It preserves unrelated hooks/settings. It does not enable the Codex Stop review gate;
 keep that separate loop disabled when this workflow is active.
 
-Use explicit commands, for example `git push -u origin HEAD:feature-name` or
-`git -C "/path with spaces" push origin feature-name`. Multiple explicit sources are
-checked individually. Implicit/wildcard/mirror pushes, shell wrappers, environment
-expansion and unsupported options fail with a corrective message. Another worktree's
-receipt cannot authorize a different SHA. Tag sources must peel to a reviewed commit;
-there is no blanket tag exemption.
+Enforcement is a Git **`pre-push` hook**, `review_prepush.py`. Git hands it the pushed
+SHAs on stdin, so it holds however the push command was spelled: it refuses any commit
+without a cleared receipt, for every ref in the push, and allows ref deletions.
+`review_flow.py start` installs it into the repository's hooks directory. It refuses to
+proceed when `core.hooksPath` is set or when a `pre-push` hook it does not manage is
+already present; both are reported for the human to reconcile, never overwritten.
 
-This is a Claude **PreToolUse Bash guard**, not a Git server security boundary. Direct
-terminal pushes, custom executable wrappers and other tools are outside that hook's
-coverage. Do not describe it as tamper-proof. For repository-wide enforcement use CI or
-an explicitly installed Git `pre-push` hook, which receives actual local/remote ref tuples;
-never replace an existing `core.hooksPath` silently. A completed review is evidence of
-coverage, not a guarantee that the code has no bugs.
+`review_push.py` is a Claude **PreToolUse Bash adapter** in front of that hook, with two
+narrow jobs. It recognises exactly `[cd <path> &&] [VAR=value ...] git [-C <dir>] push
+<remote> <refspec>...` and performs the receipt lookup for that form, so a missing receipt
+is reported with a useful message before git runs; for that form, implicit, wildcard,
+mirror, followTags, deletion and chained pushes fail with a corrective message, and
+another worktree's receipt cannot authorize a different SHA. It also refuses any command
+containing an option that would skip or redirect the hook (`no-verify`, `hooksPath`,
+`GIT_DIR`, `--git-dir`, `GIT_WORK_TREE`, writes under `.git/hooks`), matched as a
+substring wherever it appears. **Every other command passes through untouched**: a push
+spelled in any other arrangement is not the adapter's to judge, and the hook decides.
+
+The adapter is not the enforcement boundary and is not described as one. The residue no
+local design closes is a hook-skipping option spelled so the adapter's substring check
+cannot see it, since git itself provides that escape; the tests document it, and CI is
+the boundary for deliberate evasion. A completed review is evidence of coverage, not a
+guarantee that the code has no bugs.
 
 ## Basis and operating assumptions
 
@@ -183,10 +193,8 @@ regressions introduced by fixes, scope growth and elapsed time before tuning the
 ## Shell forms accepted by the local push guard
 
 Issue one explicit `git push`, optionally preceded by `cd <literal-path> &&`.
-No commands, including `cd`, may follow the push in the same Bash invocation.
-Directory changes take exactly one non-option literal argument.
-Heredocs must be separate invocations: the guard accepts standalone `cat` with a quoted
-delimiter and an optional literal output path (letters, digits, underscores, dots,
-slashes and hyphens). It rejects other heredoc forms and commands after the terminator;
-issue those operations separately. Text inside an accepted quoted heredoc is literal
-and may mention `git push` without requiring a review receipt.
+For the literal form the adapter checks, no command may follow the push in the same
+Bash invocation, and a leading `cd` takes exactly one non-option literal argument.
+Heredocs, quoted text and every other command shape need no special treatment: the
+adapter does not inspect them, so text may mention `git push` freely, and a push
+hidden inside one is stopped by the hook when git runs it.
