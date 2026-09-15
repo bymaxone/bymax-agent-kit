@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 POLICY = 2
 
@@ -141,10 +142,15 @@ def run_hook(path, remote, line):
 
 @contextlib.contextmanager
 def probe_receipt(sha):
-    """Hold a completed receipt for one commit only while the hook is being probed."""
-    directory = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review' / 'probe'
-    shutil.rmtree(directory, ignore_errors=True)
-    directory.mkdir(parents=True)
+    """Hold a completed receipt for one commit only while this process probes the hook.
+
+    Linked worktrees share the common directory, so each probe gets its own directory:
+    a sibling campaign starting at the same moment neither sees this receipt replaced
+    nor has its own removed.
+    """
+    root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
+    root.mkdir(parents=True, exist_ok=True)
+    directory = Path(tempfile.mkdtemp(prefix='probe-', dir=root))
     receipt = dict(head=sha, cleared=True, policy=POLICY, reviews=dict(claude={}, codex={}))
     (directory / 'completed-probe.json').write_text(json.dumps(receipt))
     try:
@@ -176,8 +182,12 @@ def usable_hook(path):
     # receipts does both: one that exits 0 fails the first push, one that refuses for any
     # other reason fails the second.
     head = git('rev-parse', 'HEAD')
+    # The message carries a nonce: two worktrees at the same HEAD probing within the same
+    # second would otherwise build the same commit, and one's temporary receipt would
+    # name the other's unreceipted push.
     dangling = subprocess.run(['git', '-c', 'user.name=bymax-probe', '-c', 'user.email=probe@bymax.invalid',
-                               'commit-tree', head + '^{tree}', '-p', head, '-m', 'bymax receipt probe'],
+                               'commit-tree', head + '^{tree}', '-p', head,
+                               '-m', 'bymax receipt probe ' + os.urandom(8).hex()],
                               capture_output=True, text=True, check=True).stdout.strip()
     branch = git('symbolic-ref', '--quiet', 'HEAD')
     line = f'{branch} {dangling} {branch} {head}\n'

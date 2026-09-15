@@ -189,11 +189,12 @@ another policy or is not executable is refused at `start`, with the remedy named
 the candidate is frozen, `start` also runs that hook twice as git would (through `sh` when
 it has no shebang, within 60 seconds each, with origin's name and URL as arguments),
 feeding it one push line shaped like a real push: the current branch, fast-forwarded by a
-dangling child of HEAD built from the current tree. That commit exists, has a parent and
-sits on an existing ref, but no receipt names it: the hook must refuse the first push.
-For the second push the helper holds a temporary completed receipt for that commit
-(under `bymax-review/probe/`, removed afterwards even on failure): the hook must let it
-through. A hook that exits 0 for the first push does not enforce receipts; one that
+dangling child of HEAD built from the current tree. That commit exists and has a parent,
+and the pushed ref is a real branch, but no receipt names the commit: the hook must
+refuse the first push. For the second push the helper holds a temporary completed
+receipt for that commit (in a directory of its own under `bymax-review/`, removed
+afterwards even on failure, so concurrent starts in linked worktrees do not disturb each
+other): the hook must let it through. A hook that exits 0 for the first push does not enforce receipts; one that
 refuses the second is refusing for some other reason and is not consulting receipts.
 Both are refused at `start`, with the remedy named.
 

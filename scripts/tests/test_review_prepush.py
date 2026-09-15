@@ -11,6 +11,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -265,6 +267,34 @@ class PrePushInvariantTests(unittest.TestCase):
         refused = self.attempt('git push origin HEAD:feature')
         self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
+
+    def test_concurrent_starts_in_linked_worktrees_probe_independently(self):
+        """Two campaigns starting at once on sibling worktrees share the common directory;
+        neither probe may replace or remove the other's temporary receipt."""
+        other = self.root / 'other'
+        self.git('worktree', 'add', '-q', '-b', 'other', str(other))
+        # An honest hook that takes a moment widens the window in which the probes overlap.
+        hook = self.repo / '.git/hooks/pre-push'
+        hook.write_text('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
+                        'sleep 1\nexec ' + sys.executable + ' ' + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n')
+        hook.chmod(0o755)
+        command = [sys.executable, str(FLOW), 'start', '--base', self.base, '--context', str(self.root / 'context.json')]
+        results = {}
+
+        def start(name, cwd, delay):
+            time.sleep(delay)
+            results[name] = subprocess.run(command, cwd=cwd, env=self.env, capture_output=True, text=True)
+
+        for delay in (0.0, 0.5):
+            threads = [threading.Thread(target=start, args=('repo', self.repo, 0.0)),
+                       threading.Thread(target=start, args=('other', other, delay))]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            for name, result in results.items():
+                self.assertEqual(result.returncode, 0, f'{name} with {delay}s offset: {result.stderr}')
+        self.assertEqual(list((self.repo / '.git/bymax-review').glob('probe-*')), [])
 
     def test_stale_bundled_hook_is_refused_not_kept(self):
         """A hook from an earlier runtime declares its policy; kept, it would refuse every push."""
