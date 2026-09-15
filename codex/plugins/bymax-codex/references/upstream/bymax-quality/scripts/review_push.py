@@ -19,6 +19,7 @@ import subprocess
 import sys
 
 from review_flow import POLICY, require
+from review_prepush import orphaned
 
 # Anything that would skip the pre-push hook or point git at another repository. These
 # are matched as substrings of the raw command, wherever they appear: position does not
@@ -96,6 +97,8 @@ def approved(cwd, source):
     for path in paths:
         state = json.loads(path.read_text())
         if state.get('head') != sha or not state.get('cleared') or state.get('policy') != POLICY:
+            continue
+        if orphaned(state):
             continue
         require(set(state.get('reviews', {})) == {'claude', 'codex'}, 'Receipt lacks both reviews.')
         return

@@ -8,6 +8,7 @@ This file is copied into the repository's hooks directory by review_flow.py and
 must stay self-contained: it imports only the standard library.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,22 @@ def peeled(sha):
     return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else sha
 
 
+def orphaned(state):
+    """A probe receipt names the process holding it; one whose process is gone is void."""
+    pid = state.get('probe_pid')
+    if pid is None:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:  # another user's live process
+        return False
+    except (TypeError, ValueError, OverflowError):  # not a pid at all: nothing holds it
+        return True
+    return False
+
+
 def cleared(common, sha):
     """Report whether a completed Claude + Codex campaign cleared exactly this commit."""
     for path in receipts(common):
@@ -47,7 +64,8 @@ def cleared(common, sha):
             continue
         if (state.get('head') == sha and state.get('cleared')
                 and state.get('policy') == POLICY
-                and set(state.get('reviews', {})) == {'claude', 'codex'}):
+                and set(state.get('reviews', {})) == {'claude', 'codex'}
+                and not orphaned(state)):
             return True
     return False
 

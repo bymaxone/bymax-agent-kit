@@ -103,14 +103,15 @@ def install_hook():
     source = Path(__file__).with_name('review_prepush.py')
     custom = subprocess.run(['git', 'config', '--get', 'core.hooksPath'], capture_output=True, text=True)
     if custom.returncode == 0:
-        # A custom hooks directory is the user's: never write into it. It qualifies once
-        # the receipt check has been merged into its pre-push by hand.
+        # A custom hooks directory is the user's: never write into it. Its pre-push
+        # qualifies by behaviour alone, so a generated stub that delegates to a tracked
+        # hook (husky's layout) qualifies when the hook it runs invokes the check.
         toplevel = Path(git('rev-parse', '--show-toplevel'))
         reconciled = (toplevel / Path(custom.stdout.strip()).expanduser()) / 'pre-push'
-        require(reconciled.exists() and HOOK_MARKER in reconciled.read_text(errors='replace'),
-                'core.hooksPath is set to ' + custom.stdout.strip() + '; merge the receipt check '
-                '(plugins/bymax-quality/scripts/review_prepush.py) into ' + str(reconciled)
-                + ' by hand, keeping its marker line, and start again.')
+        require(reconciled.exists(),
+                'core.hooksPath is set to ' + custom.stdout.strip() + ' and holds no pre-push; add one '
+                'there (or in the tracked hook a generated stub delegates to) that invokes '
+                'plugins/bymax-quality/scripts/review_prepush.py, and start again.')
         usable_hook(reconciled)
         return
     target = Path(git('rev-parse', '--git-common-dir')).resolve() / 'hooks' / 'pre-push'
@@ -157,15 +158,38 @@ def probe_receipt(sha):
     root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
     root.mkdir(parents=True, exist_ok=True)
     for stale in root.glob('probe-*'):
-        if time.time() - stale.stat().st_mtime > 3 * HOOK_SECONDS:
+        try:
+            aged = time.time() - stale.stat().st_mtime > 3 * HOOK_SECONDS
+        except FileNotFoundError:  # a sibling's probe finished between the listing and the stat
+            continue
+        if aged:
             shutil.rmtree(stale, ignore_errors=True)
     directory = Path(tempfile.mkdtemp(prefix='probe-', dir=root))
-    receipt = dict(head=sha, cleared=True, policy=POLICY, reviews=dict(claude={}, codex={}))
+    # The receipt names its owner: the hook and the adapter ignore a probe receipt whose
+    # process is gone, so one orphaned by a kill authorises nothing even before the sweep.
+    receipt = dict(head=sha, cleared=True, policy=POLICY, reviews=dict(claude={}, codex={}),
+                   probe_pid=os.getpid())
     (directory / 'completed-probe.json').write_text(json.dumps(receipt))
     try:
         yield
     finally:
         shutil.rmtree(directory, ignore_errors=True)
+
+
+def probe_commit(head, nonce):
+    """Build the dangling child of HEAD the hook probe pushes; return its SHA.
+
+    The message carries a nonce: two worktrees at the same HEAD probing within the same
+    second would otherwise build the same commit, and one's temporary receipt would
+    name the other's unreceipted push. The user's identity is used when git has one, so
+    an author check in the hook sees a normal commit; a probe identity is the fallback.
+    """
+    command = ['commit-tree', head + '^{tree}', '-p', head, '-m', 'chore: bymax receipt probe ' + nonce]
+    own = subprocess.run(['git', *command], capture_output=True, text=True)
+    if own.returncode == 0:
+        return own.stdout.strip()
+    return subprocess.run(['git', '-c', 'user.name=bymax-probe', '-c', 'user.email=probe@bymax.invalid', *command],
+                          capture_output=True, text=True, check=True).stdout.strip()
 
 
 def usable_hook(path):
@@ -184,30 +208,31 @@ def usable_hook(path):
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
     # The marker is a claim; a pair of pushes is the check. The push is shaped like a real
-    # one — the current branch, fast-forwarded by a dangling child of HEAD built from the
-    # current tree, towards origin's URL — so a hook that also checks the ref, the parent
-    # or the remote passes those checks. Without a receipt the hook must refuse it; while
-    # a temporary receipt names it, the hook must let it through. A hook that exits 0
-    # fails the first push; one that refuses for a reason the probe does not satisfy (the
-    # branch still points at HEAD, the author is the probe's) fails the second, closed.
-    # Hook code written to recognise the probe itself is trusted code, outside this check.
+    # one — a temporary ref, resolving to a dangling child of HEAD built from the current
+    # tree in the user's own identity, fast-forwarding the current branch on origin's URL
+    # — so a hook that also checks the ref, its tip, the parent, the author or the remote
+    # passes those checks. Without a receipt the hook must refuse it; while a temporary
+    # receipt names it, the hook must let it through. A hook that exits 0 fails the first
+    # push; one that refuses for a reason the probe does not satisfy fails the second,
+    # closed. Hook code written to recognise the probe is trusted code, outside this check.
     head = git('rev-parse', 'HEAD')
-    # The message carries a nonce: two worktrees at the same HEAD probing within the same
-    # second would otherwise build the same commit, and one's temporary receipt would
-    # name the other's unreceipted push.
-    dangling = subprocess.run(['git', '-c', 'user.name=bymax-probe', '-c', 'user.email=probe@bymax.invalid',
-                               'commit-tree', head + '^{tree}', '-p', head,
-                               '-m', 'bymax receipt probe ' + os.urandom(8).hex()],
-                              capture_output=True, text=True, check=True).stdout.strip()
+    nonce = os.urandom(8).hex()
+    dangling = probe_commit(head, nonce)
     branch = git('symbolic-ref', '--quiet', 'HEAD')
-    line = f'{branch} {dangling} {branch} {head}\n'
+    ref = 'refs/bymax-review/probe-' + nonce
+    git('update-ref', ref, dangling)
+    line = f'{ref} {dangling} {branch} {head}\n'
     url = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True)
     remote = ('origin', url.stdout.strip() if url.returncode == 0 else 'origin')
-    require(run_hook(path, remote, line) != 0,
-            f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
-            'receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
-    with probe_receipt(dangling):
-        status = run_hook(path, remote, line)
+    try:
+        unreceipted = run_hook(path, remote, line)
+        require(unreceipted != 0,
+                f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
+                'receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
+        with probe_receipt(dangling):
+            status = run_hook(path, remote, line)
+    finally:
+        git('update-ref', '-d', ref)
     require(status == 0,
             f'{path} refused a push of a commit that holds a completed receipt (exit {status}), so it '
             'is not consulting receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, '
