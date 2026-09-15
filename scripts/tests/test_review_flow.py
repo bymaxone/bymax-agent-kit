@@ -410,6 +410,38 @@ class ReviewFlowTests(unittest.TestCase):
                                     widen='fixture: this case is about keys, not about scope'
                                     )['reopened'], ['README.md:x', 'codex/README.md:x'])
 
+    def test_the_scope_rule_reads_the_same_paths_from_wherever_it_runs(self):
+        """`git diff` is root-relative; `ls-tree` without --full-tree is not.
+
+        A guardrail that goes silent when the caller happens to be in a subdirectory is
+        not a guardrail, and the caller's directory is not something a campaign controls.
+        """
+        (self.repo / 'named.txt').write_text('the finding names this\n')
+        (self.repo / 'sub').mkdir()
+        (self.repo / 'sub/keep.txt').write_text('somewhere to stand\n')
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'add the named file and a subdirectory')
+        self.start()
+        self.report('claude', [dict(id='named.txt:wrong', kind='defect', priority='P1',
+                                    evidence='wrong')])
+        self.report('codex', [])
+        self.triage([dict(id='claude::named.txt:wrong', status='open', evidence='Confirmed')])
+        (self.repo / 'named.txt').write_text('fixed\n')
+        (self.repo / 'unasked.txt').write_text('a file nobody asked for\n')
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'fix, and one more thing')
+
+        probe = self.root / 'probe.json'
+        probe.write_text(json.dumps([dict(command='c', expected='e', observed='e')]))
+        arguments = [str(FLOW), 'start', '--base', self.base, '--context', str(self.context),
+                     '--probe', str(probe), '--no-regression-reason', 'fixture']
+        for where in (self.repo, self.repo / 'sub'):
+            result = subprocess.run([sys.executable, *arguments], cwd=where,
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 2, f'from {where.name} the rule stayed silent')
+            self.assertIn('unasked.txt', result.stderr)
+            self.assertNotIn('named.txt', result.stderr.split('No open finding names:')[1])
+
     def test_a_correction_may_delete_the_file_its_finding_named(self):
         """Deleting the file is a fix, and the rule must not read that as erased evidence.
 

@@ -345,7 +345,11 @@ def named_files(state):
     """
     prefixes = {item['id'].split('::', 1)[-1].split(':', 1)[0]
                 for item in state.get('triage') or [] if item['status'] == 'open'}
-    reviewed = set(git('ls-tree', '-r', '--name-only', state['head']).splitlines())
+    # --full-tree, because `ls-tree` is otherwise scoped to the process working directory
+    # while `git diff --name-only` is always root-relative; -z, because git C-quotes a
+    # non-ASCII path otherwise, and a quoted name matches nothing.
+    listing = git('ls-tree', '-r', '-z', '--full-tree', '--name-only', state['head'])
+    reviewed = {path for path in listing.split('\0') if path}
     return prefixes & reviewed
 
 
