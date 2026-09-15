@@ -344,7 +344,9 @@ For each failing check:
      -q '[.[] | select(.name == "<check-name>" and .conclusion == "failure")][0].databaseId')
    # The re-run block below is a separate fence and wakes into a fresh shell, so the id
    # is recorded here rather than carried. This is the only block that resolves it.
-   printf '%s\n' "$RUN_ID" > "$(git rev-parse --git-dir)/bymax-babysit-run"
+   # The head it belongs to goes with it: a run id outlives the commit it was resolved
+   # for, and re-running a run from an earlier push tells the loop nothing.
+   printf '%s\n%s\n' "$HEAD_SHA" "$RUN_ID" > "$(git rev-parse --git-dir)/bymax-babysit-run"
    gh run view "$RUN_ID" --log-failed > /tmp/babysit-failure.log
    ```
 
@@ -366,13 +368,23 @@ For each failing check:
    # source, so the failing-check block above recorded the run id and this reads it
    # back. A run id is digits; `gh run list` yields the literal null when no failing
    # run matched the check name, which is the reachable cause of an empty value.
-   RUN_ID=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-babysit-run" 2>/dev/null || true)
+   PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+   RECORDED_SHA=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-babysit-run" 2>/dev/null || true)
+   RUN_ID=$(sed -n 2p "$(git rev-parse --git-dir)/bymax-babysit-run" 2>/dev/null || true)
    case "$RUN_ID" in
      ''|*[!0-9]*)
        echo "No failing run id recorded. Re-run the failing-check block above; if it" >&2
        echo "recorded null, no failed run matches that check name." >&2
        exit 1 ;;
    esac
+   # The id was resolved for one commit. A push since then makes it a run from an
+   # earlier head, and re-running that tells the loop nothing about the code in flight.
+   if [ -z "$PR_NUMBER" ] || [ -z "$RECORDED_SHA" ] || \
+      [ "$RECORDED_SHA" != "$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)" ]; then
+     echo "The recorded run belongs to an earlier head. Re-run the failing-check block" >&2
+     echo "above to resolve the run for the current one." >&2
+     exit 1
+   fi
    gh run rerun "$RUN_ID" --failed
    ```
    Increment `flakyReruns[<check>]` in state. **Cap at 3 re-runs.** If a

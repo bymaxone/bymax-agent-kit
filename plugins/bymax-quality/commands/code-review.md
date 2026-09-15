@@ -171,10 +171,18 @@ case "$RANGE" in
     exit 1 ;;
   *)
     # A stale pair is indistinguishable from a current one by shape, and reviewing the
-    # wrong scope is worse than refusing: the endpoint must be the commit in hand.
+    # wrong scope is worse than refusing. Two things make a recorded pair the scope in
+    # hand: it ends at this commit, and the tree is clean. A campaign freezes a clean
+    # tree, so dirty work is proof that what is under review is not what was recorded —
+    # and dirtying a file does not move HEAD, so the first check alone misses it.
     [ "${RANGE##*..}" = "$(git rev-parse HEAD)" ] || {
       echo "Recorded range ends at ${RANGE##*..}, not at HEAD. Re-run review_flow.py" >&2
       echo "start for this candidate, or write HEAD for a dirty preview." >&2
+      exit 1 ; }
+    git diff --quiet && git diff --cached --quiet || {
+      echo "The worktree is dirty, so the recorded range is not the scope in hand." >&2
+      echo "Write HEAD to .git/bymax-review-range for a preview, and read untracked" >&2
+      echo "files separately; commit the candidate for a campaign." >&2
       exit 1 ; } ;;
 esac
 # Added content lines only: git marks them '>' instead of '+', leaving the

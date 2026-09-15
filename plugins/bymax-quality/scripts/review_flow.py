@@ -858,9 +858,10 @@ def main():
                 globals()[args.action](args, directory, state)
             elif args.action == 'finish':
                 finish(directory, state)
-        # Every lifecycle command passes here, so this is where the endpoints the gate
-        # reads are kept true: written while a campaign owns a scope, removed once it
-        # does not. Re-running start is then the remedy for a deleted file.
+        # Every command that reaches this line owns a state, which is what makes it the
+        # place to keep the endpoints the gate reads true: written while a campaign owns
+        # a scope, removed once it does not. prompt and codex return earlier and record
+        # nothing, so start and status are the two that restore a deleted file.
         record_range(state)
         print(json.dumps(dict(directory=str(directory), **state), indent=2))
 

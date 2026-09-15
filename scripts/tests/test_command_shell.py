@@ -146,6 +146,44 @@ class CommandShellTests(unittest.TestCase):
                      'DEFAULT_REF=$(sed -n 1p handoff)', 'RUN_ID=$(gh run list -q .id)'):
             self.assertNotRegex(safe, PASTE, f'{safe!r} is not a paste and is refused')
 
+    def test_a_recorded_range_is_refused_while_the_worktree_is_dirty(self):
+        """A campaign freezes a clean tree, so dirty work is not the scope it recorded.
+
+        Endpoint equality alone was not enough: dirtying a tracked file does not move
+        HEAD, so a preview kept greping the committed range and missed the uncommitted
+        lines it exists to catch.
+        """
+        fixture = Path(tempfile.mkdtemp())
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+        subprocess.run(['git', 'init', '-q', str(fixture)], env=env, check=True)
+        for setting, value in (('user.name', 'fixture'), ('user.email', 'f@x.invalid')):
+            subprocess.run(['git', 'config', setting, value], cwd=fixture, env=env, check=True)
+        (fixture / 'f').write_text('1\n')
+        subprocess.run(['git', 'add', 'f'], cwd=fixture, env=env, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'c'], cwd=fixture, env=env, check=True)
+        head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=fixture, env=env,
+                              capture_output=True, text=True, check=True).stdout.strip()
+        guard = None
+        for _, block in blocks(ROOT / 'plugins/bymax-quality/commands/code-review.md'):
+            if 'case "$RANGE" in' in block:
+                guard = block[block.index('case "$RANGE" in'):]
+                guard = guard[:guard.index('esac') + 4]
+        self.assertIsNotNone(guard, 'the mechanical gate no longer guards its range')
+
+        def run(value):
+            return subprocess.run(['bash', '-c', f'RANGE={value!r}\n{guard}\necho ACCEPTED'],
+                                  cwd=fixture, env=env, capture_output=True, text=True)
+
+        self.assertIn('ACCEPTED', run(f'{head}..{head}').stdout,
+                      'the guard refuses a current range on a clean tree')
+        (fixture / 'f').write_text('dirty\n')
+        refused = run(f'{head}..{head}')
+        self.assertNotIn('ACCEPTED', refused.stdout,
+                         'the guard accepts a committed range while the worktree is dirty')
+        self.assertIn('worktree is dirty', refused.stderr)
+        self.assertIn('ACCEPTED', run('HEAD').stdout,
+                      'a dirty preview must still be able to say HEAD')
+
     def test_every_handoff_a_document_reads_is_written_by_that_document(self):
         """A read with no producer is a path that can only fail.
 
@@ -187,10 +225,19 @@ class CommandShellTests(unittest.TestCase):
 
     def test_a_guard_accepts_every_value_its_own_document_prescribes(self):
         """A guard that refuses a documented value closes the path it was added to protect."""
-        # The range guard compares its endpoint with HEAD, so the pair it must accept is
-        # this tree's own: a made-up pair would be refused for being stale, not for shape.
-        head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True,
-                              text=True, check=True).stdout.strip()
+        # The range guard reads HEAD and the worktree, so it runs against a fixture
+        # repository with one commit and nothing pending. Running it here would refuse a
+        # correct pair whenever this tree happens to be dirty, which is not the rule.
+        fixture = Path(tempfile.mkdtemp())
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+        subprocess.run(['git', 'init', '-q', str(fixture)], env=env, check=True)
+        for setting, value in (('user.name', 'fixture'), ('user.email', 'f@x.invalid')):
+            subprocess.run(['git', 'config', setting, value], cwd=fixture, env=env, check=True)
+        (fixture / 'f').write_text('1\n')
+        subprocess.run(['git', 'add', 'f'], cwd=fixture, env=env, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'c'], cwd=fixture, env=env, check=True)
+        head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=fixture, env=env,
+                              capture_output=True, text=True, check=True).stdout.strip()
         prescribed = {
             'plugins/bymax-quality/commands/code-review.md': ('HEAD', f'{head}..{head}'),
             'plugins/bymax-pr/skills/babysit-pr/SKILL.md': ('1234567890',),
@@ -206,7 +253,7 @@ class CommandShellTests(unittest.TestCase):
                 case = case[:case.index('esac') + 4]
                 for value in values:
                     script = f'{name}={value!r}\n{case}\necho ACCEPTED'
-                    outcome = subprocess.run(['bash', '-c', script], cwd=ROOT,
+                    outcome = subprocess.run(['bash', '-c', script], cwd=fixture, env=env,
                                              capture_output=True, text=True)
                     self.assertIn('ACCEPTED', outcome.stdout,
                                   f'{relative} guards {name} and refuses {value!r}, which the '
