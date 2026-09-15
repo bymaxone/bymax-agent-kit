@@ -456,7 +456,7 @@ class PrePushInvariantTests(unittest.TestCase):
 
     def test_interrupted_probe_receipt_is_swept_before_it_can_clear_a_push(self):
         """A probe killed mid-run leaves a receipt for a commit carrying the candidate's tree;
-        the next probe removes it once it is older than the two hook runs could have taken."""
+        the next probe removes it once it is older than a probe can be."""
         stale = self.repo / '.git/bymax-review/probe-left'
         stale.mkdir(parents=True)
         orphan = self.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'interrupted probe')
@@ -469,6 +469,16 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertNotEqual(self.attempt(f'git push origin {orphan}:refs/heads/orphan').returncode, 0)
         self.assertFalse(self.remote_has(orphan))
+
+    def test_dangling_hook_symlink_is_refused_not_written_through(self):
+        """A symlink at hooks/pre-push whose target does not exist yet is somebody's hook
+        arrangement: start refuses it as unmanaged instead of creating the target file."""
+        hook = self.repo / '.git/hooks/pre-push'
+        hook.unlink()
+        hook.symlink_to(self.repo / 'scripts/hooks/pre-push')
+        self.assertIn('not managed by this campaign', self.start_refused())
+        self.assertFalse((self.repo / 'scripts/hooks/pre-push').exists())
+        self.assertTrue(hook.is_symlink())
 
     def test_stale_bundled_hook_is_refused_not_kept(self):
         """A hook from an earlier runtime declares its policy; kept, it would refuse every push."""

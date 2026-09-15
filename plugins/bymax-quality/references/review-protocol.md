@@ -55,7 +55,15 @@ combine custom instructions with its scope flags in the installed CLI. The share
 includes explicit Git endpoints instead. Codex receives an output schema and must return JSON without Markdown fences. A report
 with `status: incomplete` is rejected even if its findings list is empty.
 One failed attempt may be retried for an infrastructure/format error; never retry a valid
-review to seek a different opinion. Each attempt has a ten-minute ceiling. Failure or a
+review to seek a different opinion, and do not spend the retry on a report whose summary
+cites a sandbox or permission denial: the same sandbox fails identically, and `record` says
+so. The generated prompt tells both reviewers that the declared checks are the caller's to
+run and that anything they cannot execute is a limitation to state, not `incomplete`. In
+JS/TS repositories, keep tool caches inside the workspace before starting a campaign
+(Jest `cacheDirectory: '<rootDir>/node_modules/.cache/jest'`; Vitest, ESLint
+`--cache-location` and Next likewise): read-only review sandboxes deny `$TMPDIR`, where
+those tools write by default, and a reviewer that reaches for the suite then dies before
+its first test. Each attempt has a ten-minute ceiling. Failure or a
 missing CLI blocks completion; it does not imply a code defect.
 A separate OS lock prevents simultaneous Codex attempts while Claude can still record.
 The Codex child inherits that lock: if its launcher dies, wait for the child to exit before
@@ -220,8 +228,8 @@ satisfy (a local ref that is not a branch, for instance) and is refused as not
 consulting receipts; one that accepts the third or the fourth honours a receipt nobody
 holds, as a checker from an earlier runtime does. Every refusal names the remedy; a kept file is never rewritten,
 so a check merged into it by hand survives, and a copy of an earlier checker is refused
-by the third push until it is deleted (the bundled hook is then reinstalled) or pointed
-at the current checker. A probe receipt that carries a pid but nothing to hold — the
+by the third or the fourth push until it is deleted (the bundled hook is then reinstalled)
+or pointed at the current checker. A probe receipt that carries a pid but nothing to hold — the
 shape an earlier runtime wrote — is void. The ref and the directory are removed afterwards, and what
 an interrupted probe left behind is swept by the next probe once older than a probe
 can be. Hook code written to recognise the probe is trusted code and outside what a

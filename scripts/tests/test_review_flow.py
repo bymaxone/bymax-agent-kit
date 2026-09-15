@@ -266,6 +266,27 @@ class ReviewFlowTests(unittest.TestCase):
         # A probe the reviewer's sandbox cannot run is a limitation to state, not `incomplete`.
         self.assertIn('is a limitation to state in your summary, not a reason to report incomplete', prompt.stdout)
 
+    def test_prompt_keeps_sandboxed_reviewers_off_the_declared_checks(self):
+        """Declared checks are the caller's to run; a reviewer that gave up on a sandbox denial is
+        told the environment fix, so the retry is not spent on the same failure."""
+        self.start()
+        prompt = self.flow('prompt')
+        self.assertIn('executed and recorded by the caller through review_flow.py check', prompt.stdout)
+        self.assertIn('never a reason to report incomplete', prompt.stdout)
+        state = self.flow('status')
+        path = self.root / 'incomplete.json'
+        path.write_text(json.dumps(dict(status='incomplete', head=state['head'], base=state['review_base'],
+                                        summary="Could not run the suite: EPERM: operation not permitted, open '/tmp/jest_dx'",
+                                        findings=[], resolutions=[])))
+        refused = self.flow('record', '--reviewer', 'codex', '--report', str(path), ok=False).stderr
+        self.assertIn('a retry in the same sandbox fails identically', refused)
+        self.assertIn("cacheDirectory: '<rootDir>/node_modules/.cache/jest'", refused)
+        path.write_text(json.dumps(dict(status='incomplete', head=state['head'], base=state['review_base'],
+                                        summary='Ran out of time', findings=[], resolutions=[])))
+        refused = self.flow('record', '--reviewer', 'codex', '--report', str(path), ok=False).stderr
+        self.assertIn('did not complete its scope', refused)
+        self.assertNotIn('sandbox', refused)
+
     def test_reopened_is_an_invariant_not_an_id_and_needs_no_design_round_otherwise(self):
         """The other reviewer re-reporting the defect still counts; --design-round alone does not."""
         self.start()
