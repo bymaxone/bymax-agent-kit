@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 POLICY = 2
 
@@ -126,13 +127,16 @@ def install_hook():
     target.chmod(0o755)
 
 
+HOOK_SECONDS = 60
+
+
 def run_hook(path, remote, line):
     """Run a pre-push hook as git does on one push line; return its exit status."""
-    # git runs a hook without a shebang through sh; so does this.
+    # git runs a hook from the worktree root, and one without a shebang through sh.
     interpreter = [] if path.read_bytes().startswith(b'#!') else ['sh']
     try:
-        probe = subprocess.run([*interpreter, str(path), *remote], input=line,
-                               capture_output=True, text=True, timeout=60)
+        probe = subprocess.run([*interpreter, str(path), *remote], input=line, capture_output=True,
+                               text=True, timeout=HOOK_SECONDS, cwd=git('rev-parse', '--show-toplevel'))
     except subprocess.TimeoutExpired:
         raise ValueError(f'{path} did not finish within 60 s when probed with one push line; fix or delete it.')
     except OSError as error:
@@ -146,10 +150,15 @@ def probe_receipt(sha):
 
     Linked worktrees share the common directory, so each probe gets its own directory:
     a sibling campaign starting at the same moment neither sees this receipt replaced
-    nor has its own removed.
+    nor has its own removed. A probe killed mid-run cannot remove its own receipt, and
+    that receipt names a commit carrying the candidate's tree, so every probe directory
+    older than the two hook runs could have taken is swept first.
     """
     root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
     root.mkdir(parents=True, exist_ok=True)
+    for stale in root.glob('probe-*'):
+        if time.time() - stale.stat().st_mtime > 3 * HOOK_SECONDS:
+            shutil.rmtree(stale, ignore_errors=True)
     directory = Path(tempfile.mkdtemp(prefix='probe-', dir=root))
     receipt = dict(head=sha, cleared=True, policy=POLICY, reviews=dict(claude={}, codex={}))
     (directory / 'completed-probe.json').write_text(json.dumps(receipt))
@@ -176,11 +185,12 @@ def usable_hook(path):
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
     # The marker is a claim; a pair of pushes is the check. The push is shaped like a real
     # one — the current branch, fast-forwarded by a dangling child of HEAD built from the
-    # current tree, towards origin's URL — so a hook that also inspects refs, parents or
-    # the remote sees nothing unusual. Without a receipt the hook must refuse it; while a
-    # temporary receipt names it, the hook must let it through. Only a hook that consults
-    # receipts does both: one that exits 0 fails the first push, one that refuses for any
-    # other reason fails the second.
+    # current tree, towards origin's URL — so a hook that also checks the ref, the parent
+    # or the remote passes those checks. Without a receipt the hook must refuse it; while
+    # a temporary receipt names it, the hook must let it through. A hook that exits 0
+    # fails the first push; one that refuses for a reason the probe does not satisfy (the
+    # branch still points at HEAD, the author is the probe's) fails the second, closed.
+    # Hook code written to recognise the probe itself is trusted code, outside this check.
     head = git('rev-parse', 'HEAD')
     # The message carries a nonce: two worktrees at the same HEAD probing within the same
     # second would otherwise build the same commit, and one's temporary receipt would

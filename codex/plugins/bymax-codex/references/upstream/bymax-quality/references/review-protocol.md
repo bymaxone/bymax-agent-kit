@@ -186,17 +186,22 @@ the check into by hand, never overwritten; one that carries the check at the cur
 policy is kept as merged. A custom `core.hooksPath` directory is never written into: it
 qualifies once its `pre-push` carries the check. In either place, a hook that declares
 another policy or is not executable is refused at `start`, with the remedy named. Before
-the candidate is frozen, `start` also runs that hook twice as git would (through `sh` when
-it has no shebang, within 60 seconds each, with origin's name and URL as arguments),
-feeding it one push line shaped like a real push: the current branch, fast-forwarded by a
-dangling child of HEAD built from the current tree. That commit exists and has a parent,
-and the pushed ref is a real branch, but no receipt names the commit: the hook must
-refuse the first push. For the second push the helper holds a temporary completed
-receipt for that commit (in a directory of its own under `bymax-review/`, removed
-afterwards even on failure, so concurrent starts in linked worktrees do not disturb each
-other): the hook must let it through. A hook that exits 0 for the first push does not enforce receipts; one that
-refuses the second is refusing for some other reason and is not consulting receipts.
-Both are refused at `start`, with the remedy named.
+the candidate is frozen, `start` also runs that hook twice as git would (from the worktree
+root, through `sh` when it has no shebang, within 60 seconds each, with origin's name and
+URL as arguments), feeding it one push line shaped like a real push: the current branch,
+fast-forwarded by a dangling child of HEAD built from the current tree. That commit exists
+and has a parent, and the pushed ref is a real branch, but no receipt names the commit:
+the hook must refuse the first push. For the second push the helper holds a temporary
+completed receipt for that commit in a directory of its own under `bymax-review/`, so
+concurrent starts in linked worktrees do not disturb each other; it is removed afterwards,
+and a directory an interrupted probe left behind is swept by the next probe once it is
+older than the two runs could have taken. The hook must let the second push through. A
+hook that exits 0 for the first push does not enforce receipts; one that refuses the
+second is refusing for a reason the probe does not satisfy — the branch still points at
+HEAD, the author is the probe's — and is refused as not consulting receipts; both
+refusals name the remedy. Hook code written to recognise the probe is trusted code and
+outside what a local probe can establish. A receipt completed under another policy does
+not authorise its commit: the hook and the adapter require the current policy.
 
 `review_push.py` is a Claude **PreToolUse Bash adapter** in front of that hook, with two
 narrow jobs. It recognises exactly `[cd <path> &&] [VAR=value ...] git [-C <dir>] push

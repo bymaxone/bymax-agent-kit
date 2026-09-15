@@ -243,7 +243,7 @@ class PrePushInvariantTests(unittest.TestCase):
         hook.write_text('# ' + marker + '\nexec ' + sys.executable + ' '
                         + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n')
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
-        self.assertFalse((self.repo / '.git/bymax-review/probe').exists())
+        self.assertEqual(list((self.repo / '.git/bymax-review').glob('probe-*')), [])
 
     def test_probe_push_looks_real_to_a_fussy_hook(self):
         """A merged hook that also checks the pushed ref, parent and remote, as a real push
@@ -295,6 +295,43 @@ class PrePushInvariantTests(unittest.TestCase):
             for name, result in results.items():
                 self.assertEqual(result.returncode, 0, f'{name} with {delay}s offset: {result.stderr}')
         self.assertEqual(list((self.repo / '.git/bymax-review').glob('probe-*')), [])
+
+    def test_start_from_a_subdirectory_probes_the_hook_at_the_toplevel(self):
+        """git runs pre-push from the worktree root, so a merged hook naming its checker by a
+        root-relative path is valid; the probe must run it from there wherever start runs."""
+        tools = self.repo / '.git/tools'
+        tools.mkdir()
+        (tools / 'check.py').write_bytes(FLOW.with_name('review_prepush.py').read_bytes())
+        hook = self.repo / '.git/hooks/pre-push'
+        hook.write_text('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
+                        'exec ' + sys.executable + ' .git/tools/check.py "$@"\n')
+        hook.chmod(0o755)
+        (self.repo / 'sub').mkdir()
+        result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
+                                 '--context', str(self.root / 'context.json')],
+                                cwd=self.repo / 'sub', env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # The same hook keeps enforcing when git runs it from the root on a real push.
+        self.commit('unreviewed')
+        refused = self.attempt('git push origin HEAD:feature')
+        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
+
+    def test_interrupted_probe_receipt_is_swept_before_it_can_clear_a_push(self):
+        """A probe killed mid-run leaves a receipt for a commit carrying the candidate's tree;
+        the next probe removes it once it is older than the two hook runs could have taken."""
+        stale = self.repo / '.git/bymax-review/probe-left'
+        stale.mkdir(parents=True)
+        orphan = self.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'interrupted probe')
+        (stale / 'completed-probe.json').write_text(json.dumps(dict(
+            head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}))))
+        os.utime(stale, (time.time() - 3600, time.time() - 3600))
+        self.assertEqual(self.attempt(f'git push origin {orphan}:refs/heads/orphan').returncode, 0)
+        self.git('push', '-q', 'origin', ':refs/heads/orphan')  # a deletion needs no receipt
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        self.assertFalse(stale.exists())
+        self.assertNotEqual(self.attempt(f'git push origin {orphan}:refs/heads/orphan').returncode, 0)
+        self.assertFalse(self.remote_has(orphan))
 
     def test_stale_bundled_hook_is_refused_not_kept(self):
         """A hook from an earlier runtime declares its policy; kept, it would refuse every push."""
