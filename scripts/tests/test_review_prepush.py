@@ -439,6 +439,10 @@ class PrePushInvariantTests(unittest.TestCase):
             hook.write_text(marker + sampler + delegate)
             hook.chmod(0o755)
             self.assertIn('middle commit holds no receipt', self.start_refused())
+        # Each record carries its own remote ref, as git gives a push of three refs, so a
+        # hook that reads every record but keys on the remote ref still sees all three.
+        hook.write_text(marker + 'printf "%s\\n" "$(cat)" | awk \'!seen[$3]++\'' + delegate)
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
         # The real checker reads every record: a push of two refs, one receipted and one not,
         # lands neither.
         hook.unlink()

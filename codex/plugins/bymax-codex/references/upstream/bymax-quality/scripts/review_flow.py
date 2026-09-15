@@ -136,7 +136,7 @@ HOOK_SECONDS = 60
 
 
 def run_hook(path, remote, line):
-    """Run a pre-push hook as git does on one push line; return its exit status."""
+    """Run a pre-push hook as git does on the given push records; return its exit status."""
     # git runs a hook from the worktree root, and one without a shebang through sh.
     interpreter = [] if path.read_bytes().startswith(b'#!') else ['sh']
     refs = line.count('\n')
@@ -247,8 +247,11 @@ def usable_hook(path):
     # nobody holds (unlocked holder, or a pid with nothing to hold) is void; every record
     # of a multi-ref push is checked. A hook that exits 0 fails the first push; one that
     # refuses for a reason the probe does not satisfy fails the second, closed; one that
-    # honours an unheld receipt fails the third or the fourth; one that samples a single
-    # record fails the fifth. Hook code written to recognise the probe is trusted code.
+    # honours an unheld receipt fails the third or the fourth; one that reads only the
+    # first record or only the last fails the fifth. What the pushes establish is narrower
+    # than the invariants: a hook sampling a record the probe leaves unreceipted refuses
+    # for the wrong reason and passes, and hook code written to recognise the probe is
+    # trusted code. The probe raises the floor; it does not certify the hook.
     unreceipted, held, orphaned, legacy, partial = push_probes(path)
     require(unreceipted != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
@@ -262,8 +265,9 @@ def usable_hook(path):
             f'reinstalls the bundled hook, or point it at the current {checker}, keeping any check you '
             'merged into it.')
     require(partial != 0,
-            f'{path} accepted a push of three refs whose middle commit holds no receipt (exit 0): it '
-            'samples one stdin record where git hands it one per ref. Make it check every record, '
+            f'{path} accepted a push of three refs whose middle commit holds no receipt (exit 0). git '
+            'hands a hook one record per pushed ref and every record must be checked; a hook that reads '
+            'only the first or only the last sees a receipted commit here. Make it check every record, '
             f'as {checker} does, or delete it.')
 
 
@@ -282,10 +286,12 @@ def push_probes(path):
     for name, sha in zip(refs, (dangling, other, dangling)):
         git('update-ref', name, sha)
     line = f'{refs[0]} {dangling} {branch} {head}\n'
-    # git hands the hook one record per pushed ref. The receipted commit surrounds the
-    # unreceipted one, so a hook that samples a single record — the first or the last —
-    # reads a receipted commit, exits 0 and is refused.
-    mixed = line + f'{refs[1]} {other} {branch} {head}\n' + f'{refs[2]} {dangling} {branch} {head}\n'
+    # git hands the hook one record per pushed ref, each with its own remote ref; these two
+    # create theirs, so their remote sha is all-zero. The receipted commit surrounds the
+    # unreceipted one, so a hook that samples the first record or the last one reads a
+    # receipted commit, exits 0 and is refused.
+    mixed = line + ''.join(f'{name} {sha} {name} {"0" * 40}\n'
+                           for name, sha in zip(refs[1:], (other, dangling)))
     url = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True)
     remote = ('origin', url.stdout.strip() if url.returncode == 0 else 'origin')
     try:
