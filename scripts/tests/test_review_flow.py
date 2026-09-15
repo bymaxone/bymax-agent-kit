@@ -439,14 +439,32 @@ class ReviewFlowTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=10)
 
     def test_touching_only_the_named_file_is_not_widening(self):
-        """However git spells that name, and from wherever the caller happens to stand."""
+        """However git spells that name.
+
+        Run from the subdirectory, and only once: `start` is idempotent for an unchanged
+        candidate, so a second call returns the state the first one wrote without reaching
+        the rule at all. Two calls would read as two cases and be one.
+        """
         arguments = self.prepare_scope_fixture()
         self.git('add', '-A')
         self.git('commit', '-qm', 'fix only what the finding named')
-        for where in (self.repo, self.repo / 'sub'):
-            result = self.start_from(arguments, where)
-            self.assertEqual(result.returncode, 0, f'from {where.name} a correction touching '
-                                                   f'only the named file was refused: {result.stderr}')
+        result = self.start_from(arguments, self.repo / 'sub')
+        self.assertEqual(result.returncode, 0, 'a correction touching only the named file was '
+                                               f'refused: {result.stderr}')
+
+    def test_a_name_that_begins_with_whitespace_is_still_its_own_file(self):
+        """Trimming a NUL-delimited listing edits filenames, and an edited name collapses.
+
+        A path beginning with a tab, trimmed, becomes the path a finding did name, so the
+        file nobody asked for disappears from the comparison that exists to catch it.
+        """
+        arguments = self.prepare_scope_fixture()
+        (self.repo / '\tcafé.txt').write_text('a different file entirely\n')
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'fix, and a file whose name starts with a tab')
+        result = self.start_from(arguments, self.repo)
+        self.assertEqual(result.returncode, 2, 'the tab-prefixed file collapsed onto the named one')
+        self.assertIn('café.txt', result.stderr.split('No open finding names:')[1])
 
     def test_a_file_no_finding_named_is_caught_from_any_directory(self):
         """`git diff` is root-relative; a listing that is not would make the rule silent."""

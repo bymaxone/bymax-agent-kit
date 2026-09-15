@@ -18,8 +18,18 @@ POLICY = 2
 
 
 def git(*args):
-    """Read Git state without invoking a shell."""
-    return subprocess.check_output(['git', *args], text=True).strip()
+    """Read Git state without invoking a shell, trimmed for the usual single-value answer."""
+    return git_raw(*args).strip()
+
+
+def git_raw(*args):
+    """The same, untrimmed: a NUL-delimited listing is bytes, and stripping edits a name.
+
+    A path may legitimately begin or end with whitespace, and trimming one silently
+    collapses it onto its neighbour — which is how a file no finding named became
+    invisible to the rule that exists to catch it.
+    """
+    return subprocess.check_output(['git', *args], text=True)
 
 
 def require(condition, message):
@@ -348,7 +358,7 @@ def named_files(state):
     # --full-tree, because `ls-tree` is otherwise scoped to the process working directory
     # while `git diff --name-only` is always root-relative; -z, because git C-quotes a
     # non-ASCII path otherwise, and a quoted name matches nothing.
-    listing = git('ls-tree', '-r', '-z', '--full-tree', '--name-only', state['head'])
+    listing = git_raw('ls-tree', '-r', '-z', '--full-tree', '--name-only', state['head'])
     reviewed = {path for path in listing.split('\0') if path}
     return prefixes & reviewed
 
@@ -369,7 +379,7 @@ def widened(old, head):
         return []
     # -z on both sides or neither: without it git C-quotes a non-ASCII path here while the
     # listing above yields it raw, and the two sets then spell the same file differently.
-    changed = git('diff', '-z', '--name-only', old['head'], head)
+    changed = git_raw('diff', '-z', '--name-only', old['head'], head)
     touched = [path for path in changed.split('\0') if path]
     return sorted(path for path in touched
                   if path not in named and not is_test_path(path) and not generated_path(path))
