@@ -124,7 +124,7 @@ def install_hook():
                 'A pre-push hook not managed by this campaign exists at ' + str(target)
                 + '; merge the receipt check into it by hand, keeping its marker line, before starting.')
         # Carries the check at the current policy but is not the bundled file: merged or
-        # edited by hand, so it is kept; the four pushes decide whether it still enforces.
+        # edited by hand, so it is kept; the probe pushes decide whether it still enforces.
         usable_hook(target)
         return
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -139,11 +139,13 @@ def run_hook(path, remote, line):
     """Run a pre-push hook as git does on one push line; return its exit status."""
     # git runs a hook from the worktree root, and one without a shebang through sh.
     interpreter = [] if path.read_bytes().startswith(b'#!') else ['sh']
+    refs = line.count('\n')
     try:
         probe = subprocess.run([*interpreter, str(path), *remote], input=line, capture_output=True,
                                text=True, timeout=HOOK_SECONDS, cwd=git('rev-parse', '--show-toplevel'))
     except subprocess.TimeoutExpired:
-        raise ValueError(f'{path} did not finish within 60 s when probed with one push line; fix or delete it.')
+        raise ValueError(f'{path} did not finish within {HOOK_SECONDS} s when probed with a push of '
+                         f'{refs} ref(s); fix or delete it.')
     except OSError as error:
         raise ValueError(f'{path} could not be run ({error.strerror}); fix its interpreter line or delete it.')
     return probe.returncode
@@ -245,7 +247,7 @@ def usable_hook(path):
     # nobody holds (unlocked holder, or a pid with nothing to hold) is void; every record
     # of a multi-ref push is checked. A hook that exits 0 fails the first push; one that
     # refuses for a reason the probe does not satisfy fails the second, closed; one that
-    # honours an unheld receipt fails the third or the fourth; one that checks a single
+    # honours an unheld receipt fails the third or the fourth; one that samples a single
     # record fails the fifth. Hook code written to recognise the probe is trusted code.
     unreceipted, held, orphaned, legacy, partial = push_probes(path)
     require(unreceipted != 0,
@@ -260,14 +262,14 @@ def usable_hook(path):
             f'reinstalls the bundled hook, or point it at the current {checker}, keeping any check you '
             'merged into it.')
     require(partial != 0,
-            f'{path} accepted a push of two refs of which only the first commit holds a receipt (exit 0): '
-            'it checks one stdin record where git hands it one per ref. Make it check every record, '
+            f'{path} accepted a push of three refs whose middle commit holds no receipt (exit 0): it '
+            'samples one stdin record where git hands it one per ref. Make it check every record, '
             f'as {checker} does, or delete it.')
 
 
 def push_probes(path):
     """Run the hook on the probe push without a receipt, with a held one, with an unheld
-    one, with a pid-only one, and on a two-ref push where only the first commit is receipted.
+    one, with a pid-only one, and on a three-ref push whose middle commit has no receipt.
 
     Returns the five exit statuses. The temporary refs exist only for the duration.
     """
@@ -275,13 +277,15 @@ def push_probes(path):
     nonce, second = os.urandom(8).hex(), os.urandom(8).hex()
     dangling, other = probe_commit(head, nonce), probe_commit(head, second)
     branch = git('symbolic-ref', '--quiet', 'HEAD')
-    ref, ref2 = 'refs/bymax-review/probe-' + nonce, 'refs/bymax-review/probe-' + second
-    git('update-ref', ref, dangling)
-    git('update-ref', ref2, other)
-    line = f'{ref} {dangling} {branch} {head}\n'
-    # git hands the hook one record per pushed ref; a hook that checks only the first
-    # record would let the second commit through.
-    mixed = line + f'{ref2} {other} {branch} {head}\n'
+    refs = ['refs/bymax-review/probe-' + nonce, 'refs/bymax-review/probe-' + second,
+            'refs/bymax-review/probe-' + nonce + '-again']
+    for name, sha in zip(refs, (dangling, other, dangling)):
+        git('update-ref', name, sha)
+    line = f'{refs[0]} {dangling} {branch} {head}\n'
+    # git hands the hook one record per pushed ref. The receipted commit surrounds the
+    # unreceipted one, so a hook that samples a single record — the first or the last —
+    # reads a receipted commit, exits 0 and is refused.
+    mixed = line + f'{refs[1]} {other} {branch} {head}\n' + f'{refs[2]} {dangling} {branch} {head}\n'
     url = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True)
     remote = ('origin', url.stdout.strip() if url.returncode == 0 else 'origin')
     try:
@@ -296,8 +300,8 @@ def push_probes(path):
         with probe_receipt(dangling, legacy=True):
             legacy = run_hook(path, remote, line)
     finally:
-        git('update-ref', '-d', ref)
-        git('update-ref', '-d', ref2)
+        for name in refs:
+            git('update-ref', '-d', name)
     return unreceipted, held, orphaned, legacy, partial
 
 

@@ -387,9 +387,8 @@ class PrePushInvariantTests(unittest.TestCase):
 
     def test_kept_hook_must_refuse_an_orphaned_receipt(self):
         """A kept hook that honours a receipt nobody holds — whether it ignores holders or only
-        honours receipts without one — fails the third or the fourth push; one that checks a
-        single stdin record fails the fifth; a checker copy edited by hand that passes all five
-        is kept byte for byte."""
+        honours receipts without one — fails the third or the fourth push; a checker copy edited
+        by hand that passes every push is kept byte for byte."""
         hook = self.repo / '.git/hooks/pre-push'
         careless = ('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
                     'while read l s r x; do grep -lq "\\"head\\": \\"$s\\"" .git/bymax-review/*/completed-*.json '
@@ -421,18 +420,39 @@ class PrePushInvariantTests(unittest.TestCase):
         hook.write_text('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
                         'exec ' + sys.executable + ' .git/tools/halfway.py "$@"\n')
         self.assertIn('orphaned probe receipt', self.start_refused())
-        # A hook that reads one record and delegates it checks the first ref only; git
-        # hands it one record per pushed ref, so the second commit would land.
-        hook.write_text('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
-                        'read l s r x\nprintf "%s %s %s %s\\n" "$l" "$s" "$r" "$x" | exec '
-                        + sys.executable + ' ' + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n')
-        self.assertIn('only the first commit holds a receipt', self.start_refused())
         merged = FLOW.with_name('review_prepush.py').read_bytes() + b'\n# a check merged in by hand\n'
         hook.write_bytes(merged)
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
         self.assertEqual(hook.read_bytes(), merged)
         self.assertEqual(list((self.repo / '.git/bymax-review').glob('probe-*')), [])
         self.assertEqual(self.git('for-each-ref', 'refs/bymax-review/'), '')
+
+    def test_kept_hook_must_check_every_record_of_a_multi_ref_push(self):
+        """git hands the hook one record per pushed ref. A hook that samples one of them — the
+        first or the last — and delegates only that one lets the other commits land, so the
+        probe's multi-ref push carries an unreceipted commit between receipted ones."""
+        hook = self.repo / '.git/hooks/pre-push'
+        marker = '#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
+        delegate = ' | exec ' + sys.executable + ' ' + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n'
+        for sampler in ('read l s r x\nprintf "%s %s %s %s\\n" "$l" "$s" "$r" "$x"',
+                        'while read l s r x; do last="$l $s $r $x"; done\nprintf "%s\\n" "$last"'):
+            hook.write_text(marker + sampler + delegate)
+            hook.chmod(0o755)
+            self.assertIn('middle commit holds no receipt', self.start_refused())
+        # The real checker reads every record: a push of two refs, one receipted and one not,
+        # lands neither.
+        hook.unlink()
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        cleared = self.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'cleared')
+        unreviewed = self.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'unreviewed')
+        receipt = self.repo / '.git/bymax-review/campaign'
+        receipt.mkdir(parents=True)
+        (receipt / f'completed-{cleared}.json').write_text(json.dumps(dict(
+            head=cleared, cleared=True, policy=2, reviews=dict(claude={}, codex={}))))
+        for spelling in (f'git push origin {cleared}:refs/heads/a {unreviewed}:refs/heads/b',
+                         f'git push origin {unreviewed}:refs/heads/b {cleared}:refs/heads/a'):
+            self.assertIn('pre-push: no completed Claude + Codex review', self.attempt(spelling).stderr)
+            self.assertFalse(self.remote_has(unreviewed) or self.remote_has(cleared))
 
     def test_interrupted_probe_ref_is_swept_once_older_than_a_probe(self):
         """A temporary probe ref left by a kill is deleted by the next probe when its commit is
