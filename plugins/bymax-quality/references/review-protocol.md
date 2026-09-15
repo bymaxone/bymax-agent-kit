@@ -158,10 +158,12 @@ addressed the instance, not the cause. `start` refuses the next round unless it 
 declared `--design-round`, records the reopened ids, and tells both reviewers the round is
 about the approach; a patch to the same instance is then itself a finding. A still-open
 defect repeated under the prefixed id a reviewer saw in an earlier disposition still names
-the same invariant: keys are `reviewer::<id>`, and no path begins with `claude::` or
-`codex::`, so `record` strips those prefixes from a finding id however many were copied,
-a repeat within one report is a duplicate, and a finding on a real file under a `codex/`
-directory is exactly what it says.
+the same invariant: keys are `reviewer::<id>`, whose two parts stay recoverable by one
+split from the left, so `record` removes **one** copied prefix from a finding id and
+refuses an id that still begins with `claude::` or `codex::` — such an id is not
+representable, and removing prefixes until none was left would let an id's own content
+move the boundary. A repeat within one report is a duplicate, and a finding on a real
+file under a `codex/` directory is exactly what it says.
 
 The Claude pass on a correction delta is performed by a fresh-context subagent given only
 the generated prompt, never by the session that authored the fix.

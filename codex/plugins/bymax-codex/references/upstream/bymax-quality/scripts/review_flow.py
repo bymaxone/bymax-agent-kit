@@ -390,14 +390,21 @@ def full_key(disposition_key):
 
 
 def bare(finding_id):
-    """The finding id with every copied reviewer key prefix removed and whitespace trimmed.
+    """The finding id with one copied reviewer key prefix removed and whitespace trimmed.
 
-    Reviewers see prefixed keys in previous dispositions and may copy one, or two,
-    when they repeat a still-open defect; each layer is a prefix no path can carry.
+    A key is reviewer::<id>, and both parts stay recoverable only while one split from
+    the left separates them: removing prefixes until none is left would let an id's own
+    content move that boundary. Reviewers see prefixed keys in previous dispositions and
+    may copy one when they repeat a still-open defect, so exactly one is removed; an id
+    that still begins with a reviewer prefix is not representable and is refused.
     """
     finding_id = finding_id.strip()
-    while finding_id.startswith(REVIEWERS):
+    if finding_id.startswith(REVIEWERS):
         finding_id = finding_id.split(SEPARATOR, 1)[1].strip()
+    require(not finding_id.startswith(REVIEWERS),
+            f'Finding id {finding_id!r} still begins with a reviewer prefix after one was removed. '
+            'Ids are file:invariant, and a key is reviewer::<id> whose two parts must stay '
+            'separable, so an id cannot itself begin with ' + ' or '.join(REVIEWERS) + '.')
     return finding_id
 
 

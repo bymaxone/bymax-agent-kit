@@ -345,11 +345,12 @@ class ReviewFlowTests(unittest.TestCase):
                                            dict(id='codex::guard:x', evidence='fixed')])
 
     def test_reviewer_keys_cannot_collide_with_paths(self):
-        """A copied reviewer key collapses to the bare id; a path under codex/ is never touched.
+        """One copied reviewer key collapses to the bare id; a path under codex/ is never touched.
 
-        Keys are reviewer::<id>, and no path begins with `claude::` or `codex::`, so a
-        root file and its mirror under a real codex/ directory stay distinct through
-        record, triage, resolutions and the reopened comparison.
+        Keys are reviewer::<id>, and their two parts stay recoverable by one split from the
+        left, so exactly one copied prefix is removed and an id that still begins with one is
+        refused. A root file and its mirror under a real codex/ directory stay distinct
+        through record, triage, resolutions and the reopened comparison.
         """
         (self.repo / 'codex').mkdir()
         (self.repo / 'codex/README.md').write_text('codex readme\n')
@@ -371,8 +372,13 @@ class ReviewFlowTests(unittest.TestCase):
         # A resolution for the root file does not cover its mirror, and vice versa.
         self.report('claude', resolutions=[dict(id=k, evidence='still') for k in keys[1:]], ok=False)
         resolutions = [dict(id=k, evidence='still') for k in keys]
-        # Copied keys, even doubled, name the bare invariants; the mirror path survives as itself.
-        self.report('claude', [dict(mirror, id='codex::claude::codex/README.md:x'), dict(root, id='claude::README.md:x')],
+        # A doubled prefix is ambiguous: removing both would let an id's content move the
+        # boundary of the key, so it is refused rather than collapsed.
+        doubled = self.report('claude', [dict(mirror, id='codex::claude::codex/README.md:x')],
+                              resolutions=resolutions, ok=False)
+        self.assertIn('still begins with a reviewer prefix', doubled.stderr)
+        # One copied prefix names the bare invariant; the mirror path survives as itself.
+        self.report('claude', [dict(mirror, id='claude::codex/README.md:x'), dict(root, id='claude::README.md:x')],
                     resolutions=resolutions)
         self.assertEqual([f['id'] for f in self.flow('status')['reviews']['claude']['findings']],
                          ['codex/README.md:x', 'README.md:x'])
