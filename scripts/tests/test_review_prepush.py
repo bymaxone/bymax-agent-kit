@@ -428,17 +428,20 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertEqual(self.git('for-each-ref', 'refs/bymax-review/'), '')
 
     def test_kept_hook_must_check_every_record_of_a_multi_ref_push(self):
-        """git hands the hook one record per pushed ref. A hook that samples one of them — the
-        first or the last — and delegates only that one lets the other commits land, so the
-        probe's multi-ref push carries an unreceipted commit between receipted ones."""
+        """git hands the hook one record per pushed ref. A hook that reads a single one of them
+        and delegates only that lets the other commits land, so the probe's two multi-ref pushes
+        place an unreceipted commit where each fixed position reads a receipted one."""
         hook = self.repo / '.git/hooks/pre-push'
         marker = '#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
         delegate = ' | exec ' + sys.executable + ' ' + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n'
+        middle = ('lines=$(cat)\nif [ "$(printf "%s\\n" "$lines" | wc -l)" -ge 3 ]; then '
+                  'printf "%s\\n" "$lines" | sed -n 2p; else printf "%s\\n" "$lines"; fi')
         for sampler in ('read l s r x\nprintf "%s %s %s %s\\n" "$l" "$s" "$r" "$x"',
-                        'while read l s r x; do last="$l $s $r $x"; done\nprintf "%s\\n" "$last"'):
+                        'while read l s r x; do last="$l $s $r $x"; done\nprintf "%s\\n" "$last"',
+                        middle):
             hook.write_text(marker + sampler + delegate)
             hook.chmod(0o755)
-            self.assertIn('middle commit holds no receipt', self.start_refused())
+            self.assertIn('one of whose commits holds no receipt', self.start_refused())
         # Each record carries its own remote ref, as git gives a push of three refs, so a
         # hook that reads every record but keys on the remote ref still sees all three.
         hook.write_text(marker + 'printf "%s\\n" "$(cat)" | awk \'!seen[$3]++\'' + delegate)

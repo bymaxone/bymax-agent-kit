@@ -223,19 +223,20 @@ receipt is present but unheld — the shape an interrupted probe leaves — and 
 fourth it names a pid and nothing to hold; the hook must refuse both, since a probe
 receipt nobody holds is void. The fifth push carries three records, as git does for a
 push of three refs, each with its own remote ref, the receipted commit surrounding one
-with no receipt: the hook must refuse it, since a hook that reads only the first record or
-only the last reads a receipted commit there. A hook that exits 0 for the first push does not enforce
+with no receipt; the sixth carries the same three records with the unreceipted commit
+first. The hook must refuse both, and a hook that reads a single fixed record of the
+three reads a receipted commit in one of them. A hook that exits 0 for the first push does not enforce
 receipts; one that refuses the second is refusing for a reason the probe does not
 satisfy (a local ref that is not a branch, for instance) and is refused as not
 consulting receipts; one that accepts the third or the fourth honours a receipt nobody
-holds; one that accepts the fifth reads only the first record or only the last. Every refusal names the remedy; a kept file is never rewritten,
+holds; one that accepts the fifth or the sixth left an unreceipted commit unchecked. Every refusal names the remedy; a kept file is never rewritten,
 so a check merged into it by hand survives, and a copy of an earlier checker is refused
 by the third or the fourth push until it is deleted (the bundled hook is then reinstalled)
 or pointed at the current checker. The refs and the directory are removed afterwards, and what
 an interrupted probe left behind is swept by the next probe once older than a probe
 can be. Hook code written to recognise the probe is trusted code and outside what a
-local probe can establish, as is a hook that samples a record the probe leaves
-unreceipted: the pushes raise the floor a kept hook must clear, they do not certify it.
+local probe can establish, as is a hook that filters records by a property these
+records share: the pushes raise the floor a kept hook must clear, they do not certify it.
 A receipt completed under another policy does not authorise its commit: the hook and
 the adapter require the current policy.
 

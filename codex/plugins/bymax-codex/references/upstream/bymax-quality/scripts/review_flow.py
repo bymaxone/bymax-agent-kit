@@ -247,10 +247,10 @@ def usable_hook(path):
     # nobody holds (unlocked holder, or a pid with nothing to hold) is void; every record
     # of a multi-ref push is checked. A hook that exits 0 fails the first push; one that
     # refuses for a reason the probe does not satisfy fails the second, closed; one that
-    # honours an unheld receipt fails the third or the fourth; one that reads only the
-    # first record or only the last fails the fifth. What the pushes establish is narrower
-    # than the invariants: a hook sampling a record the probe leaves unreceipted refuses
-    # for the wrong reason and passes, and hook code written to recognise the probe is
+    # honours an unheld receipt fails the third or the fourth; one that reads a single
+    # fixed record of three fails the fifth or the sixth. What the pushes establish is
+    # narrower than the invariants: a hook that filters records by a property the probe's
+    # records share can still miss one, and hook code written to recognise the probe is
     # trusted code. The probe raises the floor; it does not certify the hook.
     unreceipted, held, orphaned, legacy, partial = push_probes(path)
     require(unreceipted != 0,
@@ -264,18 +264,20 @@ def usable_hook(path):
             'without checking their holder: a probe receipt nobody holds is void. Delete it so start '
             f'reinstalls the bundled hook, or point it at the current {checker}, keeping any check you '
             'merged into it.')
-    require(partial != 0,
-            f'{path} accepted a push of three refs whose middle commit holds no receipt (exit 0). git '
+    require(all(status != 0 for status in partial),
+            f'{path} accepted a push of three refs one of whose commits holds no receipt (exit 0). git '
             'hands a hook one record per pushed ref and every record must be checked; a hook that reads '
-            'only the first or only the last sees a receipted commit here. Make it check every record, '
-            f'as {checker} does, or delete it.')
+            'a single record, or filters the records it checks, can miss the unreceipted one. Make it '
+            f'check every record, as {checker} does, or delete it.')
 
 
 def push_probes(path):
-    """Run the hook on the probe push without a receipt, with a held one, with an unheld
-    one, with a pid-only one, and on a three-ref push whose middle commit has no receipt.
+    """Run the hook on the probe push without a receipt, with a held one, with an unheld one,
+    with a pid-only one, and on two three-ref pushes that place the unreceipted commit
+    differently.
 
-    Returns the five exit statuses. The temporary refs exist only for the duration.
+    Returns four exit statuses and the tuple of the multi-ref ones. The refs exist only
+    for the duration.
     """
     head = git('rev-parse', 'HEAD')
     nonce, second = os.urandom(8).hex(), os.urandom(8).hex()
@@ -285,22 +287,28 @@ def push_probes(path):
             'refs/bymax-review/probe-' + nonce + '-again']
     for name, sha in zip(refs, (dangling, other, dangling)):
         git('update-ref', name, sha)
-    line = f'{refs[0]} {dangling} {branch} {head}\n'
-    # git hands the hook one record per pushed ref, each with its own remote ref; these two
-    # create theirs, so their remote sha is all-zero. The receipted commit surrounds the
-    # unreceipted one, so a hook that samples the first record or the last one reads a
-    # receipted commit, exits 0 and is refused.
-    mixed = line + ''.join(f'{name} {sha} {name} {"0" * 40}\n'
-                           for name, sha in zip(refs[1:], (other, dangling)))
+
+    def push(*pairs):
+        """Render git's stdin for one push: a record per ref, the first fast-forwarding
+        the branch and the rest creating their own remote ref (all-zero remote sha)."""
+        first = f'{pairs[0][0]} {pairs[0][1]} {branch} {head}\n'
+        return first + ''.join(f'{name} {sha} {name} {"0" * 40}\n' for name, sha in pairs[1:])
+
+    line = push((refs[0], dangling))
+    # git hands the hook one record per pushed ref. The unreceipted commit sits in the
+    # middle of one push and first in the other, so a hook that reads a single fixed
+    # record of the three reads a receipted commit in one of them, exits 0 and is refused.
+    middle = push((refs[0], dangling), (refs[1], other), (refs[2], dangling))
+    leading = push((refs[1], other), (refs[0], dangling), (refs[2], dangling))
     url = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True)
     remote = ('origin', url.stdout.strip() if url.returncode == 0 else 'origin')
     try:
         unreceipted = run_hook(path, remote, line)
         if unreceipted == 0:
-            return unreceipted, None, None, None, None
+            return unreceipted, None, None, None, ()
         with probe_receipt(dangling):
             held = run_hook(path, remote, line)
-            partial = run_hook(path, remote, mixed)
+            partial = tuple(run_hook(path, remote, records) for records in (middle, leading))
         with probe_receipt(dangling, held=False):
             orphaned = run_hook(path, remote, line)
         with probe_receipt(dangling, legacy=True):
