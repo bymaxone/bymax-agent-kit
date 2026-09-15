@@ -410,6 +410,45 @@ class ReviewFlowTests(unittest.TestCase):
                                     widen='fixture: this case is about keys, not about scope'
                                     )['reopened'], ['README.md:x', 'codex/README.md:x'])
 
+    def test_a_correction_may_delete_the_file_its_finding_named(self):
+        """Deleting the file is a fix, and the rule must not read that as erased evidence.
+
+        The findings describe the candidate that was reviewed, so their paths are looked up
+        there. Looking them up in the corrected tree let a correction remove its own scope
+        evidence by doing exactly what it was told to do.
+        """
+        (self.repo / 'doomed.txt').write_text('remove me\n')
+        self.git('add', 'doomed.txt')
+        self.git('commit', '-qm', 'add the file a finding will name')
+        self.start()
+        self.report('claude', [dict(id='doomed.txt:should-not-exist', kind='defect',
+                                    priority='P1', evidence='this file should not be here')])
+        self.report('codex', [])
+        self.triage([dict(id='claude::doomed.txt:should-not-exist', status='open',
+                          evidence='Confirmed')])
+        (self.repo / 'doomed.txt').unlink()
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'remove it')
+        self.start(correction=True)
+
+    def test_widening_exempts_what_this_module_calls_a_test(self):
+        """One classifier, not two: the loose pattern calls `v1.spec.yaml` a test and it is not."""
+        (self.repo / 'named.txt').write_text('the finding names this\n')
+        self.git('add', 'named.txt')
+        self.git('commit', '-qm', 'add the named file')
+        self.start()
+        self.report('claude', [dict(id='named.txt:wrong', kind='defect', priority='P1',
+                                    evidence='wrong')])
+        self.report('codex', [])
+        self.triage([dict(id='claude::named.txt:wrong', status='open', evidence='Confirmed')])
+        (self.repo / 'named.txt').write_text('fixed\n')
+        (self.repo / 'openapi').mkdir()
+        (self.repo / 'openapi/v1.spec.yaml').write_text('openapi: 3.1.0\n')
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'fix, and change a spec that is not a test')
+        refused = self.start(ok=False, correction=True).stderr
+        self.assertIn('openapi/v1.spec.yaml', refused)
+
     def test_a_correction_may_not_touch_what_no_finding_named(self):
         """This is where every bad round of this branch went bad: a fix arrived with a mechanism.
 

@@ -323,16 +323,30 @@ def push_probes(path):
     return unreceipted, held, orphaned, legacy, partial
 
 
-def named_files(state):
-    """Files the open findings point at.
+# What `codex/scripts/bundle.py` writes. Regenerating them is how a fix is shipped, so a
+# correction that changes them has not widened; the authored documents beside them have.
+GENERATED = frozenset({'codex/plugins/bymax-codex/references/upstream-sha256.json',
+                       'codex/plugins/bymax-codex/references/review-checklist.md'})
 
-    A finding id begins with a path by convention, not by construction. A prefix that is
-    not a file in this tree names nothing, and a rule that treated it as one would refuse
-    corrections it has no basis to judge — so those ids are simply not evidence of scope.
+
+def generated_path(path):
+    """Whether the bundler wrote this file rather than a person."""
+    return path in GENERATED or path.startswith('codex/plugins/bymax-codex/references/upstream/')
+
+
+def named_files(state):
+    """Files the open findings point at, as they stood in the candidate that was reviewed.
+
+    A finding id begins with a path by convention, not by construction. A prefix that names
+    no file is not evidence of scope, and a rule that treated it as one would refuse
+    corrections it has no basis to judge. The lookup is against the reviewed commit, never
+    the corrected tree: a fix may be to delete the file, and reading the tree afterwards
+    would let a correction erase the evidence of its own scope.
     """
     prefixes = {item['id'].split('::', 1)[-1].split(':', 1)[0]
                 for item in state.get('triage') or [] if item['status'] == 'open'}
-    return {prefix for prefix in prefixes if (Path(git('rev-parse', '--show-toplevel')) / prefix).exists()}
+    reviewed = set(git('ls-tree', '-r', '--name-only', state['head']).splitlines())
+    return prefixes & reviewed
 
 
 def widened(old, head):
@@ -346,13 +360,12 @@ def widened(old, head):
     """
     named = named_files(old)
     if not named:
-        # No open finding names a file in this tree, so there is nothing to measure a
-        # correction against. Silence here, never a refusal on an assumption.
+        # No open finding names a file in the reviewed candidate, so there is nothing to
+        # measure a correction against. Silence here, never a refusal on an assumption.
         return []
     touched = [path for path in git('diff', '--name-only', old['head'], head).splitlines() if path]
     return sorted(path for path in touched
-                  if path not in named and not TEST_PATH.search(path)
-                  and not path.startswith('codex/plugins/bymax-codex/references/'))
+                  if path not in named and not is_test_path(path) and not generated_path(path))
 
 
 def blocks_a_receipt(finding):
@@ -494,10 +507,9 @@ def review_range(directory):
     definition of a scope in hand. An empty answer means the caller's scope is its own
     working tree, which is what a preview reviews.
     """
-    path = directory / 'state.json'
-    if not path.exists():
+    if not (directory / 'state.json').exists():
         return ''
-    state = json.loads(path.read_text())
+    state = read_state(directory)
     if state.get('cleared'):
         return ''
     try:

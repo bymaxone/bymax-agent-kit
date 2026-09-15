@@ -147,27 +147,38 @@ class CommandShellTests(unittest.TestCase):
             self.assertNotRegex(safe, PASTE, f'{safe!r} is not a paste and is refused')
 
 
-    def test_the_gate_block_reviews_the_working_tree_when_there_is_no_campaign(self):
-        """The block asks the runtime for the scope, and must not be left with an empty one.
+    def test_the_gate_block_refuses_an_absent_scope_and_previews_a_dirty_one(self):
+        """An empty scope must refuse, because an empty scope reads as a clean review.
 
-        `git log "..HEAD"` reads an empty range as HEAD..HEAD and reports nothing, which
-        looks exactly like a clean review. So the block falls back to HEAD, which is the
-        scope of a preview, whenever the runtime has no campaign to name.
+        `git diff HEAD` on a clean tree matches nothing, so every check in the gate would
+        find nothing and report success. That is the failure the block guards: with no
+        campaign to ask about, only a dirty tree has something to review, and HEAD is its
+        scope.
         """
         block = None
         for _, candidate in blocks(ROOT / 'plugins/bymax-quality/commands/code-review.md'):
             if 'review_flow.py" range' in candidate:
                 block = candidate
         self.assertIsNotNone(block, 'the mechanical gate no longer asks the runtime for its scope')
-        resolution = '\n'.join(line for line in block.splitlines()
-                                if line.startswith(('RANGE=', '[ -n')))
+        resolution = block[:block.index('\nfi') + 3]
         fixture = Path(tempfile.mkdtemp())
         env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
         subprocess.run(['git', 'init', '-q', str(fixture)], env=env, check=True)
-        outcome = subprocess.run(['bash', '-c', resolution + '\necho "[$RANGE]"'],
-                                 cwd=fixture, env=env, capture_output=True, text=True)
-        self.assertEqual(outcome.stdout.strip(), '[HEAD]',
-                         'with no runtime to ask, the block left the range empty')
+        for setting, value in (('user.name', 'fixture'), ('user.email', 'f@x.invalid')):
+            subprocess.run(['git', 'config', setting, value], cwd=fixture, env=env, check=True)
+        (fixture / 'f').write_text('1\n')
+        subprocess.run(['git', 'add', 'f'], cwd=fixture, env=env, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'c'], cwd=fixture, env=env, check=True)
+
+        def run():
+            return subprocess.run(['bash', '-c', resolution + '\necho "[$RANGE]"'],
+                                  cwd=fixture, env=env, capture_output=True, text=True)
+
+        clean = run()
+        self.assertNotIn('[', clean.stdout, 'a clean tree with no campaign produced a scope')
+        self.assertIn('nothing to read', clean.stderr)
+        (fixture / 'f').write_text('dirty\n')
+        self.assertEqual(run().stdout.strip(), '[HEAD]', 'a dirty preview lost its scope')
 
     def test_a_guard_accepts_every_value_its_own_document_prescribes(self):
         """A guard that refuses a documented value closes the path it was added to protect."""

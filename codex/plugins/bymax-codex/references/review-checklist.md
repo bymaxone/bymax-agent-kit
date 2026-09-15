@@ -6,9 +6,10 @@ classification, tool calls and reporting. Read these rules as reference.
 
 ## Step 2 — Mechanical gate (deterministic)
 
-For a committed campaign, set `RANGE` to the literal `<review_base>..<head>` SHAs
-returned by the helper. Never leave it empty. For a dirty preview use `HEAD` and read
-untracked files separately. Detect the stack first: skip TypeScript/Tailwind checks on
+The block below resolves `RANGE` itself, by asking the runtime that froze the campaign;
+never type SHAs into it. It answers with the campaign's endpoints, or with nothing when
+there is no campaign to answer for, and nothing on a dirty tree means the preview reviews
+the working tree against `HEAD` — read untracked files separately in that case. Detect the stack first: skip TypeScript/Tailwind checks on
 Rust, and apply Rust-specific constraints only to Rust. Apply size/docs rules only to
 the source/test surfaces actually governed by the target policy, never generic Markdown
 length or inherited violations. All checklist severity headings below are candidate
@@ -36,7 +37,19 @@ violations are not automatically introduced defects. CI-enforced failures belong
 # campaign is the scope in hand, by the same definition `start` used, and prints
 # nothing otherwise. Nothing is a preview: its scope is the working tree against HEAD.
 RANGE=$(python3 "${CLAUDE_PLUGIN_ROOT:-}/scripts/review_flow.py" range 2>/dev/null || true)
-[ -n "${RANGE}" ] || RANGE=HEAD
+if [ -z "${RANGE}" ]; then
+  # Nothing to ask about, so what is left is the working tree. On a clean tree there is
+  # no scope at all, and `git diff HEAD` there matches nothing: every check below would
+  # find nothing and the result would read as a clean review rather than as the missing
+  # scope it is. Only a dirty tree is a preview, and HEAD is its scope.
+  if [ -z "$(git status --porcelain)" ]; then
+    echo "No campaign to take a scope from, and the worktree is clean, so this gate has" >&2
+    echo "nothing to read. Start a campaign for the committed candidate, or run the" >&2
+    echo "preview on the dirty tree you meant to review." >&2
+    exit 1
+  fi
+  RANGE=HEAD
+fi
 # Added content lines only: git marks them '>' instead of '+', leaving the
 # '+++ b/path' header as-is — no header collision, no lost '++'-prefixed content.
 added() { git diff --output-indicator-new='>' -U0 "$@" | grep '^>'; }
