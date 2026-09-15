@@ -263,6 +263,8 @@ class ReviewFlowTests(unittest.TestCase):
         prompt = self.flow('prompt')
         self.assertIn('eval git push', prompt.stdout)
         self.assertIn('Shallow probing is a finding', prompt.stdout)
+        # A probe the reviewer's sandbox cannot run is a limitation to state, not `incomplete`.
+        self.assertIn('is a limitation to state in your summary, not a reason to report incomplete', prompt.stdout)
 
     def test_reopened_is_an_invariant_not_an_id_and_needs_no_design_round_otherwise(self):
         """The other reviewer re-reporting the defect still counts; --design-round alone does not."""

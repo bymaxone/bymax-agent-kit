@@ -387,9 +387,9 @@ class PrePushInvariantTests(unittest.TestCase):
             keeper.kill()
 
     def test_kept_hook_must_refuse_an_orphaned_receipt(self):
-        """A kept hook that reads receipts without checking their holder — a checker from an
-        earlier runtime — passes the first two pushes and fails the third; a checker copy that
-        was edited by hand and still passes all three is kept byte for byte."""
+        """A kept hook that honours a receipt nobody holds — a checker from an earlier runtime,
+        whether it ignores holders or only honours receipts without one — fails the third or
+        the fourth push; a checker copy edited by hand that passes all four is kept byte for byte."""
         hook = self.repo / '.git/hooks/pre-push'
         careless = ('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
                     'while read l s r x; do grep -lq "\\"head\\": \\"$s\\"" .git/bymax-review/*/completed-*.json '
@@ -398,6 +398,29 @@ class PrePushInvariantTests(unittest.TestCase):
         hook.chmod(0o755)
         self.assertIn('orphaned probe receipt', self.start_refused())
         self.assertEqual(hook.read_text(), careless)
+        # A checker that checks holders but honours a receipt with none to check — the
+        # shape an earlier probe left — fails the fourth push.
+        (self.repo / '.git/tools').mkdir()
+        (self.repo / '.git/tools/halfway.py').write_text(
+            'import fcntl, glob, json, sys\nfrom pathlib import Path\n'
+            'for line in sys.stdin:\n'
+            '    l, s, r, x = line.split()\n'
+            '    for p in glob.glob(".git/bymax-review/*/completed-*.json"):\n'
+            '        state = json.load(open(p))\n'
+            '        if state.get("head") != s:\n'
+            '            continue\n'
+            '        if "probe_lock" not in state:\n'
+            '            break  # honoured with nothing to hold: the earlier runtime\'s mistake\n'
+            '        try:\n'
+            '            with open(Path(p).parent / state["probe_lock"]) as holder:\n'
+            '                fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)\n'
+            '        except BlockingIOError:\n'
+            '            break\n'
+            '    else:\n'
+            '        sys.exit(1)\n')
+        hook.write_text('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
+                        'exec ' + sys.executable + ' .git/tools/halfway.py "$@"\n')
+        self.assertIn('orphaned probe receipt', self.start_refused())
         merged = FLOW.with_name('review_prepush.py').read_bytes() + b'\n# a check merged in by hand\n'
         hook.write_bytes(merged)
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))

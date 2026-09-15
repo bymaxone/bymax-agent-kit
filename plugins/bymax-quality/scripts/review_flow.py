@@ -146,7 +146,7 @@ def run_hook(path, remote, line):
     return probe.returncode
 
 
-PROBE_BOUND = 4 * HOOK_SECONDS  # longer than the three hook runs of one probe can take
+PROBE_BOUND = 5 * HOOK_SECONDS  # longer than the four hook runs of one probe can take
 
 
 def sweep_probes(root):
@@ -170,21 +170,25 @@ def sweep_probes(root):
 
 
 @contextlib.contextmanager
-def probe_receipt(sha, held=True):
+def probe_receipt(sha, held=True, legacy=False):
     """Hold a completed receipt for one commit only while this process probes the hook.
 
     Each probe gets a directory of its own, so concurrent starts in linked worktrees do
     not disturb each other. The receipt is valid only while its holder file is locked:
     the kernel drops the lock with the process, so a receipt orphaned by a kill names a
     commit nobody can push, whatever pid the system hands out next. With held=False the
-    holder exists but is not locked: the shape an interrupted probe leaves behind.
+    holder exists but is not locked: the shape an interrupted probe leaves behind. With
+    legacy=True the receipt names a pid and nothing to hold: the shape a probe of an
+    earlier runtime left behind, which a checker must treat as void as well.
     """
     root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
     root.mkdir(parents=True, exist_ok=True)
     sweep_probes(root)
     directory = Path(tempfile.mkdtemp(prefix='probe-', dir=root))
     receipt = dict(head=sha, cleared=True, policy=POLICY, reviews=dict(claude={}, codex={}),
-                   probe_lock='holder', probe_pid=os.getpid())
+                   probe_pid=os.getpid())
+    if not legacy:
+        receipt['probe_lock'] = 'holder'
     (directory / 'completed-probe.json').write_text(json.dumps(receipt))
     with (directory / 'holder').open('w') as holder:
         if held:
@@ -229,17 +233,18 @@ def usable_hook(path):
             'plugins/bymax-quality/scripts/review_prepush.py into it by hand.')
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
-    # The marker is a claim; three pushes are the check. The push is shaped like a real
+    # The marker is a claim; four pushes are the check. The push is shaped like a real
     # one — a temporary ref, resolving to a dangling child of HEAD built from the current
     # tree in the user's own identity, fast-forwarding the current branch on origin's URL
     # — so a hook that also checks the ref, its tip, the parent, the author or the remote
     # passes those checks. Without a receipt the hook must refuse it; while a held
     # receipt names it, the hook must let it through; with an orphaned receipt naming it,
-    # the hook must refuse again. A hook that exits 0 fails the first push; one that
-    # refuses for a reason the probe does not satisfy fails the second, closed; one that
-    # reads receipts without checking their holder — an older checker — fails the third.
+    # the hook must refuse again, and so with a receipt of the shape an earlier probe left
+    # (a pid, nothing to hold). A hook that exits 0 fails the first push; one that refuses
+    # for a reason the probe does not satisfy fails the second, closed; one that honours
+    # a receipt nobody holds — an older checker — fails the third or the fourth.
     # Hook code written to recognise the probe is trusted code, outside this check.
-    unreceipted, held, orphaned = push_probes(path)
+    unreceipted, held, orphaned, legacy = push_probes(path)
     require(unreceipted != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
             'receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
@@ -247,7 +252,7 @@ def usable_hook(path):
             f'{path} refused a push of a commit that holds a completed receipt (exit {held}), so it '
             'is not consulting receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, '
             'or delete it.')
-    require(orphaned != 0,
+    require(orphaned != 0 and legacy != 0,
             f'{path} accepted a push named only by an orphaned probe receipt (exit 0): it reads receipts '
             'without checking their holder, as a checker from an earlier runtime does. Delete it so start '
             'reinstalls the bundled hook, or point it at the current '
@@ -255,9 +260,10 @@ def usable_hook(path):
 
 
 def push_probes(path):
-    """Run the hook on the probe push without, with, and with an orphaned receipt.
+    """Run the hook on the probe push without a receipt, with a held one, with an orphaned
+    one, and with one of the shape an earlier runtime's probe left (pid, nothing to hold).
 
-    Returns the three exit statuses. The temporary ref exists only for the duration.
+    Returns the four exit statuses. The temporary ref exists only for the duration.
     """
     head = git('rev-parse', 'HEAD')
     nonce = os.urandom(8).hex()
@@ -271,14 +277,16 @@ def push_probes(path):
     try:
         unreceipted = run_hook(path, remote, line)
         if unreceipted == 0:
-            return unreceipted, None, None
+            return unreceipted, None, None, None
         with probe_receipt(dangling):
             held = run_hook(path, remote, line)
         with probe_receipt(dangling, held=False):
             orphaned = run_hook(path, remote, line)
+        with probe_receipt(dangling, legacy=True):
+            legacy = run_hook(path, remote, line)
     finally:
         git('update-ref', '-d', ref)
-    return unreceipted, held, orphaned
+    return unreceipted, held, orphaned, legacy
 
 
 def start(args, directory):
@@ -421,7 +429,10 @@ def correction_brief(state):
                      + ', '.join(state['reopened']) + '. Judge whether this delta changes the '
                      'approach; a patch to the same instance is itself a finding.')
     lines.append('The author probed the correction before committing; verify each probe and go '
-                 'beyond it. Shallow probing is a finding:\n' + json.dumps(state.get('probe', []), indent=1))
+                 'beyond it. Shallow probing is a finding. A probe you cannot execute in your sandbox '
+                 '(a project gate, a browser, a network) is a limitation to state in your summary, not '
+                 'a reason to report incomplete: the caller runs and records the declared gates.\n'
+                 + json.dumps(state.get('probe', []), indent=1))
     if state.get('regression_tests'):
         lines.append('Tests changed in this delta: ' + ', '.join(state['regression_tests'])
                      + '. A test whose expectation was flipped rather than added must be justified '
@@ -565,7 +576,11 @@ def reserve_codex(directory):
         state = read_state(directory)
         current(state)
         require('codex' not in state['reviews'], 'Reuse the completed Codex review.')
-        require(state.get('codex_attempts', 0) < 2, 'Codex retry budget exhausted; stop and report the failure.')
+        require(state.get('codex_attempts', 0) < 2,
+                'Codex retry budget exhausted: the campaign cannot complete on this candidate. Report the '
+                'failure with both attempt logs; if a human authorises starting over, keep this state '
+                'directory aside (rename it, delete nothing) and start a new campaign covering the same '
+                'commits. An incomplete report never advances a round.')
         state['codex_attempts'] = state.get('codex_attempts', 0) + 1
         state['codex_running'] = True
         save(directory, state)

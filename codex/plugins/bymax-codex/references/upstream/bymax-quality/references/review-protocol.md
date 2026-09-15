@@ -134,8 +134,11 @@ python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--desig
 ```
 
 `--probe` is a nonempty JSON list of `{"command", "expected", "observed"}`: what the author
-ran against the correction before committing it. The prompt shows it to both reviewers
-with the instruction to verify each entry and go beyond it; shallow probing is a finding.
+ran against the correction before committing it — reproductions of the defect and of the
+fix, never the declared project gates, which `check` runs and records. The prompt shows it
+to both reviewers with the instruction to verify each entry and go beyond it; shallow
+probing is a finding, and a probe a reviewer cannot execute in its sandbox is a limitation
+to state in the summary, not a reason to report `incomplete`.
 The helper lists every test file added or modified in the delta in the prompt (a renamed
 test appears under its new path), so a flipped expectation — as opposed to an added case —
 must be justified in triage or is a finding. Deleted test files are listed separately, with
@@ -171,7 +174,10 @@ list covers the project's requirements: check it against project docs before sta
 
 `finish` requires both reports, every disposition, no open or deferred confirmed P0–P2
 blocker, a clean matching HEAD, and passing check records. Same-HEAD reuse is intentional.
-New work after a completed campaign starts a new full campaign. A stalled campaign has
+New work after a completed campaign starts a new full campaign. A round whose Codex
+budget is spent without a recorded report cannot complete: `triage` needs both reports and
+`start` needs the triage. The exit is the same as for any stalled campaign, and `codex`
+says so when it refuses. A stalled campaign has
 no automatic reset: explain the blockers and obtain a scope decision. Preserve its
 `state.json` and round files if a human authorizes archiving it and starting over.
 
@@ -194,7 +200,7 @@ hook — husky's `.husky/_/pre-push` running `.husky/pre-push` — qualifies whe
 runs invokes `review_prepush.py`, and survives the stub being regenerated. In either
 place, a hook that declares another policy or is not executable is refused at `start`,
 with the remedy named. Before
-the candidate is frozen, `start` also runs that hook three times as git would (from the
+the candidate is frozen, `start` also runs that hook four times as git would (from the
 worktree root, through `sh` when it has no shebang, within 60 seconds each, with origin's
 name and URL as arguments), feeding it one push line shaped like a real push: a temporary
 ref under `refs/bymax-review/`, resolving to a dangling child of HEAD built from the
@@ -206,12 +212,13 @@ concurrent starts in linked worktrees do not disturb each other; the receipt is 
 only while the probe holds a lock on the `holder` file beside it, which the kernel
 releases with the process, so a receipt orphaned by a kill authorises nothing whatever
 pid is reused later. The hook must let the second push through. For the third push the
-receipt is present but unheld — the shape an interrupted probe leaves — and the hook
-must refuse again. A hook that exits 0 for the first push does not enforce receipts; one
-that refuses the second is refusing for a reason the probe does not satisfy (a local ref
-that is not a branch, for instance) and is refused as not consulting receipts; one that
-accepts the third reads receipts without checking their holder, as a checker from an
-earlier runtime does. Every refusal names the remedy; a kept file is never rewritten,
+receipt is present but unheld — the shape an interrupted probe leaves — and for the
+fourth it names a pid and nothing to hold — the shape a probe of an earlier runtime
+left; the hook must refuse both. A hook that exits 0 for the first push does not enforce
+receipts; one that refuses the second is refusing for a reason the probe does not
+satisfy (a local ref that is not a branch, for instance) and is refused as not
+consulting receipts; one that accepts the third or the fourth honours a receipt nobody
+holds, as a checker from an earlier runtime does. Every refusal names the remedy; a kept file is never rewritten,
 so a check merged into it by hand survives, and a copy of an earlier checker is refused
 by the third push until it is deleted (the bundled hook is then reinstalled) or pointed
 at the current checker. A probe receipt that carries a pid but nothing to hold — the
