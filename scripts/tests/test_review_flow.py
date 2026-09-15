@@ -335,6 +335,24 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('runtime is policy 2', result.stderr)
         self.assertEqual(json.loads(state_path.read_text())['policy'], 1)
 
+    def test_renamed_test_counts_under_its_new_path(self):
+        """A renamed and extended test is regression evidence, listed where it now lives."""
+        (self.repo / 'tests').mkdir()
+        (self.repo / 'tests/test_old.py').write_text('def test_a(): pass\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'existing test')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_old.py').rename(self.repo / 'tests/test_new.py')
+        (self.repo / 'tests/test_new.py').write_text('def test_a(): pass\ndef test_b(): pass\n')
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'rename and extend')
+        state = self.start(correction=True, reason='')
+        self.assertEqual(state['regression_tests'], ['tests/test_new.py'])
+        self.assertIn('tests/test_new.py', self.flow('prompt').stdout)
+
     def test_correction_without_tests_needs_a_recorded_reason(self):
         """A correction that touches no test must say why, and the reason reaches reviewers."""
         self.start()

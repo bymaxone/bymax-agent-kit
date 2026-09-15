@@ -131,9 +131,10 @@ python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--desig
 `--probe` is a nonempty JSON list of `{"command", "expected", "observed"}`: what the author
 ran against the correction before committing it. The prompt shows it to both reviewers
 with the instruction to verify each entry and go beyond it; shallow probing is a finding.
-The helper lists every test file changed in the delta in the prompt, so a flipped
+The helper lists every test file added or modified in the delta in the prompt (a renamed
+test appears under its new path; a deleted one does not count), so a flipped
 expectation — as opposed to an added case — must be justified in triage or is a finding.
-A correction that changes no test is refused unless `--no-regression-reason` records
+A correction that adds or modifies no test is refused unless `--no-regression-reason` records
 why, and that reason reaches both reviewers for judgement.
 
 A finding open in two consecutive triages has been **reopened**: the previous fix

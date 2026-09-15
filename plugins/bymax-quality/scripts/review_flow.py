@@ -218,7 +218,9 @@ def correction_contract(args, old, head):
                                     for k in ('command', 'expected', 'observed')) for p in probe),
             'Probe must be a nonempty list of {command, expected, observed} strings.')
     # Added or modified only: deleting the test that caught a defect is not a regression.
-    changed = git('diff', '--name-only', '--diff-filter=AM', old['head'], head).splitlines()
+    # Renames are not detected, so a renamed test is listed under its new path as added
+    # instead of vanishing from the list both reviewers see.
+    changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', old['head'], head).splitlines()
     tests = [p for p in changed if is_test_path(p)]
     reason = (args.no_regression_reason or '').strip()
     require(tests or reason,
