@@ -187,6 +187,9 @@ for f in "${REQUIRED_FILES[@]}"; do
   fi
 done
 
+section "Testing bounded review and push guard behavior"
+python3 -m unittest discover -s scripts/tests -v || fail "review flow regression tests failed"
+
 # ---------------------------------------------------------------------------
 # 7. Summary
 # ---------------------------------------------------------------------------

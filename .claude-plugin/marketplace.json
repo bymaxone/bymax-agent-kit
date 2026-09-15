@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "bymax-claude-code",
   "description": "A complete, production-ready toolkit for Claude Code: planning workflow (spec → roadmap → phase-tasks → task), loop-engineering autopilot (autonomous roadmap execution, one merge-gated PR per phase), quality gates (TDD + code-review + security-review) for TypeScript and Rust, specialized review agents, project bootstrap with strict ESLint/Prettier/TypeScript, autonomous PR babysitting, and battle-tested templates. Stack templates for Next.js, Expo / React Native, Vite + React, and Node backends.",
-  "version": "1.13.1",
+  "version": "1.14.0",
   "owner": {
     "name": "Bymax One",
     "email": "support@bymax.one",
@@ -18,7 +18,7 @@
     },
     {
       "name": "bymax-quality",
-      "description": "Quality gates: /bymax-quality:code-review (mechanical gate + verified bug hunt, plus an optional independent Codex review, an opt-in adversarial second one behind --adversarial, and the built-in review, reported side by side with a cross-read; modes quick/full/deep, CRITICAL → LOW severity, blocks suppression comments), /bymax-quality:review-md (REVIEW.md generator for Anthropic's cloud Code Review), /bymax-quality:tdd (red-green-refactor), the multi-stack `tester` skill, seven specialist sub-agents (incl. a Rust reviewer), and two pre/post hooks (secret-scanner, console-log-scan). /bymax-quality:codex-setup installs and authenticates the Codex CLI when the user wants the second opinion — Codex is optional and never bundled.",
+      "description": "Bounded Claude + Codex code review with shared context, verified findings and correction deltas, plus TDD, specialist reviewers and security hooks. The Codex CLI is required for dual-review certification.",
       "category": "quality",
       "source": "./plugins/bymax-quality",
       "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-quality"

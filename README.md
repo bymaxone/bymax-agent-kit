@@ -33,6 +33,8 @@
 
 ## ✨ Overview
 
+**Using Codex?** Read [CODEX.md](./CODEX.md) for the separate Codex package, one-command installation, native code review, and capability boundaries. The Claude installation below is unchanged.
+
 **Bymax Claude Code** is a production-ready toolkit that turns Claude Code into a **disciplined senior engineer**. Instead of ad-hoc prompts, you get:
 
 - A **phased planning workflow** (spec → roadmap → phase-tasks → task) with explicit user-approval gates and JIRA-style dashboards.
@@ -222,7 +224,7 @@ Strict quality gates and specialist reviewers.
 
 | Item                    | Purpose                                                                                                                                    |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/code-review`          | CRITICAL → HIGH → MEDIUM → LOW review (TypeScript **and Rust**) at selectable depth (`quick` \| `full` \| `deep`) and optional target (branch, ref range, PR#, file). Deterministic mechanical gate + verified bug hunt. Blocks suppression comments (`@ts-ignore`, `eslint-disable`, Rust `#[allow]`/`unsafe`, etc.). In **every** mode an **independent Codex review** runs in a background shell, launched before this command forms an opinion and read only after its findings are frozen; `--adversarial` adds a second one that challenges the approach rather than the code; `full` and `deep` also run Claude's own built-in review (`high` in `full`, `max` in `deep`), reported honestly as the same model family rather than a third independent voice. When a review is missing, logged out or slow the report says so in one line and nothing else changes. `--no-codex` skips the Codex pair, `--no-builtin` skips Review D. |
+| `/code-review` | Bounded Claude + Codex review: shared context, pinned candidate, verified findings, correction deltas and explicit check evidence. Maximum initial review plus two correction rounds. Nits do not force a loop; missing reviewers leave certification incomplete. |
 | `/codex-setup`          | Installs + authenticates the Codex CLI that powers `code-review`'s independent second review (Homebrew cask or npm), then verifies it with a real review run. Optional — everything works without it. |
 | `/review-md`            | Generates a repo-root `REVIEW.md` so Anthropic's cloud Code Review (`@claude review`, `/code-review ultra`) enforces the same Bymax rules the local gate blocks on. |
 | `/tdd`                  | Strict red-green-refactor cycle (Jest/Vitest or Rust `#[test]`/`cargo test`). Forces failing test before implementation. 80%+ coverage minimum. |
@@ -410,7 +412,7 @@ Autopilot is where the other plugins compound — Osmani's five loop components 
 | Loop component (Osmani) | In this toolkit |
 |---|---|
 | **State & memory** | The roadmap's Progress Dashboard + task files (from `/spec` → `/roadmap` → `/phase-tasks`) are the loop's externalized state — the same docs you approved are what the loop reads and updates |
-| **Sub-agents** | One implementer per phase + the `bymax-quality` reviewers; an implementer never grades its own work — `/code-review` and `/security-review` iterate to zero before any PR opens |
+| **Sub-agents** | One implementer per phase + the `bymax-quality` reviewers; an implementer never grades its own work — Claude/Codex review and security verification must resolve confirmed blockers before any PR opens |
 | **Worktrees** | Every implementer runs in an isolated `git worktree` — no file collisions, clean rollback |
 | **Skills** | `/standards` (the §0 simplicity ladder), `/tdd`, `tester` — the project knowledge implementers load instead of re-deriving conventions |
 | **Automations** | Background CI/review watchers + scheduled wake-up fallbacks — the mechanics proven in `/bymax-pr:babysit-pr`, promoted from one PR to the whole roadmap |
@@ -420,7 +422,7 @@ And Osmani's warning — *"unattended loops make unattended mistakes; verificati
 ### Honest constraints
 
 - **It merges.** Unlike `/bymax-pr:babysit-pr` (which never merges), autopilot's whole point is unattended merging — gated by the conjunction above. Launch it only on repos where a phase-per-PR squash-merge by the loop is what you want.
-- **It is token-intensive by design.** An implementer per phase, reviews iterated to zero, fix cycles. The per-phase **model policy** in `docs/AUTOPILOT.md` exists to spend the strong tier only where first-pass judgment matters (first-contact APIs, security-sensitive phases, final hardening) and a cheaper tier where the merge gate catches everything anyway.
+- **It is token-intensive by design.** An implementer per phase, bounded review campaigns, fix cycles. The per-phase **model policy** in `docs/AUTOPILOT.md` exists to spend the strong tier only where first-pass judgment matters (first-contact APIs, security-sensitive phases, final hardening) and a cheaper tier where the merge gate catches everything anyway.
 - **It needs the planning chain.** No roadmap + task files, no autopilot — it executes plans, it never invents them.
 
 ---
@@ -675,3 +677,13 @@ Inspired by:
 <p align="center">
   <sub>Built with ❤️ by <a href="https://github.com/bymaxone">Bymax One</a> · Used in production every day at <a href="https://bymax.one">bymax.one</a></sub>
 </p>
+
+## Bounded Claude and Codex review
+
+`/bymax-quality:code-review` uses one Claude pass and one Codex pass with the same pinned
+scope and context, then at most two correction rounds. It verifies findings before edits
+and records evidence for the exact pushed commit. See the
+[protocol](plugins/bymax-quality/references/review-protocol.md) for setup and limitations.
+Install the global Claude policy/guard and a local plugin overlay with
+`python3 scripts/install-review-flow.py --local-plugin-overlay`; restart Claude afterward.
+Existing local files are backed up. Publishing the release is a separate step.

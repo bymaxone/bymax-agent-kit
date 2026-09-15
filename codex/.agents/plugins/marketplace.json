@@ -1,0 +1,20 @@
+{
+  "name": "bymax-codex",
+  "interface": {
+    "displayName": "Bymax Codex"
+  },
+  "plugins": [
+    {
+      "name": "bymax-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/bymax-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

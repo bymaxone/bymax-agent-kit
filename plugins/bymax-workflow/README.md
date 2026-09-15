@@ -27,7 +27,7 @@ claude plugin install bymax-workflow@bymax-claude-code
 ### Skills
 
 - **`standards`** — universal coding rules with **TypeScript and Rust tracks** (type/lint discipline, JSDoc / rustdoc policy, naming, layered architecture, English-only comments, suppression bans, conventional commits). Loaded on demand by `/bymax-workflow:plan`, `/bymax-quality:tdd`, `/bymax-quality:code-review`, `/bymax-bootstrap:bootstrap`, etc.
-- **`autopilot`** — the **loop-engineering executor**: autonomously drives an approved roadmap from first phase to done, **one phase per PR**, with zero human interaction after launch. An orchestrator session spawns one isolated implementer sub-agent per phase (git worktree, model picked per a per-phase policy), waits for CI + the review bot via background signals, fixes every finding, merges only after a full merge-gate conjunction + grace window, updates the dashboards, and chains the next phase. Per-project parameters live in `docs/AUTOPILOT.md` (`/bymax-workflow:autopilot init` generates it from the roadmap and stops for your review). Requires an authenticated `gh` CLI.
+- **`autopilot`** — the **loop-engineering executor**: autonomously drives an approved roadmap from first phase to done, **one phase per PR**, with zero human interaction after launch. An orchestrator session spawns one isolated implementer sub-agent per phase (git worktree, model picked per a per-phase policy), waits for CI + the review bot via background signals, triages findings and fixes confirmed blockers, merges only after a full merge-gate conjunction + grace window, updates the dashboards, and chains the next phase. Per-project parameters live in `docs/AUTOPILOT.md` (`/bymax-workflow:autopilot init` generates it from the roadmap and stops for your review). Requires an authenticated `gh` CLI.
 
 ## The flow
 
@@ -54,7 +54,7 @@ Once the planning docs are approved, `autopilot` inverts the contract: **approva
    ⏸ user approval (the last one)
 /bymax-workflow:autopilot        →  for each phase, sequentially:
       spawn implementer (isolated worktree, model per policy)
-        → implementer: tasks + gates + /bymax-quality:code-review + /security-review to zero → PR
+        → implementer: tasks + gates + /bymax-quality:code-review + security verification with confirmed blockers resolved → PR
       orchestrator: background CI/review watch → fix findings → merge gate + grace window
         → squash-merge + branch deletion (with proof) → dashboards → next phase
    🔁 until every phase is ✅ (or a precondition blocks — then it stops cleanly and tells you)
