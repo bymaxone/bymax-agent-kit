@@ -427,6 +427,26 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertEqual(list((self.repo / '.git/bymax-review').glob('probe-*')), [])
         self.assertEqual(self.git('for-each-ref', 'refs/bymax-review/'), '')
 
+    def test_sweep_bound_outlasts_every_hook_run_of_one_probe(self):
+        """An interrupted probe's refs are swept only once older than a probe can be, so the
+        bound must exceed what the probe's own hook runs can consume: a push added to the
+        probe without raising it would let a sibling start sweep refs still in flight."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('flow_bound', FLOW)
+        flow = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(flow)
+        runs = []
+        original = flow.run_hook
+        flow.run_hook = lambda path, remote, line, _o=original: (runs.append(line), _o(path, remote, line))[1]
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        try:
+            flow.install_hook()
+        finally:
+            os.chdir(cwd)
+        self.assertTrue(runs)
+        self.assertGreater(flow.PROBE_BOUND, len(runs) * flow.HOOK_SECONDS)
+
     def test_kept_hook_must_check_every_record_of_a_multi_ref_push(self):
         """git hands the hook one record per pushed ref. A hook that reads a single one of them
         and delegates only that lets the other commits land, so the probe's two multi-ref pushes

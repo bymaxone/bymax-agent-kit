@@ -78,7 +78,7 @@
   "bymax-quality/hooks/console-log-scan.sh": "5a28b924ee66dba94fc653cc7d45e6b8023a5fb1b795a3783ec3021202185143",
   "bymax-quality/hooks/hooks.json": "a93c09ea3eab28df56cbf879b9958d02004f34f24006a4db8ec68b0aafade5fc",
   "bymax-quality/hooks/secret-scanner.sh": "08758863c13c2e51955e62cac23db4d9fafe4ddfb20d3acf5e1c90641b423e6f",
-  "bymax-quality/references/review-protocol.md": "78dea2d30dd15fef7c92b9fce8ec597afc9cd93279c47f108a1b86a6f194bba6",
+  "bymax-quality/references/review-protocol.md": "4e3b6ad84db5a781739b8b0632dff0abefc4a5417eba119dc2c6c761b6cb7a7c",
   "bymax-quality/scripts/codex-review.sh": "514bf17cb6cb44be94acc3a274b72e26c18bc3a12e32b7269a0cd2832d045b7b",
   "bymax-quality/scripts/review-report.schema.json": "b00f1e2532e87e1c5d8c5a73961f3f778f711b14557ab6fbcbef545ffd456b87",
   "bymax-quality/scripts/review_flow.py": "0fe0c7db59a003b1b8d1fb81ddbaa084b69a9afd56aef2bda199060b4c630bea",

@@ -212,28 +212,32 @@ worktree root, through `sh` when it has no shebang, within 60 seconds each, with
 name and URL as arguments), feeding it one push line shaped like a real push: a temporary
 ref under `refs/bymax-review/`, resolving to a dangling child of HEAD built from the
 current tree in the user's own git identity, fast-forwarding the current branch. That
-commit exists, has a parent, and its ref resolves to it, but no receipt names it: the
-hook must refuse the first push. For the second push the helper holds a temporary
-completed receipt for that commit in a directory of its own under `bymax-review/`, so
-concurrent starts in linked worktrees do not disturb each other; the receipt is valid
-only while the probe holds a lock on the `holder` file beside it, which the kernel
-releases with the process, so a receipt orphaned by a kill authorises nothing whatever
-pid is reused later. The hook must let the second push through. For the third push the
-receipt is present but unheld — the shape an interrupted probe leaves — and for the
-fourth it names a pid and nothing to hold; the hook must refuse both, since a probe
-receipt nobody holds is void. The fifth push carries three records, as git does for a
-push of three refs, each with its own remote ref, the receipted commit surrounding one
-with no receipt; the sixth pushes the same three refs with the unreceipted commit first,
-which makes it the record that fast-forwards the branch while the other two create their
-own. The hook must refuse both, and a hook that reads a single fixed record of the three
-reads a receipted commit in one of them. A hook that exits 0 for the first push does not enforce
-receipts; one that refuses the second is refusing for a reason the probe does not
-satisfy (a local ref that is not a branch, for instance) and is refused as not
-consulting receipts; one that accepts the third or the fourth honours a receipt nobody
-holds; one that accepts the fifth or the sixth left an unreceipted commit unchecked. Every refusal names the remedy; a kept file is never rewritten,
-so a check merged into it by hand survives, and a copy of an earlier checker is refused
-by the third or the fourth push until it is deleted (the bundled hook is then reinstalled)
-or pointed at the current checker. The refs and the directory are removed afterwards, and what
+commit exists, has a parent, and its ref resolves to it. The six pushes differ in what
+names that commit, and each is described by what it carries rather than by its position,
+which the runtime is free to change:
+
+- **with no receipt** — the hook must refuse it, or it does not enforce receipts at all;
+- **with a held receipt** — the helper holds a temporary completed receipt for that commit
+  in a directory of its own under `bymax-review/`, so concurrent starts in linked worktrees
+  do not disturb each other, and the receipt is valid only while the probe holds a lock on
+  the `holder` file beside it, which the kernel releases with the process. The hook must
+  let this push through; one that refuses it is refusing for a reason the probe does not
+  satisfy (a local ref that is not a branch, for instance) and is refused as not consulting
+  receipts;
+- **with that receipt unheld**, the shape an interrupted probe leaves, and **with one naming
+  a pid and nothing to hold** — the hook must refuse both, since a probe receipt nobody
+  holds is void whatever pid is reused later. A hook that accepts either honours such a
+  receipt, as a copy of an earlier checker does; it is refused until deleted (the bundled
+  hook is then reinstalled) or pointed at the current checker;
+- **two pushes of three refs**, as git does for a push of three refs, each record with its
+  own remote ref: the receipted commit surrounds one with no receipt in the first, and in
+  the second the unreceipted commit comes first, which makes it the record that
+  fast-forwards the branch while the other two create their own. The hook must refuse both,
+  and a hook that reads a single fixed record of the three reads a receipted commit in one
+  of them; accepting either means an unreceipted commit went unchecked.
+
+Every refusal names the remedy; a kept file is never rewritten, so a check merged into it
+by hand survives. The refs and the directory are removed afterwards, and what
 an interrupted probe left behind is swept by the next probe once older than a probe
 can be. Hook code written to recognise the probe is trusted code and outside what a
 local probe can establish, as is a hook that filters records by a property these
