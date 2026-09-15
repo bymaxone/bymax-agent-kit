@@ -284,6 +284,13 @@ prints, not just the last commit — write the body to a temp file, and create i
 ```bash
 DEFAULT_REF=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)
 DEFAULT_BRANCH=$(sed -n 2p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)
+# The block above stops on an empty ref, but this is a separate fence and may be run
+# on its own. Check again here: `git log "..HEAD"` collapses to HEAD..HEAD, which
+# describes a PR from an empty range against an empty base rather than failing.
+if [ -z "${DEFAULT_REF}" ] || [ -z "${DEFAULT_BRANCH}" ]; then
+  echo "Skipping the PR: the default branch could not be resolved." >&2
+  exit 0
+fi
 git log "${DEFAULT_REF}..HEAD" --oneline
 git diff "${DEFAULT_REF}...HEAD" --stat
 body=$(mktemp)   # write the full PR body (shape below) to "$body"

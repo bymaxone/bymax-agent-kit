@@ -448,12 +448,24 @@ class ReviewFlowTests(unittest.TestCase):
             self.assertIn(aside.name, refused)
             shutil.rmtree(aside)
 
+    def test_a_campaign_kept_aside_in_place_is_found_too(self):
+        """read_state used to recommend this spelling, so it is the one a caller reaches for."""
+        self.start()
+        directory = Path(self.flow('status')['directory'])
+        (directory / 'state.json').rename(directory / 'state.json.kept-aside')
+        refused = self.start(ok=False).stderr
+        self.assertIn('kept aside without clearing', refused)
+        self.assertIn('state.json renamed', refused)
+
     def test_the_recovery_messages_name_the_rename_the_refusal_reads(self):
         """A message that names another spelling would send the caller past the guardrail."""
         source = FLOW.read_text()
-        for message in ('Keep this campaign aside by renaming its directory, with the branch',
-                        'rename this ', 'state directory with the branch hash still in its name'):
+        # Detection needs the whole directory name as a substring, so guidance that asks
+        # only for "the branch hash" walks a caller into an abbreviation that evades it.
+        for message in ('renaming its directory, keeping its ',
+                        'state directory keeping its whole current name and adding to it'):
             self.assertIn(message, source)
+        self.assertNotIn('branch hash still in', source)
 
     def test_starting_over_after_an_unfinished_campaign_needs_authorization(self):
         """Exhausting the budget hands the work to a human; archiving is not a way around it."""

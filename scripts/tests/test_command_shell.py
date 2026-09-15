@@ -26,12 +26,15 @@ PLACEHOLDER = re.compile(r'<[A-Za-z][A-Za-z0-9_ .#-]*>')
 # Names a block may read without assigning: the environment gives them, or the shell does.
 AMBIENT = {'HOME', 'PWD', 'IFS', 'PATH', 'SHELL', 'USER', 'TMPDIR', 'EDITOR', 'PAGER',
            'GIT_TERMINAL_PROMPT', 'GIT_SSH_COMMAND', 'CLAUDE_PLUGIN_ROOT'}
-# A value a reader is told to paste becomes shell source: git accepts `$( )` in ref names.
-# Two spellings ask for one: an empty assignment with a `<-` comment, and an assignment whose
-# value is an unquoted placeholder. A value that can carry shell metacharacters is read from a
-# file an earlier step wrote, never pasted; a placeholder that cannot is single-quoted, so what
-# a reader puts there stays literal.
-PASTE = re.compile(r'^\s*[A-Za-z_][A-Za-z0-9_]*=(?:(?:""|\'\')\s*#.*<-|<[^>]*>)', re.M)
+# A value a reader is told to paste becomes shell source: git accepts `$( )` in ref names,
+# and quoting does not rescue it. Double quotes keep a command substitution live, and single
+# quotes end at the first apostrophe — which a name the user typed may carry. So no quoting
+# is accepted here: a value the model supplies is written to a file with the file tool and
+# read back, the way push.md and babysit-pr do. Two spellings ask for a paste: an empty
+# assignment with a `<-` comment, and an assignment whose value holds a placeholder in any
+# quoting. `export` prefixes an assignment exactly as ASSIGN already allows.
+PASTE = re.compile(r'^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*='
+                   r'(?:(?:""|\'\')\s*#.*<-|[\'"]?<[^>]*>)', re.M)
 
 
 def documents():
@@ -95,15 +98,57 @@ class CommandShellTests(unittest.TestCase):
                                                   'asks for a value to be pasted into shell')
 
     def test_the_paste_rule_covers_both_spellings_that_ask_for_one(self):
-        """The rule is what stands between a document and a ref name that carries `$( )`."""
+        """The rule is what stands between a document and a ref name that carries `$( )`.
+
+        No quoting rescues a pasted value: double quotes keep a command substitution
+        live, and single quotes end at the first apostrophe. So every quoting is caught,
+        and the value reaches shell through a file handoff instead.
+        """
         for asked in ('DEFAULT_REF=""   # <- the ref Step 0 resolved',
                       "DEFAULT_REF=''  # <- the ref Step 0 resolved",
                       'RUN_ID=<the failed run id>',
+                      "RUN_ID='<the failed run id>'",
+                      'RUN_ID="<the failed run id>"',
+                      'export RUN_ID=<the failed run id>',
                       'RANGE=<review_base>..<head>'):
             self.assertRegex(asked, PASTE, f'{asked!r} asks for a paste and is not caught')
-        for safe in ("RUN_ID='<the failed run id>'", 'RUN_ID=$(cat run-id)',
-                     'echo "<placeholder in prose>"', 'DEFAULT_REF=$(sed -n 1p handoff)'):
+        for safe in ('RUN_ID=$(cat run-id)', 'echo "<placeholder in prose>"',
+                     'DEFAULT_REF=$(sed -n 1p handoff)', 'RUN_ID=$(gh run list -q .id)'):
             self.assertNotRegex(safe, PASTE, f'{safe!r} is not a paste and is refused')
+
+    def test_every_handoff_read_is_guarded_before_the_value_is_used(self):
+        """A handoff can be absent — a loop in flight, or an entry at a later phase.
+
+        `|| true` keeps the block running on purpose, so the emptiness check is what
+        stops it. Without one the empty value flows on: the babysit loop read no PR,
+        found nothing failing and nothing unresolved, and announced the PR ready.
+        """
+        handoff = re.compile(r'\$\(git rev-parse --git-dir\)/bymax-[a-z-]+')
+        seen = 0
+        for path in documents():
+            for number, block in blocks(path):
+                for line in block.splitlines():
+                    match = ASSIGN.search(line)
+                    if not (match and handoff.search(line) and 'printf' not in line):
+                        continue
+                    seen += 1
+                    # The value may be renamed before it is tested: push.md reads the
+                    # default into DEFAULT_REF, lets it stand in for a missing upstream
+                    # as BASE, and tests BASE. Follow the value, then require a test on
+                    # one of the names it reached.
+                    carriers = {match.group(1)}
+                    for other in block.splitlines():
+                        moved = ASSIGN.search(other)
+                        if moved and any(f'${{{name}}}' in other or f'${name}' in other
+                                         for name in carriers):
+                            carriers.add(moved.group(1))
+                    tests = [f'{form} "${spelling}"' for form in ('[ -z', '[ -n', 'case')
+                             for name in carriers
+                             for spelling in (name, '{' + name + '}')]
+                    self.assertTrue(any(test in block for test in tests),
+                                    f'{path.relative_to(ROOT)} block {number} reads the handoff '
+                                    f'into {match.group(1)} and nothing checks whether it arrived')
+        self.assertGreater(seen, 0, 'no handoff read found — the rule would pass vacuously')
 
     @unittest.skipUnless(shutil.which('shellcheck'), 'shellcheck is not installed')
     def test_runnable_blocks_pass_shellcheck(self):

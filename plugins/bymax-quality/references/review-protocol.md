@@ -168,7 +168,9 @@ the round on them anyway, record why with `--nit-round "<why>"`, which both revi
 `start` also refuses to open a campaign on a branch whose earlier campaign was kept aside
 without clearing, unless `--after-archived "<who authorised it and for what scope>"`
 records the decision, which both reviewers also read. Keep a campaign aside by renaming its
-directory with the branch hash still in the name; that is what the refusal looks for.
+directory, keeping its whole current name and adding to it; that whole name is what the
+refusal looks for, so an abbreviated hash is not enough. Renaming `state.json` in place
+counts as keeping the campaign aside too, and is found the same way.
 
 A finding open in two consecutive triages has been **reopened**: the previous fix
 addressed the instance, not the cause. `start` refuses the next round unless it is

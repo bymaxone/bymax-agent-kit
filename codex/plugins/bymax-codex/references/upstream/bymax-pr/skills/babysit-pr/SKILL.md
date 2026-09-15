@@ -168,9 +168,13 @@ these throughout the loop instead of assuming `npm`.
 ### Create / read state
 
 ```bash
-# Shell state does not cross a fence: this block resolves the PR it works on rather
-# than reading a variable the loop-entry block assigned.
+# target is read from the file loop entry wrote. Never resolve it again here: an
+# argumentless `gh pr view` would silently retarget the current branch's PR.
 PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
 STATE=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" --paginate \
   | jq -r '[.[] | select(.body | startswith("<!-- babysit-state -->"))][0] // empty')
 ```
@@ -229,6 +233,10 @@ Skip scheduling when:
 # target is read from the file loop entry wrote. Never resolve it again here: an
 # argumentless `gh pr view` would silently retarget the current branch's PR.
 PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
 MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable -q .mergeable)
 ```
 
@@ -242,6 +250,10 @@ MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable -q .mergeable)
 # target is read from the file loop entry wrote. Never resolve it again here: an
 # argumentless `gh pr view` would silently retarget the current branch's PR.
 PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
 BASE_BRANCH=$(gh pr view "$PR_NUMBER" --json baseRefName -q .baseRefName)
 git fetch origin "$BASE_BRANCH"
 git rebase "origin/$BASE_BRANCH"
@@ -303,6 +315,10 @@ git rebase --abort
 # target is read from the file loop entry wrote. Never resolve it again here: an
 # argumentless `gh pr view` would silently retarget the current branch's PR.
 PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
 CHECKS_JSON=$(gh pr checks "$PR_NUMBER" --json name,state,link,bucket 2>/dev/null)
 FAILING=$(echo "$CHECKS_JSON" | jq -r '.[] | select(.bucket == "fail") | .name')
 PENDING=$(echo "$CHECKS_JSON" | jq -r '.[] | select(.bucket == "pending") | .name')
@@ -319,6 +335,10 @@ For each failing check:
 # target is read from the file loop entry wrote. Never resolve it again here: an
 # argumentless `gh pr view` would silently retarget the current branch's PR.
 PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
    HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)
    RUN_ID=$(gh run list --commit "$HEAD_SHA" --json databaseId,name,conclusion \
      -q '[.[] | select(.name == "<check-name>" and .conclusion == "failure")][0].databaseId')
@@ -339,9 +359,15 @@ PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || tru
 
 3. **If FLAKY** → re-run the failed jobs instead of editing code:
    ```bash
-   # Shell state does not cross a fence: name the run this block re-runs, from the id
-   # the failing-check block printed.
-   RUN_ID='<the failed run id>'
+   # Shell state does not cross a fence, and a value is never pasted into shell
+   # source: write the failing run's id to this file with the file tool, then read
+   # it back. A run id is digits; anything else did not come from `gh run list`.
+   RUN_ID=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-babysit-run" 2>/dev/null || true)
+   case "$RUN_ID" in
+     ''|*[!0-9]*)
+       echo "No run id recorded: write it to .git/bymax-babysit-run first." >&2
+       exit 1 ;;
+   esac
    gh run rerun "$RUN_ID" --failed
    ```
    Increment `flakyReruns[<check>]` in state. **Cap at 3 re-runs.** If a
@@ -388,6 +414,10 @@ Termination Check decides to reschedule.
 # target is read from the file loop entry wrote. Never resolve it again here: an
 # argumentless `gh pr view` would silently retarget the current branch's PR.
 PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
 REVIEW_COMMENTS=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" --paginate)
 ISSUE_COMMENTS=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" --paginate)
 ```

@@ -59,9 +59,9 @@ def read_state(directory):
     state = json.loads(path.read_text())
     require(state['policy'] == POLICY,
             f"Review policy changed: this campaign was frozen under policy {state['policy']}, the runtime "
-            f"is policy {POLICY}. Keep this campaign aside by renaming its directory, with the branch "
-            'hash still in the name (for example append .archived), and start a new campaign; nothing '
-            'is migrated or deleted.')
+            f"is policy {POLICY}. Keep this campaign aside by renaming its directory, keeping its "
+            'whole current name and adding to it (for example append .archived), and start a new '
+            'campaign; nothing is migrated or deleted.')
     return state
 
 
@@ -340,12 +340,25 @@ def blocking_open(state):
                   if item['status'] == 'open' and blocking.get(item['id']))
 
 
+def kept_in_place(directory):
+    """A campaign kept aside by renaming state.json rather than the directory.
+
+    start() reads a campaign as new from the absence of state.json alone, so the files
+    left beside it are the only evidence that one was already under way here.
+    """
+    if not directory.is_dir() or (directory / 'state.json').exists():
+        return []
+    residue = sorted(child.name for child in directory.iterdir()
+                     if child.name.startswith(('state.json.', 'round-')))
+    return [f'{directory.name} (state.json renamed; {", ".join(residue)})'] if residue else []
+
+
 def abandoned(directory):
     """Campaigns for this branch that were kept aside without clearing."""
-    aside = []
+    aside = kept_in_place(directory)
     for sibling in directory.parent.iterdir():
-        # Kept aside means renamed, and a rename can put the hash anywhere in the name;
-        # the messages that ask for one say to keep the hash, and this is what reads it.
+        # Kept aside means renamed, and a rename can put the name anywhere in the new one;
+        # the messages that ask for one say to keep the whole name, and this reads it.
         if sibling == directory or not sibling.is_dir() or directory.name not in sibling.name:
             continue
         try:
@@ -729,7 +742,8 @@ def reserve_codex(directory):
         require(state.get('codex_attempts', 0) < 2,
                 'Codex retry budget exhausted: the helper will not run Codex again on this candidate. Report '
                 'the failure with both attempt logs; if a human authorises starting over, rename this '
-                'state directory with the branch hash still in its name, delete nothing, and start a new '
+                'state directory keeping its whole current name and adding to it, delete nothing, and '
+                'start a new '
                 'campaign covering the same commits. A completed Codex report obtained outside the helper may still be recorded; an '
                 'incomplete one never advances a round.')
         state['codex_attempts'] = state.get('codex_attempts', 0) + 1

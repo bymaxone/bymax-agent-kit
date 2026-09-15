@@ -158,8 +158,15 @@ policy, exemptions and impact before reporting it. Examples, fixtures and pre-ex
 violations are not automatically introduced defects. CI-enforced failures belong to CI.
 
 ```bash
-# The literal endpoints the helper reported for this candidate; never leave it empty.
-RANGE='<review_base>..<head>'
+# The endpoints the helper reported for this candidate. They are written to this
+# file with the file tool and read back, never pasted into shell source: git accepts
+# a command substitution inside a ref name. Two SHAs and a `..` is all this accepts.
+RANGE=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-review-range" 2>/dev/null || true)
+case "$RANGE" in
+  *[!0-9a-f.]*|'')
+    echo "No range recorded: write <review_base>..<head> to .git/bymax-review-range." >&2
+    exit 1 ;;
+esac
 # Added content lines only: git marks them '>' instead of '+', leaving the
 # '+++ b/path' header as-is — no header collision, no lost '++'-prefixed content.
 added() { git diff --output-indicator-new='>' -U0 "$@" | grep '^>'; }
