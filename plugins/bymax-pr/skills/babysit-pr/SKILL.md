@@ -334,14 +334,17 @@ For each failing check:
 # Shell state does not cross a fence, and the loop wakes into a fresh shell, so the
 # target is read from the file loop entry wrote. Never resolve it again here: an
 # argumentless `gh pr view` would silently retarget the current branch's PR.
-PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
-if [ -z "$PR_NUMBER" ]; then
-  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
-  exit 1
-fi
+   PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+   if [ -z "$PR_NUMBER" ]; then
+     echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+     exit 1
+   fi
    HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)
    RUN_ID=$(gh run list --commit "$HEAD_SHA" --json databaseId,name,conclusion \
      -q '[.[] | select(.name == "<check-name>" and .conclusion == "failure")][0].databaseId')
+   # The re-run block below is a separate fence and wakes into a fresh shell, so the id
+   # is recorded here rather than carried. This is the only block that resolves it.
+   printf '%s\n' "$RUN_ID" > "$(git rev-parse --git-dir)/bymax-babysit-run"
    gh run view "$RUN_ID" --log-failed > /tmp/babysit-failure.log
    ```
 

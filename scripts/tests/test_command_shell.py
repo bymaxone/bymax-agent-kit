@@ -116,6 +116,61 @@ class CommandShellTests(unittest.TestCase):
                      'DEFAULT_REF=$(sed -n 1p handoff)', 'RUN_ID=$(gh run list -q .id)'):
             self.assertNotRegex(safe, PASTE, f'{safe!r} is not a paste and is refused')
 
+    def test_every_handoff_a_document_reads_is_written_by_that_document(self):
+        """A read with no producer is a path that can only fail.
+
+        The blocks are fences in one document and the model runs them in order, so the
+        step that resolves a value is the one that has to record it. A handoff nobody
+        writes made the flaky-rerun path exit on every invocation.
+        """
+        handoff = re.compile(r'\$\(git rev-parse --git-dir\)/(bymax-[a-z-]+)')
+        # The redirection is what makes a line a write, and it may sit on its own
+        # continuation line, so the arrow is read rather than the command name.
+        writes = re.compile(r'>\s*"\$\(git rev-parse --git-dir\)/(bymax-[a-z-]+)"')
+        scripts = [script.read_text() for script in (ROOT / 'plugins').rglob('*.py')]
+        for path in documents():
+            written, read, declared = set(), set(), set()
+            for _, block in blocks(path):
+                for line in block.splitlines():
+                    produced = set(writes.findall(line))
+                    written |= produced
+                    names = set(handoff.findall(line)) - produced
+                    read |= names
+                    # The third producer: a value only the model has, such as a name the
+                    # user typed, is written with the file tool. That is a contract, so
+                    # the block carrying the read has to state it.
+                    if 'with the file tool' in block:
+                        declared |= names
+            # A plugin script is the best producer: the runtime records what it froze,
+            # rather than a model being asked to type it.
+            scripted = {name for name in read if any(f"'{name}'" in s for s in scripts)}
+            orphans = sorted(read - written - scripted - declared)
+            self.assertEqual(orphans, [], f'{path.relative_to(ROOT)} reads {orphans} and '
+                                          'nothing writes that file: no block here, no plugin '
+                                          'script, and no block says the file tool writes it')
+
+    def test_a_guard_accepts_every_value_its_own_document_prescribes(self):
+        """A guard that refuses a documented value closes the path it was added to protect."""
+        prescribed = {
+            'plugins/bymax-quality/commands/code-review.md': ('HEAD', 'da01ff3..d0330f0'),
+            'plugins/bymax-pr/skills/babysit-pr/SKILL.md': ('1234567890',),
+        }
+        for relative, values in prescribed.items():
+            document = ROOT / relative
+            guards = [block for _, block in blocks(document)
+                      if 'case "$RANGE" in' in block or 'case "$RUN_ID" in' in block]
+            self.assertTrue(guards, f'{relative} has no guard to exercise')
+            for block in guards:
+                name = 'RANGE' if 'RANGE' in block else 'RUN_ID'
+                case = block[block.index(f'case "${name}" in'):]
+                case = case[:case.index('esac') + 4]
+                for value in values:
+                    script = f'{name}={value!r}\n{case}\necho ACCEPTED'
+                    outcome = subprocess.run(['bash', '-c', script], capture_output=True, text=True)
+                    self.assertIn('ACCEPTED', outcome.stdout,
+                                  f'{relative} guards {name} and refuses {value!r}, which the '
+                                  'same document prescribes')
+
     def test_every_handoff_read_is_guarded_before_the_value_is_used(self):
         """A handoff can be absent — a loop in flight, or an entry at a later phase.
 

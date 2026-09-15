@@ -441,6 +441,11 @@ def start(args, directory):
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
     save(directory, state)
+    # The mechanical gate runs in a document's fenced shell, which has no way back to
+    # this state, and a value a model is asked to type into shell can carry a command
+    # substitution. So the endpoints are recorded here, by the step that froze them.
+    (Path(git('rev-parse', '--git-dir')) / 'bymax-review-range').write_text(
+        f"{state['review_base']}..{state['head']}\n")
     return state
 
 

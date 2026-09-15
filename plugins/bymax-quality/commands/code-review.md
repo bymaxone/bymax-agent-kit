@@ -158,13 +158,16 @@ policy, exemptions and impact before reporting it. Examples, fixtures and pre-ex
 violations are not automatically introduced defects. CI-enforced failures belong to CI.
 
 ```bash
-# The endpoints the helper reported for this candidate. They are written to this
-# file with the file tool and read back, never pasted into shell source: git accepts
-# a command substitution inside a ref name. Two SHAs and a `..` is all this accepts.
+# The endpoints this candidate was frozen on. `review_flow.py start` writes this file,
+# so the range is never pasted into shell source: git accepts a command substitution
+# inside a ref name. A committed campaign records two SHAs and a `..`; for a dirty
+# preview, which has no campaign, write the literal HEAD that Step 2 above prescribes.
 RANGE=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-review-range" 2>/dev/null || true)
 case "$RANGE" in
+  HEAD) ;;
   *[!0-9a-f.]*|'')
-    echo "No range recorded: write <review_base>..<head> to .git/bymax-review-range." >&2
+    echo "No range recorded: write <review_base>..<head>, or HEAD for a dirty preview," >&2
+    echo "to .git/bymax-review-range." >&2
     exit 1 ;;
 esac
 # Added content lines only: git marks them '>' instead of '+', leaving the
