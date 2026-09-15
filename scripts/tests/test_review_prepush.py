@@ -479,6 +479,10 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertIn('not managed by this campaign', self.start_refused())
         self.assertFalse((self.repo / 'scripts/hooks/pre-push').exists())
         self.assertTrue(hook.is_symlink())
+        hook.unlink()
+        hook.symlink_to(self.repo / '.git')  # a symlink to a directory is not a hook either
+        self.assertIn('is a directory, so git cannot run it', self.start_refused())
+        self.assertTrue(hook.is_symlink())
 
     def test_stale_bundled_hook_is_refused_not_kept(self):
         """A hook from an earlier runtime declares its policy; kept, it would refuse every push."""

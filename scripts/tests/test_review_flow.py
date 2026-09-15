@@ -280,12 +280,14 @@ class ReviewFlowTests(unittest.TestCase):
                                         findings=[], resolutions=[])))
         refused = self.flow('record', '--reviewer', 'codex', '--report', str(path), ok=False).stderr
         self.assertIn('a retry in the same sandbox fails identically', refused)
-        self.assertIn("cacheDirectory: '<rootDir>/node_modules/.cache/jest'", refused)
+        self.assertIn('no project configuration makes that sandbox writable', refused)
+        # Ordinary words in a summary are not a denial: a ceiling timeout keeps its one retry.
         path.write_text(json.dumps(dict(status='incomplete', head=state['head'], base=state['review_base'],
-                                        summary='Ran out of time', findings=[], resolutions=[])))
+                                        summary='Read-only review with permission to read everything ran out of the ten-minute ceiling',
+                                        findings=[], resolutions=[])))
         refused = self.flow('record', '--reviewer', 'codex', '--report', str(path), ok=False).stderr
         self.assertIn('did not complete its scope', refused)
-        self.assertNotIn('sandbox', refused)
+        self.assertNotIn('fails identically', refused)
 
     def test_reopened_is_an_invariant_not_an_id_and_needs_no_design_round_otherwise(self):
         """The other reviewer re-reporting the defect still counts; --design-round alone does not."""

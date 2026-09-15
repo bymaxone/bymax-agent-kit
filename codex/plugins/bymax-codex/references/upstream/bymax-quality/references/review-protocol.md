@@ -58,12 +58,11 @@ One failed attempt may be retried for an infrastructure/format error; never retr
 review to seek a different opinion, and do not spend the retry on a report whose summary
 cites a sandbox or permission denial: the same sandbox fails identically, and `record` says
 so. The generated prompt tells both reviewers that the declared checks are the caller's to
-run and that anything they cannot execute is a limitation to state, not `incomplete`. In
-JS/TS repositories, keep tool caches inside the workspace before starting a campaign
-(Jest `cacheDirectory: '<rootDir>/node_modules/.cache/jest'`; Vitest, ESLint
-`--cache-location` and Next likewise): read-only review sandboxes deny `$TMPDIR`, where
-those tools write by default, and a reviewer that reaches for the suite then dies before
-its first test. Each attempt has a ten-minute ceiling. Failure or a
+run and that anything they cannot execute is a limitation to state, not `incomplete`. The
+Codex sandbox is read-only by construction (`--sandbox read-only`), so no project
+configuration makes a test suite or build runnable inside it; a reviewer that reaches for
+the suite dies on the first cache write (Jest under `$TMPDIR`, for instance) and the
+remedy is the instruction, not the configuration. Each attempt has a ten-minute ceiling. Failure or a
 missing CLI blocks completion; it does not imply a code defect.
 A separate OS lock prevents simultaneous Codex attempts while Claude can still record.
 The Codex child inherits that lock: if its launcher dies, wait for the child to exit before
