@@ -145,7 +145,7 @@ A correction round carries evidence the helper requires and both reviewers see:
 
 ```bash
 python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--design-round] \
-    [--no-regression-reason "<why>"]
+    [--no-regression-reason "<why>"] [--nit-round "<why>"] [--after-archived "<authorization>"]
 ```
 
 `--probe` is a nonempty JSON list of `{"command", "expected", "observed"}`: what the author
@@ -160,6 +160,15 @@ must be justified in triage or is a finding. Deleted test files are listed separ
 the instruction to judge the deletion; they never count as regression evidence.
 A correction that adds or modifies no test is refused unless `--no-regression-reason` records
 why, and that reason reaches both reviewers for judgement.
+
+`start` refuses a correction round whose every open finding is a nit — one `finish` would
+not refuse to leave open — because correcting text no test can check is where a loop
+starts. Defer them with their reasons and finish, or batch them into a follow-up; to spend
+the round on them anyway, record why with `--nit-round "<why>"`, which both reviewers read.
+`start` also refuses to open a campaign on a branch whose earlier campaign was kept aside
+without clearing, unless `--after-archived "<who authorised it and for what scope>"`
+records the decision, which both reviewers also read. Keep a campaign aside by renaming its
+directory with the branch hash still in the name; that is what the refusal looks for.
 
 A finding open in two consecutive triages has been **reopened**: the previous fix
 addressed the instance, not the cause. `start` refuses the next round unless it is

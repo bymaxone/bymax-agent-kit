@@ -23,7 +23,7 @@ When creating a checkpoint:
 3. Log checkpoint to `.claude/checkpoints.log`:
 
 ```bash
-CHECKPOINT_NAME=<the checkpoint name>
+CHECKPOINT_NAME='<the checkpoint name>'
 echo "$(date +%Y-%m-%d-%H:%M) | $CHECKPOINT_NAME | $(git rev-parse --short HEAD)" >> .claude/checkpoints.log
 ```
 

@@ -59,8 +59,9 @@ def read_state(directory):
     state = json.loads(path.read_text())
     require(state['policy'] == POLICY,
             f"Review policy changed: this campaign was frozen under policy {state['policy']}, the runtime "
-            f"is policy {POLICY}. Keep state.json and its round files aside (rename them) and start a new "
-            'campaign; nothing is migrated or deleted.')
+            f"is policy {POLICY}. Keep this campaign aside by renaming its directory, with the branch "
+            'hash still in the name (for example append .archived), and start a new campaign; nothing '
+            'is migrated or deleted.')
     return state
 
 
@@ -322,23 +323,30 @@ def push_probes(path):
     return unreceipted, held, orphaned, legacy, partial
 
 
+def blocks_a_receipt(finding):
+    """Whether a finding is one `finish` refuses to leave open: the one definition of blocking."""
+    return finding.get('kind') in ('defect', 'policy') and finding.get('priority') != 'P3'
+
+
 def blocking_open(state):
-    """Open dispositions whose finding carries a priority above P3.
+    """Open dispositions whose finding is one that would block a receipt.
 
     A nit is real and still not what a round is for: correcting text no test can check is
     where a review loop starts, since each correction is new surface for the next review.
     """
-    priority = {key(name, item['id']): item.get('priority', 'P3')
+    blocking = {key(name, item['id']): blocks_a_receipt(item)
                 for name, report in state.get('reviews', {}).items() for item in report['findings']}
     return sorted(item['id'] for item in state.get('triage') or []
-                  if item['status'] == 'open' and priority.get(item['id'], 'P3') != 'P3')
+                  if item['status'] == 'open' and blocking.get(item['id']))
 
 
 def abandoned(directory):
     """Campaigns for this branch that were kept aside without clearing."""
     aside = []
-    for sibling in directory.parent.glob('*' + directory.name):
-        if sibling == directory:
+    for sibling in directory.parent.iterdir():
+        # Kept aside means renamed, and a rename can put the hash anywhere in the name;
+        # the messages that ask for one say to keep the hash, and this is what reads it.
+        if sibling == directory or not sibling.is_dir() or directory.name not in sibling.name:
             continue
         try:
             state = json.loads((sibling / 'state.json').read_text())
@@ -702,8 +710,8 @@ def finish(directory, state):
         for item in report['findings']:
             disposition = dispositions[key(name, item['id'])]
             require(disposition['status'] != 'open', 'Unresolved finding: ' + item['id'])
-            blocking = item['kind'] in ('defect', 'policy') and item['priority'] != 'P3'
-            require(not blocking or disposition['status'] == 'rejected', 'Confirmed blocker cannot be deferred: ' + item['id'])
+            require(not blocks_a_receipt(item) or disposition['status'] == 'rejected',
+                    'Confirmed blocker cannot be deferred: ' + item['id'])
     require(state['checks'], 'Run the project-required gates with check before clearing.')
     latest = {tuple(c['command']): c for c in state['checks']}
     require(all(tuple(c) in latest for c in state['required_checks']), 'A declared project gate was not executed.')
@@ -720,9 +728,9 @@ def reserve_codex(directory):
         require('codex' not in state['reviews'], 'Reuse the completed Codex review.')
         require(state.get('codex_attempts', 0) < 2,
                 'Codex retry budget exhausted: the helper will not run Codex again on this candidate. Report '
-                'the failure with both attempt logs; if a human authorises starting over, keep this state '
-                'directory aside (rename it, delete nothing) and start a new campaign covering the same '
-                'commits. A completed Codex report obtained outside the helper may still be recorded; an '
+                'the failure with both attempt logs; if a human authorises starting over, rename this '
+                'state directory with the branch hash still in its name, delete nothing, and start a new '
+                'campaign covering the same commits. A completed Codex report obtained outside the helper may still be recorded; an '
                 'incomplete one never advances a round.')
         state['codex_attempts'] = state.get('codex_attempts', 0) + 1
         state['codex_running'] = True

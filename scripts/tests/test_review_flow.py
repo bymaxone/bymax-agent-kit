@@ -425,6 +425,36 @@ class ReviewFlowTests(unittest.TestCase):
         self.commit('fix the guard')
         self.assertEqual(self.start(correction=True, nit='')['round'], 3)
 
+    def test_a_nit_filed_at_a_high_priority_still_does_not_buy_a_round(self):
+        """`start` and `finish` must agree on what blocks: kind and priority, not priority alone."""
+        self.start()
+        loud = dict(id='docs:wording', kind='nit', priority='P1', evidence='reads oddly')
+        self.report('claude', [loud])
+        self.report('codex', [])
+        self.triage([dict(id='claude::docs:wording', status='open', evidence='Confirmed')])
+        self.commit('reword')
+        refused = self.start(ok=False, correction=True, nit='').stderr
+        self.assertIn('Every open finding is P3', refused)
+
+    def test_a_campaign_kept_aside_is_found_however_it_was_renamed(self):
+        """The runtime's own recovery messages name a rename; each spelling must be seen."""
+        for suffix, prefix in (('.archived', ''), ('', 'archived-'), ('-kept-aside', 'old-')):
+            self.start()
+            directory = Path(self.flow('status')['directory'])
+            aside = directory.parent / (prefix + directory.name + suffix)
+            directory.rename(aside)
+            refused = self.start(ok=False).stderr
+            self.assertIn('kept aside without clearing', refused)
+            self.assertIn(aside.name, refused)
+            shutil.rmtree(aside)
+
+    def test_the_recovery_messages_name_the_rename_the_refusal_reads(self):
+        """A message that names another spelling would send the caller past the guardrail."""
+        source = FLOW.read_text()
+        for message in ('Keep this campaign aside by renaming its directory, with the branch',
+                        'rename this ', 'state directory with the branch hash still in its name'):
+            self.assertIn(message, source)
+
     def test_starting_over_after_an_unfinished_campaign_needs_authorization(self):
         """Exhausting the budget hands the work to a human; archiving is not a way around it."""
         self.start()
@@ -442,6 +472,14 @@ class ReviewFlowTests(unittest.TestCase):
                                 cwd=self.repo, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('authorised to start over', self.flow('prompt').stdout)
+
+    def test_the_command_the_notice_names_writes_both_files_it_checks(self):
+        """A notice whose exit condition no command can reach would fire forever."""
+        document = (ROOT / 'plugins/bymax-quality/commands/review-md.md').read_text()
+        steps = document.split('## Steps', 1)[1].split('## Template', 1)[0]
+        self.assertIn('Write `REVIEW.md`', steps)
+        self.assertIn('Write the `## Code Review Rules` section of `AGENTS.md`', steps)
+        self.assertIn('## Code Review Rules', document.split('## Template — the `AGENTS.md`', 1)[1])
 
     def test_a_repository_without_review_rules_is_told_once(self):
         """The PR bots read files a repository must carry; a campaign says so and continues."""

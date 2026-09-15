@@ -27,7 +27,11 @@ PLACEHOLDER = re.compile(r'<[A-Za-z][A-Za-z0-9_ .#-]*>')
 AMBIENT = {'HOME', 'PWD', 'IFS', 'PATH', 'SHELL', 'USER', 'TMPDIR', 'EDITOR', 'PAGER',
            'GIT_TERMINAL_PROMPT', 'GIT_SSH_COMMAND', 'CLAUDE_PLUGIN_ROOT'}
 # A value a reader is told to paste becomes shell source: git accepts `$( )` in ref names.
-PASTE = re.compile(r'^\s*[A-Za-z_][A-Za-z0-9_]*=(""|\'\')\s*#.*<-', re.M)
+# Two spellings ask for one: an empty assignment with a `<-` comment, and an assignment whose
+# value is an unquoted placeholder. A value that can carry shell metacharacters is read from a
+# file an earlier step wrote, never pasted; a placeholder that cannot is single-quoted, so what
+# a reader puts there stays literal.
+PASTE = re.compile(r'^\s*[A-Za-z_][A-Za-z0-9_]*=(?:(?:""|\'\')\s*#.*<-|<[^>]*>)', re.M)
 
 
 def documents():
@@ -89,6 +93,17 @@ class CommandShellTests(unittest.TestCase):
             for number, block in blocks(path):
                 self.assertNotRegex(block, PASTE, f'{path.relative_to(ROOT)} block {number} '
                                                   'asks for a value to be pasted into shell')
+
+    def test_the_paste_rule_covers_both_spellings_that_ask_for_one(self):
+        """The rule is what stands between a document and a ref name that carries `$( )`."""
+        for asked in ('DEFAULT_REF=""   # <- the ref Step 0 resolved',
+                      "DEFAULT_REF=''  # <- the ref Step 0 resolved",
+                      'RUN_ID=<the failed run id>',
+                      'RANGE=<review_base>..<head>'):
+            self.assertRegex(asked, PASTE, f'{asked!r} asks for a paste and is not caught')
+        for safe in ("RUN_ID='<the failed run id>'", 'RUN_ID=$(cat run-id)',
+                     'echo "<placeholder in prose>"', 'DEFAULT_REF=$(sed -n 1p handoff)'):
+            self.assertNotRegex(safe, PASTE, f'{safe!r} is not a paste and is refused')
 
     @unittest.skipUnless(shutil.which('shellcheck'), 'shellcheck is not installed')
     def test_runnable_blocks_pass_shellcheck(self):
