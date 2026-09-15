@@ -153,7 +153,10 @@ class ReviewFlowTests(unittest.TestCase):
                         'git -c core.hooksPath=/dev/null push origin HEAD',
                         'GIT_DIR=/other/.git git push origin HEAD', 'git --git-dir=/x push origin HEAD',
                         'echo --no-verify', 'echo x > .git/hooks/pre-push && git push origin HEAD',
-                        'rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push'):
+                        'rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push',
+                        # git reads config keys case-insensitively; so must the guard.
+                        'git -c core.hookspath=/dev/null push origin HEAD',
+                        'git -c CORE.HOOKSPATH=/x push origin HEAD', 'git push --NO-VERIFY origin HEAD'):
             self.push(command, ok=False)
 
     def test_adapter_refuses_ambiguous_literal_pushes(self):

@@ -42,7 +42,9 @@ def parse(command, cwd):
     None means this adapter has no opinion: the command is run and the pre-push hook
     decides. Only the literal shape earns a receipt lookup here.
     """
-    require(not any(token in command for token in DISARMS),
+    # Case-insensitive: git reads config keys and most of these options that way too.
+    lowered = command.lower()
+    require(not any(token.lower() in lowered for token in DISARMS),
             'That would disable or redirect the pre-push receipt check; run a plain git push.')
     try:
         words = shlex.split(command)

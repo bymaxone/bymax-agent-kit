@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Receipt hook lifecycle** — `start` keeps a hand-merged pre-push that carries the check at the current policy, accepts a custom `core.hooksPath` directory once its pre-push carries it (never writing into it), and refuses a hook that declares an older policy or is not executable, naming the remedy. The hook peels annotated tags before the receipt lookup. Each reviewer's open disposition needs its own resolution. The Bash adapter matches hook-disarming options case-insensitively.
+
 - **Review keys are `reviewer::<id>` (state policy 2)** — triage and resolution keys no longer share the `/` separator with paths, so a copied key and a real file under a `codex/` directory cannot collide; campaigns frozen under policy 1 are refused with the restart message.
 
 - **Correction rounds carry evidence: marketplace `1.15.0`, quality `1.8.0`, pr `1.2.0`, codex `1.0.2`** — `review_flow.py start` on a correction round requires `--probe` (the author's own attempts to defeat the fix, shown to both reviewers), lists every test file the delta changed so a flipped expectation is a finding, refuses a correction that touches no test unless `--no-regression-reason` records why, and refuses a round whose previous fix reopened a finding unless it is declared `--design-round` — that round reviews the approach, not the instance. The Claude pass on a correction delta runs in a fresh-context subagent, never in the authoring session. `/bymax-pr:push` now obtains the review receipt itself, end to end, before pushing; it stops only when the protocol blocks. Six review rounds on the push guard each reopened the same invariant before these rules existed.

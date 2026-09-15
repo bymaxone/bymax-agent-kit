@@ -5,6 +5,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -107,19 +108,37 @@ def install_hook():
                 'core.hooksPath is set to ' + custom.stdout.strip() + '; merge the receipt check '
                 '(plugins/bymax-quality/scripts/review_prepush.py) into ' + str(reconciled)
                 + ' by hand, keeping its marker line, and start again.')
+        usable_hook(reconciled)
         return
     target = Path(git('rev-parse', '--git-common-dir')).resolve() / 'hooks' / 'pre-push'
     if target.exists():
-        existing = target.read_bytes()
-        require(HOOK_MARKER in existing.decode(errors='replace'),
+        require(HOOK_MARKER in target.read_text(errors='replace'),
                 'A pre-push hook not managed by this campaign exists at ' + str(target)
                 + '; merge the receipt check into it by hand, keeping its marker line, before starting.')
-        # Carries the check but is not the bundled file: merged or edited by hand, so it
-        # is kept as is. Delete it to have the bundled version reinstalled.
+        # Carries the check at the current policy but is not the bundled file: merged or
+        # edited by hand, so it is kept. Delete it to have the bundled version reinstalled.
+        usable_hook(target)
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(source.read_bytes())
     target.chmod(0o755)
+
+
+def usable_hook(path):
+    """Refuse a marked hook git would skip or that checks receipts of another policy.
+
+    git runs only executable hooks, silently ignoring the rest. A bundled copy left by
+    an earlier runtime declares its POLICY; kept as is, it would refuse every push once
+    a campaign clears under the current policy, so it is refused here instead.
+    """
+    text = path.read_text(errors='replace')
+    declared = re.search(r'^POLICY = (\d+)$', text, re.MULTILINE)
+    require(declared is None or int(declared.group(1)) == POLICY,
+            f'{path} carries the receipt check for policy {declared.group(1) if declared else "?"}, the '
+            f'runtime is policy {POLICY}. Delete it to reinstall the bundled hook, or merge the current '
+            'plugins/bymax-quality/scripts/review_prepush.py into it by hand.')
+    require(os.access(path, os.X_OK),
+            f'{path} is not executable, so git would skip it: chmod +x it before starting.')
 
 
 def start(args, directory):

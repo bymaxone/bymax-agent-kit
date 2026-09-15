@@ -183,21 +183,42 @@ class PrePushInvariantTests(unittest.TestCase):
         merged = '#!/bin/sh\n# ' + 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.' \
                  + '\necho merged-by-hand\n'
         hook.write_text(merged)
+        hook.chmod(0o755)
         # start on the same candidate is idempotent for state and re-runs install_hook.
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
         self.assertEqual(hook.read_text(), merged)
         custom = self.root / 'hooks'
         custom.mkdir()
         self.git('config', 'core.hooksPath', str(custom))
+        self.assertIn('merge the receipt check', self.start_refused())
+        self.assertFalse((custom / 'pre-push').exists())
+        (custom / 'pre-push').write_text(merged)  # present and marked, but git would skip it
+        self.assertIn('not executable', self.start_refused())
+        (custom / 'pre-push').chmod(0o755)
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        self.assertEqual((custom / 'pre-push').read_text(), merged)
+
+    def start_refused(self):
+        """Run start expecting a refusal; return its message."""
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.root / 'context.json')],
                                 cwd=self.repo, env=self.env, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 2)
-        self.assertIn('merge the receipt check', result.stderr)
-        self.assertFalse((custom / 'pre-push').exists())
-        (custom / 'pre-push').write_text(merged)
-        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
-        self.assertEqual((custom / 'pre-push').read_text(), merged)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        return result.stderr
+
+    def test_stale_bundled_hook_is_refused_not_kept(self):
+        """A hook from an earlier runtime declares its policy; kept, it would refuse every push."""
+        hook = self.repo / '.git/hooks/pre-push'
+        stale = hook.read_text().replace('POLICY = 2', 'POLICY = 1')
+        self.assertNotEqual(stale, hook.read_text())
+        hook.write_text(stale)
+        message = self.start_refused()
+        self.assertIn('policy 1', message)
+        self.assertIn('runtime is policy 2', message)
+        self.assertEqual(hook.read_text(), stale)  # never overwritten silently
+        hook.chmod(0o644)
+        hook.write_text(hook.read_text().replace('POLICY = 1', 'POLICY = 2'))
+        self.assertIn('not executable', self.start_refused())
 
     def test_foreign_hook_is_not_displaced(self):
         """A pre-push hook that is not ours stops the campaign instead of being overwritten."""

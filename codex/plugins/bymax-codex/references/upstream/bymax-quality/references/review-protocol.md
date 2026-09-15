@@ -179,9 +179,12 @@ keep that separate loop disabled when this workflow is active.
 Enforcement is a Git **`pre-push` hook**, `review_prepush.py`. Git hands it the pushed
 SHAs on stdin, so it holds however the push command was spelled: it refuses any commit
 without a cleared receipt, for every ref in the push, and allows ref deletions.
-`review_flow.py start` installs it into the repository's hooks directory. It refuses to
-proceed when `core.hooksPath` is set or when a `pre-push` hook it does not manage is
-already present; both are reported for the human to reconcile, never overwritten.
+`review_flow.py start` installs it into the repository's hooks directory when none is
+present. An existing `pre-push` it does not manage is reported for the human to merge
+the check into by hand, never overwritten; one that carries the check at the current
+policy is kept as merged. A custom `core.hooksPath` directory is never written into: it
+qualifies once its `pre-push` carries the check. In either place, a hook that declares
+an older policy or is not executable is refused at `start`, with the remedy named.
 
 `review_push.py` is a Claude **PreToolUse Bash adapter** in front of that hook, with two
 narrow jobs. It recognises exactly `[cd <path> &&] [VAR=value ...] git [-C <dir>] push
