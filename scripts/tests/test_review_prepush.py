@@ -367,6 +367,15 @@ class PrePushInvariantTests(unittest.TestCase):
                                capture_output=True, text=True)
         self.assertEqual(guard.returncode, 2, guard.stderr)
         self.assertIn('No completed Claude + Codex review', guard.stderr)
+        # A probe receipt with a pid and nothing to hold — the shape an earlier runtime wrote —
+        # is void too, however alive that pid is.
+        (left / 'completed-probe.json').write_text(json.dumps(dict(
+            head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}), probe_pid=os.getpid())))
+        self.assertIn('pre-push: no completed Claude + Codex review',
+                      self.attempt(f'git push origin {orphan}:refs/heads/orphan').stderr)
+        (left / 'completed-probe.json').write_text(json.dumps(dict(
+            head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}),
+            probe_lock='holder', probe_pid=os.getpid())))
         # While a process holds the lock the same receipt is honoured.
         keeper = subprocess.Popen([sys.executable, '-c', 'import fcntl, sys, time; h = open(sys.argv[1]); '
                                    'fcntl.flock(h, fcntl.LOCK_EX); print("held", flush=True); time.sleep(30)',
@@ -379,8 +388,8 @@ class PrePushInvariantTests(unittest.TestCase):
 
     def test_kept_hook_must_refuse_an_orphaned_receipt(self):
         """A kept hook that reads receipts without checking their holder — a checker from an
-        earlier runtime — passes the first two pushes and fails the third; a bundled copy at
-        the current policy is refreshed from the source instead of being kept."""
+        earlier runtime — passes the first two pushes and fails the third; a checker copy that
+        was edited by hand and still passes all three is kept byte for byte."""
         hook = self.repo / '.git/hooks/pre-push'
         careless = ('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
                     'while read l s r x; do grep -lq "\\"head\\": \\"$s\\"" .git/bymax-review/*/completed-*.json '
@@ -389,10 +398,10 @@ class PrePushInvariantTests(unittest.TestCase):
         hook.chmod(0o755)
         self.assertIn('orphaned probe receipt', self.start_refused())
         self.assertEqual(hook.read_text(), careless)
-        older = FLOW.with_name('review_prepush.py').read_bytes() + b'\n# an earlier revision of this file\n'
-        hook.write_bytes(older)
+        merged = FLOW.with_name('review_prepush.py').read_bytes() + b'\n# a check merged in by hand\n'
+        hook.write_bytes(merged)
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
-        self.assertEqual(hook.read_bytes(), FLOW.with_name('review_prepush.py').read_bytes())
+        self.assertEqual(hook.read_bytes(), merged)
         self.assertEqual(list((self.repo / '.git/bymax-review').glob('probe-*')), [])
         self.assertEqual(self.git('for-each-ref', 'refs/bymax-review/'), '')
 
@@ -405,7 +414,20 @@ class PrePushInvariantTests(unittest.TestCase):
         young = self.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'young probe')
         self.git('update-ref', 'refs/bymax-review/probe-old', old)
         self.git('update-ref', 'refs/bymax-review/probe-young', young)
-        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        # An exported old GIT_COMMITTER_DATE must not date the probe's own commit, or the
+        # sweep would take the live probe ref for a stale one mid-probe and a hook that
+        # checks the ref resolves to the pushed SHA would be refused.
+        hook = self.repo / '.git/hooks/pre-push'
+        hook.write_text('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
+                        'lines=$(cat)\nprintf "%s\\n" "$lines" | while read l s r x; do\n'
+                        '  [ "$(git rev-parse --verify -q "$l")" = "$s" ] || exit 4\ndone || exit $?\n'
+                        'printf "%s\\n" "$lines" | exec ' + sys.executable + ' '
+                        + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n')
+        hook.chmod(0o755)
+        result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
+                                 '--context', str(self.root / 'context.json')],
+                                cwd=self.repo, env=stale_env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.git('for-each-ref', '--format=%(refname)', 'refs/bymax-review/'),
                          'refs/bymax-review/probe-young')
 

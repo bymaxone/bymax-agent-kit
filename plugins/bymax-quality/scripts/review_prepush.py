@@ -45,9 +45,9 @@ def orphaned(path, state):
     The kernel releases the lock with the process, so a receipt left by a killed probe
     names a commit nobody can push, whatever pid the system reuses afterwards.
     """
-    name = state.get('probe_lock')
-    if name is None:
-        return False
+    if 'probe_lock' not in state:
+        return 'probe_pid' in state  # a probe receipt with nothing to hold is void
+    name = state['probe_lock']
     try:
         with (path.parent / str(name)).open('r') as holder:
             fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)

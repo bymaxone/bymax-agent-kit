@@ -120,12 +120,8 @@ def install_hook():
         require(HOOK_MARKER in text,
                 'A pre-push hook not managed by this campaign exists at ' + str(target)
                 + '; merge the receipt check into it by hand, keeping its marker line, before starting.')
-        # A copy of the bundled checker declares its policy; hand-merged wrappers do not.
-        # A copy at the current policy that differs from the source is an earlier revision
-        # of this runtime's own file and is refreshed; anything else is kept and probed.
-        if re.search(r'^POLICY = %d$' % POLICY, text, re.MULTILINE) and target.read_bytes() != source.read_bytes():
-            target.write_bytes(source.read_bytes())
-            target.chmod(0o755)
+        # Carries the check at the current policy but is not the bundled file: merged or
+        # edited by hand, so it is kept; the three pushes decide whether it still enforces.
         usable_hook(target)
         return
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -208,11 +204,14 @@ def probe_commit(head, nonce):
     an author check in the hook sees a normal commit; a probe identity is the fallback.
     """
     command = ['commit-tree', head + '^{tree}', '-p', head, '-m', 'chore: bymax receipt probe ' + nonce]
-    own = subprocess.run(['git', *command], capture_output=True, text=True)
+    # Dated now whatever GIT_*_DATE the environment exports: the sweep reads this date.
+    now = str(int(time.time()))
+    env = dict(os.environ, GIT_AUTHOR_DATE=now, GIT_COMMITTER_DATE=now)
+    own = subprocess.run(['git', *command], capture_output=True, text=True, env=env)
     if own.returncode == 0:
         return own.stdout.strip()
     return subprocess.run(['git', '-c', 'user.name=bymax-probe', '-c', 'user.email=probe@bymax.invalid', *command],
-                          capture_output=True, text=True, check=True).stdout.strip()
+                          capture_output=True, text=True, check=True, env=env).stdout.strip()
 
 
 def usable_hook(path):
@@ -250,8 +249,9 @@ def usable_hook(path):
             'or delete it.')
     require(orphaned != 0,
             f'{path} accepted a push named only by an orphaned probe receipt (exit 0): it reads receipts '
-            'without checking their holder, as a checker from an earlier runtime does. Point it at the '
-            'current plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
+            'without checking their holder, as a checker from an earlier runtime does. Delete it so start '
+            'reinstalls the bundled hook, or point it at the current '
+            'plugins/bymax-quality/scripts/review_prepush.py, keeping any check you merged into it.')
 
 
 def push_probes(path):
@@ -499,13 +499,14 @@ def triage(args, directory, state):
     """Persist an explicit disposition for every finding from both reviewers."""
     require(state['head'] == clean_head(),
             f"HEAD is not the reviewed candidate {state['head'][:12]}. Dispositions are recorded on the "
-            'candidate the reports describe: return to it (git reset --hard or checkout), triage, then '
-            'commit the corrections; start refuses a new round until every finding has a disposition.')
+            'candidate the reports describe: note the sha of your correction commit, git reset --hard '
+            f"{state['head'][:12]}, triage, then git reset --hard back to that sha; start refuses a new "
+            'round until every finding has a disposition.')
     require(set(state['reviews']) == {'claude', 'codex'}, 'Both reviewer reports are required.')
     items = json.loads(Path(args.report).read_text())
     require(isinstance(items, list), 'Triage must be a JSON list.')
     expected = {key(name, f['id']) for name, r in state['reviews'].items() for f in r['findings']}
-    given = [i.get('id') for i in items]
+    given = [str(i.get('id')) if isinstance(i, dict) else str(i) for i in items]
     require(len(items) == len(expected) and set(given) == expected,
             'Dispositions must cover every finding exactly once, keyed reviewer::<id>. Missing: '
             + (', '.join(sorted(expected - set(given))) or 'none') + '. Unexpected or duplicated: '

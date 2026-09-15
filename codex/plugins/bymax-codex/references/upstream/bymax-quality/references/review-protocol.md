@@ -211,10 +211,11 @@ must refuse again. A hook that exits 0 for the first push does not enforce recei
 that refuses the second is refusing for a reason the probe does not satisfy (a local ref
 that is not a branch, for instance) and is refused as not consulting receipts; one that
 accepts the third reads receipts without checking their holder, as a checker from an
-earlier runtime does. Every refusal names the remedy. A bundled copy of the checker in
-the default hooks directory that declares the current policy but differs from the
-runtime's file is refreshed from it before probing; a hand-merged wrapper is kept and
-judged by the three pushes. The ref and the directory are removed afterwards, and what
+earlier runtime does. Every refusal names the remedy; a kept file is never rewritten,
+so a check merged into it by hand survives, and a copy of an earlier checker is refused
+by the third push until it is deleted (the bundled hook is then reinstalled) or pointed
+at the current checker. A probe receipt that carries a pid but nothing to hold — the
+shape an earlier runtime wrote — is void. The ref and the directory are removed afterwards, and what
 an interrupted probe left behind is swept by the next probe once older than a probe
 can be. Hook code written to recognise the probe is trusted code and outside what a
 local probe can establish. A receipt completed under another policy does not authorise

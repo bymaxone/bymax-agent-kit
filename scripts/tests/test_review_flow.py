@@ -168,11 +168,14 @@ class ReviewFlowTests(unittest.TestCase):
         self.complete()
         self.commit('correction before triage')
         refused = self.triage([], ok=False).stderr
-        self.assertIn('return to it (git reset --hard or checkout), triage, then', refused)
+        candidate = self.git('rev-parse', 'HEAD~1')
+        self.assertIn(f'git reset --hard {candidate[:12]}, triage, then git reset --hard back', refused)
         self.git('reset', '-q', '--hard', 'HEAD~1')
         refused = self.triage([dict(id='claude/x:y', status='open', evidence='e')], ok=False).stderr
         self.assertIn('keyed reviewer::<id>', refused)
         self.assertIn('Unexpected or duplicated: claude/x:y', refused)
+        refused = self.triage([dict(status='open', evidence='no id at all')], ok=False).stderr
+        self.assertIn('Unexpected or duplicated: None', refused)
 
     def test_adapter_refuses_ambiguous_literal_pushes(self):
         """A literal push that names no source, or a wildcard one, is refused rather than guessed."""
