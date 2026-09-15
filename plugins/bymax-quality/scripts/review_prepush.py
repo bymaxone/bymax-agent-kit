@@ -31,6 +31,13 @@ def receipts(common):
     yield from root.glob('*/completed-*.json')
 
 
+def peeled(sha):
+    """The commit a pushed object resolves to: an annotated tag's SHA is the tag, not its commit."""
+    result = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', sha + '^{commit}'],
+                            capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else sha
+
+
 def cleared(common, sha):
     """Report whether a completed Claude + Codex campaign cleared exactly this commit."""
     for path in receipts(common):
@@ -55,7 +62,7 @@ def main():
         local_ref, local_sha, remote_ref, _ = fields
         if local_sha == DELETION:
             continue
-        if not cleared(common, local_sha):
+        if not cleared(common, peeled(local_sha)):
             print(f'pre-push: no completed Claude + Codex review for {local_sha[:12]} '
                   f'({local_ref} -> {remote_ref}). Run /bymax-quality:code-review and finish '
                   'the campaign; a receipt is required for every pushed commit.', file=sys.stderr)

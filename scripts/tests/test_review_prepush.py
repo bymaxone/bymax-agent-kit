@@ -165,10 +165,39 @@ class PrePushInvariantTests(unittest.TestCase):
         self.flow('finish')
         self.assertEqual(self.attempt('git push origin HEAD:feature').returncode, 0)
         self.assertTrue(self.remote_has(self.head))
+        # An annotated tag pushes the tag object's SHA; the receipt is for the commit it peels to.
+        self.git('tag', '-a', 'v9', '-m', 'release')
+        self.assertEqual(self.attempt('git push origin v9').returncode, 0)
+        self.assertIn(self.git('rev-parse', 'v9'), subprocess.run(
+            ['git', '--git-dir', str(self.remote), 'for-each-ref', '--format=%(objectname)'],
+            capture_output=True, text=True).stdout)
         self.commit('unreviewed')
         newer = self.git('rev-parse', 'HEAD')
         self.assertNotEqual(self.attempt('eval git push origin HEAD:later').returncode, 0)
         self.assertFalse(self.remote_has(newer))
+
+    def test_hand_merged_hook_is_kept_and_custom_hooks_path_can_reconcile(self):
+        """A hook carrying the marker but edited by hand is kept; a custom hooks directory
+        qualifies once its pre-push carries the marker, and is never written into."""
+        hook = self.repo / '.git/hooks/pre-push'
+        merged = '#!/bin/sh\n# ' + 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.' \
+                 + '\necho merged-by-hand\n'
+        hook.write_text(merged)
+        # start on the same candidate is idempotent for state and re-runs install_hook.
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        self.assertEqual(hook.read_text(), merged)
+        custom = self.root / 'hooks'
+        custom.mkdir()
+        self.git('config', 'core.hooksPath', str(custom))
+        result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
+                                 '--context', str(self.root / 'context.json')],
+                                cwd=self.repo, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('merge the receipt check', result.stderr)
+        self.assertFalse((custom / 'pre-push').exists())
+        (custom / 'pre-push').write_text(merged)
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        self.assertEqual((custom / 'pre-push').read_text(), merged)
 
     def test_foreign_hook_is_not_displaced(self):
         """A pre-push hook that is not ours stops the campaign instead of being overwritten."""

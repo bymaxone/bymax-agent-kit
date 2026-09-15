@@ -284,6 +284,20 @@ class ReviewFlowTests(unittest.TestCase):
                      'config.test.toml'):
             self.assertFalse(flow.is_test_path(path), path)
 
+    def test_each_reviewers_open_disposition_needs_its_own_resolution(self):
+        """claude::x and codex::x are two verifications; one resolution covers one of them."""
+        self.start()
+        bug = dict(id='guard:x', kind='defect', priority='P1', evidence='e')
+        self.report('claude', [bug])
+        self.report('codex', [bug])
+        self.triage([dict(id='claude::guard:x', status='open', evidence='e'),
+                     dict(id='codex::guard:x', status='open', evidence='e')])
+        self.commit('fix')
+        self.start(correction=True)
+        self.report('claude', resolutions=[dict(id='claude::guard:x', evidence='fixed')], ok=False)
+        self.report('claude', resolutions=[dict(id='claude::guard:x', evidence='fixed'),
+                                           dict(id='codex::guard:x', evidence='fixed')])
+
     def test_reviewer_keys_cannot_collide_with_paths(self):
         """A copied reviewer key collapses to the bare id; a path under codex/ is never touched.
 

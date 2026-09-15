@@ -96,17 +96,27 @@ def install_hook():
     holds regardless of how the push command was spelled. A foreign hook or a custom
     core.hooksPath is reported for the human to reconcile rather than overwritten.
     """
-    custom = subprocess.run(['git', 'config', '--get', 'core.hooksPath'], capture_output=True, text=True)
-    require(custom.returncode != 0, 'core.hooksPath is set to ' + custom.stdout.strip()
-            + '; install the pre-push receipt check there by hand before starting a campaign.')
     source = Path(__file__).with_name('review_prepush.py')
+    custom = subprocess.run(['git', 'config', '--get', 'core.hooksPath'], capture_output=True, text=True)
+    if custom.returncode == 0:
+        # A custom hooks directory is the user's: never write into it. It qualifies once
+        # the receipt check has been merged into its pre-push by hand.
+        toplevel = Path(git('rev-parse', '--show-toplevel'))
+        reconciled = (toplevel / Path(custom.stdout.strip()).expanduser()) / 'pre-push'
+        require(reconciled.exists() and HOOK_MARKER in reconciled.read_text(errors='replace'),
+                'core.hooksPath is set to ' + custom.stdout.strip() + '; merge the receipt check '
+                '(plugins/bymax-quality/scripts/review_prepush.py) into ' + str(reconciled)
+                + ' by hand, keeping its marker line, and start again.')
+        return
     target = Path(git('rev-parse', '--git-common-dir')).resolve() / 'hooks' / 'pre-push'
     if target.exists():
-        require(HOOK_MARKER in target.read_text(errors='replace'),
+        existing = target.read_bytes()
+        require(HOOK_MARKER in existing.decode(errors='replace'),
                 'A pre-push hook not managed by this campaign exists at ' + str(target)
-                + '; merge the receipt check into it by hand before starting.')
-        if target.read_bytes() == source.read_bytes():
-            return
+                + '; merge the receipt check into it by hand, keeping its marker line, before starting.')
+        # Carries the check but is not the bundled file: merged or edited by hand, so it
+        # is kept as is. Delete it to have the bundled version reinstalled.
+        return
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(source.read_bytes())
     target.chmod(0o755)
@@ -171,6 +181,15 @@ def is_test_path(path):
 def key(reviewer, finding_id):
     """The triage/resolution key for a reviewer's finding."""
     return reviewer + SEPARATOR + finding_id
+
+
+def full_key(disposition_key):
+    """A reviewer-qualified key with its reviewer kept and any copied inner prefix removed."""
+    disposition_key = disposition_key.strip()
+    if not disposition_key.startswith(REVIEWERS):
+        return disposition_key
+    reviewer, rest = disposition_key.split(SEPARATOR, 1)
+    return key(reviewer, bare(rest))
 
 
 def bare(finding_id):
@@ -297,10 +316,12 @@ def record(args, directory, state):
         require(item['id'] and item['id'] not in ids, 'Missing/duplicate finding id.')
         require(isinstance(item.get('evidence'), str) and item['evidence'].strip(), 'Missing finding evidence.')
         ids.add(item['id'])
-    unresolved = {bare(i['id']) for i in state['previous_triage'] if i['status'] == 'open'}
+    # Every open disposition needs its own resolution: claude::x and codex::x are two
+    # verifications, not one. bare() is for reopened-invariant matching, not here.
+    unresolved = {full_key(i['id']) for i in state['previous_triage'] if i['status'] == 'open'}
     resolutions = report.get('resolutions', [])
     require(isinstance(resolutions, list), 'Invalid previous-finding resolutions.')
-    resolved = {bare(i['id']) for i in resolutions
+    resolved = {full_key(i['id']) for i in resolutions
                 if isinstance(i.get('id'), str) and isinstance(i.get('evidence'), str) and i['evidence'].strip()}
     require(unresolved <= resolved, 'Recheck every previous open finding, with evidence, including any still open.')
     require(args.reviewer not in state['reviews'], 'Reviewer already recorded for this candidate; reuse it.')
