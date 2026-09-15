@@ -29,6 +29,8 @@ policy, exemptions and impact before reporting it. Examples, fixtures and pre-ex
 violations are not automatically introduced defects. CI-enforced failures belong to CI.
 
 ```bash
+# The literal endpoints the helper reported for this candidate; never leave it empty.
+RANGE=<review_base>..<head>
 # Added content lines only: git marks them '>' instead of '+', leaving the
 # '+++ b/path' header as-is — no header collision, no lost '++'-prefixed content.
 added() { git diff --output-indicator-new='>' -U0 "$@" | grep '^>'; }

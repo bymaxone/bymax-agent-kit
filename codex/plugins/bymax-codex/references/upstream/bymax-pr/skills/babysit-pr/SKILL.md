@@ -163,6 +163,9 @@ these throughout the loop instead of assuming `npm`.
 ### Create / read state
 
 ```bash
+# Shell state does not cross a fence: this block resolves the PR it works on rather
+# than reading a variable the loop-entry block assigned.
+PR_NUMBER=$(gh pr view --json number -q .number)
 STATE=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" --paginate \
   | jq -r '[.[] | select(.body | startswith("<!-- babysit-state -->"))][0] // empty')
 ```
@@ -217,6 +220,9 @@ Skip scheduling when:
 ## Phase 0: Conflict Resolution
 
 ```bash
+# Shell state does not cross a fence, and the loop wakes into a fresh shell: this
+# block resolves the PR it works on instead of reading an earlier block's value.
+PR_NUMBER=$(gh pr view --json number -q .number)
 MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable -q .mergeable)
 ```
 
@@ -226,6 +232,10 @@ MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable -q .mergeable)
 ### Rebase procedure
 
 ```bash
+# Shell state does not cross a fence, and the loop wakes into a fresh shell: this
+# block resolves what it needs instead of reading an earlier block's value.
+PR_NUMBER=$(gh pr view --json number -q .number)
+BASE_BRANCH=$(gh pr view "$PR_NUMBER" --json baseRefName -q .baseRefName)
 git fetch origin "$BASE_BRANCH"
 git rebase "origin/$BASE_BRANCH"
 ```
@@ -282,6 +292,9 @@ git rebase --abort
 ## Phase 1: CI Monitoring
 
 ```bash
+# Shell state does not cross a fence, and the loop wakes into a fresh shell: this
+# block resolves the PR it works on instead of reading an earlier block's value.
+PR_NUMBER=$(gh pr view --json number -q .number)
 CHECKS_JSON=$(gh pr checks "$PR_NUMBER" --json name,state,link,bucket 2>/dev/null)
 FAILING=$(echo "$CHECKS_JSON" | jq -r '.[] | select(.bucket == "fail") | .name')
 PENDING=$(echo "$CHECKS_JSON" | jq -r '.[] | select(.bucket == "pending") | .name')
@@ -294,6 +307,9 @@ For each failing check:
 
 1. **Pull the failing log**:
    ```bash
+# Shell state does not cross a fence, and the loop wakes into a fresh shell: this
+# block resolves the PR it works on instead of reading an earlier block's value.
+PR_NUMBER=$(gh pr view --json number -q .number)
    HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)
    RUN_ID=$(gh run list --commit "$HEAD_SHA" --json databaseId,name,conclusion \
      -q '[.[] | select(.name == "<check-name>" and .conclusion == "failure")][0].databaseId')
@@ -314,6 +330,9 @@ For each failing check:
 
 3. **If FLAKY** → re-run the failed jobs instead of editing code:
    ```bash
+   # Shell state does not cross a fence: name the run this block re-runs, from the id
+   # the failing-check block printed.
+   RUN_ID=<the failed run id>
    gh run rerun "$RUN_ID" --failed
    ```
    Increment `flakyReruns[<check>]` in state. **Cap at 3 re-runs.** If a
@@ -356,6 +375,9 @@ Termination Check decides to reschedule.
 ## Phase 2: Bot Comment Handler
 
 ```bash
+# Shell state does not cross a fence, and the loop wakes into a fresh shell: this
+# block resolves the PR it works on instead of reading an earlier block's value.
+PR_NUMBER=$(gh pr view --json number -q .number)
 REVIEW_COMMENTS=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" --paginate)
 ISSUE_COMMENTS=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" --paginate)
 ```

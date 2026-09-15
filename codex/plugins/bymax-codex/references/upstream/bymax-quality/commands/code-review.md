@@ -18,6 +18,21 @@ and the exact conditions for a completed review. Its verification and scope rule
 precedence over the generic checklist below. Read the target project's actual policies;
 explicit local constraints take precedence over generic Bymax conventions.
 
+## First run in a repository (mandatory, once)
+
+Two reviewer pairs see this repository: the bounded campaign below, and the PR bots —
+Anthropic's Code Review and Codex — which read files this repository must carry. Check
+them before the first campaign here and tell the user in one line if either is missing:
+
+| File | Read by | Missing means |
+|---|---|---|
+| `REVIEW.md` (repo root) | Anthropic Code Review, `/code-review ultra` | every wording preference arrives as a blocking finding, and nits never converge |
+| `## Code Review Rules` in `AGENTS.md` | Codex review | the same, from the other bot |
+
+`/bymax-quality:review-md` generates both from this repository's own invariants; run it
+once per repository and keep it refreshed when the invariants change. `review_flow.py
+start` prints the same notice, so a campaign never silently runs without them.
+
 ## Scope and authorization
 
 For a push-ready campaign, the intended changes must already be committed and the
@@ -107,8 +122,12 @@ a separate design audit, report it separately from this campaign.
 7. At three candidate rounds (initial + two correction rounds), stop if still blocked.
    Present unresolved invariants, attempted fixes and a proposed scope split. Do not
    reset the campaign, change branches, disable Codex or clear a receipt to evade the
-   limit. A limit is a handoff, never automatic approval. These limits are operational
-   defaults, not a claim that three passes prove correctness.
+   limit, and do not archive the campaign and open another on the same finding without
+   the human's explicit authorization for that campaign. A limit is a handoff, never
+   automatic approval. These limits are operational defaults, not a claim that three
+   passes prove correctness. Findings about instruction prose are deferred and batched:
+   correcting prose in a round of its own is how a loop starts, since every correction
+   to text no test can check is a new surface for the next review.
 
 No code mutation is allowed while either reviewer is running. If another session changes
 HEAD or the worktree, discard that candidate's unrecorded output and reassess. A report
@@ -139,6 +158,8 @@ policy, exemptions and impact before reporting it. Examples, fixtures and pre-ex
 violations are not automatically introduced defects. CI-enforced failures belong to CI.
 
 ```bash
+# The literal endpoints the helper reported for this candidate; never leave it empty.
+RANGE=<review_base>..<head>
 # Added content lines only: git marks them '>' instead of '+', leaving the
 # '+++ b/path' header as-is — no header collision, no lost '++'-prefixed content.
 added() { git diff --output-indicator-new='>' -U0 "$@" | grep '^>'; }

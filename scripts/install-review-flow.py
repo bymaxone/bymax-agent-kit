@@ -155,6 +155,9 @@ def install(home, overlay):
                           'echo "Use review_flow.py finish after both reports, triage and gates." >&2\nexit 2\n')
     print('Backups:', backup_dir)
     print('Installed bounded review policy and hook. Restart Claude to reload plugin content.')
+    print('Per repository, once: run /bymax-quality:review-md to generate REVIEW.md and the '
+          'AGENTS.md Code Review Rules. The PR reviewers read those files, and an installer '
+          'cannot write them for a repository it has never seen.')
 
 
 if __name__ == '__main__':

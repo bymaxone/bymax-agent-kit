@@ -82,6 +82,13 @@ Determine:
     done
     DEFAULT_BRANCH="${DEFAULT_REF#origin/}"
   fi
+
+  # Shell state does not cross a fence, and a ref name may contain `$( )`, which pasting
+  # the value into a later block as shell source would execute. Write it once, here, in
+  # the git directory — untracked, per-repository, never part of a commit — and have
+  # every later block read it from there.
+  printf '%s\n%s\n' "${DEFAULT_REF}" "${DEFAULT_BRANCH}" \
+    > "$(git rev-parse --git-dir)/bymax-push-default"
   ```
 
 - **Is anything staged?** `git diff --cached --quiet` → exit 1 means yes.
@@ -94,6 +101,7 @@ Determine:
   ```bash
   # Commits ahead: against the upstream when one exists, against the default
   # branch when it does not (a branch that has never been pushed).
+  DEFAULT_REF=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)
   BASE=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) \
     || BASE="${DEFAULT_REF}"
   if [ -n "${BASE}" ]; then
@@ -197,11 +205,35 @@ shipping includes the review. Do it in this order:
    marker for a commit that already has one.
 2. Otherwise run the bounded campaign from `/bymax-quality:code-review` end to end:
    write the context (intent, acceptance, constraints, scope, the project's real gate
-   commands), `start` against the review base — `git merge-base "$DEFAULT_REF" HEAD` when
-   Step 0 resolved a default branch, and the branch's first commit
-   (`git rev-list --max-parents=0 HEAD | tail -1`) when it could not, since a campaign
-   needs a base that `git rev-parse --verify` accepts and an empty `DEFAULT_REF` gives
-   none — run `codex` in the background, perform
+   commands), `start` against the review base this block prints:
+
+   ```bash
+   DEFAULT_REF=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)
+   # The base is what the reviewers diff HEAD against, so it must be a commit that is an
+   # ancestor of HEAD and is not HEAD. merge-base gives nothing when the two share no
+   # history or the ref does not resolve; it returns HEAD when HEAD is already an ancestor
+   # of the default branch, which leaves nothing to review; and the root fallback equals
+   # HEAD when the branch is a single root commit. Each of those ends the command.
+   REVIEW_BASE=""
+   if [ -n "${DEFAULT_REF}" ]; then
+     REVIEW_BASE=$(git merge-base "${DEFAULT_REF}" HEAD 2>/dev/null) || REVIEW_BASE=""
+   else
+     REVIEW_BASE=$(git rev-list --max-parents=0 HEAD | tail -1)
+   fi
+   if [ -z "${REVIEW_BASE}" ]; then
+     echo "No review base: no merge base with ${DEFAULT_REF:-the default branch}." >&2
+     echo "Report this and stop; do not push without a receipt." >&2
+     exit 1
+   fi
+   if [ "$(git rev-parse "${REVIEW_BASE}")" = "$(git rev-parse HEAD)" ]; then
+     echo "No review base: HEAD is the base, so the delta to review is empty." >&2
+     echo "Report this and stop; do not push without a receipt." >&2
+     exit 1
+   fi
+   echo "${REVIEW_BASE}"
+   ```
+
+   Then run `codex` in the background, perform
    the Claude pass (a fresh-context subagent when this session authored the commit),
    `record` both reports, verify and `triage` every finding, `check` every declared gate,
    `finish`. Correct accepted blockers in one batch, commit, and advance the campaign
@@ -235,10 +267,10 @@ need no comparison. Opening a PR does — both for the description range and for
 empty range, against an empty base.
 
 ```bash
-# This runs in a later block than Step 0, so it states the rule inline rather
-# than depending on anything defined there.
+# Step 0 wrote what it resolved; read it here, as every block that needs it does.
 # Guarding $DEFAULT_REF covers $DEFAULT_BRANCH too — Step 0 derives the name
 # from the ref, so one is empty only when the other is.
+DEFAULT_REF=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)
 if [ -z "${DEFAULT_REF}" ]; then
   echo "Pushed, but skipping the PR: the default branch could not be resolved." >&2
   echo "Open it manually, or re-run with the base branch stated explicitly." >&2
@@ -246,13 +278,16 @@ if [ -z "${DEFAULT_REF}" ]; then
 fi
 ```
 
-Then author the PR from **everything it will contain** — the full range
-`git log "$DEFAULT_REF"..HEAD` and `git diff "$DEFAULT_REF"...HEAD --stat`, not just
-the last commit — write the body to a temp file, and create it:
+Then author the PR from **everything it will contain** — the full range this block
+prints, not just the last commit — write the body to a temp file, and create it:
 
 ```bash
+DEFAULT_REF=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)
+DEFAULT_BRANCH=$(sed -n 2p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)
+git log "${DEFAULT_REF}..HEAD" --oneline
+git diff "${DEFAULT_REF}...HEAD" --stat
 body=$(mktemp)   # write the full PR body (shape below) to "$body"
-gh pr create --base "$DEFAULT_BRANCH" --title "<title>" --body-file "$body"
+gh pr create --base "${DEFAULT_BRANCH}" --title "<title>" --body-file "$body"
 ```
 
 - **Title**: Conventional-Commits style, ≤ 72 chars. For a single-commit PR, reuse

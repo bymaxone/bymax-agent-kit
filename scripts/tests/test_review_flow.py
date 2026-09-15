@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -51,14 +52,21 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0 if ok else 2, result.stderr)
         return json.loads(result.stdout) if result.returncode == 0 and result.stdout.startswith('{') else result
 
-    def start(self, ok=True, correction=False, design=False, probe=None, reason='fixture: no test needed'):
-        """Start or reuse a candidate; a correction round carries its probe and test evidence."""
+    def start(self, ok=True, correction=False, design=False, probe=None, reason='fixture: no test needed',
+              nit='fixture: no blocking finding in play'):
+        """Start or reuse a candidate; a correction round carries its probe and test evidence.
+
+        A round needs a blocking finding or a recorded reason for spending it on nits; a
+        fixture exercising another rule passes the reason so that rule stays in view.
+        """
         args = ['start', '--base', self.base, '--context', str(self.context)]
         if correction:
             path = self.root / 'probe.json'
             path.write_text(json.dumps(probe if probe is not None else [
                 dict(command='python3 -c "print(1)"', expected='1', observed='1')]))
             args += ['--probe', str(path), '--no-regression-reason', reason]
+            if nit:
+                args += ['--nit-round', nit]
         if design:
             args.append('--design-round')
         return self.flow(*args, ok=ok)
@@ -388,6 +396,73 @@ class ReviewFlowTests(unittest.TestCase):
         result = self.start(ok=False, correction=True)
         self.assertIn('Reopened after a claimed fix: README.md:x, codex/README.md:x', result.stderr)
         self.assertEqual(self.start(correction=True, design=True)['reopened'], ['README.md:x', 'codex/README.md:x'])
+
+    def test_a_round_is_spent_on_a_defect_not_on_nits(self):
+        """A correction round needs an open finding above P3, or a recorded reason.
+
+        Correcting text no test can check is where a review loop starts: each correction is
+        new surface for the next review, so nits are deferred and batched instead.
+        """
+        self.start()
+        nit = dict(id='docs:wording', kind='nit', priority='P3', evidence='Sentence reads oddly')
+        bug = dict(id='guard:spelling', kind='defect', priority='P1', evidence='Bypass reproduced')
+        self.report('claude', [nit])
+        self.report('codex', [])
+        self.triage([dict(id='claude::docs:wording', status='open', evidence='Confirmed')])
+        self.commit('correct the wording')
+        refused = self.start(ok=False, correction=True, nit='').stderr
+        self.assertIn('Every open finding is P3', refused)
+        self.assertIn('--nit-round', refused)
+        # Recorded, the round proceeds and both reviewers are told why.
+        state = self.start(correction=True, nit='the wording misleads a reader of the protocol')
+        self.assertEqual(state['round'], 2)
+        self.assertIn('spent on P3 findings', self.flow('prompt').stdout)
+        # A blocking finding needs no such reason; the nit is deferred, not carried open.
+        keep = [dict(id='claude::docs:wording', evidence='reworded in this delta')]
+        self.report('claude', [bug], resolutions=keep)
+        self.report('codex', [], resolutions=keep)
+        self.triage([dict(id='claude::guard:spelling', status='open', evidence='Reproduced')])
+        self.commit('fix the guard')
+        self.assertEqual(self.start(correction=True, nit='')['round'], 3)
+
+    def test_starting_over_after_an_unfinished_campaign_needs_authorization(self):
+        """Exhausting the budget hands the work to a human; archiving is not a way around it."""
+        self.start()
+        directory = Path(self.flow('status')['directory'])
+        aside = directory.parent / ('archived-fixture-' + directory.name)
+        aside.mkdir(parents=True)
+        (aside / 'state.json').write_text(json.dumps(dict(head='0' * 40, round=3, cleared=False)))
+        (directory / 'state.json').unlink()
+        refused = self.start(ok=False).stderr
+        self.assertIn('kept aside without clearing', refused)
+        self.assertIn('--after-archived', refused)
+        result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
+                                 '--context', str(self.context), '--after-archived',
+                                 'Max authorised a fresh campaign for the hook probe only'],
+                                cwd=self.repo, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('authorised to start over', self.flow('prompt').stdout)
+
+    def test_a_repository_without_review_rules_is_told_once(self):
+        """The PR bots read files a repository must carry; a campaign says so and continues."""
+        result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
+                                 '--context', str(self.context)],
+                                cwd=self.repo, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('REVIEW.md', result.stderr)
+        self.assertIn('Code Review Rules', result.stderr)
+        self.assertIn('review-md', result.stderr)
+        # With both files present a first campaign is silent about them.
+        shutil.rmtree(Path(self.flow('status')['directory']))
+        (self.repo / 'REVIEW.md').write_text('# Review instructions\n')
+        (self.repo / 'AGENTS.md').write_text('## Code Review Rules\n\nOne narrow rule.\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'add the review rules')
+        result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
+                                 '--context', str(self.context)],
+                                cwd=self.repo, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('review-md', result.stderr)
 
     def test_policy_mismatch_is_refused_with_instructions(self):
         """A campaign frozen under another policy is neither misread nor deleted."""

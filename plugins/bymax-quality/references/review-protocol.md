@@ -119,7 +119,15 @@ The file is a JSON list with **every** report finding keyed by `claude::<id>` or
 ```
 
 Use `[]` if both findings lists are empty. Use `rejected` only with concrete code/test
-counterevidence; `deferred` for nits or unrelated pre-existing work with a reason. Keep
+counterevidence; `deferred` for nits or unrelated pre-existing work with a reason.
+A finding whose subject is instruction prose — wording, an ordinal, a count, a comment
+naming a round — is deferred and batched, never corrected in a round of its own: only a
+finding with a concrete trigger in runtime code or in a gate blocks a receipt. Measured:
+a branch spent four campaigns on one command file whose fenced shell no test covered,
+and three of the last findings were defects a previous correction to that prose had
+introduced. Shell a command file tells a model to run is testable, and
+`scripts/tests/test_command_shell.py` tests it; prose around that shell is reviewed once
+and then left alone. Keep
 accepted defects `open` on the old candidate. A fix is verified by both reviewers on the
 next committed candidate, not by marking an unreviewed edit as fixed. Duplicate findings
 retain separate provenance entries and refer to the same root cause in their evidence.
@@ -183,7 +191,12 @@ list covers the project's requirements: check it against project docs before sta
 
 `finish` requires both reports, every disposition, no open or deferred confirmed P0–P2
 blocker, a clean matching HEAD, and passing check records. Same-HEAD reuse is intentional.
-New work after a completed campaign starts a new full campaign. A round whose Codex
+New work after a completed campaign starts a new full campaign. Exhausting the round
+budget hands the campaign to the human who authorised the work: report the blockers and
+the proposed scope, and wait. Keeping the state aside and starting over needs that
+human's explicit authorization **for that campaign** — an authorization given once is not
+standing, and a second campaign on the same finding is the signal to stop and hand over,
+not to archive again. A round whose Codex
 budget is spent without a recorded report cannot complete: `triage` needs both reports and
 `start` needs the triage. The exit is the same as for any stalled campaign, and `codex`
 says so when it refuses. A stalled campaign has

@@ -322,8 +322,81 @@ def push_probes(path):
     return unreceipted, held, orphaned, legacy, partial
 
 
+def blocking_open(state):
+    """Open dispositions whose finding carries a priority above P3.
+
+    A nit is real and still not what a round is for: correcting text no test can check is
+    where a review loop starts, since each correction is new surface for the next review.
+    """
+    priority = {key(name, item['id']): item.get('priority', 'P3')
+                for name, report in state.get('reviews', {}).items() for item in report['findings']}
+    return sorted(item['id'] for item in state.get('triage') or []
+                  if item['status'] == 'open' and priority.get(item['id'], 'P3') != 'P3')
+
+
+def abandoned(directory):
+    """Campaigns for this branch that were kept aside without clearing."""
+    aside = []
+    for sibling in directory.parent.glob('*' + directory.name):
+        if sibling == directory:
+            continue
+        try:
+            state = json.loads((sibling / 'state.json').read_text())
+        except (OSError, ValueError):
+            continue
+        if not state.get('cleared'):
+            aside.append(f"{sibling.name} (head {state.get('head', '?')[:12]}, round {state.get('round')})")
+    return sorted(aside)
+
+
+def review_rules_notice():
+    """Tell the caller when this repository never generated the rules its reviewers read.
+
+    The bounded campaign is one reviewer pair; the PR bots are another, and they read
+    REVIEW.md and the repository's own Code Review Rules. A repository without them gets
+    every wording preference as a blocking finding, which is how a review loop starts.
+    """
+    toplevel = Path(git('rev-parse', '--show-toplevel'))
+    missing = [name for name in ('REVIEW.md',) if not (toplevel / name).exists()]
+    agents = toplevel / 'AGENTS.md'
+    if not agents.exists() or '## Code Review Rules' not in agents.read_text(errors='replace'):
+        missing.append('AGENTS.md (## Code Review Rules)')
+    if missing:
+        print('Note: this repository has no ' + ' and no '.join(missing) + '. The PR reviewers read '
+              'those files; without them every wording preference arrives as a blocking finding. '
+              'Run /bymax-quality:review-md once per repository. The campaign continues.', file=sys.stderr)
+
+
+def first_round(directory, after_archived):
+    """What a campaign needs before it may be the first one on this branch."""
+    aside = abandoned(directory)
+    require(not aside or after_archived,
+            'This branch has a campaign that was kept aside without clearing: ' + ', '.join(aside)
+            + '. Exhausting the round budget hands the work to the human who authorised it; starting '
+            'over needs that human\'s authorization for this campaign, recorded with '
+            '--after-archived "<who authorised it and for what scope>".')
+
+
+def next_round(args, old, head, directory, base, context):
+    """What advancing a campaign to a correction delta requires; returns its contract."""
+    require(old['base'] == base and old['context'] == context, 'Scope changed. Stop and agree on a separate campaign.')
+    require(old['round'] < 3, 'Round limit reached. STOP; report blockers and request a scope decision. Never clear automatically.')
+    require(set(old['reviews']) == {'claude', 'codex'}, 'Complete both reviews before advancing a correction round.')
+    require(old.get('triage') is not None, 'Record every finding disposition before advancing.')
+    require(git('merge-base', old['head'], head) == old['head'], 'History rewritten; stop and reassess full coverage.')
+    correction = correction_contract(args, old, head)
+    require(blocking_open(old) or args.nit_round,
+            'Every open finding is P3. A round is for a defect with a concrete trigger in runtime '
+            'code or a gate: defer the nits with their reasons and finish, or batch them into a '
+            'follow-up campaign. To spend this round on them anyway, record why with '
+            '--nit-round "<why>"; both reviewers are told.')
+    (directory / f"round-{old['round']}.json").write_text(json.dumps(old, indent=2))
+    return correction
+
+
 def start(args, directory):
     """Freeze a full baseline or advance a campaign to a correction delta."""
+    review_rules_notice()
     install_hook()
     head = clean_head()
     base = git('rev-parse', '--verify', args.base + '^{commit}')
@@ -337,15 +410,10 @@ def start(args, directory):
     if old and old.get('cleared'):
         (directory / ('completed-' + old['head'] + '.json')).write_text(json.dumps(old, indent=2))
         old = None
-    if old:
-        require(old['base'] == base and old['context'] == context, 'Scope changed. Stop and agree on a separate campaign.')
-        require(old['round'] < 3, 'Round limit reached. STOP; report blockers and request a scope decision. Never clear automatically.')
-        require(set(old['reviews']) == {'claude', 'codex'}, 'Complete both reviews before advancing a correction round.')
-        require(old.get('triage') is not None, 'Record every finding disposition before advancing.')
-        require(git('merge-base', old['head'], head) == old['head'], 'History rewritten; stop and reassess full coverage.')
-        correction = correction_contract(args, old, head)
-        (directory / f"round-{old['round']}.json").write_text(json.dumps(old, indent=2))
+    correction = next_round(args, old, head, directory, base, context) if old else first_round(directory, args.after_archived)
     state = dict(policy=POLICY, head=head, base=base, context=context,
+                 nit_round=args.nit_round if old else '',
+                 after_archived='' if old else args.after_archived,
                  round=old['round'] + 1 if old else 1,
                  review_base=old['head'] if old else base,
                  previous_triage=old.get('triage', []) if old else [],
@@ -468,6 +536,9 @@ def correction_brief(state):
         lines.append('DESIGN ROUND. These findings were reopened after a claimed fix: '
                      + ', '.join(state['reopened']) + '. Judge whether this delta changes the '
                      'approach; a patch to the same instance is itself a finding.')
+    if state.get('nit_round'):
+        lines.append('This round was spent on P3 findings, which a round is normally not for. The author '
+                     'recorded: ' + state['nit_round'] + '. Judge whether that holds.')
     lines.append('The author probed the correction before committing; verify each probe and go '
                  'beyond it. Shallow probing is a finding. A probe you cannot execute in your sandbox '
                  '(a project gate, a browser, a network) is a limitation to state in your summary, not '
@@ -486,6 +557,15 @@ def correction_brief(state):
     return '\n'.join(lines)
 
 
+def archived_note(state):
+    """What the reviewers must know when a campaign was authorised to start over."""
+    if not state.get('after_archived'):
+        return ''
+    return ('An earlier campaign on this branch was kept aside without clearing, and this one was '
+            'authorised to start over: ' + state['after_archived'] + '. Its findings are not carried '
+            'over; report anything that still holds.')
+
+
 def prompt(state):
     """Build the same bounded read-only task for both independent reviewers."""
     return f'''Review only; do not edit, commit, push, invoke review skills, or launch other reviewers.
@@ -495,6 +575,7 @@ Review diff: git diff {state['review_base']} {state['head']} --
 Round {state['round']}/3. Read surrounding code, callers, tests, and installed API contracts.
 Context and acceptance contract:
 {state['context']}
+{archived_note(state)}
 The checks listed in that context are executed and recorded by the caller through review_flow.py check;
 do not run them, and do not run the project's test suite or builds: your sandbox is read-only and
 denies $TMPDIR, where such tools write their caches. Whatever you cannot execute is a limitation to
@@ -699,6 +780,10 @@ def parser():
                        help='Acknowledge a reopened finding and review the approach, not the instance.')
     begin.add_argument('--no-regression-reason', default='',
                        help='Correction rounds that touch no test: why a regression is infeasible.')
+    begin.add_argument('--nit-round', default='',
+                       help='Spend a round on P3 findings anyway: why, shown to both reviewers.')
+    begin.add_argument('--after-archived', default='',
+                       help='Start a campaign after an unfinished one: who authorised it, for what scope.')
     for action in ('status', 'prompt', 'finish', 'codex'):
         sub.add_parser(action)
     rec = sub.add_parser('record')
