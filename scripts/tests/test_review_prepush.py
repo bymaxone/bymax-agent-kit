@@ -180,8 +180,9 @@ class PrePushInvariantTests(unittest.TestCase):
         """A hook carrying the marker but edited by hand is kept; a custom hooks directory
         qualifies once its pre-push carries the marker, and is never written into."""
         hook = self.repo / '.git/hooks/pre-push'
-        merged = '#!/bin/sh\n# ' + 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.' \
-                 + '\necho merged-by-hand\n'
+        # A hand merge keeps the marker AND invokes the real checker; the marker alone is a claim.
+        merged = ('#!/bin/sh\n# ' + 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.'
+                  + '\necho merged-by-hand\nexec ' + sys.executable + ' ' + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n')
         hook.write_text(merged)
         hook.chmod(0o755)
         # start on the same candidate is idempotent for state and re-runs install_hook.
@@ -205,6 +206,22 @@ class PrePushInvariantTests(unittest.TestCase):
                                 cwd=self.repo, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 2, result.stdout)
         return result.stderr
+
+    def test_marker_alone_is_not_enforcement(self):
+        """A hook that carries the marker but lets an unreceipted push through is refused."""
+        stub = '#!/bin/sh\n# ' + 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.' \
+               + '\nexit 0\n'
+        hook = self.repo / '.git/hooks/pre-push'
+        hook.write_text(stub)
+        hook.chmod(0o755)
+        self.assertIn('does not enforce receipts', self.start_refused())
+        self.assertEqual(hook.read_text(), stub)
+        custom = self.root / 'hooks'
+        custom.mkdir()
+        (custom / 'pre-push').write_text(stub)
+        (custom / 'pre-push').chmod(0o755)
+        self.git('config', 'core.hooksPath', str(custom))
+        self.assertIn('does not enforce receipts', self.start_refused())
 
     def test_stale_bundled_hook_is_refused_not_kept(self):
         """A hook from an earlier runtime declares its policy; kept, it would refuse every push."""

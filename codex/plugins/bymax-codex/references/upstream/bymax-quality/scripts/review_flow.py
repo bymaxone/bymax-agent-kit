@@ -139,6 +139,14 @@ def usable_hook(path):
             'plugins/bymax-quality/scripts/review_prepush.py into it by hand.')
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
+    # The marker is a claim; this is the check. Fed a push of a commit no receipt can
+    # name, a hook that enforces receipts refuses. One that exits 0 enforces nothing.
+    bogus = 'refs/heads/bymax-probe ' + '1' * 40 + ' refs/heads/bymax-probe ' + '0' * 40 + '\n'
+    probe = subprocess.run([str(path), 'origin', 'bymax-probe'], input=bogus, capture_output=True,
+                           text=True, timeout=60)
+    require(probe.returncode != 0,
+            f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
+            'receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
 
 
 def start(args, directory):
