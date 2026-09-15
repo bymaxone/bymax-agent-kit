@@ -209,12 +209,12 @@ hook — husky's `.husky/_/pre-push` running `.husky/pre-push` — qualifies whe
 runs invokes `review_prepush.py`, and survives the stub being regenerated. In either
 place, a hook that declares another policy or is not executable is refused at `start`,
 with the remedy named. Before
-the candidate is frozen, `start` also runs that hook six times as git would (from the
+the candidate is frozen, `start` also runs that hook seven times as git would (from the
 worktree root, through `sh` when it has no shebang, within 60 seconds each, with origin's
 name and URL as arguments), feeding it one push line shaped like a real push: a temporary
 ref under `refs/bymax-review/`, resolving to a dangling child of HEAD built from the
 current tree in the user's own git identity, fast-forwarding the current branch. That
-commit exists, has a parent, and its ref resolves to it. The six pushes differ in what
+commit exists, has a parent, and its ref resolves to it. The pushes differ in what
 names that commit, and each is described by what it carries rather than by its position,
 which the runtime is free to change:
 
@@ -231,12 +231,12 @@ which the runtime is free to change:
   holds is void whatever pid is reused later. A hook that accepts either honours such a
   receipt, as a copy of an earlier checker does; it is refused until deleted (the bundled
   hook is then reinstalled) or pointed at the current checker;
-- **two pushes of three refs**, as git does for a push of three refs, each record with its
-  own remote ref: the receipted commit surrounds one with no receipt in the first, and in
-  the second the unreceipted commit comes first, which makes it the record that
-  fast-forwards the branch while the other two create their own. The hook must refuse both,
-  and a hook that reads a single fixed record of the three reads a receipted commit in one
-  of them; accepting either means an unreceipted commit went unchecked.
+- **three pushes of three refs**, as git does for a push of three refs, each record with
+  its own remote ref and the first fast-forwarding the branch: the unreceipted commit takes
+  each of the three positions in turn while the receipted one fills the others. The hook
+  must refuse all three, and a hook that leaves any one record unchecked reads only
+  receipted commits in the push whose unreceipted record it skips; accepting any of them
+  means an unreceipted commit went unchecked.
 
 Every refusal names the remedy; a kept file is never rewritten, so a check merged into it
 by hand survives. The refs and the directory are removed afterwards, and what

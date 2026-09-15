@@ -441,8 +441,8 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('claude')
         self.report('codex')
         self.triage()
-        # Deleting that test is not a regression: the next round needs a reason again,
-        # and the reason reaches both reviewers. This is round 3, inside the limit.
+        # Deleting that test is not a regression: a correction that leaves the candidate
+        # without one needs a recorded reason, which reaches both reviewers.
         (self.repo / 'tests/test_fix.py').unlink()
         self.git('add', '-A')
         self.git('commit', '-qm', 'remove the test')

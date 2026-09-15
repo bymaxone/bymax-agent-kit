@@ -151,7 +151,8 @@ def run_hook(path, remote, line):
     return probe.returncode
 
 
-PROBE_BOUND = 7 * HOOK_SECONDS  # longer than the six hook runs of one probe can take
+PROBE_BOUND = 8 * HOOK_SECONDS  # must exceed every hook run of one probe at the ceiling;
+# test_sweep_bound_outlasts_every_hook_run_of_one_probe counts the runs and enforces it
 
 
 def sweep_probes(root):
@@ -238,7 +239,7 @@ def usable_hook(path):
             f'{checker} into it by hand.')
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
-    # The marker is a claim; six pushes are the check. The push is shaped like a real
+    # The marker is a claim; the pushes below are the check. The push is shaped like a real
     # one — a temporary ref, resolving to a dangling child of HEAD built from the current
     # tree in the user's own identity, fast-forwarding the current branch on origin's URL
     # — so a hook that also checks the ref, its tip, the parent, the author or the remote
@@ -247,11 +248,12 @@ def usable_hook(path):
     # nobody holds (unlocked holder, or a pid with nothing to hold) is void; every record
     # of a multi-ref push is checked. A hook that exits 0 fails the first push; one that
     # refuses for a reason the probe does not satisfy fails the second, closed; one that
-    # honours an unheld receipt fails the third or the fourth; one that reads a single
-    # fixed record of three fails the fifth or the sixth. What the pushes establish is
-    # narrower than the invariants: a hook that filters records by a property the probe's
-    # records share can still miss one, and hook code written to recognise the probe is
-    # trusted code. The probe raises the floor; it does not certify the hook.
+    # honours an unheld receipt fails the push carrying it; one that leaves any record of
+    # a three-ref push unchecked fails the multi-ref push whose unreceipted commit it
+    # skips. What the pushes establish is narrower than the invariants: a hook that filters
+    # records by a property all three of the probe's records share can still miss one, and
+    # hook code written to recognise the probe is trusted code. The probe raises the floor;
+    # it does not certify the hook.
     unreceipted, held, orphaned, legacy, partial = push_probes(path)
     require(unreceipted != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
@@ -266,15 +268,15 @@ def usable_hook(path):
             'merged into it.')
     require(all(status != 0 for status in partial),
             f'{path} accepted a push of three refs one of whose commits holds no receipt (exit 0). git '
-            'hands a hook one record per pushed ref and every record must be checked; a hook that reads '
-            'a single record, or filters the records it checks, can miss the unreceipted one. Make it '
-            f'check every record, as {checker} does, or delete it.')
+            'hands a hook one record per pushed ref and every record must be checked; a hook that leaves '
+            'one of them unchecked, whether by reading a fixed few or by filtering, misses the '
+            f'unreceipted commit here. Make it check every record, as {checker} does, or delete it.')
 
 
 def push_probes(path):
     """Run the hook on the probe push without a receipt, with a held one, with an unheld one,
-    with a pid-only one, and on two three-ref pushes that place the unreceipted commit
-    differently.
+    with a pid-only one, and on three-ref pushes that give the unreceipted commit each
+    position in turn.
 
     Returns four exit statuses and the tuple of the multi-ref ones. The refs exist only
     for the duration.
@@ -295,11 +297,12 @@ def push_probes(path):
         return first + ''.join(f'{name} {sha} {name} {"0" * 40}\n' for name, sha in pairs[1:])
 
     line = push((refs[0], dangling))
-    # git hands the hook one record per pushed ref. The unreceipted commit sits in the
-    # middle of one push and first in the other, so a hook that reads a single fixed
-    # record of the three reads a receipted commit in one of them, exits 0 and is refused.
-    middle = push((refs[0], dangling), (refs[1], other), (refs[2], dangling))
-    leading = push((refs[1], other), (refs[0], dangling), (refs[2], dangling))
+    # git hands the hook one record per pushed ref. The unreceipted commit takes each of
+    # the three positions in turn, so any hook that leaves one record unchecked reads only
+    # receipted commits in the push whose unreceipted one it skips, exits 0 and is refused.
+    multi = (push((refs[0], dangling), (refs[1], other), (refs[2], dangling)),
+             push((refs[1], other), (refs[0], dangling), (refs[2], dangling)),
+             push((refs[0], dangling), (refs[2], dangling), (refs[1], other)))
     url = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True)
     remote = ('origin', url.stdout.strip() if url.returncode == 0 else 'origin')
     try:
@@ -308,7 +311,7 @@ def push_probes(path):
             return unreceipted, None, None, None, ()
         with probe_receipt(dangling):
             held = run_hook(path, remote, line)
-            partial = tuple(run_hook(path, remote, records) for records in (middle, leading))
+            partial = tuple(run_hook(path, remote, records) for records in multi)
         with probe_receipt(dangling, held=False):
             orphaned = run_hook(path, remote, line)
         with probe_receipt(dangling, legacy=True):

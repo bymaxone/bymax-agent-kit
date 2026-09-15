@@ -456,9 +456,10 @@ class PrePushInvariantTests(unittest.TestCase):
         delegate = ' | exec ' + sys.executable + ' ' + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n'
         middle = ('lines=$(cat)\nif [ "$(printf "%s\\n" "$lines" | wc -l)" -ge 3 ]; then '
                   'printf "%s\\n" "$lines" | sed -n 2p; else printf "%s\\n" "$lines"; fi')
+        leading_pair = 'printf "%s\\n" "$(cat)" | sed -n 1,2p'
         for sampler in ('read l s r x\nprintf "%s %s %s %s\\n" "$l" "$s" "$r" "$x"',
                         'while read l s r x; do last="$l $s $r $x"; done\nprintf "%s\\n" "$last"',
-                        middle):
+                        middle, leading_pair):
             hook.write_text(marker + sampler + delegate)
             hook.chmod(0o755)
             self.assertIn('one of whose commits holds no receipt', self.start_refused())

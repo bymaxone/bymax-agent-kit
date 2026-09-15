@@ -197,7 +197,11 @@ shipping includes the review. Do it in this order:
    marker for a commit that already has one.
 2. Otherwise run the bounded campaign from `/bymax-quality:code-review` end to end:
    write the context (intent, acceptance, constraints, scope, the project's real gate
-   commands), `start` against the resolved base, run `codex` in the background, perform
+   commands), `start` against the review base — `git merge-base "$DEFAULT_REF" HEAD` when
+   Step 0 resolved a default branch, and the branch's first commit
+   (`git rev-list --max-parents=0 HEAD | tail -1`) when it could not, since a campaign
+   needs a base that `git rev-parse --verify` accepts and an empty `DEFAULT_REF` gives
+   none — run `codex` in the background, perform
    the Claude pass (a fresh-context subagent when this session authored the commit),
    `record` both reports, verify and `triage` every finding, `check` every declared gate,
    `finish`. Correct accepted blockers in one batch, commit, and advance the campaign
