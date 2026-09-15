@@ -7,8 +7,8 @@ push, so no spelling of that command line can reach a remote without a receipt.
 This file is copied into the repository's hooks directory by review_flow.py and
 must stay self-contained: it imports only the standard library.
 """
+import fcntl
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -39,20 +39,23 @@ def peeled(sha):
     return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else sha
 
 
-def orphaned(state):
-    """A probe receipt names the process holding it; one whose process is gone is void."""
-    pid = state.get('probe_pid')
-    if pid is None:
+def orphaned(path, state):
+    """A probe receipt is valid only while its probe holds the lock on the holder file.
+
+    The kernel releases the lock with the process, so a receipt left by a killed probe
+    names a commit nobody can push, whatever pid the system reuses afterwards.
+    """
+    name = state.get('probe_lock')
+    if name is None:
         return False
     try:
-        os.kill(int(pid), 0)
-    except ProcessLookupError:
-        return True
-    except PermissionError:  # another user's live process
+        with (path.parent / str(name)).open('r') as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:  # the probe is alive and holding it
         return False
-    except (TypeError, ValueError, OverflowError):  # not a pid at all: nothing holds it
+    except OSError:  # no holder file at all: nothing holds the receipt
         return True
-    return False
+    return True
 
 
 def cleared(common, sha):
@@ -65,7 +68,7 @@ def cleared(common, sha):
         if (state.get('head') == sha and state.get('cleared')
                 and state.get('policy') == POLICY
                 and set(state.get('reviews', {})) == {'claude', 'codex'}
-                and not orphaned(state)):
+                and not orphaned(path, state)):
             return True
     return False
 

@@ -349,15 +349,16 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertIn('does not enforce receipts', self.start_refused())
 
     def test_orphaned_probe_receipt_is_void_as_soon_as_its_process_is_gone(self):
-        """The receipt a probe holds names its process; the hook and the adapter ignore one
-        whose process no longer exists, before any sweep runs."""
-        gone = subprocess.run([sys.executable, '-c', 'import os; print(os.getpid())'],
-                              capture_output=True, text=True, check=True).stdout.strip()
+        """A probe receipt is valid only while its holder file is locked by the probe; the
+        hook and the adapter ignore one nobody holds, before any sweep runs and whatever
+        pid the system reuses."""
         orphan = self.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'interrupted probe')
         left = self.repo / '.git/bymax-review/probe-left'
         left.mkdir(parents=True)
+        (left / 'holder').write_text('')
         (left / 'completed-probe.json').write_text(json.dumps(dict(
-            head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}), probe_pid=int(gone))))
+            head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}),
+            probe_lock='holder', probe_pid=os.getpid())))  # a live pid: the lock decides, not the pid
         refused = self.attempt(f'git push origin {orphan}:refs/heads/orphan')
         self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
         self.assertFalse(self.remote_has(orphan))
@@ -366,6 +367,47 @@ class PrePushInvariantTests(unittest.TestCase):
                                capture_output=True, text=True)
         self.assertEqual(guard.returncode, 2, guard.stderr)
         self.assertIn('No completed Claude + Codex review', guard.stderr)
+        # While a process holds the lock the same receipt is honoured.
+        keeper = subprocess.Popen([sys.executable, '-c', 'import fcntl, sys, time; h = open(sys.argv[1]); '
+                                   'fcntl.flock(h, fcntl.LOCK_EX); print("held", flush=True); time.sleep(30)',
+                                   str(left / 'holder')], stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(keeper.stdout.readline().strip(), 'held')
+            self.assertEqual(self.attempt(f'git push origin {orphan}:refs/heads/orphan').returncode, 0)
+        finally:
+            keeper.kill()
+
+    def test_kept_hook_must_refuse_an_orphaned_receipt(self):
+        """A kept hook that reads receipts without checking their holder — a checker from an
+        earlier runtime — passes the first two pushes and fails the third; a bundled copy at
+        the current policy is refreshed from the source instead of being kept."""
+        hook = self.repo / '.git/hooks/pre-push'
+        careless = ('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
+                    'while read l s r x; do grep -lq "\\"head\\": \\"$s\\"" .git/bymax-review/*/completed-*.json '
+                    '2>/dev/null || exit 1; done\nexit 0\n')
+        hook.write_text(careless)
+        hook.chmod(0o755)
+        self.assertIn('orphaned probe receipt', self.start_refused())
+        self.assertEqual(hook.read_text(), careless)
+        older = FLOW.with_name('review_prepush.py').read_bytes() + b'\n# an earlier revision of this file\n'
+        hook.write_bytes(older)
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        self.assertEqual(hook.read_bytes(), FLOW.with_name('review_prepush.py').read_bytes())
+        self.assertEqual(list((self.repo / '.git/bymax-review').glob('probe-*')), [])
+        self.assertEqual(self.git('for-each-ref', 'refs/bymax-review/'), '')
+
+    def test_interrupted_probe_ref_is_swept_once_older_than_a_probe(self):
+        """A temporary probe ref left by a kill is deleted by the next probe when its commit is
+        older than a probe can be; a younger one may belong to a sibling and is kept."""
+        stale_env = dict(self.env, GIT_COMMITTER_DATE='2020-01-01T00:00:00Z', GIT_AUTHOR_DATE='2020-01-01T00:00:00Z')
+        old = subprocess.check_output(['git', 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'old probe'],
+                                      cwd=self.repo, env=stale_env, text=True).strip()
+        young = self.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'young probe')
+        self.git('update-ref', 'refs/bymax-review/probe-old', old)
+        self.git('update-ref', 'refs/bymax-review/probe-young', young)
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        self.assertEqual(self.git('for-each-ref', '--format=%(refname)', 'refs/bymax-review/'),
+                         'refs/bymax-review/probe-young')
 
     def test_interrupted_probe_receipt_is_swept_before_it_can_clear_a_push(self):
         """A probe killed mid-run leaves a receipt for a commit carrying the candidate's tree;

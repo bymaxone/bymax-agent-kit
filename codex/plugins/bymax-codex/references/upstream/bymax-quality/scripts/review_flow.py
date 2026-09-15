@@ -116,11 +116,16 @@ def install_hook():
         return
     target = Path(git('rev-parse', '--git-common-dir')).resolve() / 'hooks' / 'pre-push'
     if target.exists():
-        require(HOOK_MARKER in target.read_text(errors='replace'),
+        text = target.read_text(errors='replace')
+        require(HOOK_MARKER in text,
                 'A pre-push hook not managed by this campaign exists at ' + str(target)
                 + '; merge the receipt check into it by hand, keeping its marker line, before starting.')
-        # Carries the check at the current policy but is not the bundled file: merged or
-        # edited by hand, so it is kept. Delete it to have the bundled version reinstalled.
+        # A copy of the bundled checker declares its policy; hand-merged wrappers do not.
+        # A copy at the current policy that differs from the source is an earlier revision
+        # of this runtime's own file and is refreshed; anything else is kept and probed.
+        if re.search(r'^POLICY = %d$' % POLICY, text, re.MULTILINE) and target.read_bytes() != source.read_bytes():
+            target.write_bytes(source.read_bytes())
+            target.chmod(0o755)
         usable_hook(target)
         return
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -145,35 +150,53 @@ def run_hook(path, remote, line):
     return probe.returncode
 
 
-@contextlib.contextmanager
-def probe_receipt(sha):
-    """Hold a completed receipt for one commit only while this process probes the hook.
+PROBE_BOUND = 4 * HOOK_SECONDS  # longer than the three hook runs of one probe can take
 
-    Linked worktrees share the common directory, so each probe gets its own directory:
-    a sibling campaign starting at the same moment neither sees this receipt replaced
-    nor has its own removed. A probe killed mid-run cannot remove its own receipt, and
-    that receipt names a commit carrying the candidate's tree, so every probe directory
-    older than the two hook runs could have taken is swept first.
+
+def sweep_probes(root):
+    """Remove what an interrupted probe left behind, once older than a probe can be.
+
+    Linked worktrees share the common directory, so a younger directory or ref may
+    belong to a sibling's probe still in flight and is left alone.
     """
-    root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
-    root.mkdir(parents=True, exist_ok=True)
     for stale in root.glob('probe-*'):
         try:
-            aged = time.time() - stale.stat().st_mtime > 3 * HOOK_SECONDS
+            aged = time.time() - stale.stat().st_mtime > PROBE_BOUND
         except FileNotFoundError:  # a sibling's probe finished between the listing and the stat
             continue
         if aged:
             shutil.rmtree(stale, ignore_errors=True)
+    refs = git('for-each-ref', '--format=%(refname) %(creatordate:unix)', 'refs/bymax-review/')
+    for entry in refs.splitlines():
+        name, created = entry.split()
+        if time.time() - int(created) > PROBE_BOUND:
+            subprocess.run(['git', 'update-ref', '-d', name], capture_output=True)
+
+
+@contextlib.contextmanager
+def probe_receipt(sha, held=True):
+    """Hold a completed receipt for one commit only while this process probes the hook.
+
+    Each probe gets a directory of its own, so concurrent starts in linked worktrees do
+    not disturb each other. The receipt is valid only while its holder file is locked:
+    the kernel drops the lock with the process, so a receipt orphaned by a kill names a
+    commit nobody can push, whatever pid the system hands out next. With held=False the
+    holder exists but is not locked: the shape an interrupted probe leaves behind.
+    """
+    root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
+    root.mkdir(parents=True, exist_ok=True)
+    sweep_probes(root)
     directory = Path(tempfile.mkdtemp(prefix='probe-', dir=root))
-    # The receipt names its owner: the hook and the adapter ignore a probe receipt whose
-    # process is gone, so one orphaned by a kill authorises nothing even before the sweep.
     receipt = dict(head=sha, cleared=True, policy=POLICY, reviews=dict(claude={}, codex={}),
-                   probe_pid=os.getpid())
+                   probe_lock='holder', probe_pid=os.getpid())
     (directory / 'completed-probe.json').write_text(json.dumps(receipt))
-    try:
-        yield
-    finally:
-        shutil.rmtree(directory, ignore_errors=True)
+    with (directory / 'holder').open('w') as holder:
+        if held:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
 
 
 def probe_commit(head, nonce):
@@ -207,14 +230,35 @@ def usable_hook(path):
             'plugins/bymax-quality/scripts/review_prepush.py into it by hand.')
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
-    # The marker is a claim; a pair of pushes is the check. The push is shaped like a real
+    # The marker is a claim; three pushes are the check. The push is shaped like a real
     # one — a temporary ref, resolving to a dangling child of HEAD built from the current
     # tree in the user's own identity, fast-forwarding the current branch on origin's URL
     # — so a hook that also checks the ref, its tip, the parent, the author or the remote
-    # passes those checks. Without a receipt the hook must refuse it; while a temporary
-    # receipt names it, the hook must let it through. A hook that exits 0 fails the first
-    # push; one that refuses for a reason the probe does not satisfy fails the second,
-    # closed. Hook code written to recognise the probe is trusted code, outside this check.
+    # passes those checks. Without a receipt the hook must refuse it; while a held
+    # receipt names it, the hook must let it through; with an orphaned receipt naming it,
+    # the hook must refuse again. A hook that exits 0 fails the first push; one that
+    # refuses for a reason the probe does not satisfy fails the second, closed; one that
+    # reads receipts without checking their holder — an older checker — fails the third.
+    # Hook code written to recognise the probe is trusted code, outside this check.
+    unreceipted, held, orphaned = push_probes(path)
+    require(unreceipted != 0,
+            f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
+            'receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
+    require(held == 0,
+            f'{path} refused a push of a commit that holds a completed receipt (exit {held}), so it '
+            'is not consulting receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, '
+            'or delete it.')
+    require(orphaned != 0,
+            f'{path} accepted a push named only by an orphaned probe receipt (exit 0): it reads receipts '
+            'without checking their holder, as a checker from an earlier runtime does. Point it at the '
+            'current plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
+
+
+def push_probes(path):
+    """Run the hook on the probe push without, with, and with an orphaned receipt.
+
+    Returns the three exit statuses. The temporary ref exists only for the duration.
+    """
     head = git('rev-parse', 'HEAD')
     nonce = os.urandom(8).hex()
     dangling = probe_commit(head, nonce)
@@ -226,17 +270,15 @@ def usable_hook(path):
     remote = ('origin', url.stdout.strip() if url.returncode == 0 else 'origin')
     try:
         unreceipted = run_hook(path, remote, line)
-        require(unreceipted != 0,
-                f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
-                'receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
+        if unreceipted == 0:
+            return unreceipted, None, None
         with probe_receipt(dangling):
-            status = run_hook(path, remote, line)
+            held = run_hook(path, remote, line)
+        with probe_receipt(dangling, held=False):
+            orphaned = run_hook(path, remote, line)
     finally:
         git('update-ref', '-d', ref)
-    require(status == 0,
-            f'{path} refused a push of a commit that holds a completed receipt (exit {status}), so it '
-            'is not consulting receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, '
-            'or delete it.')
+    return unreceipted, held, orphaned
 
 
 def start(args, directory):
@@ -455,12 +497,19 @@ def record(args, directory, state):
 
 def triage(args, directory, state):
     """Persist an explicit disposition for every finding from both reviewers."""
-    current(state)
+    require(state['head'] == clean_head(),
+            f"HEAD is not the reviewed candidate {state['head'][:12]}. Dispositions are recorded on the "
+            'candidate the reports describe: return to it (git reset --hard or checkout), triage, then '
+            'commit the corrections; start refuses a new round until every finding has a disposition.')
     require(set(state['reviews']) == {'claude', 'codex'}, 'Both reviewer reports are required.')
     items = json.loads(Path(args.report).read_text())
     require(isinstance(items, list), 'Triage must be a JSON list.')
     expected = {key(name, f['id']) for name, r in state['reviews'].items() for f in r['findings']}
-    require(len(items) == len(expected) and {i.get('id') for i in items} == expected, 'Disposition missing or duplicated.')
+    given = [i.get('id') for i in items]
+    require(len(items) == len(expected) and set(given) == expected,
+            'Dispositions must cover every finding exactly once, keyed reviewer::<id>. Missing: '
+            + (', '.join(sorted(expected - set(given))) or 'none') + '. Unexpected or duplicated: '
+            + (', '.join(sorted({g for g in given if g not in expected or given.count(g) > 1})) or 'none') + '.')
     for item in items:
         require(item.get('status') in ('open', 'rejected', 'deferred'), 'Use open until the next reviewers verify a committed fix.')
         require(isinstance(item.get('evidence'), str) and item['evidence'].strip(), 'Disposition needs code/test evidence or a deferral reason.')

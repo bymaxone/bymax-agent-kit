@@ -156,8 +156,23 @@ class ReviewFlowTests(unittest.TestCase):
                         'rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push',
                         # git reads config keys case-insensitively; so must the guard.
                         'git -c core.hookspath=/dev/null push origin HEAD',
-                        'git -c CORE.HOOKSPATH=/x push origin HEAD', 'git push --NO-VERIFY origin HEAD'):
+                        'git -c CORE.HOOKSPATH=/x push origin HEAD', 'git push --NO-VERIFY origin HEAD',
+                        # husky's dispatcher exits before the tracked hook when HUSKY=0.
+                        'env HUSKY=0 git push origin HEAD', 'HUSKY=0 git push origin HEAD'):
             self.push(command, ok=False)
+
+    def test_triage_after_the_correction_commit_names_the_way_back(self):
+        """Dispositions belong to the reviewed candidate; once HEAD moved on, the refusal says
+        to return to it, and the disposition file must key every finding exactly once."""
+        self.start()
+        self.complete()
+        self.commit('correction before triage')
+        refused = self.triage([], ok=False).stderr
+        self.assertIn('return to it (git reset --hard or checkout), triage, then', refused)
+        self.git('reset', '-q', '--hard', 'HEAD~1')
+        refused = self.triage([dict(id='claude/x:y', status='open', evidence='e')], ok=False).stderr
+        self.assertIn('keyed reviewer::<id>', refused)
+        self.assertIn('Unexpected or duplicated: claude/x:y', refused)
 
     def test_adapter_refuses_ambiguous_literal_pushes(self):
         """A literal push that names no source, or a wildcard one, is refused rather than guessed."""
