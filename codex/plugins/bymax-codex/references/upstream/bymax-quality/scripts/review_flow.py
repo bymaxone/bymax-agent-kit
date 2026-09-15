@@ -367,7 +367,10 @@ def widened(old, head):
         # No open finding names a file in the reviewed candidate, so there is nothing to
         # measure a correction against. Silence here, never a refusal on an assumption.
         return []
-    touched = [path for path in git('diff', '--name-only', old['head'], head).splitlines() if path]
+    # -z on both sides or neither: without it git C-quotes a non-ASCII path here while the
+    # listing above yields it raw, and the two sets then spell the same file differently.
+    changed = git('diff', '-z', '--name-only', old['head'], head)
+    touched = [path for path in changed.split('\0') if path]
     return sorted(path for path in touched
                   if path not in named and not is_test_path(path) and not generated_path(path))
 

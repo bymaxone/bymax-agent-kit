@@ -410,37 +410,59 @@ class ReviewFlowTests(unittest.TestCase):
                                     widen='fixture: this case is about keys, not about scope'
                                     )['reopened'], ['README.md:x', 'codex/README.md:x'])
 
-    def test_the_scope_rule_reads_the_same_paths_from_wherever_it_runs(self):
-        """`git diff` is root-relative; `ls-tree` without --full-tree is not.
+    def prepare_scope_fixture(self):
+        """A campaign whose one open finding names a file git would C-quote.
 
-        A guardrail that goes silent when the caller happens to be in a subdirectory is
-        not a guardrail, and the caller's directory is not something a campaign controls.
+        The name is non-ASCII on purpose: the two sides of the rule read git separately,
+        and each quotes such a path unless told otherwise. A comparison where one side
+        quotes and the other does not refuses the very file it was given.
         """
-        (self.repo / 'named.txt').write_text('the finding names this\n')
+        (self.repo / 'café.txt').write_text('the finding names this\n')
         (self.repo / 'sub').mkdir()
         (self.repo / 'sub/keep.txt').write_text('somewhere to stand\n')
         self.git('add', '-A')
         self.git('commit', '-qm', 'add the named file and a subdirectory')
         self.start()
-        self.report('claude', [dict(id='named.txt:wrong', kind='defect', priority='P1',
+        self.report('claude', [dict(id='café.txt:wrong', kind='defect', priority='P1',
                                     evidence='wrong')])
         self.report('codex', [])
-        self.triage([dict(id='claude::named.txt:wrong', status='open', evidence='Confirmed')])
-        (self.repo / 'named.txt').write_text('fixed\n')
+        self.triage([dict(id='claude::café.txt:wrong', status='open', evidence='Confirmed')])
+        (self.repo / 'café.txt').write_text('fixed\n')
+        probe = self.root / 'probe.json'
+        probe.write_text(json.dumps([dict(command='c', expected='e', observed='e')]))
+        return [str(FLOW), 'start', '--base', self.base, '--context', str(self.context),
+                '--probe', str(probe), '--no-regression-reason', 'fixture']
+
+    def start_from(self, arguments, where):
+        """Run `start` from a given directory, since the rule must not depend on one."""
+        return subprocess.run([sys.executable, *arguments], cwd=where,
+                              capture_output=True, text=True, timeout=10)
+
+    def test_touching_only_the_named_file_is_not_widening(self):
+        """However git spells that name, and from wherever the caller happens to stand."""
+        arguments = self.prepare_scope_fixture()
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'fix only what the finding named')
+        for where in (self.repo, self.repo / 'sub'):
+            result = self.start_from(arguments, where)
+            self.assertEqual(result.returncode, 0, f'from {where.name} a correction touching '
+                                                   f'only the named file was refused: {result.stderr}')
+
+    def test_a_file_no_finding_named_is_caught_from_any_directory(self):
+        """`git diff` is root-relative; a listing that is not would make the rule silent."""
+        arguments = self.prepare_scope_fixture()
         (self.repo / 'unasked.txt').write_text('a file nobody asked for\n')
         self.git('add', '-A')
         self.git('commit', '-qm', 'fix, and one more thing')
-
-        probe = self.root / 'probe.json'
-        probe.write_text(json.dumps([dict(command='c', expected='e', observed='e')]))
-        arguments = [str(FLOW), 'start', '--base', self.base, '--context', str(self.context),
-                     '--probe', str(probe), '--no-regression-reason', 'fixture']
         for where in (self.repo, self.repo / 'sub'):
-            result = subprocess.run([sys.executable, *arguments], cwd=where,
-                                    capture_output=True, text=True, timeout=10)
+            result = self.start_from(arguments, where)
             self.assertEqual(result.returncode, 2, f'from {where.name} the rule stayed silent')
-            self.assertIn('unasked.txt', result.stderr)
-            self.assertNotIn('named.txt', result.stderr.split('No open finding names:')[1])
+            blamed = result.stderr.split('No open finding names:')[1]
+            self.assertIn('unasked.txt', blamed)
+            # Assert on the stem: a mismatched comparison would print the quoted spelling,
+            # which shares no full substring with the unquoted one.
+            self.assertNotIn('caf', blamed)
+
 
     def test_a_correction_may_delete_the_file_its_finding_named(self):
         """Deleting the file is a fix, and the rule must not read that as erased evidence.
