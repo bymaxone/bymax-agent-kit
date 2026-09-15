@@ -23,7 +23,8 @@ When creating a checkpoint:
 3. Log checkpoint to `.claude/checkpoints.log`:
 
 ```bash
-# The name is text the user typed, so it is never pasted into shell source:
+# bymax-checkpoint-name is written with the file tool: the name is text the user
+# typed, so it is never pasted into shell source.
 # an apostrophe breaks single quotes and a command substitution survives double
 # ones. Write it to this file with the file tool, then read it back here.
 CHECKPOINT_NAME=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-checkpoint-name" 2>/dev/null || true)

@@ -441,12 +441,27 @@ def start(args, directory):
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
     save(directory, state)
-    # The mechanical gate runs in a document's fenced shell, which has no way back to
-    # this state, and a value a model is asked to type into shell can carry a command
-    # substitution. So the endpoints are recorded here, by the step that froze them.
-    (Path(git('rev-parse', '--git-dir')) / 'bymax-review-range').write_text(
-        f"{state['review_base']}..{state['head']}\n")
     return state
+
+
+def range_file():
+    """Where the mechanical gate's fenced shell reads the endpoints a campaign froze."""
+    return Path(git('rev-parse', '--git-dir')) / 'bymax-review-range'
+
+
+def record_range(state):
+    """Record the endpoints, or remove them once the campaign no longer owns a scope.
+
+    That shell has no way back to the campaign state, and a value a model is asked to
+    type into shell can carry a command substitution. A stale record is worse than none:
+    the reader cannot tell one SHA pair from another, so a cleared campaign removes it
+    and the block refuses a pair that is not the current HEAD's.
+    """
+    path = range_file()
+    if state is None or state.get('cleared'):
+        path.unlink(missing_ok=True)
+    else:
+        path.write_text(f"{state['review_base']}..{state['head']}\n")
 
 
 TEST_PATH = re.compile(r'(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]+\.py$|_test\.|\.test\.|\.spec\.', re.IGNORECASE)
@@ -843,6 +858,10 @@ def main():
                 globals()[args.action](args, directory, state)
             elif args.action == 'finish':
                 finish(directory, state)
+        # Every lifecycle command passes here, so this is where the endpoints the gate
+        # reads are kept true: written while a campaign owns a scope, removed once it
+        # does not. Re-running start is then the remedy for a deleted file.
+        record_range(state)
         print(json.dumps(dict(directory=str(directory), **state), indent=2))
 
 

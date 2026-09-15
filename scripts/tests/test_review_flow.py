@@ -448,6 +448,27 @@ class ReviewFlowTests(unittest.TestCase):
             self.assertIn(aside.name, refused)
             shutil.rmtree(aside)
 
+    def test_the_recorded_range_never_outlives_the_candidate_it_names(self):
+        """A stale pair is worse than none: the reader cannot tell one SHA pair from another.
+
+        The mechanical gate runs in a fenced shell with no way back to this state, so the
+        endpoints are recorded here. Recording them and never clearing them would make a
+        later dirty preview grep a committed range instead of refusing.
+        """
+        recorded = Path(self.repo) / '.git/bymax-review-range'
+        state = self.start()
+        self.assertEqual(recorded.read_text().strip(),
+                         f"{state['review_base']}..{state['head']}")
+
+        # Re-running start for the same candidate restores a file someone removed.
+        recorded.unlink()
+        self.start()
+        self.assertTrue(recorded.exists(), 'start did not re-create the range it froze')
+
+        self.complete()
+        self.assertFalse(recorded.exists(),
+                         'a cleared campaign owns no scope, so it must leave no range behind')
+
     def test_a_campaign_kept_aside_in_place_is_found_too(self):
         """read_state used to recommend this spelling, so it is the one a caller reaches for."""
         self.start()

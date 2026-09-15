@@ -169,6 +169,13 @@ case "$RANGE" in
     echo "No range recorded: write <review_base>..<head>, or HEAD for a dirty preview," >&2
     echo "to .git/bymax-review-range." >&2
     exit 1 ;;
+  *)
+    # A stale pair is indistinguishable from a current one by shape, and reviewing the
+    # wrong scope is worse than refusing: the endpoint must be the commit in hand.
+    [ "${RANGE##*..}" = "$(git rev-parse HEAD)" ] || {
+      echo "Recorded range ends at ${RANGE##*..}, not at HEAD. Re-run review_flow.py" >&2
+      echo "start for this candidate, or write HEAD for a dirty preview." >&2
+      exit 1 ; } ;;
 esac
 # Added content lines only: git marks them '>' instead of '+', leaving the
 # '+++ b/path' header as-is — no header collision, no lost '++'-prefixed content.

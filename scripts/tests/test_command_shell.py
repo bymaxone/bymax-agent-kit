@@ -37,6 +37,36 @@ PASTE = re.compile(r'^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*='
                    r'(?:(?:""|\'\')\s*#.*<-|[\'"]?<[^>]*>)', re.M)
 
 
+HANDOFF = re.compile(r'\$\(git rev-parse --git-dir\)/(bymax-[a-z-]+)')
+# The redirection is what makes a line a write, and it may sit on its own continuation
+# line, so the arrow is what this reads rather than the command name.
+PRODUCES = re.compile(r'>\s*"\$\(git rev-parse --git-dir\)/(bymax-[a-z-]+)"')
+
+
+def orphan_handoffs(pairs, scripts):
+    """Handoff files a document reads that nothing writes first.
+
+    Three things count as a producer: an earlier block in the same document, a plugin
+    script (the best one, since the runtime records what it froze rather than a model
+    being asked to type it), and the model's own file tool for a value only the model
+    has. That last one is a contract, so the block has to declare it by name — a rule
+    that accepted any mention of the file tool was satisfied by a sentence left over
+    from an earlier design, and passed with no producer at all.
+    """
+    written, orphans = set(), []
+    for _, block in sorted(pairs):
+        for line in block.splitlines():
+            produced = set(PRODUCES.findall(line))
+            for name in set(HANDOFF.findall(line)) - produced:
+                if name in written or f'{name} is written with the file tool' in block:
+                    continue
+                if any(f"'{name}'" in script for script in scripts):
+                    continue
+                orphans.append(name)
+            written |= produced
+    return sorted(set(orphans))
+
+
 def documents():
     """Every command and skill document that carries runnable shell."""
     return sorted(path for pattern in ('plugins/*/commands/*.md', 'plugins/*/skills/**/*.md')
@@ -123,36 +153,46 @@ class CommandShellTests(unittest.TestCase):
         step that resolves a value is the one that has to record it. A handoff nobody
         writes made the flaky-rerun path exit on every invocation.
         """
-        handoff = re.compile(r'\$\(git rev-parse --git-dir\)/(bymax-[a-z-]+)')
-        # The redirection is what makes a line a write, and it may sit on its own
-        # continuation line, so the arrow is read rather than the command name.
-        writes = re.compile(r'>\s*"\$\(git rev-parse --git-dir\)/(bymax-[a-z-]+)"')
         scripts = [script.read_text() for script in (ROOT / 'plugins').rglob('*.py')]
         for path in documents():
-            written, read, declared = set(), set(), set()
-            for _, block in blocks(path):
-                for line in block.splitlines():
-                    produced = set(writes.findall(line))
-                    written |= produced
-                    names = set(handoff.findall(line)) - produced
-                    read |= names
-                    # The third producer: a value only the model has, such as a name the
-                    # user typed, is written with the file tool. That is a contract, so
-                    # the block carrying the read has to state it.
-                    if 'with the file tool' in block:
-                        declared |= names
-            # A plugin script is the best producer: the runtime records what it froze,
-            # rather than a model being asked to type it.
-            scripted = {name for name in read if any(f"'{name}'" in s for s in scripts)}
-            orphans = sorted(read - written - scripted - declared)
+            orphans = orphan_handoffs(blocks(path), scripts)
             self.assertEqual(orphans, [], f'{path.relative_to(ROOT)} reads {orphans} and '
-                                          'nothing writes that file: no block here, no plugin '
-                                          'script, and no block says the file tool writes it')
+                                          'nothing writes that file first: no earlier block here, '
+                                          'no plugin script, and no block declaring that the file '
+                                          'tool writes that name')
+
+    def test_the_producer_rule_fails_on_the_shape_it_exists_for(self):
+        """A gate is only worth its rule if it fails on the defect; these are that defect.
+
+        The rule's first spelling exempted any block mentioning the file tool, and the
+        block reading the run id happened to carry that phrase from an earlier design.
+        It passed with no producer at all. So the exemption now names its handoff, and
+        each case below is one way the rule was or could be made vacuous.
+        """
+        read = ('RUN_ID=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-babysit-run" '
+                '2>/dev/null || true)')
+        write = 'printf \'%s\\n\' "$RUN_ID" > "$(git rev-parse --git-dir)/bymax-babysit-run"'
+        cases = (
+            ('no producer at all', [(1, read)], ['bymax-babysit-run']),
+            ('a generic mention of the file tool',
+             [(1, '# write it with the file tool\n' + read)], ['bymax-babysit-run']),
+            ('a producer in a later block', [(1, read), (2, write)], ['bymax-babysit-run']),
+            ('a producer in an earlier block', [(1, write), (2, read)], []),
+            ('the same block writing then reading', [(1, write + '\n' + read), ], []),
+            ('an exemption naming the handoff',
+             [(1, '# bymax-babysit-run is written with the file tool\n' + read)], []),
+        )
+        for label, pairs, expected in cases:
+            self.assertEqual(orphan_handoffs(pairs, []), expected, f'the rule misjudges {label}')
 
     def test_a_guard_accepts_every_value_its_own_document_prescribes(self):
         """A guard that refuses a documented value closes the path it was added to protect."""
+        # The range guard compares its endpoint with HEAD, so the pair it must accept is
+        # this tree's own: a made-up pair would be refused for being stale, not for shape.
+        head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True,
+                              text=True, check=True).stdout.strip()
         prescribed = {
-            'plugins/bymax-quality/commands/code-review.md': ('HEAD', 'da01ff3..d0330f0'),
+            'plugins/bymax-quality/commands/code-review.md': ('HEAD', f'{head}..{head}'),
             'plugins/bymax-pr/skills/babysit-pr/SKILL.md': ('1234567890',),
         }
         for relative, values in prescribed.items():
@@ -166,7 +206,8 @@ class CommandShellTests(unittest.TestCase):
                 case = case[:case.index('esac') + 4]
                 for value in values:
                     script = f'{name}={value!r}\n{case}\necho ACCEPTED'
-                    outcome = subprocess.run(['bash', '-c', script], capture_output=True, text=True)
+                    outcome = subprocess.run(['bash', '-c', script], cwd=ROOT,
+                                             capture_output=True, text=True)
                     self.assertIn('ACCEPTED', outcome.stdout,
                                   f'{relative} guards {name} and refuses {value!r}, which the '
                                   'same document prescribes')
