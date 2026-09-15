@@ -149,7 +149,7 @@ def run_hook(path, remote, line):
     return probe.returncode
 
 
-PROBE_BOUND = 5 * HOOK_SECONDS  # longer than the four hook runs of one probe can take
+PROBE_BOUND = 6 * HOOK_SECONDS  # longer than the five hook runs of one probe can take
 
 
 def sweep_probes(root):
@@ -180,9 +180,8 @@ def probe_receipt(sha, held=True, legacy=False):
     not disturb each other. The receipt is valid only while its holder file is locked:
     the kernel drops the lock with the process, so a receipt orphaned by a kill names a
     commit nobody can push, whatever pid the system hands out next. With held=False the
-    holder exists but is not locked: the shape an interrupted probe leaves behind. With
-    legacy=True the receipt names a pid and nothing to hold: the shape a probe of an
-    earlier runtime left behind, which a checker must treat as void as well.
+    holder exists but is not locked; with legacy=True the receipt names a pid and nothing
+    to hold. A checker must treat both as void: a probe receipt is valid only while held.
     """
     root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
     root.mkdir(parents=True, exist_ok=True)
@@ -225,7 +224,7 @@ def usable_hook(path):
     """Refuse a marked hook git would skip, one for another policy, or one that ignores receipts.
 
     git runs only executable hooks, silently ignoring the rest. A bundled copy left by
-    an earlier runtime declares its POLICY; kept as is, it would refuse every push once
+    another policy declares that POLICY; kept as is, it would refuse every push once
     a campaign clears under the current policy, so it is refused here instead.
     """
     checker = Path(__file__).with_name('review_prepush.py')
@@ -237,18 +236,18 @@ def usable_hook(path):
             f'{checker} into it by hand.')
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
-    # The marker is a claim; four pushes are the check. The push is shaped like a real
+    # The marker is a claim; five pushes are the check. The push is shaped like a real
     # one — a temporary ref, resolving to a dangling child of HEAD built from the current
     # tree in the user's own identity, fast-forwarding the current branch on origin's URL
     # — so a hook that also checks the ref, its tip, the parent, the author or the remote
-    # passes those checks. Without a receipt the hook must refuse it; while a held
-    # receipt names it, the hook must let it through; with an orphaned receipt naming it,
-    # the hook must refuse again, and so with a receipt of the shape an earlier probe left
-    # (a pid, nothing to hold). A hook that exits 0 fails the first push; one that refuses
-    # for a reason the probe does not satisfy fails the second, closed; one that honours
-    # a receipt nobody holds — an older checker — fails the third or the fourth.
-    # Hook code written to recognise the probe is trusted code, outside this check.
-    unreceipted, held, orphaned, legacy = push_probes(path)
+    # passes those checks. The invariants a kept hook must uphold: a commit with no
+    # receipt is refused; a commit named by a held probe receipt passes; a probe receipt
+    # nobody holds (unlocked holder, or a pid with nothing to hold) is void; every record
+    # of a multi-ref push is checked. A hook that exits 0 fails the first push; one that
+    # refuses for a reason the probe does not satisfy fails the second, closed; one that
+    # honours an unheld receipt fails the third or the fourth; one that checks a single
+    # record fails the fifth. Hook code written to recognise the probe is trusted code.
+    unreceipted, held, orphaned, legacy, partial = push_probes(path)
     require(unreceipted != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
             f'receipts. Make it invoke {checker}, or delete it.')
@@ -257,39 +256,49 @@ def usable_hook(path):
             f'is not consulting receipts. Make it invoke {checker}, or delete it.')
     require(orphaned != 0 and legacy != 0,
             f'{path} accepted a push named only by an orphaned probe receipt (exit 0): it reads receipts '
-            'without checking their holder, as a checker from an earlier runtime does. Delete it so start '
+            'without checking their holder: a probe receipt nobody holds is void. Delete it so start '
             f'reinstalls the bundled hook, or point it at the current {checker}, keeping any check you '
             'merged into it.')
+    require(partial != 0,
+            f'{path} accepted a push of two refs of which only the first commit holds a receipt (exit 0): '
+            'it checks one stdin record where git hands it one per ref. Make it check every record, '
+            f'as {checker} does, or delete it.')
 
 
 def push_probes(path):
-    """Run the hook on the probe push without a receipt, with a held one, with an orphaned
-    one, and with one of the shape an earlier runtime's probe left (pid, nothing to hold).
+    """Run the hook on the probe push without a receipt, with a held one, with an unheld
+    one, with a pid-only one, and on a two-ref push where only the first commit is receipted.
 
-    Returns the four exit statuses. The temporary ref exists only for the duration.
+    Returns the five exit statuses. The temporary refs exist only for the duration.
     """
     head = git('rev-parse', 'HEAD')
-    nonce = os.urandom(8).hex()
-    dangling = probe_commit(head, nonce)
+    nonce, second = os.urandom(8).hex(), os.urandom(8).hex()
+    dangling, other = probe_commit(head, nonce), probe_commit(head, second)
     branch = git('symbolic-ref', '--quiet', 'HEAD')
-    ref = 'refs/bymax-review/probe-' + nonce
+    ref, ref2 = 'refs/bymax-review/probe-' + nonce, 'refs/bymax-review/probe-' + second
     git('update-ref', ref, dangling)
+    git('update-ref', ref2, other)
     line = f'{ref} {dangling} {branch} {head}\n'
+    # git hands the hook one record per pushed ref; a hook that checks only the first
+    # record would let the second commit through.
+    mixed = line + f'{ref2} {other} {branch} {head}\n'
     url = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True)
     remote = ('origin', url.stdout.strip() if url.returncode == 0 else 'origin')
     try:
         unreceipted = run_hook(path, remote, line)
         if unreceipted == 0:
-            return unreceipted, None, None, None
+            return unreceipted, None, None, None, None
         with probe_receipt(dangling):
             held = run_hook(path, remote, line)
+            partial = run_hook(path, remote, mixed)
         with probe_receipt(dangling, held=False):
             orphaned = run_hook(path, remote, line)
         with probe_receipt(dangling, legacy=True):
             legacy = run_hook(path, remote, line)
     finally:
         git('update-ref', '-d', ref)
-    return unreceipted, held, orphaned, legacy
+        git('update-ref', '-d', ref2)
+    return unreceipted, held, orphaned, legacy, partial
 
 
 def start(args, directory):

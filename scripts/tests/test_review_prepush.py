@@ -367,8 +367,7 @@ class PrePushInvariantTests(unittest.TestCase):
                                capture_output=True, text=True)
         self.assertEqual(guard.returncode, 2, guard.stderr)
         self.assertIn('No completed Claude + Codex review', guard.stderr)
-        # A probe receipt with a pid and nothing to hold — the shape an earlier runtime wrote —
-        # is void too, however alive that pid is.
+        # A probe receipt with a pid and nothing to hold is void too, however alive that pid is.
         (left / 'completed-probe.json').write_text(json.dumps(dict(
             head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}), probe_pid=os.getpid())))
         self.assertIn('pre-push: no completed Claude + Codex review',
@@ -387,9 +386,10 @@ class PrePushInvariantTests(unittest.TestCase):
             keeper.kill()
 
     def test_kept_hook_must_refuse_an_orphaned_receipt(self):
-        """A kept hook that honours a receipt nobody holds — a checker from an earlier runtime,
-        whether it ignores holders or only honours receipts without one — fails the third or
-        the fourth push; a checker copy edited by hand that passes all four is kept byte for byte."""
+        """A kept hook that honours a receipt nobody holds — whether it ignores holders or only
+        honours receipts without one — fails the third or the fourth push; one that checks a
+        single stdin record fails the fifth; a checker copy edited by hand that passes all five
+        is kept byte for byte."""
         hook = self.repo / '.git/hooks/pre-push'
         careless = ('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
                     'while read l s r x; do grep -lq "\\"head\\": \\"$s\\"" .git/bymax-review/*/completed-*.json '
@@ -398,8 +398,8 @@ class PrePushInvariantTests(unittest.TestCase):
         hook.chmod(0o755)
         self.assertIn('orphaned probe receipt', self.start_refused())
         self.assertEqual(hook.read_text(), careless)
-        # A checker that checks holders but honours a receipt with none to check — the
-        # shape an earlier probe left — fails the fourth push.
+        # A checker that checks holders but honours a receipt with none to check fails the
+        # fourth push.
         (self.repo / '.git/tools').mkdir()
         (self.repo / '.git/tools/halfway.py').write_text(
             'import fcntl, glob, json, sys\nfrom pathlib import Path\n'
@@ -410,7 +410,7 @@ class PrePushInvariantTests(unittest.TestCase):
             '        if state.get("head") != s:\n'
             '            continue\n'
             '        if "probe_lock" not in state:\n'
-            '            break  # honoured with nothing to hold: the earlier runtime\'s mistake\n'
+            '            break  # honoured with nothing to hold: void, yet accepted here\n'
             '        try:\n'
             '            with open(Path(p).parent / state["probe_lock"]) as holder:\n'
             '                fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)\n'
@@ -421,6 +421,12 @@ class PrePushInvariantTests(unittest.TestCase):
         hook.write_text('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
                         'exec ' + sys.executable + ' .git/tools/halfway.py "$@"\n')
         self.assertIn('orphaned probe receipt', self.start_refused())
+        # A hook that reads one record and delegates it checks the first ref only; git
+        # hands it one record per pushed ref, so the second commit would land.
+        hook.write_text('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
+                        'read l s r x\nprintf "%s %s %s %s\\n" "$l" "$s" "$r" "$x" | exec '
+                        + sys.executable + ' ' + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n')
+        self.assertIn('only the first commit holds a receipt', self.start_refused())
         merged = FLOW.with_name('review_prepush.py').read_bytes() + b'\n# a check merged in by hand\n'
         hook.write_bytes(merged)
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
@@ -485,7 +491,7 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertTrue(hook.is_symlink())
 
     def test_stale_bundled_hook_is_refused_not_kept(self):
-        """A hook from an earlier runtime declares its policy; kept, it would refuse every push."""
+        """A bundled copy declaring another policy would refuse every push if kept; it is refused."""
         hook = self.repo / '.git/hooks/pre-push'
         stale = hook.read_text().replace('POLICY = 2', 'POLICY = 1')
         self.assertNotEqual(stale, hook.read_text())
