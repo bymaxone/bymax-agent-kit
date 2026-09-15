@@ -151,7 +151,7 @@ def run_hook(path, remote, line):
     return probe.returncode
 
 
-PROBE_BOUND = 6 * HOOK_SECONDS  # longer than the five hook runs of one probe can take
+PROBE_BOUND = 7 * HOOK_SECONDS  # longer than the six hook runs of one probe can take
 
 
 def sweep_probes(root):
@@ -238,7 +238,7 @@ def usable_hook(path):
             f'{checker} into it by hand.')
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
-    # The marker is a claim; five pushes are the check. The push is shaped like a real
+    # The marker is a claim; six pushes are the check. The push is shaped like a real
     # one — a temporary ref, resolving to a dangling child of HEAD built from the current
     # tree in the user's own identity, fast-forwarding the current branch on origin's URL
     # — so a hook that also checks the ref, its tip, the parent, the author or the remote

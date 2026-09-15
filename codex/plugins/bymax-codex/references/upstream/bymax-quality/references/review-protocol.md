@@ -207,7 +207,7 @@ hook — husky's `.husky/_/pre-push` running `.husky/pre-push` — qualifies whe
 runs invokes `review_prepush.py`, and survives the stub being regenerated. In either
 place, a hook that declares another policy or is not executable is refused at `start`,
 with the remedy named. Before
-the candidate is frozen, `start` also runs that hook five times as git would (from the
+the candidate is frozen, `start` also runs that hook six times as git would (from the
 worktree root, through `sh` when it has no shebang, within 60 seconds each, with origin's
 name and URL as arguments), feeding it one push line shaped like a real push: a temporary
 ref under `refs/bymax-review/`, resolving to a dangling child of HEAD built from the
@@ -223,9 +223,10 @@ receipt is present but unheld — the shape an interrupted probe leaves — and 
 fourth it names a pid and nothing to hold; the hook must refuse both, since a probe
 receipt nobody holds is void. The fifth push carries three records, as git does for a
 push of three refs, each with its own remote ref, the receipted commit surrounding one
-with no receipt; the sixth carries the same three records with the unreceipted commit
-first. The hook must refuse both, and a hook that reads a single fixed record of the
-three reads a receipted commit in one of them. A hook that exits 0 for the first push does not enforce
+with no receipt; the sixth pushes the same three refs with the unreceipted commit first,
+which makes it the record that fast-forwards the branch while the other two create their
+own. The hook must refuse both, and a hook that reads a single fixed record of the three
+reads a receipted commit in one of them. A hook that exits 0 for the first push does not enforce
 receipts; one that refuses the second is refusing for a reason the probe does not
 satisfy (a local ref that is not a branch, for instance) and is refused as not
 consulting receipts; one that accepts the third or the fourth honours a receipt nobody
