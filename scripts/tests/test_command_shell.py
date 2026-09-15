@@ -146,43 +146,47 @@ class CommandShellTests(unittest.TestCase):
                      'DEFAULT_REF=$(sed -n 1p handoff)', 'RUN_ID=$(gh run list -q .id)'):
             self.assertNotRegex(safe, PASTE, f'{safe!r} is not a paste and is refused')
 
-    def test_a_recorded_range_is_refused_while_the_worktree_is_dirty(self):
-        """A campaign freezes a clean tree, so dirty work is not the scope it recorded.
 
-        Endpoint equality alone was not enough: dirtying a tracked file does not move
-        HEAD, so a preview kept greping the committed range and missed the uncommitted
-        lines it exists to catch.
+    def test_the_gate_block_reviews_the_working_tree_when_there_is_no_campaign(self):
+        """The block asks the runtime for the scope, and must not be left with an empty one.
+
+        `git log "..HEAD"` reads an empty range as HEAD..HEAD and reports nothing, which
+        looks exactly like a clean review. So the block falls back to HEAD, which is the
+        scope of a preview, whenever the runtime has no campaign to name.
         """
+        block = None
+        for _, candidate in blocks(ROOT / 'plugins/bymax-quality/commands/code-review.md'):
+            if 'review_flow.py" range' in candidate:
+                block = candidate
+        self.assertIsNotNone(block, 'the mechanical gate no longer asks the runtime for its scope')
+        resolution = '\n'.join(line for line in block.splitlines()
+                                if line.startswith(('RANGE=', '[ -n')))
         fixture = Path(tempfile.mkdtemp())
         env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
         subprocess.run(['git', 'init', '-q', str(fixture)], env=env, check=True)
-        for setting, value in (('user.name', 'fixture'), ('user.email', 'f@x.invalid')):
-            subprocess.run(['git', 'config', setting, value], cwd=fixture, env=env, check=True)
-        (fixture / 'f').write_text('1\n')
-        subprocess.run(['git', 'add', 'f'], cwd=fixture, env=env, check=True)
-        subprocess.run(['git', 'commit', '-qm', 'c'], cwd=fixture, env=env, check=True)
-        head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=fixture, env=env,
-                              capture_output=True, text=True, check=True).stdout.strip()
-        guard = None
-        for _, block in blocks(ROOT / 'plugins/bymax-quality/commands/code-review.md'):
-            if 'case "$RANGE" in' in block:
-                guard = block[block.index('case "$RANGE" in'):]
-                guard = guard[:guard.index('esac') + 4]
-        self.assertIsNotNone(guard, 'the mechanical gate no longer guards its range')
+        outcome = subprocess.run(['bash', '-c', resolution + '\necho "[$RANGE]"'],
+                                 cwd=fixture, env=env, capture_output=True, text=True)
+        self.assertEqual(outcome.stdout.strip(), '[HEAD]',
+                         'with no runtime to ask, the block left the range empty')
 
-        def run(value):
-            return subprocess.run(['bash', '-c', f'RANGE={value!r}\n{guard}\necho ACCEPTED'],
-                                  cwd=fixture, env=env, capture_output=True, text=True)
-
-        self.assertIn('ACCEPTED', run(f'{head}..{head}').stdout,
-                      'the guard refuses a current range on a clean tree')
-        (fixture / 'f').write_text('dirty\n')
-        refused = run(f'{head}..{head}')
-        self.assertNotIn('ACCEPTED', refused.stdout,
-                         'the guard accepts a committed range while the worktree is dirty')
-        self.assertIn('worktree is dirty', refused.stderr)
-        self.assertIn('ACCEPTED', run('HEAD').stdout,
-                      'a dirty preview must still be able to say HEAD')
+    def test_a_guard_accepts_every_value_its_own_document_prescribes(self):
+        """A guard that refuses a documented value closes the path it was added to protect."""
+        for relative, name, values in (
+                ('plugins/bymax-pr/skills/babysit-pr/SKILL.md', 'RUN_ID', ('1234567890',)),):
+            document = ROOT / relative
+            # Every guard, not the first: a rule added below an `esac` used to sit outside
+            # anything this examined.
+            guards = [block for _, block in blocks(document) if f'case "${name}" in' in block]
+            self.assertTrue(guards, f'{relative} has no {name} guard to exercise')
+            for block in guards:
+                case = block[block.index(f'case "${name}" in'):]
+                case = case[:case.index('esac') + 4]
+                for value in values:
+                    script = f'{name}={value!r}\n{case}\necho ACCEPTED'
+                    outcome = subprocess.run(['bash', '-c', script], capture_output=True, text=True)
+                    self.assertIn('ACCEPTED', outcome.stdout,
+                                  f'{relative} guards {name} and refuses {value!r}, which the '
+                                  'same document prescribes')
 
     def test_every_handoff_a_document_reads_is_written_by_that_document(self):
         """A read with no producer is a path that can only fail.
@@ -223,41 +227,6 @@ class CommandShellTests(unittest.TestCase):
         for label, pairs, expected in cases:
             self.assertEqual(orphan_handoffs(pairs, []), expected, f'the rule misjudges {label}')
 
-    def test_a_guard_accepts_every_value_its_own_document_prescribes(self):
-        """A guard that refuses a documented value closes the path it was added to protect."""
-        # The range guard reads HEAD and the worktree, so it runs against a fixture
-        # repository with one commit and nothing pending. Running it here would refuse a
-        # correct pair whenever this tree happens to be dirty, which is not the rule.
-        fixture = Path(tempfile.mkdtemp())
-        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
-        subprocess.run(['git', 'init', '-q', str(fixture)], env=env, check=True)
-        for setting, value in (('user.name', 'fixture'), ('user.email', 'f@x.invalid')):
-            subprocess.run(['git', 'config', setting, value], cwd=fixture, env=env, check=True)
-        (fixture / 'f').write_text('1\n')
-        subprocess.run(['git', 'add', 'f'], cwd=fixture, env=env, check=True)
-        subprocess.run(['git', 'commit', '-qm', 'c'], cwd=fixture, env=env, check=True)
-        head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=fixture, env=env,
-                              capture_output=True, text=True, check=True).stdout.strip()
-        prescribed = {
-            'plugins/bymax-quality/commands/code-review.md': ('HEAD', f'{head}..{head}'),
-            'plugins/bymax-pr/skills/babysit-pr/SKILL.md': ('1234567890',),
-        }
-        for relative, values in prescribed.items():
-            document = ROOT / relative
-            guards = [block for _, block in blocks(document)
-                      if 'case "$RANGE" in' in block or 'case "$RUN_ID" in' in block]
-            self.assertTrue(guards, f'{relative} has no guard to exercise')
-            for block in guards:
-                name = 'RANGE' if 'RANGE' in block else 'RUN_ID'
-                case = block[block.index(f'case "${name}" in'):]
-                case = case[:case.index('esac') + 4]
-                for value in values:
-                    script = f'{name}={value!r}\n{case}\necho ACCEPTED'
-                    outcome = subprocess.run(['bash', '-c', script], cwd=fixture, env=env,
-                                             capture_output=True, text=True)
-                    self.assertIn('ACCEPTED', outcome.stdout,
-                                  f'{relative} guards {name} and refuses {value!r}, which the '
-                                  'same document prescribes')
 
     def test_every_handoff_read_is_guarded_before_the_value_is_used(self):
         """A handoff can be absent — a loop in flight, or an entry at a later phase.

@@ -145,7 +145,8 @@ A correction round carries evidence the helper requires and both reviewers see:
 
 ```bash
 python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--design-round] \
-    [--no-regression-reason "<why>"] [--nit-round "<why>"] [--after-archived "<authorization>"]
+    [--no-regression-reason "<why>"] [--nit-round "<why>"] [--after-archived "<authorization>"] \
+    [--widen-scope "<why>"]
 ```
 
 `--probe` is a nonempty JSON list of `{"command", "expected", "observed"}`: what the author
@@ -160,6 +161,21 @@ must be justified in triage or is a finding. Deleted test files are listed separ
 the instruction to judge the deletion; they never count as regression evidence.
 A correction that adds or modifies no test is refused unless `--no-regression-reason` records
 why, and that reason reaches both reviewers for judgement.
+
+`start` refuses a correction round that changes a file no open finding names. This is
+where a correction becomes the next review's subject: the finding names one file, the fix
+arrives with a mechanism beside it, and the next round is spent on that mechanism. Revert
+what the findings do not name and file it as its own campaign, or record why the round
+must widen with `--widen-scope "<why>"`, which both reviewers read. Tests and the
+generated bundle are how a fix is proved and shipped, so they never count as widening,
+and a finding whose id names no file in the tree constrains nothing.
+
+`python3 "$FLOW" range` prints the endpoints the campaign froze, and prints nothing once
+they stop being the scope in hand — no campaign, a cleared one, a moved HEAD or a dirty
+tree. The mechanical gate in `/bymax-quality:code-review` asks it rather than keeping a
+copy: a copy outlives what it describes, and the block then has to guess whether it still
+holds. An empty answer means the scope is the working tree against `HEAD`, which is what
+a preview reviews.
 
 `start` refuses a correction round whose every open finding is a nit — one `finish` would
 not refuse to leave open — because correcting text no test can check is where a loop

@@ -323,6 +323,38 @@ def push_probes(path):
     return unreceipted, held, orphaned, legacy, partial
 
 
+def named_files(state):
+    """Files the open findings point at.
+
+    A finding id begins with a path by convention, not by construction. A prefix that is
+    not a file in this tree names nothing, and a rule that treated it as one would refuse
+    corrections it has no basis to judge — so those ids are simply not evidence of scope.
+    """
+    prefixes = {item['id'].split('::', 1)[-1].split(':', 1)[0]
+                for item in state.get('triage') or [] if item['status'] == 'open'}
+    return {prefix for prefix in prefixes if (Path(git('rev-parse', '--show-toplevel')) / prefix).exists()}
+
+
+def widened(old, head):
+    """Files this correction touches that no open finding named.
+
+    Every round of this campaign that went wrong went wrong here: the finding named one
+    file and the correction brought a new mechanism with it, which the next review then
+    had to read, which produced the next finding. A correction answers what was found.
+    Tests and the generated bundle are how a fix is proved and shipped, so they are the
+    correction, not an addition to it.
+    """
+    named = named_files(old)
+    if not named:
+        # No open finding names a file in this tree, so there is nothing to measure a
+        # correction against. Silence here, never a refusal on an assumption.
+        return []
+    touched = [path for path in git('diff', '--name-only', old['head'], head).splitlines() if path]
+    return sorted(path for path in touched
+                  if path not in named and not TEST_PATH.search(path)
+                  and not path.startswith('codex/plugins/bymax-codex/references/'))
+
+
 def blocks_a_receipt(finding):
     """Whether a finding is one `finish` refuses to leave open: the one definition of blocking."""
     return finding.get('kind') in ('defect', 'policy') and finding.get('priority') != 'P3'
@@ -406,6 +438,12 @@ def next_round(args, old, head, directory, base, context):
     require(old.get('triage') is not None, 'Record every finding disposition before advancing.')
     require(git('merge-base', old['head'], head) == old['head'], 'History rewritten; stop and reassess full coverage.')
     correction = correction_contract(args, old, head)
+    extra = widened(old, head)
+    require(not extra or args.widen_scope,
+            'A correction round answers the open findings and nothing else. No open finding '
+            'names: ' + ', '.join(extra) + '. Revert what they do not name and file it as its '
+            'own campaign, or record why this round must widen with --widen-scope "<why>"; '
+            'both reviewers are told, and they will review the wider delta.')
     require(blocking_open(old) or args.nit_round,
             'Every open finding is P3. A round is for a defect with a concrete trigger in runtime '
             'code or a gate: defer the nits with their reasons and finish, or batch them into a '
@@ -434,6 +472,7 @@ def start(args, directory):
     correction = next_round(args, old, head, directory, base, context) if old else first_round(directory, args.after_archived)
     state = dict(policy=POLICY, head=head, base=base, context=context,
                  nit_round=args.nit_round if old else '',
+                 widen_scope=args.widen_scope if old else '',
                  after_archived='' if old else args.after_archived,
                  round=old['round'] + 1 if old else 1,
                  review_base=old['head'] if old else base,
@@ -444,24 +483,28 @@ def start(args, directory):
     return state
 
 
-def range_file():
-    """Where the mechanical gate's fenced shell reads the endpoints a campaign froze."""
-    return Path(git('rev-parse', '--git-dir')) / 'bymax-review-range'
+def review_range(directory):
+    """The endpoints this branch's campaign froze, while they are still the scope in hand.
 
-
-def record_range(state):
-    """Record the endpoints, or remove them once the campaign no longer owns a scope.
-
-    That shell has no way back to the campaign state, and a value a model is asked to
-    type into shell can carry a command substitution. A stale record is worse than none:
-    the reader cannot tell one SHA pair from another, so a cleared campaign removes it
-    and the block refuses a pair that is not the current HEAD's.
+    The mechanical gate runs in a fenced shell that cannot reach this state, and a value a
+    model is asked to type into shell can carry a command substitution. Answering from a
+    file written earlier put the same question in two places: the file outlived what it
+    described, and the shell grew one predicate per round trying to tell. Nothing is kept,
+    so nothing can go stale — the campaign is read now, and clean_head() is the one
+    definition of a scope in hand. An empty answer means the caller's scope is its own
+    working tree, which is what a preview reviews.
     """
-    path = range_file()
-    if state is None or state.get('cleared'):
-        path.unlink(missing_ok=True)
-    else:
-        path.write_text(f"{state['review_base']}..{state['head']}\n")
+    path = directory / 'state.json'
+    if not path.exists():
+        return ''
+    state = json.loads(path.read_text())
+    if state.get('cleared'):
+        return ''
+    try:
+        head = clean_head()
+    except ValueError:
+        return ''
+    return f"{state['review_base']}..{state['head']}" if head == state['head'] else ''
 
 
 TEST_PATH = re.compile(r'(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]+\.py$|_test\.|\.test\.|\.spec\.', re.IGNORECASE)
@@ -580,6 +623,10 @@ def correction_brief(state):
     if state.get('nit_round'):
         lines.append('This round was spent on P3 findings, which a round is normally not for. The author '
                      'recorded: ' + state['nit_round'] + '. Judge whether that holds.')
+    if state.get('widen_scope'):
+        lines.append('This round touches files no open finding named, which is how a correction turns '
+                     'into new surface for the next review. The author recorded: '
+                     + state['widen_scope'] + '. Judge whether that holds, and review the wider delta.')
     lines.append('The author probed the correction before committing; verify each probe and go '
                  'beyond it. Shallow probing is a finding. A probe you cannot execute in your sandbox '
                  '(a project gate, a browser, a network) is a limitation to state in your summary, not '
@@ -824,9 +871,11 @@ def parser():
                        help='Correction rounds that touch no test: why a regression is infeasible.')
     begin.add_argument('--nit-round', default='',
                        help='Spend a round on P3 findings anyway: why, shown to both reviewers.')
+    begin.add_argument('--widen-scope', default='',
+                       help='Touch a file no open finding names: why, shown to both reviewers.')
     begin.add_argument('--after-archived', default='',
                        help='Start a campaign after an unfinished one: who authorised it, for what scope.')
-    for action in ('status', 'prompt', 'finish', 'codex'):
+    for action in ('status', 'prompt', 'finish', 'codex', 'range'):
         sub.add_parser(action)
     rec = sub.add_parser('record')
     rec.add_argument('--reviewer', choices=('claude', 'codex'), required=True)
@@ -845,6 +894,9 @@ def main():
     if args.action == 'codex':
         print(json.dumps(codex_review(directory), indent=2))
         return
+    if args.action == 'range':
+        print(review_range(directory))
+        return
     with locked(directory):
         if args.action == 'start':
             state = start(args, directory)
@@ -858,11 +910,6 @@ def main():
                 globals()[args.action](args, directory, state)
             elif args.action == 'finish':
                 finish(directory, state)
-        # Every command that reaches this line owns a state, which is what makes it the
-        # place to keep the endpoints the gate reads true: written while a campaign owns
-        # a scope, removed once it does not. prompt and codex return earlier and record
-        # nothing, so start and status are the two that restore a deleted file.
-        record_range(state)
         print(json.dumps(dict(directory=str(directory), **state), indent=2))
 
 

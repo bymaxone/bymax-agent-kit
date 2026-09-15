@@ -52,8 +52,15 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0 if ok else 2, result.stderr)
         return json.loads(result.stdout) if result.returncode == 0 and result.stdout.startswith('{') else result
 
+    def text(self, *args):
+        """Invoke a lifecycle command that answers in plain text rather than state."""
+        result = subprocess.run([sys.executable, str(FLOW), *args], cwd=self.repo,
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
     def start(self, ok=True, correction=False, design=False, probe=None, reason='fixture: no test needed',
-              nit='fixture: no blocking finding in play'):
+              nit='fixture: no blocking finding in play', widen=''):
         """Start or reuse a candidate; a correction round carries its probe and test evidence.
 
         A round needs a blocking finding or a recorded reason for spending it on nits; a
@@ -67,6 +74,8 @@ class ReviewFlowTests(unittest.TestCase):
             args += ['--probe', str(path), '--no-regression-reason', reason]
             if nit:
                 args += ['--nit-round', nit]
+        if widen:
+            args += ['--widen-scope', widen]
         if design:
             args.append('--design-round')
         return self.flow(*args, ok=ok)
@@ -376,7 +385,9 @@ class ReviewFlowTests(unittest.TestCase):
         keys = ['claude::codex/README.md:x', 'claude::README.md:x', 'codex::README.md:x']
         self.triage([dict(id=k, status='open', evidence='e') for k in keys])
         self.commit('fix')
-        self.start(correction=True)
+        # This fixture exercises key collision, and its correction edits the fixture file
+        # rather than the README the findings name; that is a widened round, so it says so.
+        self.start(correction=True, widen='fixture: this case is about keys, not about scope')
         # A resolution for the root file does not cover its mirror, and vice versa.
         self.report('claude', resolutions=[dict(id=k, evidence='still') for k in keys[1:]], ok=False)
         resolutions = [dict(id=k, evidence='still') for k in keys]
@@ -395,7 +406,33 @@ class ReviewFlowTests(unittest.TestCase):
         self.commit('fix again')
         result = self.start(ok=False, correction=True)
         self.assertIn('Reopened after a claimed fix: README.md:x, codex/README.md:x', result.stderr)
-        self.assertEqual(self.start(correction=True, design=True)['reopened'], ['README.md:x', 'codex/README.md:x'])
+        self.assertEqual(self.start(correction=True, design=True,
+                                    widen='fixture: this case is about keys, not about scope'
+                                    )['reopened'], ['README.md:x', 'codex/README.md:x'])
+
+    def test_a_correction_may_not_touch_what_no_finding_named(self):
+        """This is where every bad round of this branch went bad: a fix arrived with a mechanism.
+
+        The finding names one file; the correction brings a new one along; the next review
+        reads it and finds the next defect. A correction answers what was found. Tests and
+        the generated bundle are how a fix is proved and shipped, so they do not count.
+        """
+        self.start()
+        self.report('claude', [dict(id='code.txt:wrong-answer', kind='defect', priority='P1',
+                                    evidence='returns the wrong value')])
+        self.report('codex', [])
+        self.triage([dict(id='claude::code.txt:wrong-answer', status='open', evidence='Confirmed')])
+        self.commit('fixed')
+        (Path(self.repo) / 'extra.txt').write_text('a mechanism nobody asked for\n')
+        self.git('add', 'extra.txt')
+        self.git('commit', '-qm', 'and one more thing')
+        refused = self.start(ok=False, correction=True).stderr
+        self.assertIn('answers the open findings and nothing else', refused)
+        self.assertIn('extra.txt', refused)
+
+        widened = self.start(correction=True, widen='Max asked for it in the session')
+        self.assertEqual(widened['widen_scope'], 'Max asked for it in the session')
+        self.assertIn('touches files no open finding named', self.text('prompt'))
 
     def test_a_round_is_spent_on_a_defect_not_on_nits(self):
         """A correction round needs an open finding above P3, or a recorded reason.
@@ -448,26 +485,27 @@ class ReviewFlowTests(unittest.TestCase):
             self.assertIn(aside.name, refused)
             shutil.rmtree(aside)
 
-    def test_the_recorded_range_never_outlives_the_candidate_it_names(self):
-        """A stale pair is worse than none: the reader cannot tell one SHA pair from another.
+    def test_range_answers_only_while_the_campaign_is_the_scope_in_hand(self):
+        """The gate's fenced shell cannot reach this state, so this is what it asks.
 
-        The mechanical gate runs in a fenced shell with no way back to this state, so the
-        endpoints are recorded here. Recording them and never clearing them would make a
-        later dirty preview grep a committed range instead of refusing.
+        A copy of the endpoints, written once and read later, outlived what it described,
+        and the shell grew one predicate per round trying to tell. Nothing is kept now:
+        the campaign is read when the question is asked, and an empty answer means the
+        caller's scope is its own working tree, which is what a preview reviews.
         """
-        recorded = Path(self.repo) / '.git/bymax-review-range'
+        self.assertEqual(self.text('range'), '', 'a branch with no campaign has no range')
         state = self.start()
-        self.assertEqual(recorded.read_text().strip(),
-                         f"{state['review_base']}..{state['head']}")
+        self.assertEqual(self.text('range'), f"{state['review_base']}..{state['head']}")
 
-        # Re-running start for the same candidate restores a file someone removed.
-        recorded.unlink()
-        self.start()
-        self.assertTrue(recorded.exists(), 'start did not re-create the range it froze')
+        # A dirty tree is not the scope a campaign froze; clean_head() is that definition,
+        # and it counts untracked work, which a `git diff` in the document would not.
+        (Path(self.repo) / 'untracked.txt').write_text('new\n')
+        self.assertEqual(self.text('range'), '', 'a dirty tree still answered with a range')
+        (Path(self.repo) / 'untracked.txt').unlink()
+        self.assertNotEqual(self.text('range'), '', 'the range did not come back with the tree')
 
         self.complete()
-        self.assertFalse(recorded.exists(),
-                         'a cleared campaign owns no scope, so it must leave no range behind')
+        self.assertEqual(self.text('range'), '', 'a cleared campaign still owns a scope')
 
     def test_a_campaign_kept_aside_in_place_is_found_too(self):
         """read_state used to recommend this spelling, so it is the one a caller reaches for."""

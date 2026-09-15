@@ -379,8 +379,19 @@ For each failing check:
    esac
    # The id was resolved for one commit. A push since then makes it a run from an
    # earlier head, and re-running that tells the loop nothing about the code in flight.
-   if [ -z "$PR_NUMBER" ] || [ -z "$RECORDED_SHA" ] || \
-      [ "$RECORDED_SHA" != "$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)" ]; then
+   # Three things can be wrong here and each has its own remedy, so each says its own.
+   if [ -z "$PR_NUMBER" ] || [ -z "$RECORDED_SHA" ]; then
+     echo "No babysit target or no recorded head. Re-enter the loop with" >&2
+     echo "/bymax-pr:babysit-pr <PR#>, then re-run the failing-check block above." >&2
+     exit 1
+   fi
+   CURRENT_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid 2>/dev/null || true)
+   if [ -z "$CURRENT_SHA" ]; then
+     echo "Could not read the pull request head, so the recorded run cannot be shown to" >&2
+     echo "be current. This is a gh failure, not a stale id: retry on the next wake-up." >&2
+     exit 1
+   fi
+   if [ "$RECORDED_SHA" != "$CURRENT_SHA" ]; then
      echo "The recorded run belongs to an earlier head. Re-run the failing-check block" >&2
      echo "above to resolve the run for the current one." >&2
      exit 1

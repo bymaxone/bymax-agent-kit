@@ -29,33 +29,14 @@ policy, exemptions and impact before reporting it. Examples, fixtures and pre-ex
 violations are not automatically introduced defects. CI-enforced failures belong to CI.
 
 ```bash
-# The endpoints this candidate was frozen on. `review_flow.py start` writes this file,
-# so the range is never pasted into shell source: git accepts a command substitution
-# inside a ref name. A committed campaign records two SHAs and a `..`; for a dirty
-# preview, which has no campaign, write the literal HEAD that Step 2 above prescribes.
-RANGE=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-review-range" 2>/dev/null || true)
-case "$RANGE" in
-  HEAD) ;;
-  *[!0-9a-f.]*|'')
-    echo "No range recorded: write <review_base>..<head>, or HEAD for a dirty preview," >&2
-    echo "to .git/bymax-review-range." >&2
-    exit 1 ;;
-  *)
-    # A stale pair is indistinguishable from a current one by shape, and reviewing the
-    # wrong scope is worse than refusing. Two things make a recorded pair the scope in
-    # hand: it ends at this commit, and the tree is clean. A campaign freezes a clean
-    # tree, so dirty work is proof that what is under review is not what was recorded —
-    # and dirtying a file does not move HEAD, so the first check alone misses it.
-    [ "${RANGE##*..}" = "$(git rev-parse HEAD)" ] || {
-      echo "Recorded range ends at ${RANGE##*..}, not at HEAD. Re-run review_flow.py" >&2
-      echo "start for this candidate, or write HEAD for a dirty preview." >&2
-      exit 1 ; }
-    git diff --quiet && git diff --cached --quiet || {
-      echo "The worktree is dirty, so the recorded range is not the scope in hand." >&2
-      echo "Write HEAD to .git/bymax-review-range for a preview, and read untracked" >&2
-      echo "files separately; commit the candidate for a campaign." >&2
-      exit 1 ; } ;;
-esac
+# The endpoints this candidate was frozen on, asked of the runtime that froze them.
+# Never pasted into shell source: git accepts a command substitution inside a ref name.
+# Never copied into a file either — a copy outlives what it describes, and then this
+# block has to guess whether it still holds. `range` prints a pair only while that
+# campaign is the scope in hand, by the same definition `start` used, and prints
+# nothing otherwise. Nothing is a preview: its scope is the working tree against HEAD.
+RANGE=$(python3 "${CLAUDE_PLUGIN_ROOT:-}/scripts/review_flow.py" range 2>/dev/null || true)
+[ -n "${RANGE}" ] || RANGE=HEAD
 # Added content lines only: git marks them '>' instead of '+', leaving the
 # '+++ b/path' header as-is — no header collision, no lost '++'-prefixed content.
 added() { git diff --output-indicator-new='>' -U0 "$@" | grep '^>'; }
