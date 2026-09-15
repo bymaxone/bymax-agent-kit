@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -124,8 +125,36 @@ def install_hook():
     target.chmod(0o755)
 
 
+def run_hook(path, remote, line):
+    """Run a pre-push hook as git does on one push line; return its exit status."""
+    # git runs a hook without a shebang through sh; so does this.
+    interpreter = [] if path.read_bytes().startswith(b'#!') else ['sh']
+    try:
+        probe = subprocess.run([*interpreter, str(path), *remote], input=line,
+                               capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f'{path} did not finish within 60 s when probed with one push line; fix or delete it.')
+    except OSError as error:
+        raise ValueError(f'{path} could not be run ({error.strerror}); fix its interpreter line or delete it.')
+    return probe.returncode
+
+
+@contextlib.contextmanager
+def probe_receipt(sha):
+    """Hold a completed receipt for one commit only while the hook is being probed."""
+    directory = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review' / 'probe'
+    shutil.rmtree(directory, ignore_errors=True)
+    directory.mkdir(parents=True)
+    receipt = dict(head=sha, cleared=True, policy=POLICY, reviews=dict(claude={}, codex={}))
+    (directory / 'completed-probe.json').write_text(json.dumps(receipt))
+    try:
+        yield
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
 def usable_hook(path):
-    """Refuse a marked hook git would skip or that checks receipts of another policy.
+    """Refuse a marked hook git would skip, one for another policy, or one that ignores receipts.
 
     git runs only executable hooks, silently ignoring the rest. A bundled copy left by
     an earlier runtime declares its POLICY; kept as is, it would refuse every push once
@@ -139,25 +168,30 @@ def usable_hook(path):
             'plugins/bymax-quality/scripts/review_prepush.py into it by hand.')
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
-    # The marker is a claim; this is the check. A dangling commit built from the current
-    # tree exists and peels, and no receipt can name it, so only a hook that consults
-    # receipts refuses a push of it; one that merely validates the SHA lets it through.
+    # The marker is a claim; a pair of pushes is the check. The push is shaped like a real
+    # one — the current branch, fast-forwarded by a dangling child of HEAD built from the
+    # current tree, towards origin's URL — so a hook that also inspects refs, parents or
+    # the remote sees nothing unusual. Without a receipt the hook must refuse it; while a
+    # temporary receipt names it, the hook must let it through. Only a hook that consults
+    # receipts does both: one that exits 0 fails the first push, one that refuses for any
+    # other reason fails the second.
+    head = git('rev-parse', 'HEAD')
     dangling = subprocess.run(['git', '-c', 'user.name=bymax-probe', '-c', 'user.email=probe@bymax.invalid',
-                               'commit-tree', git('rev-parse', 'HEAD^{tree}'), '-m', 'bymax receipt probe'],
+                               'commit-tree', head + '^{tree}', '-p', head, '-m', 'bymax receipt probe'],
                               capture_output=True, text=True, check=True).stdout.strip()
-    line = f'refs/heads/bymax-probe {dangling} refs/heads/bymax-probe {"0" * 40}\n'
-    # git runs a hook without a shebang through sh; so does this.
-    interpreter = [] if path.read_bytes().startswith(b'#!') else ['sh']
-    try:
-        probe = subprocess.run([*interpreter, str(path), 'origin', 'bymax-probe'], input=line,
-                               capture_output=True, text=True, timeout=60)
-    except subprocess.TimeoutExpired:
-        raise ValueError(f'{path} did not finish within 60 s when probed with one push line; fix or delete it.')
-    except OSError as error:
-        raise ValueError(f'{path} could not be run ({error.strerror}); fix its interpreter line or delete it.')
-    require(probe.returncode != 0,
+    branch = git('symbolic-ref', '--quiet', 'HEAD')
+    line = f'{branch} {dangling} {branch} {head}\n'
+    url = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True)
+    remote = ('origin', url.stdout.strip() if url.returncode == 0 else 'origin')
+    require(run_hook(path, remote, line) != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
             'receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
+    with probe_receipt(dangling):
+        status = run_hook(path, remote, line)
+    require(status == 0,
+            f'{path} refused a push of a commit that holds a completed receipt (exit {status}), so it '
+            'is not consulting receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, '
+            'or delete it.')
 
 
 def start(args, directory):

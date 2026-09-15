@@ -132,8 +132,9 @@ python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--desig
 ran against the correction before committing it. The prompt shows it to both reviewers
 with the instruction to verify each entry and go beyond it; shallow probing is a finding.
 The helper lists every test file added or modified in the delta in the prompt (a renamed
-test appears under its new path; a deleted one does not count), so a flipped
-expectation — as opposed to an added case — must be justified in triage or is a finding.
+test appears under its new path), so a flipped expectation — as opposed to an added case —
+must be justified in triage or is a finding. Deleted test files are listed separately, with
+the instruction to judge the deletion; they never count as regression evidence.
 A correction that adds or modifies no test is refused unless `--no-regression-reason` records
 why, and that reason reaches both reviewers for judgement.
 
@@ -185,10 +186,16 @@ the check into by hand, never overwritten; one that carries the check at the cur
 policy is kept as merged. A custom `core.hooksPath` directory is never written into: it
 qualifies once its `pre-push` carries the check. In either place, a hook that declares
 another policy or is not executable is refused at `start`, with the remedy named. Before
-the candidate is frozen, `start` also runs that hook once as git would (through `sh` when
-it has no shebang, within 60 seconds), feeding it one push line that names a dangling
-commit built from the current tree — a commit that exists but that no receipt can name.
-A hook that lets it through does not enforce receipts and is refused.
+the candidate is frozen, `start` also runs that hook twice as git would (through `sh` when
+it has no shebang, within 60 seconds each, with origin's name and URL as arguments),
+feeding it one push line shaped like a real push: the current branch, fast-forwarded by a
+dangling child of HEAD built from the current tree. That commit exists, has a parent and
+sits on an existing ref, but no receipt names it: the hook must refuse the first push.
+For the second push the helper holds a temporary completed receipt for that commit
+(under `bymax-review/probe/`, removed afterwards even on failure): the hook must let it
+through. A hook that exits 0 for the first push does not enforce receipts; one that
+refuses the second is refusing for some other reason and is not consulting receipts.
+Both are refused at `start`, with the remedy named.
 
 `review_push.py` is a Claude **PreToolUse Bash adapter** in front of that hook, with two
 narrow jobs. It recognises exactly `[cd <path> &&] [VAR=value ...] git [-C <dir>] push

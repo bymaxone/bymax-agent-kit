@@ -198,9 +198,11 @@ class PrePushInvariantTests(unittest.TestCase):
         (custom / 'pre-push').chmod(0o755)
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
         self.assertEqual((custom / 'pre-push').read_text(), merged)
-        # The accepted merged hook really enforces: an unreceipted commit does not land through it.
+        # The accepted merged hook really enforces: it, not some other failure, keeps an
+        # unreceipted commit off the remote.
         self.commit('unreviewed')
-        self.attempt('git push origin HEAD:feature')
+        refused = self.attempt('git push origin HEAD:feature')
+        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def start_refused(self):
@@ -232,10 +234,37 @@ class PrePushInvariantTests(unittest.TestCase):
         hook.write_text('#!/bin/sh\n# ' + marker + '\nwhile read l s r x; do git cat-file -e "$s" '
                         '|| exit 1; done\nexit 0\n')
         self.assertIn('does not enforce receipts', self.start_refused())
+        # Refusing every push is not enforcing receipts either: a receipted commit must pass.
+        hook.write_text('#!/bin/sh\n# ' + marker + '\nexit 1\n')
+        self.assertIn('not consulting receipts', self.start_refused())
         # A shebang-less wrapper is run through sh, as git runs it, and is accepted.
         hook.write_text('# ' + marker + '\nexec ' + sys.executable + ' '
                         + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n')
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        self.assertFalse((self.repo / '.git/bymax-review/probe').exists())
+
+    def test_probe_push_looks_real_to_a_fussy_hook(self):
+        """A merged hook that also checks the pushed ref, parent and remote, as a real push
+        offers them, is accepted; the receipt check behind it still refuses a real push."""
+        checker = sys.executable + ' ' + str(FLOW.with_name('review_prepush.py'))
+        fussy = ('#!/bin/sh\n# Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.\n'
+                 '[ "$2" = "$(git remote get-url origin)" ] || exit 3\n'
+                 'lines=$(cat)\n'
+                 'printf "%s\\n" "$lines" | while read l s r x; do\n'
+                 '  git rev-parse --verify -q "$l" >/dev/null || exit 4\n'
+                 '  git rev-parse --verify -q "$s^" >/dev/null || exit 5\n'
+                 '  case $x in 0000000000000000000000000000000000000000) ;;\n'
+                 '    *) git merge-base --is-ancestor "$x" "$s" || exit 6 ;; esac\n'
+                 'done || exit $?\n'
+                 'printf "%s\\n" "$lines" | exec ' + checker + ' "$@"\n')
+        hook = self.repo / '.git/hooks/pre-push'
+        hook.write_text(fussy)
+        hook.chmod(0o755)
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
+        self.commit('unreviewed')
+        refused = self.attempt('git push origin HEAD:feature')
+        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def test_stale_bundled_hook_is_refused_not_kept(self):
         """A hook from an earlier runtime declares its policy; kept, it would refuse every push."""
