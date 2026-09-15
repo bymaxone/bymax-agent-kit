@@ -228,6 +228,31 @@ which is a template filled rather than an author guessed. Each asked to rewrite 
 
 <!-- shared:end -->
 
+### Repository-specific review rules
+
+These are this repository's own, outside the shared block, and narrow on purpose: the
+product here is instruction text plus small runtimes, so a rule that fires on prose fires
+on most of every diff. `REVIEW.md` carries the same calibration for the other reviewer.
+
+**Severity.** Report a blocking finding only for a defect with a concrete trigger in code
+that runs: `plugins/*/scripts/*.py`, `scripts/*.py`, `scripts/*.sh`, `codex/scripts/*.py`,
+a fenced `bash` block a model runs verbatim, or a gate under `scripts/tests/`. A finding
+about wording, ordering, a count, or a comment naming a review round is a nit at most, and
+after the first review of a pull request report blocking findings only.
+
+**Do not report** the generated copies under
+`codex/plugins/bymax-codex/references/upstream/` (a gate verifies them byte for byte
+against their sources), anything the gates already enforce, or `CHANGELOG.md` wording.
+
+**Receipt boundary.** A change to `review_prepush.py`, `review_push.py`, or to
+`install_hook`/`usable_hook` in `review_flow.py` must not let a commit without a completed
+review receipt reach a remote. Safe path: show the push that lands, or do not report it.
+
+**Shell in a document.** Every fenced `bash` block must assign what it reads, since shell
+state does not cross a fence, and no document may ask a reader to paste a value into shell
+source, since a git ref name may contain `$( )`. Safe path: read the value from a file an
+earlier step wrote.
+
 ## Where this repository narrows a shared rule
 
 ### The product is instruction text, so the source-shaped rules move

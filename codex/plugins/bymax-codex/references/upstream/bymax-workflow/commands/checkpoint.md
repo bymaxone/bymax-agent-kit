@@ -23,6 +23,14 @@ When creating a checkpoint:
 3. Log checkpoint to `.claude/checkpoints.log`:
 
 ```bash
+# bymax-checkpoint-name is written with the file tool: the name is text the user
+# typed, so it is never pasted into shell source. An apostrophe breaks single quotes
+# and a command substitution survives double ones, so no quoting makes it safe.
+CHECKPOINT_NAME=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-checkpoint-name" 2>/dev/null || true)
+if [ -z "$CHECKPOINT_NAME" ]; then
+  echo "No checkpoint name recorded: write it to .git/bymax-checkpoint-name first." >&2
+  exit 1
+fi
 echo "$(date +%Y-%m-%d-%H:%M) | $CHECKPOINT_NAME | $(git rev-parse --short HEAD)" >> .claude/checkpoints.log
 ```
 

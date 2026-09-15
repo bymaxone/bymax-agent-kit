@@ -18,6 +18,21 @@ and the exact conditions for a completed review. Its verification and scope rule
 precedence over the generic checklist below. Read the target project's actual policies;
 explicit local constraints take precedence over generic Bymax conventions.
 
+## First run in a repository (mandatory, once)
+
+Two reviewer pairs see this repository: the bounded campaign below, and the PR bots —
+Anthropic's Code Review and Codex — which read files this repository must carry. Check
+them before the first campaign here and tell the user in one line if either is missing:
+
+| File | Read by | Missing means |
+|---|---|---|
+| `REVIEW.md` (repo root) | Anthropic Code Review, `/code-review ultra` | every wording preference arrives as a blocking finding, and nits never converge |
+| `## Code Review Rules` in `AGENTS.md` | Codex review | the same, from the other bot |
+
+`/bymax-quality:review-md` generates both from this repository's own invariants; run it
+once per repository and keep it refreshed when the invariants change. `review_flow.py
+start` prints the same notice, so a campaign never silently runs without them.
+
 ## Scope and authorization
 
 For a push-ready campaign, the intended changes must already be committed and the
@@ -58,6 +73,10 @@ a separate design audit, report it separately from this campaign.
    context with the explicit diff and task contract, and persists its completed report.
    While it runs, perform the Claude pass using `review_flow.py prompt` and the relevant
    checklist below. Read enough callers and tests to prove each proposed finding.
+   On a correction round, or whenever this session authored the candidate, delegate the
+   Claude pass to a fresh-context subagent (`general-purpose`, read-only) given exactly
+   the generated prompt and nothing from this conversation; record its JSON report as
+   the Claude report. The author's own reading is not the Claude review.
 3. Save the Claude JSON report and record it. Await the Codex shell's completion;
    inspect its exit status and `status`. Missing, malformed, failed or timed-out review
    means **INCOMPLETE**, never an approval and never a reason to edit the product.
@@ -66,16 +85,49 @@ a separate design audit, report it separately from this campaign.
    Agreement is not proof; rejection needs concrete counterevidence. Report at most
    five nits; group the rest. Confirmed introduced P0/P1/P2 defects and explicit policy
    violations block; nits and unrelated pre-existing work can be deferred with reasons.
-5. Fix accepted blockers in one small batch. First reproduce the failure or document
-   a concrete code-path proof, then make the minimum change preserving neighboring
-   behavior. Check affected callers, error paths and lifecycle transitions. Run the
-   regression and project gates. If authorized, commit the fixes and advance the same
-   campaign: both reviewers inspect the correction delta and verify prior open findings.
-6. At three candidate rounds (initial + two correction rounds), stop if still blocked.
+5. Fix accepted blockers in one small batch, in this order, and do not reorder it:
+   1. **Regression first.** Turn each accepted finding's reproduction into a permanent
+      test case that fails on the current candidate, in the suite the campaign's
+      `checks` already runs. The suite is the cumulative invariant matrix: every case
+      from every round stays, so a later fix that breaks an earlier case is caught by
+      the gate, not by a reviewer. Assert the invariant (what must and must not
+      happen), never the fix's mechanism, and never the shell's or a parser's verdict
+      when the real effect can be observed instead.
+   2. **Extend, do not replace.** Make the minimum change preserving neighboring
+      behavior. A correction that deletes an existing check must first run every case
+      that check covered against the replacement; a cruder check's blind spots are not
+      the new check's blind spots, and removing it removes coverage.
+   3. **Never flip a test.** An existing test's expectation may not change in a
+      correction round without a triage entry saying why; a flipped expectation is
+      evidence the test mirrored a design choice, and `start` shows every changed
+      test to both reviewers so an unjustified flip is a finding.
+   4. **Probe your own fix before committing.** Spend bounded effort trying to defeat
+      the correction the way a reviewer would, record each attempt as
+      `{command, expected, observed}`, and pass that file to `start --probe`. It is
+      required for every correction round and both reviewers see it. What you find
+      here costs nothing; the same hole found after commit costs a round.
+   5. Check affected callers, error paths and lifecycle transitions. Run the regression
+      suite and project gates. If authorized, commit and advance the same campaign.
+      A correction that touches no test needs `--no-regression-reason`, which is
+      recorded and shown to both reviewers.
+   6. **The author does not review the correction.** The Claude pass on a correction
+      delta runs in a fresh-context subagent given only the generated prompt, never in
+      the session that wrote the fix. Authorship is not independence, and the reviewer
+      that has no stake in the design is the one that finds what the author cannot.
+6. **A reopened finding ends patching.** If a finding is open in two consecutive
+   triages, the previous correction addressed the instance and not the cause; `start`
+   refuses the next round unless it is declared `--design-round`, and that round is
+   spent on the approach — a design proposal for the human, or a change that removes
+   the class — not on another patch. Both reviewers are told it is a design round.
+7. At three candidate rounds (initial + two correction rounds), stop if still blocked.
    Present unresolved invariants, attempted fixes and a proposed scope split. Do not
    reset the campaign, change branches, disable Codex or clear a receipt to evade the
-   limit. A limit is a handoff, never automatic approval. These limits are operational
-   defaults, not a claim that three passes prove correctness.
+   limit, and do not archive the campaign and open another on the same finding without
+   the human's explicit authorization for that campaign. A limit is a handoff, never
+   automatic approval. These limits are operational defaults, not a claim that three
+   passes prove correctness. Findings about instruction prose are deferred and batched:
+   correcting prose in a round of its own is how a loop starts, since every correction
+   to text no test can check is a new surface for the next review.
 
 No code mutation is allowed while either reviewer is running. If another session changes
 HEAD or the worktree, discard that candidate's unrecorded output and reassess. A report
@@ -83,9 +135,10 @@ must state actual coverage and limitations; an empty result does not prove absen
 
 ## Step 2 — Mechanical gate (deterministic)
 
-For a committed campaign, set `RANGE` to the literal `<review_base>..<head>` SHAs
-returned by the helper. Never leave it empty. For a dirty preview use `HEAD` and read
-untracked files separately. Detect the stack first: skip TypeScript/Tailwind checks on
+The block below resolves `RANGE` itself, by asking the runtime that froze the campaign;
+never type SHAs into it. It answers with the campaign's endpoints, or with nothing when
+there is no campaign to answer for, and nothing on a dirty tree means the preview reviews
+the working tree against `HEAD` — read untracked files separately in that case. Detect the stack first: skip TypeScript/Tailwind checks on
 Rust, and apply Rust-specific constraints only to Rust. Apply size/docs rules only to
 the source/test surfaces actually governed by the target policy, never generic Markdown
 length or inherited violations. All checklist severity headings below are candidate
@@ -106,6 +159,26 @@ policy, exemptions and impact before reporting it. Examples, fixtures and pre-ex
 violations are not automatically introduced defects. CI-enforced failures belong to CI.
 
 ```bash
+# The endpoints this candidate was frozen on, asked of the runtime that froze them.
+# Never pasted into shell source: git accepts a command substitution inside a ref name.
+# Never copied into a file either — a copy outlives what it describes, and then this
+# block has to guess whether it still holds. `range` prints a pair only while that
+# campaign is the scope in hand, by the same definition `start` used, and prints
+# nothing otherwise. Nothing is a preview: its scope is the working tree against HEAD.
+RANGE=$(python3 "${CLAUDE_PLUGIN_ROOT:-}/scripts/review_flow.py" range 2>/dev/null || true)
+if [ -z "${RANGE}" ]; then
+  # Nothing to ask about, so what is left is the working tree. On a clean tree there is
+  # no scope at all, and `git diff HEAD` there matches nothing: every check below would
+  # find nothing and the result would read as a clean review rather than as the missing
+  # scope it is. Only a dirty tree is a preview, and HEAD is its scope.
+  if [ -z "$(git status --porcelain)" ]; then
+    echo "No campaign to take a scope from, and the worktree is clean, so this gate has" >&2
+    echo "nothing to read. Start a campaign for the committed candidate, or run the" >&2
+    echo "preview on the dirty tree you meant to review." >&2
+    exit 1
+  fi
+  RANGE=HEAD
+fi
 # Added content lines only: git marks them '>' instead of '+', leaving the
 # '+++ b/path' header as-is — no header collision, no lost '++'-prefixed content.
 added() { git diff --output-indicator-new='>' -U0 "$@" | grep '^>'; }

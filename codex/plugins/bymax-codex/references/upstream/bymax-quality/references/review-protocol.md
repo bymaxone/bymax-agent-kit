@@ -6,8 +6,10 @@ human remains able to inspect the reports and decide a blocked campaign's next s
 
 ## Context and lifecycle
 
-Run helpers from the target repository, with their absolute plugin paths. Set `FLOW`
-to `${CLAUDE_PLUGIN_ROOT}/scripts/review_flow.py`. State lives under the shared Git
+Run helpers from the target repository. Set `FLOW` to `~/.claude/bymax-review/review_flow.py`:
+the runtime that `scripts/install-review-flow.py` installs there, beside the hook and the
+Bash adapter, is the one that enforces receipts, and the plugin's `scripts/` directory is
+its source, not a second runtime. State lives under the shared Git
 common directory in `bymax-review/<branch-hash>/`, survives sessions and does not enter
 the diff. Put the context and report input files outside the working tree, such as a
 private temporary directory. Do not include credentials or unrelated conversation logs.
@@ -53,7 +55,14 @@ combine custom instructions with its scope flags in the installed CLI. The share
 includes explicit Git endpoints instead. Codex receives an output schema and must return JSON without Markdown fences. A report
 with `status: incomplete` is rejected even if its findings list is empty.
 One failed attempt may be retried for an infrastructure/format error; never retry a valid
-review to seek a different opinion. Each attempt has a ten-minute ceiling. Failure or a
+review to seek a different opinion, and do not spend the retry on a report whose summary
+cites a sandbox or permission denial: the same sandbox fails identically, and `record` says
+so. The generated prompt tells both reviewers that the declared checks are the caller's to
+run and that anything they cannot execute is a limitation to state, not `incomplete`. The
+Codex sandbox is read-only by construction (`--sandbox read-only`), so no project
+configuration makes a test suite or build runnable inside it; a reviewer that reaches for
+the suite dies on the first cache write (Jest under `$TMPDIR`, for instance) and the
+remedy is the instruction, not the configuration. Each attempt has a ten-minute ceiling. Failure or a
 missing CLI blocks completion; it does not imply a code defect.
 A separate OS lock prevents simultaneous Codex attempts while Claude can still record.
 The Codex child inherits that lock: if its launcher dies, wait for the child to exit before
@@ -89,8 +98,8 @@ Report format (the helper supplies exact `head` and `base` in its prompt):
 Kinds: `defect`, `policy`, `nit`, `preexisting`. Priorities P0–P3 retain the reviewer's
 original assessment. Applicable explicit policy can make a convention blocking; do not
 turn generic style preferences into policy defects. Every earlier **open** disposition
-must appear in each new report's `resolutions` as `{ "id": "claude/<finding-id>",
-"evidence": "how the fix was verified, or why it remains broken" }` (similarly `codex/`).
+must appear in each new report's `resolutions` as `{ "id": "claude::<finding-id>",
+"evidence": "how the fix was verified, or why it remains broken" }` (similarly `codex::`).
 If still broken, also include it in the new findings. This prevents silent disappearance
 from being reported as a verified fix.
 
@@ -100,26 +109,99 @@ from being reported as a verified fix.
 python3 "$FLOW" triage --report <dispositions.json>
 ```
 
-The file is a JSON list with **every** report finding keyed by `claude/<id>` or `codex/<id>`:
+The file is a JSON list with **every** report finding keyed by `claude::<id>` or `codex::<id>`:
 
 ```json
 [
-  {"id": "claude/src/job.py:restart-state", "status": "open",
+  {"id": "claude::src/job.py:restart-state", "status": "open",
    "evidence": "Reproduced with test_restart; repair only startup transition"}
 ]
 ```
 
 Use `[]` if both findings lists are empty. Use `rejected` only with concrete code/test
-counterevidence; `deferred` for nits or unrelated pre-existing work with a reason. Keep
+counterevidence; `deferred` for nits or unrelated pre-existing work with a reason.
+A finding whose subject is instruction prose — wording, an ordinal, a count, a comment
+naming a round — is deferred and batched, never corrected in a round of its own: only a
+finding with a concrete trigger in runtime code or in a gate blocks a receipt. Measured:
+a branch spent four campaigns on one command file whose fenced shell no test covered,
+and three of the last findings were defects a previous correction to that prose had
+introduced. Shell a command file tells a model to run is testable, and
+`scripts/tests/test_command_shell.py` tests it; prose around that shell is reviewed once
+and then left alone. Keep
 accepted defects `open` on the old candidate. A fix is verified by both reviewers on the
 next committed candidate, not by marking an unreviewed edit as fixed. Duplicate findings
 retain separate provenance entries and refer to the same root cause in their evidence.
+Record the triage **while HEAD is still the reviewed candidate**, before committing any
+correction: dispositions describe that candidate, `triage` refuses once HEAD has moved
+(the message says how to return), and `start` refuses a new round without them.
 
 A confirmed defect needs a failing regression before the fix where feasible, a passing
 result after it, and checks of affected contracts. If reproduction is impractical, record
 an explicit code-path proof and the verification limitation. Do not invent tests which
 merely mirror the proposed fix. If the minimal safe fix crosses the agreed scope, stop and
 propose splitting the work. Do not broaden a UI change into an unrelated backend rewrite.
+
+A correction round carries evidence the helper requires and both reviewers see:
+
+```bash
+python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--design-round] \
+    [--no-regression-reason "<why>"] [--nit-round "<why>"] [--after-archived "<authorization>"] \
+    [--widen-scope "<why>"]
+```
+
+`--probe` is a nonempty JSON list of `{"command", "expected", "observed"}`: what the author
+ran against the correction before committing it — reproductions of the defect and of the
+fix, never the declared project gates, which `check` runs and records. The prompt shows it
+to both reviewers with the instruction to verify each entry and go beyond it; shallow
+probing is a finding, and a probe a reviewer cannot execute in its sandbox is a limitation
+to state in the summary, not a reason to report `incomplete`.
+The helper lists every test file added or modified in the delta in the prompt (a renamed
+test appears under its new path), so a flipped expectation — as opposed to an added case —
+must be justified in triage or is a finding. Deleted test files are listed separately, with
+the instruction to judge the deletion; they never count as regression evidence.
+A correction that adds or modifies no test is refused unless `--no-regression-reason` records
+why, and that reason reaches both reviewers for judgement.
+
+`start` refuses a correction round that changes a file no open finding names. This is
+where a correction becomes the next review's subject: the finding names one file, the fix
+arrives with a mechanism beside it, and the next round is spent on that mechanism. Revert
+what the findings do not name and file it as its own campaign, or record why the round
+must widen with `--widen-scope "<why>"`, which both reviewers read. Tests and the
+generated bundle are how a fix is proved and shipped, so they never count as widening,
+and a finding whose id names no file in the tree constrains nothing.
+
+`python3 "$FLOW" range` prints the endpoints the campaign froze, and prints nothing once
+they stop being the scope in hand — no campaign, a cleared one, a moved HEAD or a dirty
+tree. The mechanical gate in `/bymax-quality:code-review` asks it rather than keeping a
+copy: a copy outlives what it describes, and the block then has to guess whether it still
+holds. An empty answer means the scope is the working tree against `HEAD`, which is what
+a preview reviews.
+
+`start` refuses a correction round whose every open finding is a nit — one `finish` would
+not refuse to leave open — because correcting text no test can check is where a loop
+starts. Defer them with their reasons and finish, or batch them into a follow-up; to spend
+the round on them anyway, record why with `--nit-round "<why>"`, which both reviewers read.
+`start` also refuses to open a campaign on a branch whose earlier campaign was kept aside
+without clearing, unless `--after-archived "<who authorised it and for what scope>"`
+records the decision, which both reviewers also read. Keep a campaign aside by renaming its
+directory, keeping its whole current name and adding to it; that whole name is what the
+refusal looks for, so an abbreviated hash is not enough. Renaming `state.json` in place
+counts as keeping the campaign aside too, and is found the same way.
+
+A finding open in two consecutive triages has been **reopened**: the previous fix
+addressed the instance, not the cause. `start` refuses the next round unless it is
+declared `--design-round`, records the reopened ids, and tells both reviewers the round is
+about the approach; a patch to the same instance is then itself a finding. A still-open
+defect repeated under the prefixed id a reviewer saw in an earlier disposition still names
+the same invariant: keys are `reviewer::<id>`, whose two parts stay recoverable by one
+split from the left, so `record` removes **one** copied prefix from a finding id and
+refuses an id that still begins with `claude::` or `codex::` — such an id is not
+representable, and removing prefixes until none was left would let an id's own content
+move the boundary. A repeat within one report is a duplicate, and a finding on a real
+file under a `codex/` directory is exactly what it says.
+
+The Claude pass on a correction delta is performed by a fresh-context subagent given only
+the generated prompt, never by the session that authored the fix.
 
 Run every required gate named in the context after the final candidate commit:
 
@@ -136,7 +218,15 @@ list covers the project's requirements: check it against project docs before sta
 
 `finish` requires both reports, every disposition, no open or deferred confirmed P0–P2
 blocker, a clean matching HEAD, and passing check records. Same-HEAD reuse is intentional.
-New work after a completed campaign starts a new full campaign. A stalled campaign has
+New work after a completed campaign starts a new full campaign. Exhausting the round
+budget hands the campaign to the human who authorised the work: report the blockers and
+the proposed scope, and wait. Keeping the state aside and starting over needs that
+human's explicit authorization **for that campaign** — an authorization given once is not
+standing, and a second campaign on the same finding is the signal to stop and hand over,
+not to archive again. A round whose Codex
+budget is spent without a recorded report cannot complete: `triage` needs both reports and
+`start` needs the triage. The exit is the same as for any stalled campaign, and `codex`
+says so when it refuses. A stalled campaign has
 no automatic reset: explain the blockers and obtain a scope decision. Preserve its
 `state.json` and round files if a human authorizes archiving it and starting over.
 
@@ -150,9 +240,52 @@ keep that separate loop disabled when this workflow is active.
 Enforcement is a Git **`pre-push` hook**, `review_prepush.py`. Git hands it the pushed
 SHAs on stdin, so it holds however the push command was spelled: it refuses any commit
 without a cleared receipt, for every ref in the push, and allows ref deletions.
-`review_flow.py start` installs it into the repository's hooks directory. It refuses to
-proceed when `core.hooksPath` is set or when a `pre-push` hook it does not manage is
-already present; both are reported for the human to reconcile, never overwritten.
+`review_flow.py start` installs it into the repository's hooks directory when none is
+present. An existing `pre-push` it does not manage is reported for the human to merge
+the check into by hand, never overwritten; one that carries the check at the current
+policy is kept as merged. A custom `core.hooksPath` directory is never written into: its
+`pre-push` qualifies by behaviour alone, so a generated stub that delegates to a tracked
+hook — husky's `.husky/_/pre-push` running `.husky/pre-push` — qualifies when the hook it
+runs invokes `review_prepush.py`, and survives the stub being regenerated. In either
+place, a hook that declares another policy or is not executable is refused at `start`,
+with the remedy named. Before
+the candidate is frozen, `start` also runs that hook seven times as git would (from the
+worktree root, through `sh` when it has no shebang, within 60 seconds each, with origin's
+name and URL as arguments), feeding it one push line shaped like a real push: a temporary
+ref under `refs/bymax-review/`, resolving to a dangling child of HEAD built from the
+current tree in the user's own git identity, fast-forwarding the current branch. That
+commit exists, has a parent, and its ref resolves to it. The pushes differ in what
+names that commit, and each is described by what it carries rather than by its position,
+which the runtime is free to change:
+
+- **with no receipt** — the hook must refuse it, or it does not enforce receipts at all;
+- **with a held receipt** — the helper holds a temporary completed receipt for that commit
+  in a directory of its own under `bymax-review/`, so concurrent starts in linked worktrees
+  do not disturb each other, and the receipt is valid only while the probe holds a lock on
+  the `holder` file beside it, which the kernel releases with the process. The hook must
+  let this push through; one that refuses it is refusing for a reason the probe does not
+  satisfy (a local ref that is not a branch, for instance) and is refused as not consulting
+  receipts;
+- **with that receipt unheld**, the shape an interrupted probe leaves, and **with one naming
+  a pid and nothing to hold** — the hook must refuse both, since a probe receipt nobody
+  holds is void whatever pid is reused later. A hook that accepts either honours such a
+  receipt, as a copy of an earlier checker does; it is refused until deleted (the bundled
+  hook is then reinstalled) or pointed at the current checker;
+- **three pushes of three refs**, as git does for a push of three refs, each record with
+  its own remote ref and the first fast-forwarding the branch: the unreceipted commit takes
+  each of the three positions in turn while the receipted one fills the others. The hook
+  must refuse all three, and a hook that leaves any one record unchecked reads only
+  receipted commits in the push whose unreceipted record it skips; accepting any of them
+  means an unreceipted commit went unchecked.
+
+Every refusal names the remedy; a kept file is never rewritten, so a check merged into it
+by hand survives. The refs and the directory are removed afterwards, and what
+an interrupted probe left behind is swept by the next probe once older than a probe
+can be. Hook code written to recognise the probe is trusted code and outside what a
+local probe can establish, as is a hook that filters records by a property these
+records share: the pushes raise the floor a kept hook must clear, they do not certify it.
+A receipt completed under another policy does not authorise its commit: the hook and
+the adapter require the current policy.
 
 `review_push.py` is a Claude **PreToolUse Bash adapter** in front of that hook, with two
 narrow jobs. It recognises exactly `[cd <path> &&] [VAR=value ...] git [-C <dir>] push
@@ -161,7 +294,8 @@ is reported with a useful message before git runs; for that form, implicit, wild
 mirror, followTags, deletion and chained pushes fail with a corrective message, and
 another worktree's receipt cannot authorize a different SHA. It also refuses any command
 containing an option that would skip or redirect the hook (`no-verify`, `hooksPath`,
-`GIT_DIR`, `--git-dir`, `GIT_WORK_TREE`, writes under `.git/hooks`), matched as a
+`GIT_DIR`, `--git-dir`, `GIT_WORK_TREE`, writes under `.git/hooks`) or husky's own skip
+switch (`HUSKY=`, honoured by its dispatcher before the tracked hook runs), matched as a
 substring wherever it appears. **Every other command passes through untouched**: a push
 spelled in any other arrangement is not the adapter's to judge, and the hook decides.
 

@@ -19,12 +19,14 @@ import subprocess
 import sys
 
 from review_flow import POLICY, require
+from review_prepush import orphaned
 
-# Anything that would skip the pre-push hook or point git at another repository. These
-# are matched as substrings of the raw command, wherever they appear: position does not
-# matter, so no shell parsing is involved and none can be defeated by rearrangement.
+# Anything that would skip the pre-push hook or point git at another repository, plus
+# husky's own skip switch (its dispatcher exits before the tracked hook when HUSKY=0).
+# These are matched as substrings of the raw command, wherever they appear: position does
+# not matter, so no shell parsing is involved and none can be defeated by rearrangement.
 DISARMS = ('no-verify', 'hooksPath', 'hooks-path', 'GIT_DIR', '--git-dir',
-           'GIT_WORK_TREE', '--work-tree', 'GIT_COMMON_DIR', '.git/hooks', 'hooks/pre-push')
+           'GIT_WORK_TREE', '--work-tree', 'GIT_COMMON_DIR', '.git/hooks', 'hooks/pre-push', 'HUSKY=')
 # Expansions that turn one written refspec into several, and revision operators that
 # would let a refspec name a commit other than the literal one.
 EXPANSIONS = '*?[]{}~^+,!'
@@ -42,7 +44,9 @@ def parse(command, cwd):
     None means this adapter has no opinion: the command is run and the pre-push hook
     decides. Only the literal shape earns a receipt lookup here.
     """
-    require(not any(token in command for token in DISARMS),
+    # Case-insensitive: git reads config keys and most of these options that way too.
+    lowered = command.lower()
+    require(not any(token.lower() in lowered for token in DISARMS),
             'That would disable or redirect the pre-push receipt check; run a plain git push.')
     try:
         words = shlex.split(command)
@@ -94,6 +98,8 @@ def approved(cwd, source):
     for path in paths:
         state = json.loads(path.read_text())
         if state.get('head') != sha or not state.get('cleared') or state.get('policy') != POLICY:
+            continue
+        if orphaned(path, state):
             continue
         require(set(state.get('reviews', {})) == {'claude', 'codex'}, 'Receipt lacks both reviews.')
         return

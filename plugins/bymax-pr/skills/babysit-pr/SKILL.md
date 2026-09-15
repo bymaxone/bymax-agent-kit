@@ -131,6 +131,11 @@ if [ -z "$PR_NUMBER" ]; then
   exit 1
 fi
 
+# Every later block, and every wake-up, reads the target here: shell state does not cross
+# a fence, and resolving it again would retarget whichever PR the current branch happens
+# to have. The file sits in the git directory, so it is untracked and per-repository.
+printf '%s\n' "$PR_NUMBER" > "$(git rev-parse --git-dir)/bymax-babysit-pr"
+
 # 2. Determine the base branch (where the PR will merge into).
 BASE_BRANCH=$(gh pr view "$PR_NUMBER" --json baseRefName -q .baseRefName)
 ```
@@ -163,6 +168,13 @@ these throughout the loop instead of assuming `npm`.
 ### Create / read state
 
 ```bash
+# target is read from the file loop entry wrote. Never resolve it again here: an
+# argumentless `gh pr view` would silently retarget the current branch's PR.
+PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
 STATE=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" --paginate \
   | jq -r '[.[] | select(.body | startswith("<!-- babysit-state -->"))][0] // empty')
 ```
@@ -217,6 +229,14 @@ Skip scheduling when:
 ## Phase 0: Conflict Resolution
 
 ```bash
+# Shell state does not cross a fence, and the loop wakes into a fresh shell, so the
+# target is read from the file loop entry wrote. Never resolve it again here: an
+# argumentless `gh pr view` would silently retarget the current branch's PR.
+PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
 MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable -q .mergeable)
 ```
 
@@ -226,6 +246,15 @@ MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable -q .mergeable)
 ### Rebase procedure
 
 ```bash
+# Shell state does not cross a fence, and the loop wakes into a fresh shell, so the
+# target is read from the file loop entry wrote. Never resolve it again here: an
+# argumentless `gh pr view` would silently retarget the current branch's PR.
+PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
+BASE_BRANCH=$(gh pr view "$PR_NUMBER" --json baseRefName -q .baseRefName)
 git fetch origin "$BASE_BRANCH"
 git rebase "origin/$BASE_BRANCH"
 ```
@@ -282,6 +311,14 @@ git rebase --abort
 ## Phase 1: CI Monitoring
 
 ```bash
+# Shell state does not cross a fence, and the loop wakes into a fresh shell, so the
+# target is read from the file loop entry wrote. Never resolve it again here: an
+# argumentless `gh pr view` would silently retarget the current branch's PR.
+PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
 CHECKS_JSON=$(gh pr checks "$PR_NUMBER" --json name,state,link,bucket 2>/dev/null)
 FAILING=$(echo "$CHECKS_JSON" | jq -r '.[] | select(.bucket == "fail") | .name')
 PENDING=$(echo "$CHECKS_JSON" | jq -r '.[] | select(.bucket == "pending") | .name')
@@ -294,9 +331,22 @@ For each failing check:
 
 1. **Pull the failing log**:
    ```bash
+   # Shell state does not cross a fence, and the loop wakes into a fresh shell, so the
+   # target is read from the file loop entry wrote. Never resolve it again here: an
+   # argumentless `gh pr view` would silently retarget the current branch's PR.
+   PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+   if [ -z "$PR_NUMBER" ]; then
+     echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+     exit 1
+   fi
    HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)
    RUN_ID=$(gh run list --commit "$HEAD_SHA" --json databaseId,name,conclusion \
      -q '[.[] | select(.name == "<check-name>" and .conclusion == "failure")][0].databaseId')
+   # The re-run block below is a separate fence and wakes into a fresh shell, so the id
+   # is recorded here rather than carried. This is the only block that resolves it.
+   # The head it belongs to goes with it: a run id outlives the commit it was resolved
+   # for, and re-running a run from an earlier push tells the loop nothing.
+   printf '%s\n%s\n' "$HEAD_SHA" "$RUN_ID" > "$(git rev-parse --git-dir)/bymax-babysit-run"
    gh run view "$RUN_ID" --log-failed > /tmp/babysit-failure.log
    ```
 
@@ -314,6 +364,38 @@ For each failing check:
 
 3. **If FLAKY** → re-run the failed jobs instead of editing code:
    ```bash
+   # Shell state does not cross a fence, and a value is never pasted into shell
+   # source, so the failing-check block above recorded the run id and this reads it
+   # back. A run id is digits; `gh run list` yields the literal null when no failing
+   # run matched the check name, which is the reachable cause of an empty value.
+   PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+   RECORDED_SHA=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-babysit-run" 2>/dev/null || true)
+   RUN_ID=$(sed -n 2p "$(git rev-parse --git-dir)/bymax-babysit-run" 2>/dev/null || true)
+   case "$RUN_ID" in
+     ''|*[!0-9]*)
+       echo "No failing run id recorded. Re-run the failing-check block above; if it" >&2
+       echo "recorded null, no failed run matches that check name." >&2
+       exit 1 ;;
+   esac
+   # The id was resolved for one commit. A push since then makes it a run from an
+   # earlier head, and re-running that tells the loop nothing about the code in flight.
+   # Three things can be wrong here and each has its own remedy, so each says its own.
+   if [ -z "$PR_NUMBER" ] || [ -z "$RECORDED_SHA" ]; then
+     echo "No babysit target or no recorded head. Re-enter the loop with" >&2
+     echo "/bymax-pr:babysit-pr <PR#>, then re-run the failing-check block above." >&2
+     exit 1
+   fi
+   CURRENT_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid 2>/dev/null || true)
+   if [ -z "$CURRENT_SHA" ]; then
+     echo "Could not read the pull request head, so the recorded run cannot be shown to" >&2
+     echo "be current. This is a gh failure, not a stale id: retry on the next wake-up." >&2
+     exit 1
+   fi
+   if [ "$RECORDED_SHA" != "$CURRENT_SHA" ]; then
+     echo "The recorded run belongs to an earlier head. Re-run the failing-check block" >&2
+     echo "above to resolve the run for the current one." >&2
+     exit 1
+   fi
    gh run rerun "$RUN_ID" --failed
    ```
    Increment `flakyReruns[<check>]` in state. **Cap at 3 re-runs.** If a
@@ -356,6 +438,14 @@ Termination Check decides to reschedule.
 ## Phase 2: Bot Comment Handler
 
 ```bash
+# Shell state does not cross a fence, and the loop wakes into a fresh shell, so the
+# target is read from the file loop entry wrote. Never resolve it again here: an
+# argumentless `gh pr view` would silently retarget the current branch's PR.
+PR_NUMBER=$(cat "$(git rev-parse --git-dir)/bymax-babysit-pr" 2>/dev/null || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "No babysit target recorded. Re-enter the loop with /bymax-pr:babysit-pr <PR#>." >&2
+  exit 1
+fi
 REVIEW_COMMENTS=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" --paginate)
 ISSUE_COMMENTS=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" --paginate)
 ```

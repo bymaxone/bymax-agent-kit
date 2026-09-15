@@ -19,8 +19,9 @@ edits. Preserve the requested scope and existing behavior; defer nits and unrela
 with reasons. Record the frozen base/head, intent, acceptance criteria, prior findings,
 dispositions and check results. After a full review, inspect correction deltas and affected
 callers and explicitly verify each earlier open finding. Maximum initial review plus two
-correction rounds; if still blocked, stop with evidence and a scope proposal. Do not
-restart full reviews until every reviewer returns an empty list.
+correction rounds; if still blocked, stop with evidence and a scope proposal. The
+campaign ends after those rounds even when findings remain: a remaining finding is
+reported as a blocker, never answered with another full review.
 
 When serving as the Codex side of a Claude-orchestrated campaign, use its exact supplied
 prompt, endpoints and output schema. Return your read-only report; do not run its helper,

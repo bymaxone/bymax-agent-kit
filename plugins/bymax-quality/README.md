@@ -9,6 +9,14 @@ claude plugin marketplace add bymaxone/bymax-claude-code
 claude plugin install bymax-quality@bymax-claude-code
 ```
 
+### First run in a repository (once, mandatory)
+
+Run `/bymax-quality:review-md`. It writes `REVIEW.md` and the `## Code Review Rules`
+section of `AGENTS.md` — the files Anthropic's Code Review and Codex read on every pull
+request. Without them both bots report every wording preference as a blocking finding,
+and a one-line fix can reach its seventh review round on style alone. `review_flow.py
+start` prints the same reminder until the files exist.
+
 ### Claude + Codex review
 
 Push certification requires the Codex CLI with an active login and the Claude review
