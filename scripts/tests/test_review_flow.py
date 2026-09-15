@@ -401,7 +401,10 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('touches no test', result.stderr)
         state = self.start(correction=True, reason='removed a flaky test on purpose')
         self.assertEqual(state['round'], 3)
-        self.assertIn('removed a flaky test on purpose', self.flow('prompt').stdout)
+        self.assertEqual(state['removed_tests'], ['tests/test_fix.py'])
+        prompt = self.flow('prompt').stdout
+        self.assertIn('removed a flaky test on purpose', prompt)
+        self.assertIn('Tests removed in this delta: tests/test_fix.py', prompt)
 
     def test_confirmed_blocker_cannot_be_deferred(self):
         """A P2 correctness finding needs repair or concrete rejection, not deferral."""

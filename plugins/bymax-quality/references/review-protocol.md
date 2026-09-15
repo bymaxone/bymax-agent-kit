@@ -184,7 +184,11 @@ present. An existing `pre-push` it does not manage is reported for the human to 
 the check into by hand, never overwritten; one that carries the check at the current
 policy is kept as merged. A custom `core.hooksPath` directory is never written into: it
 qualifies once its `pre-push` carries the check. In either place, a hook that declares
-an older policy or is not executable is refused at `start`, with the remedy named.
+another policy or is not executable is refused at `start`, with the remedy named. Before
+the candidate is frozen, `start` also runs that hook once as git would (through `sh` when
+it has no shebang, within 60 seconds), feeding it one push line that names a dangling
+commit built from the current tree — a commit that exists but that no receipt can name.
+A hook that lets it through does not enforce receipts and is refused.
 
 `review_push.py` is a Claude **PreToolUse Bash adapter** in front of that hook, with two
 narrow jobs. It recognises exactly `[cd <path> &&] [VAR=value ...] git [-C <dir>] push

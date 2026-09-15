@@ -198,6 +198,10 @@ class PrePushInvariantTests(unittest.TestCase):
         (custom / 'pre-push').chmod(0o755)
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
         self.assertEqual((custom / 'pre-push').read_text(), merged)
+        # The accepted merged hook really enforces: an unreceipted commit does not land through it.
+        self.commit('unreviewed')
+        self.attempt('git push origin HEAD:feature')
+        self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def start_refused(self):
         """Run start expecting a refusal; return its message."""
@@ -222,6 +226,16 @@ class PrePushInvariantTests(unittest.TestCase):
         (custom / 'pre-push').chmod(0o755)
         self.git('config', 'core.hooksPath', str(custom))
         self.assertIn('does not enforce receipts', self.start_refused())
+        self.git('config', '--unset', 'core.hooksPath')
+        # Validating that the SHA exists is not enforcing receipts: the probe commit exists.
+        marker = 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.'
+        hook.write_text('#!/bin/sh\n# ' + marker + '\nwhile read l s r x; do git cat-file -e "$s" '
+                        '|| exit 1; done\nexit 0\n')
+        self.assertIn('does not enforce receipts', self.start_refused())
+        # A shebang-less wrapper is run through sh, as git runs it, and is accepted.
+        hook.write_text('# ' + marker + '\nexec ' + sys.executable + ' '
+                        + str(FLOW.with_name('review_prepush.py')) + ' "$@"\n')
+        self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
 
     def test_stale_bundled_hook_is_refused_not_kept(self):
         """A hook from an earlier runtime declares its policy; kept, it would refuse every push."""

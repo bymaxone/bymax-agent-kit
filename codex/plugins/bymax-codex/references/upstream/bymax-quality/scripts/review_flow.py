@@ -139,11 +139,22 @@ def usable_hook(path):
             'plugins/bymax-quality/scripts/review_prepush.py into it by hand.')
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
-    # The marker is a claim; this is the check. Fed a push of a commit no receipt can
-    # name, a hook that enforces receipts refuses. One that exits 0 enforces nothing.
-    bogus = 'refs/heads/bymax-probe ' + '1' * 40 + ' refs/heads/bymax-probe ' + '0' * 40 + '\n'
-    probe = subprocess.run([str(path), 'origin', 'bymax-probe'], input=bogus, capture_output=True,
-                           text=True, timeout=60)
+    # The marker is a claim; this is the check. A dangling commit built from the current
+    # tree exists and peels, and no receipt can name it, so only a hook that consults
+    # receipts refuses a push of it; one that merely validates the SHA lets it through.
+    dangling = subprocess.run(['git', '-c', 'user.name=bymax-probe', '-c', 'user.email=probe@bymax.invalid',
+                               'commit-tree', git('rev-parse', 'HEAD^{tree}'), '-m', 'bymax receipt probe'],
+                              capture_output=True, text=True, check=True).stdout.strip()
+    line = f'refs/heads/bymax-probe {dangling} refs/heads/bymax-probe {"0" * 40}\n'
+    # git runs a hook without a shebang through sh; so does this.
+    interpreter = [] if path.read_bytes().startswith(b'#!') else ['sh']
+    try:
+        probe = subprocess.run([*interpreter, str(path), 'origin', 'bymax-probe'], input=line,
+                               capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f'{path} did not finish within 60 s when probed with one push line; fix or delete it.')
+    except OSError as error:
+        raise ValueError(f'{path} could not be run ({error.strerror}); fix its interpreter line or delete it.')
     require(probe.returncode != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
             'receipts. Make it invoke plugins/bymax-quality/scripts/review_prepush.py, or delete it.')
@@ -268,12 +279,15 @@ def correction_contract(args, old, head):
     # instead of vanishing from the list both reviewers see.
     changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', old['head'], head).splitlines()
     tests = [p for p in changed if is_test_path(p)]
+    # Deleted tests never count as evidence, but reviewers must see them to judge the deletion.
+    removed = [p for p in git('diff', '--name-only', '--no-renames', '--diff-filter=D',
+                              old['head'], head).splitlines() if is_test_path(p)]
     reason = (args.no_regression_reason or '').strip()
     require(tests or reason,
             'This correction touches no test. Add the failing regression first, or record why '
             'that is infeasible with --no-regression-reason "<why>".')
     return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
-                regression_tests=tests, no_regression_reason=reason)
+                regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
 
 
 def correction_brief(state):
@@ -294,6 +308,9 @@ def correction_brief(state):
     else:
         lines.append('No test changed in this delta. Recorded reason: '
                      + state.get('no_regression_reason', '') + '. Judge whether that is justified.')
+    if state.get('removed_tests'):
+        lines.append('Tests removed in this delta: ' + ', '.join(state['removed_tests'])
+                     + '. A removed test is not regression evidence; judge whether its removal is justified.')
     return '\n'.join(lines)
 
 

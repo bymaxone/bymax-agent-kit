@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Receipt hook lifecycle** — `start` keeps a hand-merged pre-push that carries the check at the current policy, accepts a custom `core.hooksPath` directory once its pre-push carries it (never writing into it), and refuses a hook that declares an older policy or is not executable, naming the remedy. The hook peels annotated tags before the receipt lookup. Each reviewer's open disposition needs its own resolution. The Bash adapter matches hook-disarming options case-insensitively.
+- **Receipt hook lifecycle** — `start` keeps a hand-merged pre-push that carries the check at the current policy, accepts a custom `core.hooksPath` directory once its pre-push carries it (never writing into it), and refuses a hook that declares another policy or is not executable, naming the remedy; before freezing a candidate it runs the kept hook once with a push of a dangling unreceipted commit and refuses one that lets it through. Deleted test files are listed for reviewers without counting as regressions. The hook peels annotated tags before the receipt lookup. Each reviewer's open disposition needs its own resolution. The Bash adapter matches hook-disarming options case-insensitively.
 
 - **Review keys are `reviewer::<id>` (state policy 2)** — triage and resolution keys no longer share the `/` separator with paths, so a copied key and a real file under a `codex/` directory cannot collide; campaigns frozen under policy 1 are refused with the restart message.
 
