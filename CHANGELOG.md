@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.0.0] — 2026-09-16
+
+Cut at `001831a`. This release covers everything after `v1.12.0`, including the work tagged
+`v1.13.1`, for which no section of its own was written.
+
+**Breaking:** the marketplace id moved from `bymax-claude-code` to `bymax-agent-kit`. The GitHub
+URL redirects; the id does not. An existing install runs
+`claude plugin marketplace remove bymax-claude-code`, adds `bymaxone/bymax-agent-kit`, and
+reinstalls each plugin under the `@bymax-agent-kit` suffix. Plugin names, command names, hooks and
+user settings are unchanged, and the Codex ids (`bymax-codex@bymax-codex`) are unaffected.
+
 ### Changed
 
 - **Renamed to Bymax Agent Kit: marketplace `2.0.0`, every plugin patched, Codex `1.1.1`** — the repository is `bymaxone/bymax-agent-kit` and the marketplace id is `bymax-agent-kit`. The project ships two packages built from one canonical `plugins/` tree — the Claude Code marketplace and the Codex plugin — so a name that said "claude-code" described one of its two runtimes. **Breaking for existing installs:** the GitHub URL redirects, the marketplace id does not. Run `claude plugin marketplace remove bymax-claude-code`, add `bymaxone/bymax-agent-kit`, and reinstall each plugin under the new `@bymax-agent-kit` suffix. Plugin names, command names, hooks and user settings are unchanged. `scripts/install-review-flow.py --local-plugin-overlay` now resolves a plugin cache installed under either marketplace id and refuses ambiguity when both exist, with regression tests for both cases; the Codex marketplace id `bymax-codex` is unaffected.
@@ -863,7 +876,8 @@ Initial public release of the toolkit. Five composable plugins, six specialist s
 - **`scripts/validate.sh`** — validates `marketplace.json` and every `plugin.json` (valid JSON, required fields, every command/agent/skill path exists, every command file has a YAML frontmatter `description`, every agent file has `name` + `description` + `tools`, every shell hook is `chmod +x`, shellcheck on every shell script when installed, every required project-level file is present). Used by CI and locally before pushing.
 - **`docs/PROPOSAL.md`** — original design proposal preserved for context.
 
-[Unreleased]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/bymaxone/bymax-agent-kit/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.12.0...v2.0.0
 [1.12.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.9.0...v1.12.0
 [1.9.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.7.0...v1.8.0
