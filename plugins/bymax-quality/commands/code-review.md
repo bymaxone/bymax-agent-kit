@@ -91,7 +91,13 @@ a separate design audit, report it separately from this campaign.
    Agreement is not proof; rejection needs concrete counterevidence. Report at most
    five nits; group the rest. Confirmed introduced P0/P1/P2 defects and explicit policy
    violations block; nits and unrelated pre-existing work can be deferred with reasons.
-5. Fix accepted blockers in one small batch, in this order, and do not reorder it:
+5. Before writing any correction, run `python3 "$FLOW" lessons`. If the previous
+   correction introduced the finding you are about to fix, do not patch the instance:
+   list every case of the mechanism the finding names, one probe entry per case with
+   `"covers": "<finding id>"`, and rewrite the function against the whole list. `start`
+   refuses a probe that names none of those findings, and a second such round in a row
+   is a design round. Then fix accepted blockers in one small batch, in this order, and
+   do not reorder it:
    1. **Regression first.** Turn each accepted finding's reproduction into a permanent
       test case that fails on the current candidate, in the suite the campaign's
       `checks` already runs. The suite is the cumulative invariant matrix: every case

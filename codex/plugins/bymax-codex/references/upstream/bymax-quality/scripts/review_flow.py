@@ -587,6 +587,7 @@ def start(args, directory):
                  round=old['round'] + 1 if old else 1,
                  review_base=old['head'] if old else base,
                  previous_triage=old.get('triage', []) if old else [],
+                 retrospectives=old.get('retrospectives', []) if old else [],
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
     if autonomous:
@@ -685,6 +686,23 @@ def reopened(old):
     return sorted(before & after)
 
 
+def design_reasons(args, old):
+    """Why this round must be spent on the approach, if it must; returns the reopened ids."""
+    again = reopened(old)
+    require(not again or args.design_round,
+            'Reopened after a claimed fix: ' + ', '.join(again)
+            + '. Spend this round on the approach, not another patch: rerun start with --design-round.')
+    repeating = streak(old)
+    require(not repeating or args.design_round,
+            'Two corrections in a row introduced the finding they were then reviewed for. The next '
+            'patch will too: rewrite the mechanism against its full case list, or delete it, and '
+            'rerun start with --design-round. Read `review_flow.py lessons` first.')
+    require(again or repeating or not args.design_round,
+            '--design-round applies only when a finding was reopened or two corrections in a row '
+            'introduced findings; neither happened.')
+    return again
+
+
 def correction_contract(args, old, head):
     """Require the evidence a correction round must carry before reviewers see it.
 
@@ -693,12 +711,7 @@ def correction_contract(args, old, head):
     The author's own probe of the fix and any missing regression test are recorded so
     both reviewers judge them rather than discover their absence.
     """
-    again = reopened(old)
-    require(not again or args.design_round,
-            'Reopened after a claimed fix: ' + ', '.join(again)
-            + '. Spend this round on the approach, not another patch: rerun start with --design-round.')
-    require(again or not args.design_round,
-            '--design-round applies only when a finding was reopened; nothing was.')
+    again = design_reasons(args, old)
     require(args.probe, 'A correction round needs --probe <file>: the commands you ran against '
             'your own fix before committing, each with expected and observed results.')
     probe = json.loads(Path(args.probe).read_text())
@@ -706,6 +719,16 @@ def correction_contract(args, old, head):
         isinstance(p, dict) and all(isinstance(p.get(k), str) and p[k].strip()
                                     for k in ('command', 'expected', 'observed')) for p in probe),
             'Probe must be a nonempty list of {command, expected, observed} strings.')
+    # A finding the previous correction introduced is not answered by a probe of something
+    # else: each one still open needs a probe that names it, so the case it exposed is the
+    # case that was tried.
+    caused = old.get('retrospectives', [{}])[-1].get('still_open', []) if old.get('retrospectives') else []
+    covered = {p.get('covers') for p in probe}
+    uncovered = [k for k in caused if k not in covered and k.partition(SEPARATOR)[2] not in covered]
+    require(not uncovered,
+            'The previous correction introduced these findings, and no probe names them: '
+            + ', '.join(uncovered) + '. Add a probe entry per finding with "covers": "<id>", '
+            'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
     # Added or modified only: deleting the test that caught a defect is not a regression.
     # Renames are not detected, so a renamed test is listed under its new path as added
     # instead of vanishing from the list both reviewers see.
@@ -727,9 +750,19 @@ def correction_brief(state):
     if state['round'] == 1:
         return ''
     lines = []
+    history = state.get('retrospectives', [])
+    if history and history[-1]['introduced']:
+        last = history[-1]
+        lines.append(f"Last round, {len(last['introduced'])} of {last['blocking']} blocking findings sat in "
+                     'files the previous correction had changed: the correction produced the finding. '
+                     'Look first at whether this correction repeats the pattern in the files it changes.')
     if state.get('design_round'):
-        lines.append('DESIGN ROUND. These findings were reopened after a claimed fix: '
-                     + ', '.join(state['reopened']) + '. Judge whether this delta changes the '
+        why = []
+        if state.get('reopened'):
+            why.append('these findings were reopened after a claimed fix: ' + ', '.join(state['reopened']))
+        if history[-2:] and all(r['still_open'] for r in history[-2:]):
+            why.append('two corrections in a row introduced the finding they were then reviewed for')
+        lines.append('DESIGN ROUND: ' + '; '.join(why) + '. Judge whether this delta changes the '
                      'approach; a patch to the same instance is itself a finding.')
     if state.get('nit_round'):
         lines.append('This round was spent on P3 findings, which a round is normally not for. The author '
@@ -866,6 +899,70 @@ def record(args, directory, state):
     save(directory, state)
 
 
+def self_inflicted(state):
+    """Blocking findings of this round located in files the round's own correction changed.
+
+    A model cannot tell by rereading its work whether a correction caused the next
+    finding; a diff can. Round 1 has no correction, so nothing is attributable. An id
+    whose path is not in the correction's delta is carried or new surface, not this.
+    """
+    if state['round'] == 1:
+        return []
+    changed = {p for p in git_raw('diff', '-z', '--name-only', state['review_base'], state['head']).split('\0') if p}
+    return sorted(key(name, item['id']) for name, report in state['reviews'].items()
+                  for item in report['findings']
+                  if blocks_a_receipt(item) and item['id'].split(':', 1)[0] in changed)
+
+
+def retrospective(state, items):
+    """What this round's triage says about the previous correction, one entry per round.
+
+    Triage may be recorded again for the same candidate, so the round's entry is replaced,
+    never appended: two entries for one round would read as two rounds. Evidence travels
+    with the entry, because the next start resets the reports it came from. A blocker is
+    unanswered unless rejected with counterevidence: deferring one is not answering it.
+    """
+    unanswered = {i['id'] for i in items if i['status'] != 'rejected'}
+    caused = self_inflicted(state)
+    evidence = {key(name, f['id']): f['evidence'][:240]
+                for name, report in state['reviews'].items() for f in report['findings']}
+    entry = dict(round=state['round'], introduced=caused,
+                 still_open=[k for k in caused if k in unanswered],
+                 evidence={k: evidence.get(k, '') for k in caused},
+                 blocking=sum(1 for r in state['reviews'].values() for f in r['findings'] if blocks_a_receipt(f)))
+    history = [r for r in state.get('retrospectives', []) if r['round'] != state['round']]
+    return history + [entry]
+
+
+def streak(old):
+    """Two consecutive triages with open findings the correction itself introduced."""
+    history = old.get('retrospectives', [])
+    return len(history) >= 2 and all(r['still_open'] for r in history[-2:])
+
+
+def lessons(state):
+    """The campaign's own record of corrections that produced the next finding, for the author.
+
+    Read before writing the next correction, not by the reviewers: it is the memory of
+    what this campaign's corrections got wrong, and the checklist those mistakes imply.
+    """
+    history = state.get('retrospectives', [])
+    lines = []
+    for entry in history:
+        if not entry['introduced']:
+            continue
+        lines.append(f"Round {entry['round']}: {len(entry['introduced'])} of {entry['blocking']} blocking "
+                     'findings sat in files the previous correction changed:')
+        for full in entry['introduced']:
+            lines.append(f"  - {full}: {entry.get('evidence', {}).get(full, '')}")
+    if not lines:
+        return 'No correction in this campaign has produced a finding yet.'
+    lines.append('Before the next correction: list every case of the mechanism the finding names, '
+                 'one probe per case with "covers": "<finding id>", and rewrite the function against '
+                 'the whole list rather than the instance. Two such rounds in a row is a design round.')
+    return '\n'.join(lines)
+
+
 def triage(args, directory, state):
     """Persist an explicit disposition for every finding from both reviewers."""
     require(state['head'] == clean_head(),
@@ -886,6 +983,7 @@ def triage(args, directory, state):
         require(item.get('status') in ('open', 'rejected', 'deferred'), 'Use open until the next reviewers verify a committed fix.')
         require(isinstance(item.get('evidence'), str) and item['evidence'].strip(), 'Disposition needs code/test evidence or a deferral reason.')
     state['triage'] = items
+    state['retrospectives'] = retrospective(state, items)
     state['cleared'] = False
     save(directory, state)
 
@@ -1011,7 +1109,7 @@ def parser():
                        help='After a cleared candidate: the external findings this correction answers.')
     begin.add_argument('--extend-delivery', default='',
                        help='Continue past a spent delivery budget: who authorised it, and why.')
-    for action in ('status', 'prompt', 'finish', 'codex', 'claude', 'range'):
+    for action in ('status', 'prompt', 'finish', 'codex', 'claude', 'range', 'lessons'):
         sub.add_parser(action)
     rec = sub.add_parser('record')
     rec.add_argument('--reviewer', choices=('claude', 'codex'), required=True)
@@ -1045,6 +1143,9 @@ def main():
             if args.action == 'prompt':
                 current(state)
                 print(prompt(state))
+                return
+            if args.action == 'lessons':
+                print(lessons(state))
                 return
             if args.action in ('record', 'triage', 'check'):
                 globals()[args.action](args, directory, state)

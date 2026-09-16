@@ -57,7 +57,12 @@ implementation.
    `--widen-scope`; this technical justification needs no extra permission when the change
    remains within the user's scope. Use `--no-regression-reason` only when a behavioral
    regression test is infeasible, with concrete alternative verification.
-5. A repeated invariant triggers an automatic root-cause analysis with a fresh context.
+5. Before each correction, read `review_flow.py lessons`: at every triage the runtime
+   records which blocking findings sit in files the previous correction changed, and a
+   finding the correction introduced needs a probe entry that names it (`covers`). Two
+   such rounds in a row are a design round: the mechanism is rewritten against its full
+   case list or deleted, never patched a third time.
+   A repeated invariant triggers an automatic root-cause analysis with a fresh context.
    Choose the smallest justified repair and use `--design-round` within the same budget;
    it is not by itself a reason to ask the user or expand the feature. Preserve failing
    evidence when a correction regresses an earlier test and replace that correction
