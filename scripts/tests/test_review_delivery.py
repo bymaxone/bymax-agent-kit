@@ -62,12 +62,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn('by a recorded decision', c.text('prompt'))
 
     def test_a_cleared_campaign_moved_aside_is_still_the_delivery_in_progress(self):
-        """Losing the state directory must not turn the second candidate into a first round.
-
-        Both reviewers found this: with the cleared campaign's directory renamed there was
-        no state, so start read a first round — no answers, no probe, the original base,
-        and "Round 1" in the prompt — while the ledger counted the head anyway.
-        """
+        """Losing the state directory must not turn the second candidate into a first round."""
         c = self.case
         first = self.enroll()
         c.complete()
@@ -98,6 +93,66 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn('Round 2/6', prompt)
         self.assertIn('Max decided to go on without the state', prompt)
         self.assertIn('declared by the author as: code.txt:bot-thread', prompt)
+
+    def test_a_refused_start_records_no_extension(self):
+        """The decision is written once, when the candidate it authorises freezes."""
+        c = self.case
+        self.enroll()
+        for number in range(1, 6):
+            c.complete()
+            c.commit('correction ' + str(number))
+            c.start(correction=True, answers=['code.txt:bot-thread-' + str(number)])
+        c.complete()
+        c.commit('seventh')
+        refused = c.start(correction=True, extend='Max decided to continue', ok=False).stderr
+        self.assertIn('--answers', refused)
+        self.assertNotIn('not spent', refused)
+        ledger = json.loads((Path(c.flow('status')['directory']).parent / 'deliveries'
+                             / (Path(c.flow('status')['directory']).name + '.json')).read_text())
+        self.assertNotIn('extensions', ledger)
+        state = c.start(correction=True, answers=['code.txt:t7'], extend='Max decided to continue')
+        self.assertEqual((state['round'], state['max_rounds']), (7, 12))
+
+    def test_an_uncleared_campaign_moved_aside_is_never_recovered_as_cleared(self):
+        """Recovery presumes nothing: an open P1 in a moved-aside campaign stays in scope."""
+        c = self.case
+        (c.repo / 'bad.txt').write_text('unsafe thing\\n')
+        c.git('add', '-A')
+        c.git('commit', '-qm', 'add the file the finding is about')
+        self.enroll()
+        c.report('claude', [dict(id='bad.txt:unsafe-thing', kind='defect', priority='P1',
+                                 evidence='unsafe')])
+        c.report('codex')
+        c.triage([dict(id='claude::bad.txt:unsafe-thing', status='open', evidence='Confirmed')])
+        directory = Path(c.flow('status')['directory'])
+        directory.rename(directory.with_name(directory.name + '.archived'))
+        c.commit('touch only code.txt')
+        probe = c.root / 'probe.json'
+        probe.write_text(json.dumps([dict(command='c', expected='e', observed='e')]))
+        sneaky = c.flow('start', '--base', c.base, '--context', str(c.context),
+                        '--after-archived', 'x', '--probe', str(probe),
+                        '--no-regression-reason', 'f', '--answers', 'code.txt:bot', ok=False)
+        self.assertIn('--answers is for a correction after a cleared candidate', sneaky.stderr)
+        state = c.flow('start', '--base', c.base, '--context', str(c.context),
+                       '--after-archived', 'x')
+        self.assertEqual(state['round'], 1)
+        self.assertEqual(state['review_base'], c.base)
+        self.assertIn('bad.txt', c.git('diff', '--name-only', state['review_base'], state['head']))
+
+    def test_a_cleared_head_whose_state_was_moved_aside_is_not_recertified(self):
+        """A receipt is not rebuilt from the ledger, and nothing fabricated is ever saved."""
+        c = self.case
+        self.enroll()
+        c.complete()
+        directory = Path(c.flow('status')['directory'])
+        directory.rename(directory.with_name(directory.name + '.archived'))
+        refused = c.flow('start', '--base', c.base, '--context', str(c.context),
+                         '--after-archived', 'x', ok=False).stderr
+        self.assertIn('not rebuilt from the ledger', refused)
+        self.assertFalse((directory / 'state.json').exists(), 'a fabricated state was written')
+        # The receipt itself survives in the moved-aside directory: that head was reviewed
+        # and cleared, and a rename does not undo it. What cannot happen is a second one.
+        c.push('git push origin HEAD')
 
     def test_answers_are_refused_while_findings_are_open(self):
         """A declared answer must not stand in for --widen-scope or --nit-round."""
@@ -183,17 +238,17 @@ class DeliveryTests(unittest.TestCase):
         directory = Path(state['directory'])
         directory.rename(directory.with_name(directory.name + '.archived'))
         c.commit('after authorized archive')
-        # The moved-aside campaign never cleared, but the ledger froze its head, so this
-        # restart is the delivery's correction: a probe and what it answers, like any other.
-        probe = c.root / 'probe.json'
-        probe.write_text(json.dumps([dict(command='c', expected='e', observed='e')]))
+        # The moved-aside campaign never cleared, so it is an abandoned campaign: a full
+        # first round against the original base, with its own recorded authorization.
         state = c.flow('start', '--base', c.base, '--context', str(c.context),
-                       '--after-archived', 'Fixture explicit authorization',
-                       '--probe', str(probe), '--no-regression-reason', 'fixture',
-                       '--answers', 'code.txt:lost-campaign-finding')
+                       '--after-archived', 'Fixture explicit authorization')
         self.assertEqual(state['delivery_used'], 2)
         self.assertEqual(state['max_rounds'], 6)
-        self.assertEqual(state['round'], 2)
+        self.assertEqual(state['round'], 1)
+        self.assertEqual(state['review_base'], c.base)
+        prompt = c.text('prompt')
+        self.assertIn('kept aside without clearing', prompt)
+        self.assertNotIn('had cleared', prompt)
 
     def test_changed_scope_does_not_silently_start_new_delivery(self):
         """A cleared receipt is not permission to change the delivery contract."""

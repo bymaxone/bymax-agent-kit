@@ -20,20 +20,32 @@ def active(directory, requested=False):
     return requested or path_for(directory).exists()
 
 
-def cap(directory):
-    """Candidates this delivery may freeze: the budget, plus one more budget per extension."""
+def cap(directory, pending=False):
+    """Candidates this delivery may freeze: the budget, plus one more budget per extension.
+
+    A pending extension counts before it is recorded, so the start it accompanies is
+    validated against the figure it will have; it is written only if that start freezes.
+    """
     ledger = load(directory) or {}
-    return MAX_CANDIDATES * (1 + len(ledger.get('extensions', [])))
+    return MAX_CANDIDATES * (1 + len(ledger.get('extensions', [])) + (1 if pending else 0))
 
 
 def extend(directory, reason):
     """Record who decided to continue past a spent budget, and why; both reviewers read it.
 
     The budget is an alarm about the corrections and the person watching it decides; the
-    ledger is never deleted. An extension is recorded only when the budget is actually
-    spent, so a flag passed early or on a start that is then refused cannot pre-buy a
-    budget, and only with a reason that says something.
+    ledger is never deleted. An extension is recorded only once the budget is actually
+    spent, only with a reason that says something, and only when the candidate it
+    authorises is frozen: a start refused for any other reason records nothing, so the
+    corrected retry carries the same flag and the decision is written once.
     """
+    ledger = check_extension(directory, reason)
+    ledger.setdefault('extensions', []).append(dict(at_used=ledger['used'], reason=reason.strip()))
+    write(directory, ledger)
+
+
+def check_extension(directory, reason):
+    """What an extension needs, checked before the start it accompanies does anything."""
     ledger = load(directory)
     if ledger is None:
         raise ValueError('No delivery to extend on this branch: enroll with --autonomous first.')
@@ -43,14 +55,27 @@ def extend(directory, reason):
     if ledger['used'] < limit:
         raise ValueError(f"The delivery budget is not spent ({ledger['used']} of {limit} candidates); "
                          'there is nothing to extend yet.')
-    ledger.setdefault('extensions', []).append(dict(at_used=ledger['used'], reason=reason.strip()))
-    write(directory, ledger)
+    return ledger
+
+
+def mark_cleared(directory, head):
+    """Record that a candidate cleared, so a later recovery presumes nothing about it."""
+    ledger = load(directory)
+    if ledger is None:
+        return
+    cleared = ledger.setdefault('cleared', [])
+    if head not in cleared:
+        cleared.append(head)
+        write(directory, ledger)
 
 
 def previous_head(directory):
-    """The last candidate this delivery froze, or None: what a moved-aside campaign loses."""
+    """The last candidate this delivery froze and whether it cleared, or (None, False)."""
     ledger = load(directory)
-    return ledger['heads'][-1] if ledger and ledger.get('heads') else None
+    if not ledger or not ledger.get('heads'):
+        return None, False
+    head = ledger['heads'][-1]
+    return head, head in ledger.get('cleared', [])
 
 
 def write(directory, ledger):
