@@ -528,29 +528,23 @@ def next_round(args, old, head, directory, base, context):
     return correction
 
 
-def recovered_candidate(directory, head, base, context, after_archived):
-    """The delivery's previous cleared candidate, rebuilt from the ledger when its state is gone.
 
-    Only a candidate the ledger recorded as cleared is recovered: the start is then the
-    correction it is, against that head. An uncleared campaign moved aside is what it always
-    was, an abandoned campaign, and takes that path with its full review and its own
-    authorization. A recovered candidate is a stand-in for the previous round, never state
-    to be saved: a receipt cannot be rebuilt from a ledger, so a start on the very head whose
-    cleared state was moved aside is refused rather than re-certified.
+
+def gone_without(directory, after_archived):
+    """A delivery whose campaign state is gone continues only by a recorded decision.
+
+    Nothing is rebuilt from the ledger: it records heads, not what was found about them,
+    and a stand-in for the missing state was three rounds of fabrication in turn. With the
+    directory restored the delivery goes on as it was. Without it, the recorded decision
+    opens a first round that reviews the next candidate from the original base in full,
+    and the budget counts it like any other.
     """
-    previous, cleared = review_delivery.previous_head(directory)
-    if previous is None or not cleared:
-        return None
-    require(previous != head, 'The cleared state for ' + head[:12] + ' was moved aside. A receipt is '
-            'not rebuilt from the ledger: restore that state directory, or commit the next '
-            'candidate and continue from it.')
-    require(after_archived, 'This delivery cleared ' + previous[:12] + ' and that campaign state is '
-            'gone. Restore the state directory, or record why the delivery continues without it '
-            'with --after-archived "<who decided, and why>"; both reviewers are told.')
-    ledger = review_delivery.load(directory)
-    return dict(head=previous, base=base, context=context, round=ledger['used'], cleared=True,
-                reviews={'claude': dict(findings=[]), 'codex': dict(findings=[])}, triage=[],
-                autonomous=True)
+    previous = review_delivery.previous_head(directory)
+    require(previous is None or after_archived,
+            'This delivery froze ' + (previous or '')[:12] + ' and its campaign state is gone. Restore '
+            'the state directory to continue from it, or record the decision to review the next '
+            'candidate in full from the original base with --after-archived "<who decided, and why>"; '
+            'both reviewers are told, and the budget still counts.')
 
 
 def start(args, directory):
@@ -566,10 +560,8 @@ def start(args, directory):
     autonomous = review_delivery.active(directory, args.autonomous)
     if args.extend_delivery:
         review_delivery.check_extension(directory, args.extend_delivery)
-    recovered = False
     if old is None and autonomous:
-        old = recovered_candidate(directory, head, base, context, args.after_archived)
-        recovered = old is not None
+        gone_without(directory, args.after_archived)
     if old and autonomous:
         old.update(autonomous=True,
                    max_rounds=review_delivery.cap(directory, pending=bool(args.extend_delivery)))
@@ -591,18 +583,14 @@ def start(args, directory):
                  nit_round=args.nit_round if old else '',
                  widen_scope=args.widen_scope if old else '',
                  answers=list(args.answers or ()) if old else [],
-                 after_archived=args.after_archived if (recovered or not old) else '',
+                 after_archived='' if old else args.after_archived,
                  round=old['round'] + 1 if old else 1,
                  review_base=old['head'] if old else base,
                  previous_triage=old.get('triage', []) if old else [],
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
     if autonomous:
-        # Every check above passed, so the candidate freezes: only now is a decision to
-        # continue past the budget written, and a refused start has written nothing.
-        if args.extend_delivery:
-            review_delivery.extend(directory, args.extend_delivery)
-        state.update(review_delivery.reserve(directory, head, base, context, old))
+        state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
     save(directory, state)
     return state
 
@@ -1062,9 +1050,6 @@ def main():
                 globals()[args.action](args, directory, state)
             elif args.action == 'finish':
                 finish(directory, state)
-                state = read_state(directory)
-                if state.get('autonomous') and state.get('cleared'):
-                    review_delivery.mark_cleared(directory, state['head'])
         print(json.dumps(dict(directory=str(directory), **state), indent=2))
 
 

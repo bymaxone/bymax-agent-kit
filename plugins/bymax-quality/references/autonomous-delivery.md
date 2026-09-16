@@ -19,10 +19,11 @@ Omitting `--autonomous` on later starts does not disable an enrolled delivery.
 A spent budget is an alarm that the corrections keep producing the next finding, not a
 wall: a human who decides to continue records it with `--extend-delivery "<who, why>"`,
 accepted only once the budget is actually spent, granting another budget and shown to
-both reviewers with every earlier reason. Never delete the ledger. A cleared campaign
-moved aside does not make the next start a first round: the ledger names the last
-candidate, and `start` continues from it as a correction, requiring `--after-archived`
-for the decision to go on without the campaign state, and `--answers` as usual.
+both reviewers with every earlier reason. Never delete the ledger. A campaign whose state
+was moved aside is not continued from the ledger: nothing is rebuilt from it. `start`
+refuses until the state directory is restored, or `--after-archived` records the decision
+to review the next candidate in full from the original base as a first round; the budget
+counts it like any other.
 Keep the same original base and context throughout the feature branch/PR, even after
 pushing. A new feature belongs on a new branch; never create one to evade this budget.
 Standalone reviews retain their ordinary three-candidate default until enrolled.

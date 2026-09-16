@@ -61,57 +61,35 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(state['max_rounds'], 12)
         self.assertIn('by a recorded decision', c.text('prompt'))
 
-    def test_a_cleared_campaign_moved_aside_is_still_the_delivery_in_progress(self):
-        """Losing the state directory must not turn the second candidate into a first round."""
+    def test_a_cleared_campaign_moved_aside_continues_only_by_a_recorded_decision(self):
+        """Nothing is rebuilt from the ledger; a full first round is what the decision buys."""
         c = self.case
         first = self.enroll()
         c.complete()
         directory = Path(c.flow('status')['directory'])
         directory.rename(directory.with_name(directory.name + '.archived'))
-        (c.repo / 'unasked.txt').write_text('a mechanism nobody asked for\n')
+        (c.repo / 'unasked.txt').write_text('a file the bot asked for\n')
         c.git('add', '-A')
-        c.git('commit', '-qm', 'a correction after the campaign state was moved aside')
+        c.git('commit', '-qm', 'the next candidate, with its campaign state moved aside')
         plain = c.flow('start', '--base', c.base, '--context', str(c.context), ok=False).stderr
         self.assertIn('--after-archived', plain)
         self.assertIn(first['head'][:12], plain)
-        # The decision recorded, the answers named, but unasked.txt named by nothing: widens.
-        arguments = ['start', '--base', c.base, '--context', str(c.context),
-                     '--after-archived', 'fixture: Max decided to go on without the state',
-                     '--probe', str(c.root / 'probe.json'), '--no-regression-reason', 'fixture']
-        (c.root / 'probe.json').write_text(json.dumps([dict(command='c', expected='e', observed='e')]))
-        widened = c.flow(*arguments, '--answers', 'code.txt:bot-thread', ok=False)
-        self.assertIn('unasked.txt', widened.stderr)
-        # A new file is in no reviewed tree, so it cannot be an answer; it is a widening.
-        ghost = c.flow(*arguments, '--answers', 'code.txt:bot-thread', 'unasked.txt:new', ok=False)
-        self.assertIn('name none: unasked.txt', ghost.stderr)
-        state = c.flow(*arguments, '--answers', 'code.txt:bot-thread',
-                       '--widen-scope', 'fixture: the bot asked for a new file')
-        self.assertEqual(state['round'], 2)
-        self.assertEqual(state['review_base'], first['head'])
-        self.assertEqual(state['delivery_used'], 2)
+        # --answers belongs to a correction round; there is none to continue.
+        answered = c.start(correction=True, answers=['code.txt:bot-thread'], ok=False).stderr
+        self.assertIn('--after-archived', answered)
+        state = c.flow('start', '--base', c.base, '--context', str(c.context),
+                       '--after-archived', 'fixture: Max decided to re-review in full')
+        self.assertEqual((state['round'], state['review_base'], state['delivery_used']), (1, c.base, 2))
+        self.assertEqual(state['reviews'], {})
+        self.assertNotIn('unasked.txt', c.text('status'))  # nothing about scope is presumed
+        live = Path(state['directory'])
+        self.assertEqual(sorted(p.name for p in live.iterdir() if p.name.startswith('completed-')), [],
+                         'a receipt was written for a head nobody reviewed in this campaign')
         prompt = c.text('prompt')
-        self.assertIn('Round 2/6', prompt)
-        self.assertIn('Max decided to go on without the state', prompt)
-        self.assertIn('declared by the author as: code.txt:bot-thread', prompt)
-
-    def test_a_refused_start_records_no_extension(self):
-        """The decision is written once, when the candidate it authorises freezes."""
-        c = self.case
-        self.enroll()
-        for number in range(1, 6):
-            c.complete()
-            c.commit('correction ' + str(number))
-            c.start(correction=True, answers=['code.txt:bot-thread-' + str(number)])
-        c.complete()
-        c.commit('seventh')
-        refused = c.start(correction=True, extend='Max decided to continue', ok=False).stderr
-        self.assertIn('--answers', refused)
-        self.assertNotIn('not spent', refused)
-        ledger = json.loads((Path(c.flow('status')['directory']).parent / 'deliveries'
-                             / (Path(c.flow('status')['directory']).name + '.json')).read_text())
-        self.assertNotIn('extensions', ledger)
-        state = c.start(correction=True, answers=['code.txt:t7'], extend='Max decided to continue')
-        self.assertEqual((state['round'], state['max_rounds']), (7, 12))
+        self.assertIn('Round 1/6', prompt)
+        self.assertIn('Max decided to re-review in full', prompt)
+        self.assertNotIn('had cleared', prompt)
+        c.push('git push origin HEAD', ok=False)
 
     def test_an_uncleared_campaign_moved_aside_is_never_recovered_as_cleared(self):
         """Recovery presumes nothing: an open P1 in a moved-aside campaign stays in scope."""
@@ -133,6 +111,7 @@ class DeliveryTests(unittest.TestCase):
                         '--after-archived', 'x', '--probe', str(probe),
                         '--no-regression-reason', 'f', '--answers', 'code.txt:bot', ok=False)
         self.assertIn('--answers is for a correction after a cleared candidate', sneaky.stderr)
+        self.assertIn('first round', sneaky.stderr)
         state = c.flow('start', '--base', c.base, '--context', str(c.context),
                        '--after-archived', 'x')
         self.assertEqual(state['round'], 1)
@@ -140,19 +119,43 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn('bad.txt', c.git('diff', '--name-only', state['review_base'], state['head']))
 
     def test_a_cleared_head_whose_state_was_moved_aside_is_not_recertified(self):
-        """A receipt is not rebuilt from the ledger, and nothing fabricated is ever saved."""
+        """A receipt is not rebuilt from the ledger: the same head is reviewed again, in full."""
         c = self.case
         self.enroll()
         c.complete()
         directory = Path(c.flow('status')['directory'])
         directory.rename(directory.with_name(directory.name + '.archived'))
-        refused = c.flow('start', '--base', c.base, '--context', str(c.context),
-                         '--after-archived', 'x', ok=False).stderr
-        self.assertIn('not rebuilt from the ledger', refused)
-        self.assertFalse((directory / 'state.json').exists(), 'a fabricated state was written')
+        refused = c.flow('start', '--base', c.base, '--context', str(c.context), ok=False).stderr
+        self.assertIn('--after-archived', refused)
+        state = c.flow('start', '--base', c.base, '--context', str(c.context), '--after-archived', 'x')
+        self.assertEqual((state['round'], state['cleared'], state['reviews']), (1, False, {}))
+        self.assertFalse((Path(state['directory']) / ('completed-' + state['head'] + '.json')).exists())
         # The receipt itself survives in the moved-aside directory: that head was reviewed
         # and cleared, and a rename does not undo it. What cannot happen is a second one.
         c.push('git push origin HEAD')
+
+    def test_a_changed_scope_with_an_extension_records_nothing(self):
+        """The decision is written in the same ledger write as the head it authorises."""
+        c = self.case
+        self.enroll()
+        for number in range(1, 6):
+            c.complete()
+            c.commit('correction ' + str(number))
+            c.start(correction=True, answers=['code.txt:bot-thread-' + str(number)])
+        c.complete()
+        c.commit('seventh')
+        context = json.loads(c.context.read_text())
+        original = c.context.read_text()
+        context['intent'] = 'a different request'
+        c.context.write_text(json.dumps(context))
+        refused = c.start(correction=True, answers=['code.txt:t7'], extend='Max decided', ok=False).stderr
+        self.assertIn('scope changed', refused.lower())
+        directory = Path(c.flow('status')['directory'])
+        ledger = json.loads((directory.parent / 'deliveries' / (directory.name + '.json')).read_text())
+        self.assertNotIn('extensions', ledger, 'a refused start wrote the decision')
+        c.context.write_text(original)
+        state = c.start(correction=True, answers=['code.txt:t7'], extend='Max decided')
+        self.assertEqual((state['round'], state['max_rounds']), (7, 12))
 
     def test_answers_are_refused_while_findings_are_open(self):
         """A declared answer must not stand in for --widen-scope or --nit-round."""

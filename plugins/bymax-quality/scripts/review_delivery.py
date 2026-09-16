@@ -30,22 +30,16 @@ def cap(directory, pending=False):
     return MAX_CANDIDATES * (1 + len(ledger.get('extensions', [])) + (1 if pending else 0))
 
 
-def extend(directory, reason):
-    """Record who decided to continue past a spent budget, and why; both reviewers read it.
-
-    The budget is an alarm about the corrections and the person watching it decides; the
-    ledger is never deleted. An extension is recorded only once the budget is actually
-    spent, only with a reason that says something, and only when the candidate it
-    authorises is frozen: a start refused for any other reason records nothing, so the
-    corrected retry carries the same flag and the decision is written once.
-    """
-    ledger = check_extension(directory, reason)
-    ledger.setdefault('extensions', []).append(dict(at_used=ledger['used'], reason=reason.strip()))
-    write(directory, ledger)
 
 
 def check_extension(directory, reason):
-    """What an extension needs, checked before the start it accompanies does anything."""
+    """What an extension needs, checked before the start it accompanies does anything.
+
+    The budget is an alarm about the corrections and the person watching it decides; the
+    ledger is never deleted. The decision is written by reserve(), in the same write that
+    freezes the candidate it authorises and after every validation, so a start refused for
+    any reason has written nothing and the corrected retry carries the same flag.
+    """
     ledger = load(directory)
     if ledger is None:
         raise ValueError('No delivery to extend on this branch: enroll with --autonomous first.')
@@ -58,24 +52,10 @@ def check_extension(directory, reason):
     return ledger
 
 
-def mark_cleared(directory, head):
-    """Record that a candidate cleared, so a later recovery presumes nothing about it."""
-    ledger = load(directory)
-    if ledger is None:
-        return
-    cleared = ledger.setdefault('cleared', [])
-    if head not in cleared:
-        cleared.append(head)
-        write(directory, ledger)
-
-
 def previous_head(directory):
-    """The last candidate this delivery froze and whether it cleared, or (None, False)."""
+    """The last candidate this delivery froze, or None: what a moved-aside campaign leaves."""
     ledger = load(directory)
-    if not ledger or not ledger.get('heads'):
-        return None, False
-    head = ledger['heads'][-1]
-    return head, head in ledger.get('cleared', [])
+    return ledger['heads'][-1] if ledger and ledger.get('heads') else None
 
 
 def write(directory, ledger):
@@ -87,12 +67,14 @@ def write(directory, ledger):
     temporary.replace(path)
 
 
-def reserve(directory, head, base, context, old=None):
+def reserve(directory, head, base, context, old=None, extension=''):
     """Count a frozen candidate once, retaining the budget across cleared campaigns.
 
     The caller holds the campaign lock. A reservation preceding a crashed state write
     is reusable only for that same head, so a crash neither spends a second slot nor
-    creates an uncounted candidate. A new feature uses a new branch/delivery.
+    creates an uncounted candidate. A new feature uses a new branch/delivery. A decision
+    to continue past the budget is written here too, in the same write as the head it
+    authorises, so the ledger changes once and only when a candidate freezes.
     """
     ledger = load(directory) or dict(base=base, context=context, heads=[], used=0)
     if ledger['base'] != base or ledger['context'] != context:
@@ -101,6 +83,9 @@ def reserve(directory, head, base, context, old=None):
         used = max(ledger['used'], (old or {}).get('round', 0))
         if old and old['head'] == head:
             used = max(0, used - 1)
+        if extension:
+            check_extension(directory, extension)
+            ledger.setdefault('extensions', []).append(dict(at_used=ledger['used'], reason=extension.strip()))
         limit = MAX_CANDIDATES * (1 + len(ledger.get('extensions', [])))
         if used >= limit:
             raise ValueError(f'Delivery budget exhausted ({limit} candidates across pushes). This is the '
