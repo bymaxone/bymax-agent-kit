@@ -186,13 +186,18 @@ class InstallTests(unittest.TestCase):
                 self.assertTrue((overlaid / 'scripts/review_flow.py').exists())
 
     def test_overlay_refuses_a_plugin_installed_under_both_marketplace_ids(self):
-        """Two caches for one plugin is ambiguous, so nothing is overwritten."""
+        """Two caches for one plugin is ambiguous, so the run ends before anything is written.
+
+        The duplicate is the LAST name overlays() iterates: a run that validated and copied
+        name by name would already have overlaid the earlier two and taken their backups
+        before reaching the ambiguity, and duplicating the first name could not see that.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             registry = self._overlay_profile(home, 'bymax-agent-kit')
-            legacy = home / 'plugins/cache/bymax-claude-code/bymax-quality'
+            legacy = home / 'plugins/cache/bymax-claude-code/bymax-pr'
             legacy.mkdir(parents=True)
-            registry['plugins']['bymax-quality@bymax-claude-code'] = [
+            registry['plugins']['bymax-pr@bymax-claude-code'] = [
                 dict(scope='user', installPath=str(legacy))]
             (home / 'plugins/installed_plugins.json').write_text(json.dumps(registry))
             result = subprocess.run(
@@ -200,8 +205,16 @@ class InstallTests(unittest.TestCase):
                  '--claude-home', tmp, '--local-plugin-overlay'],
                 capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn('bymax-quality', result.stderr)
+            self.assertIn('bymax-pr', result.stderr)
+            # Nothing written: no cache overlaid, no backup taken, no runtime deployed.
+            for name in ('bymax-quality', 'bymax-workflow', 'bymax-pr'):
+                cache = home / 'plugins/cache/bymax-agent-kit' / name
+                self.assertTrue((cache / 'commands/stale.md').exists(), name)
+                self.assertFalse((cache / 'commands/code-review.md').exists(), name)
             self.assertFalse((legacy / 'commands').exists())
+            self.assertFalse((home / 'backups').exists())
+            self.assertFalse((home / 'bymax-review').exists())
+            self.assertFalse((home / 'settings.json').exists())
 
     def test_unknown_policy_boundary_is_not_overwritten(self):
         """An incomplete managed section fails before settings or policy change."""

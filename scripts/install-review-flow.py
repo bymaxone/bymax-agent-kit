@@ -105,8 +105,8 @@ def hook_settings(settings, hook, home):
     return settings
 
 
-def overlays(home, backup_dir):
-    """Overlay installed user plugin files without changing registry or marketplace source."""
+def overlay_targets(home):
+    """Resolve every installed plugin cache to overlay, or raise before anything is written."""
     registry = home / 'plugins/installed_plugins.json'
     if not registry.exists():
         raise ValueError('Install the Bymax quality, workflow and PR plugins with Claude first.')
@@ -124,6 +124,11 @@ def overlays(home, backup_dir):
         if not path.is_relative_to((home / 'plugins/cache').resolve()) or not path.is_dir():
             raise ValueError('Unexpected plugin cache path: ' + str(path))
         targets.append((name, path))
+    return targets
+
+
+def overlays(targets, home, backup_dir):
+    """Overlay resolved plugin caches without changing registry or marketplace source."""
     for name, path in targets:
         backup(path, backup_dir, home)
         shutil.copytree(ROOT / 'plugins' / name, path, dirs_exist_ok=True,
@@ -139,14 +144,16 @@ def install(home, overlay):
     updated_policy = policy(policy_path.read_text() if policy_path.exists() else '')
     runtime = home / 'bymax-review'
     updated_settings = hook_settings(settings, runtime / 'review_push.py', home)
+    # Prevalidated means every target resolves before the first write: a rejected overlay
+    # must leave no backup directory behind, however many retries it takes to fix.
+    targets = overlay_targets(home) if overlay else []
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     backup_dir = home / 'backups' / ('bymax-review-' + stamp)
     backup_dir.mkdir(parents=True, mode=0o700)
     paths = [settings_path, policy_path, runtime, home / 'hooks/code-review-clear.sh']
     for path in paths:
         backup(path, backup_dir, home)
-    if overlay:
-        overlays(home, backup_dir)
+    overlays(targets, home, backup_dir)
     runtime.mkdir(parents=True, exist_ok=True)
     # review_flow.start installs review_prepush.py from beside itself, so the hook
     # source must travel with the runtime or no repository ever gets the hook.

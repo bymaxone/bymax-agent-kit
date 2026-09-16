@@ -160,8 +160,10 @@ and prints that directory — report the path to the human. It preserves unrelat
 unrelated hooks; it refuses (nonzero, no writes) when a legacy hook is chained to another command,
 which needs a hand migration.
 
-**Verify:** `python3 scripts/doctor.py --auth` exits 0. It reports no credentials. A nonzero exit
-names the missing, outdated or unauthenticated CLI/runtime — fix that, do not proceed.
+**Verify:** `python3 scripts/doctor.py --auth` prints one `ok` per prerequisite and reports no
+credentials. It requires `gh` and its login too, so on an install that skipped Step 4's `gh` row it
+exits nonzero on `gh` alone — read the named entries, not the exit code. Every entry except a `gh`
+one the human declined must be `ok` before proceeding.
 
 Do **not** pass `--local-plugin-overlay` for a user install: it copies this checkout over the
 installed plugin caches and is a repo-development flag. Prerequisites: macOS or Linux (the
@@ -204,7 +206,7 @@ claude plugin marketplace list   # bymax-agent-kit present, and bymax-claude-cod
 claude plugin list               # every chosen plugin present
 claude mcp list                  # every chosen MCP present (if Step 5 ran)
 gh auth status                   # exit 0 (only if bymax-pr or bymax-qa installed)
-python3 scripts/doctor.py --auth # exit 0 (only if Step 4.5 ran)
+python3 scripts/doctor.py --auth # only if Step 4.5 ran; a declined gh is the one allowed failure
 ```
 
 Report a pass/fail summary per step to the human. Done.
@@ -230,7 +232,7 @@ Report a pass/fail summary per step to the human. Done.
 | `marketplace add` fails | Network/auth → retry once; still failing → report to human with the exact error |
 | `plugin install` fails | Marketplace-name typo — it is `@bymax-agent-kit` (hyphens), never `@bymax.agent-kit`; and never the old `@bymax-claude-code`, which no longer matches the registered marketplace |
 | `install-review-flow.py` exits nonzero naming another hook | A legacy guard chained to somebody else's command. It refuses rather than deleting it — **hand the exact stderr to the human**; do not edit `settings.json` yourself |
-| `doctor.py --auth` nonzero | It names the CLI/runtime that is missing, outdated or unauthenticated. `codex login` and `claude auth login` are interactive → HUMAN HANDOFF |
+| `doctor.py --auth` nonzero | It names the CLI/runtime that is missing, outdated or unauthenticated; `gh` counts, so a declined `gh` row is a nonzero exit with nothing wrong. `codex login` and `claude auth login` are interactive → HUMAN HANDOFF |
 | `install-codex.sh` stops on the marketplace name | A `bymax-codex` marketplace already points at another checkout. It refuses to replace it — ask the human which checkout is current |
 | Commands missing after install | Step 3 restart not done → hand off to the human again |
 | MCP server missing from `claude mcp list` | Re-run the `claude mcp add` line; if listed but inactive, check `enabledMcpjsonServers` in `~/.claude/settings.local.json` |

@@ -76,8 +76,9 @@ The same procedures ship in the Codex package as `bymax-code-review`, `bymax-cod
 
 ### The review runtime
 
-`scripts/` holds the campaign state machine, deployed to `~/.claude/bymax-review/` by
-`scripts/install-review-flow.py` at the repository root:
+`scripts/` holds the campaign state machine. `scripts/install-review-flow.py` at the
+repository root deploys the first six rows to `~/.claude/bymax-review/`; the last stays
+in the plugin and is invoked from there:
 
 | File | Role |
 | --- | --- |
@@ -86,8 +87,8 @@ The same procedures ship in the Codex package as `bymax-code-review`, `bymax-cod
 | `review_push.py` | The `PreToolUse` Bash guard that turns a blocked push into a handoff instead of a dead end. |
 | `review_delivery.py` | The delivery ledger: the six-candidate budget shared across pushes and completed campaigns. |
 | `review_claude.py` | A constrained Claude CLI adapter, so a Codex-led session can obtain the independent Claude pass. |
-| `codex-review.sh` | A standalone second opinion outside a campaign (`codex exec review`, or the `openai-codex` plugin's adversarial mode). Bounded campaigns use `review_flow.py`, not this. |
 | `review-report.schema.json` | The report contract both reviewers return. A report with `status: incomplete` is rejected even when its findings list is empty. |
+| `codex-review.sh` (not deployed) | A standalone second opinion outside a campaign (`codex exec review`, or the `openai-codex` plugin's adversarial mode). Bounded campaigns use `review_flow.py`, not this. |
 
 ### Skill
 
