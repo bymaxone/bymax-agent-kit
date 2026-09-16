@@ -594,6 +594,24 @@ class ReviewFlowTests(unittest.TestCase):
         blind = self.start(ok=False, correction=True).stderr
         self.assertIn('no probe names them', blind)
 
+    def test_a_rejected_finding_is_not_blamed_on_the_correction(self):
+        """A rejection carries counterevidence: the correction did not produce that finding."""
+        self.start()
+        self.caused_round('first')
+        self.commit('fix')
+        self.start(correction=True, nit='')
+        resolutions = [dict(id='claude::code.txt:first', evidence='verified fixed')]
+        self.report('claude', [dict(id='code.txt:second', kind='defect', priority='P1', evidence='wrong')],
+                    resolutions=resolutions)
+        self.report('codex', resolutions=resolutions)
+        self.triage([dict(id='claude::code.txt:second', status='rejected', evidence='disproved: the guard is three lines up')])
+        entry = self.flow('status')['retrospectives'][-1]
+        self.assertEqual((entry['introduced'], entry['still_open']), ([], []))
+        self.assertIn('has produced a finding yet', self.text('lessons'))
+        self.commit('next')
+        self.assertEqual(self.start(correction=True)['round'], 3)
+        self.assertNotIn('the correction produced the finding', self.text('prompt'))
+
     def test_a_finding_elsewhere_is_not_blamed_on_the_correction(self):
         """Only a file the correction changed can carry a finding it introduced."""
         (self.repo / 'other.txt').write_text('untouched\n')

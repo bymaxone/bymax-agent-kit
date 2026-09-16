@@ -922,12 +922,13 @@ def retrospective(state, items):
     with the entry, because the next start resets the reports it came from. A blocker is
     unanswered unless rejected with counterevidence: deferring one is not answering it.
     """
+    # A rejection carries counterevidence: the finding was disproved, so the correction
+    # did not produce it. Only confirmed attributions are recorded, read or counted.
     unanswered = {i['id'] for i in items if i['status'] != 'rejected'}
-    caused = self_inflicted(state)
+    caused = [k for k in self_inflicted(state) if k in unanswered]
     evidence = {key(name, f['id']): f['evidence'][:240]
                 for name, report in state['reviews'].items() for f in report['findings']}
-    entry = dict(round=state['round'], introduced=caused,
-                 still_open=[k for k in caused if k in unanswered],
+    entry = dict(round=state['round'], introduced=caused, still_open=caused,
                  evidence={k: evidence.get(k, '') for k in caused},
                  blocking=sum(1 for r in state['reviews'].values() for f in r['findings'] if blocks_a_receipt(f)))
     history = [r for r in state.get('retrospectives', []) if r['round'] != state['round']]
