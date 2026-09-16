@@ -168,6 +168,25 @@ the instruction to judge the deletion; they never count as regression evidence.
 A correction that adds or modifies no test is refused unless `--no-regression-reason` records
 why, and that reason reaches both reviewers for judgement.
 
+## Retrospective: did the correction cause the finding?
+
+A model cannot tell by rereading its own work whether its correction produced the next
+finding; a diff can. At `triage`, every blocking finding whose file the round's own
+correction changed is recorded as introduced by that correction, round by round, in the
+campaign state. Three things follow, all enforced by `start`:
+
+- `python3 "$FLOW" lessons` prints those findings with their evidence and the checklist
+  they imply. Read it **before writing the next correction**, not after.
+- Each such finding still open needs a probe entry with `"covers": "<finding id>"`: the
+  case it exposed is the case you show being tried. A probe of something else does not
+  answer it.
+- Two consecutive triages with such findings open make the next round a design round,
+  declared with `--design-round`: the mechanism is rewritten against its full case list
+  or deleted, never patched a third time.
+
+Both reviewers are told when the previous correction produced findings, so they look
+first at whether the new one repeats the pattern.
+
 `start` refuses a correction round that changes a file no open finding names. This is
 where a correction becomes the next review's subject: the finding names one file, the fix
 arrives with a mechanism beside it, and the next round is spent on that mechanism. Revert
