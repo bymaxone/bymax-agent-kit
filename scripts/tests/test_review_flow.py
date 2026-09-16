@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 FLOW = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
+sys.path.insert(0, str(FLOW.parent))
 PUSH = FLOW.with_name('review_push.py')
 
 
@@ -60,7 +61,7 @@ class ReviewFlowTests(unittest.TestCase):
         return result.stdout.strip()
 
     def start(self, ok=True, correction=False, design=False, probe=None, reason='fixture: no test needed',
-              nit='fixture: no blocking finding in play', widen=''):
+              nit='fixture: no blocking finding in play', widen='', answers=(), extend='', autonomous=False):
         """Start or reuse a candidate; a correction round carries its probe and test evidence.
 
         A round needs a blocking finding or a recorded reason for spending it on nits; a
@@ -76,6 +77,12 @@ class ReviewFlowTests(unittest.TestCase):
                 args += ['--nit-round', nit]
         if widen:
             args += ['--widen-scope', widen]
+        if answers:
+            args += ['--answers', *answers]
+        if extend:
+            args += ['--extend-delivery', extend]
+        if autonomous:
+            args.append('--autonomous')
         if design:
             args.append('--design-round')
         return self.flow(*args, ok=ok)

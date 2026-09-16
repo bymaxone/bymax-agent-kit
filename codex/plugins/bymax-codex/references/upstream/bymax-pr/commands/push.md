@@ -197,6 +197,8 @@ harness prompts for approval on `git commit`/`git push`, that is expected — le
 
 A push through Claude needs a completed Claude + Codex review receipt for the exact
 HEAD; the repository's `pre-push` hook and the Bash adapter both refuse it otherwise.
+Read the quality plugin `references/autonomous-delivery.md` and use `start --autonomous`.
+Its six-candidate ledger persists through PR feedback and successful intermediate pushes.
 This step obtains that receipt **without stopping to ask** — the user asked to ship, and
 shipping includes the review. Do it in this order:
 
@@ -205,7 +207,7 @@ shipping includes the review. Do it in this order:
    marker for a commit that already has one.
 2. Otherwise run the bounded campaign from `/bymax-quality:code-review` end to end:
    write the context (intent, acceptance, constraints, scope, the project's real gate
-   commands), `start` against the review base this block prints:
+   commands), `start --autonomous` against the review base this block prints:
 
    ```bash
    DEFAULT_REF=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)

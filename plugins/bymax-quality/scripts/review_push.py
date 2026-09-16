@@ -126,6 +126,9 @@ if __name__ == '__main__':
     try:
         main()
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
-        print('BLOCKED: ' + str(error) + '\nRun /bymax-quality:code-review with the bounded review protocol. '
-              'Reuse completed evidence; never restart a full review merely to push.', file=sys.stderr)
+        print('BLOCKED: ' + str(error) + '\nAUTOMATIC CONTINUATION: the authorized push is pending. '
+              'Run /bymax-quality:code-review using start --autonomous, reuse evidence, complete both '
+              'reviewers, triage proven blockers, run gates and finish. Retry the original push destination/refspec. '
+              'Do not ask whether to review or continue ordinary verified corrections. Keep the original scope '
+              'and six-candidate delivery budget; never bypass a real blocker or disable this hook.', file=sys.stderr)
         sys.exit(2)

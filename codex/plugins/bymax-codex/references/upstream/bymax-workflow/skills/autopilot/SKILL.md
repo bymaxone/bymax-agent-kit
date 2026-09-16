@@ -188,8 +188,12 @@ green"), and STOP.
   (`inherit` = omit the parameter). **ONE implementer at a time — never fan
   out** (see the playbook's memory-safety section for why this is
   non-negotiable).
-- The implementer returns a PR number and head branch. **Do not trust its
-  prose** — verify:
+- The implementer returns the worktree, branch, candidate HEAD and gate evidence.
+  Verify them in that worktree. As orchestrator, complete the quality plugin's
+  autonomous-delivery contract with `start --autonomous`, fresh Claude/Codex reviewers
+  and the shared six-candidate budget. Send only confirmed minimal corrections back to
+  the implementer. After clearance, push, create the PR and request the configured bot.
+  Then verify the actual PR:
 
   ```bash
   gh pr view <PR#> --json number,headRefName,state
@@ -228,16 +232,21 @@ addressed.
 - **`CI_FAILED` or `BOT_COMMENTED`** → the fix procedure (playbook §§ "Fix
   procedure" and "Resolving bot threads"): release the phase branch from the
   implementer's worktree first, then fix — inline in a fresh worktree or via
-  a fix sub-agent (escalate its model per the config) — addressing **every**
-  failing check and **every** bot comment, down to nit severity. Push,
+  a fix sub-agent (escalate its model per the config) — addressing verified failing checks and confirmed introduced blockers in one batch.
+  Defer nits and unrelated issues with evidence; do not edit merely to resolve every
+  comment. Keep the same six-candidate delivery ledger across watcher cycles. Push,
   resolve each thread one at a time citing the real fix SHA, then return to
   STEP 2 with a new watcher.
 - **`BOT_TIMEOUT`** → the unresponsive-bot procedure (playbook § "Review-bot
   request"): confirm with a fresh read that no review arrived, remove the
   stale request (`gh pr edit <N> --remove-reviewer <bot-slug>`), leave one
   factual PR comment as the audit trail, then re-evaluate the gate CI-only
-  (safe: the implementer already completed the bounded review protocol before the PR
+  (safe: the orchestrator already completed independent dual review before the PR
   opened). Gate holds → STEP 4.
+- **`BOT_REREVIEWED` or `GRACE_NO_REVIEW`** → fetch current HEAD, reviews and checks,
+  triage any unprocessed review against current code and re-evaluate the merge gate.
+  A clean review leads to STEP 4 when the gate holds; never push an empty correction
+  merely because the review arrived after the commit.
 - **`READY_TO_MERGE`** → STEP 4.
 
 ### STEP 4: Merge — only after the grace window, then delete the branch

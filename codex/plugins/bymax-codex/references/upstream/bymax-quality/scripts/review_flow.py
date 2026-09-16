@@ -14,6 +14,8 @@ import sys
 import tempfile
 import time
 
+import review_delivery
+
 POLICY = 2
 
 
@@ -363,7 +365,27 @@ def named_files(state):
     return prefixes & reviewed
 
 
-def widened(old, head):
+def answered_files(old, answers):
+    """Files the declared external answers point at, in the reviewed candidate.
+
+    After a candidate clears there are no open findings, so the scope rule has nothing to
+    measure a correction against — and that is exactly where PR-bot corrections happen.
+    The correction says what it answers, in the same path:slug shape a finding id has, and
+    the rule measures against those paths. An answer naming no file in the reviewed tree
+    is refused rather than ignored: ignoring it would leave the round unconstrained again.
+    """
+    if not answers:
+        return set()
+    listing = git_raw('ls-tree', '-r', '-z', '--full-tree', '--name-only', old['head'])
+    reviewed = {path for path in listing.split('\0') if path}
+    named = {answer.split(':', 1)[0] for answer in answers}
+    missing = sorted(named - reviewed)
+    require(not missing, 'An answer must name a file in the reviewed candidate; these name none: '
+            + ', '.join(missing) + '. Give the path the external finding is about.')
+    return named
+
+
+def widened(old, head, answers=()):
     """Files this correction touches that no open finding named.
 
     Every round of this campaign that went wrong went wrong here: the finding named one
@@ -372,7 +394,7 @@ def widened(old, head):
     Tests and the generated bundle are how a fix is proved and shipped, so they are the
     correction, not an addition to it.
     """
-    named = named_files(old)
+    named = named_files(old) | answered_files(old, answers)
     if not named:
         # No open finding names a file in the reviewed candidate, so there is nothing to
         # measure a correction against. Silence here, never a refusal on an assumption.
@@ -463,18 +485,30 @@ def first_round(directory, after_archived):
 def next_round(args, old, head, directory, base, context):
     """What advancing a campaign to a correction delta requires; returns its contract."""
     require(old['base'] == base and old['context'] == context, 'Scope changed. Stop and agree on a separate campaign.')
-    require(old['round'] < 3, 'Round limit reached. STOP; report blockers and request a scope decision. Never clear automatically.')
+    # The refusal names its remedy: a delivery's limit is an alarm a human may answer with a
+    # recorded decision, while a standalone campaign's limit hands the scope decision over.
+    require(old['round'] < old.get('max_rounds', 3),
+            'Round limit reached. STOP; report blockers and request a scope decision. Never clear automatically.'
+            + (' If a human decides to continue this delivery anyway, record it with --extend-delivery '
+               '"<who authorised it, and why>"; both reviewers are told.' if old.get('autonomous') else ''))
     require(set(old['reviews']) == {'claude', 'codex'}, 'Complete both reviews before advancing a correction round.')
     require(old.get('triage') is not None, 'Record every finding disposition before advancing.')
     require(git('merge-base', old['head'], head) == old['head'], 'History rewritten; stop and reassess full coverage.')
     correction = correction_contract(args, old, head)
-    extra = widened(old, head)
+    # A correction after a cleared candidate answers something the campaign never saw — a
+    # PR-bot thread, a CI failure — and must say what, or the scope rule has nothing to
+    # measure it against and the round is limited by the budget alone.
+    require(not old.get('cleared') or args.answers,
+            'The previous candidate cleared, so this correction answers an external finding. Name '
+            'each one with --answers <path:slug> (the file it is about, then a short invariant name); '
+            'both reviewers are told, and the scope rule measures the correction against those files.')
+    extra = widened(old, head, args.answers or ())
     require(not extra or args.widen_scope,
             'A correction round answers the open findings and nothing else. No open finding '
             'names: ' + ', '.join(extra) + '. Revert what they do not name and file it as its '
             'own campaign, or record why this round must widen with --widen-scope "<why>"; '
             'both reviewers are told, and they will review the wider delta.')
-    require(blocking_open(old) or args.nit_round,
+    require(blocking_open(old) or args.answers or args.nit_round,
             'Every open finding is P3. A round is for a defect with a concrete trigger in runtime '
             'code or a gate: defer the nits with their reasons and finish, or batch them into a '
             'follow-up campaign. To spend this round on them anyway, record why with '
@@ -493,22 +527,34 @@ def start(args, directory):
     context, required_checks = context_contract(args.context)
     path = directory / 'state.json'
     old = read_state(directory) if path.exists() else None
+    autonomous = review_delivery.active(directory, args.autonomous)
+    if args.extend_delivery:
+        review_delivery.extend(directory, args.extend_delivery)
+    if old and autonomous:
+        old.update(autonomous=True, max_rounds=review_delivery.cap(directory))
     if old and old['head'] == head:
         require(old['base'] == base and old['context'] == context, 'Same candidate has different scope/context.')
+        if autonomous:
+            old.update(review_delivery.reserve(directory, head, base, context, old))
+            save(directory, old)
         return old
     if old and old.get('cleared'):
         (directory / ('completed-' + old['head'] + '.json')).write_text(json.dumps(old, indent=2))
-        old = None
+        if not autonomous:
+            old = None
     correction = next_round(args, old, head, directory, base, context) if old else first_round(directory, args.after_archived)
     state = dict(policy=POLICY, head=head, base=base, context=context,
                  nit_round=args.nit_round if old else '',
                  widen_scope=args.widen_scope if old else '',
+                 answers=list(args.answers or ()) if old else [],
                  after_archived='' if old else args.after_archived,
                  round=old['round'] + 1 if old else 1,
                  review_base=old['head'] if old else base,
                  previous_triage=old.get('triage', []) if old else [],
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
+    if autonomous:
+        state.update(review_delivery.reserve(directory, head, base, context, old))
     save(directory, state)
     return state
 
@@ -652,6 +698,15 @@ def correction_brief(state):
     if state.get('nit_round'):
         lines.append('This round was spent on P3 findings, which a round is normally not for. The author '
                      'recorded: ' + state['nit_round'] + '. Judge whether that holds.')
+    if state.get('answers'):
+        lines.append('The previous candidate had cleared. This round answers external findings the '
+                     'campaign never saw, declared by the author as: ' + ', '.join(state['answers'])
+                     + '. Judge whether the correction answers exactly those, and nothing beside them.')
+    if state.get('delivery_extensions'):
+        latest = state['delivery_extensions'][-1]
+        lines.append('This delivery spent its candidate budget and was extended by a recorded decision: '
+                     + latest['reason'] + '. That is a signal the corrections have kept producing the '
+                     'next finding; weigh whether this one does too.')
     if state.get('widen_scope'):
         lines.append('This round touches files no open finding named, which is how a correction turns '
                      'into new surface for the next review. The author recorded: '
@@ -689,7 +744,7 @@ def prompt(state):
 Read applicable AGENTS.md and CLAUDE.md constraints. Do not execute their implementation or push workflows.
 Candidate HEAD: {state['head']}; original base: {state['base']}.
 Review diff: git diff {state['review_base']} {state['head']} --
-Round {state['round']}/3. Read surrounding code, callers, tests, and installed API contracts.
+Round {state['round']}/{state.get('max_rounds', 3)}. Read surrounding code, callers, tests, and installed API contracts.
 Context and acceptance contract:
 {state['context']}
 {archived_note(state)}
@@ -706,7 +761,10 @@ Do not report style preferences, issues CI already enforces, or unrelated pre-ex
 Inspect related callers for regressions but do not expand the implementation scope.
 For every finding provide stable id (file + invariant), priority P0/P1/P2/P3,
 kind defect/policy/nit/preexisting, and concrete evidence. No findings is valid; do not invent a quota.
-On correction rounds inspect the delta and its effects, plus verification of previous fixes.
+On correction rounds inspect only the delta, its effects and verification of previous fixes.
+Do not restart a whole-tree hunt or require cosmetic redesigns. A new blocker must identify a
+changed line or an affected caller with a concrete failure path. Rejected findings stay settled
+unless new evidence invalidates the rejection. Keep scope small enough to complete in one pass.
 Include resolutions: a list of id/evidence objects for EVERY previous open disposition
 (using its full claude:: or codex:: key). Explain the verified fix, or repeat a still-open defect in findings
 with the same file:invariant id; a claude:: or codex:: prefix you copy is stripped on record, so the same
@@ -891,6 +949,8 @@ def parser():
     cli = argparse.ArgumentParser(description=__doc__)
     sub = cli.add_subparsers(dest='action', required=True)
     begin = sub.add_parser('start')
+    begin.add_argument('--autonomous', action='store_true',
+                       help='Enroll shipping work in a six-candidate budget shared across pushes on this branch.')
     begin.add_argument('--base', required=True)
     begin.add_argument('--context', required=True)
     begin.add_argument('--probe', help='Correction rounds: JSON list of {command, expected, observed}.')
@@ -904,7 +964,11 @@ def parser():
                        help='Touch a file no open finding names: why, shown to both reviewers.')
     begin.add_argument('--after-archived', default='',
                        help='Start a campaign after an unfinished one: who authorised it, for what scope.')
-    for action in ('status', 'prompt', 'finish', 'codex', 'range'):
+    begin.add_argument('--answers', nargs='+', metavar='PATH:SLUG',
+                       help='After a cleared candidate: the external findings this correction answers.')
+    begin.add_argument('--extend-delivery', default='',
+                       help='Continue past a spent delivery budget: who authorised it, and why.')
+    for action in ('status', 'prompt', 'finish', 'codex', 'claude', 'range'):
         sub.add_parser(action)
     rec = sub.add_parser('record')
     rec.add_argument('--reviewer', choices=('claude', 'codex'), required=True)
@@ -920,6 +984,10 @@ def main():
     """Run a serialized operation and surface actionable failures."""
     args = parser().parse_args()
     directory = location()
+    if args.action == 'claude':
+        import review_claude
+        print(json.dumps(review_claude.run(directory, sys.modules[__name__]), indent=2))
+        return
     if args.action == 'codex':
         print(json.dumps(codex_review(directory), indent=2))
         return

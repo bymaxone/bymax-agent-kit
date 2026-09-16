@@ -33,6 +33,8 @@
 
 ## ✨ Overview
 
+**Installing or updating?** Start with [INSTALL.md](./INSTALL.md) for prerequisites, both runtimes, hooks, authentication and verification.
+
 **Using Codex?** Read [CODEX.md](./CODEX.md) for the separate Codex package, one-command installation, native code review, and capability boundaries. The Claude installation below is unchanged.
 
 **Bymax Claude Code** is a production-ready toolkit that turns Claude Code into a **disciplined senior engineer**. Instead of ad-hoc prompts, you get:
@@ -224,7 +226,7 @@ Strict quality gates and specialist reviewers.
 
 | Item                    | Purpose                                                                                                                                    |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/code-review` | Bounded Claude + Codex review: shared context, pinned candidate, verified findings, correction deltas and explicit check evidence. Maximum initial review plus two correction rounds. Nits do not force a loop; missing reviewers leave certification incomplete. |
+| `/code-review` | Bounded Claude + Codex review: shared context, pinned candidate, verified findings, correction deltas and explicit check evidence. Standalone review permits three candidates; autonomous delivery permits six across pushes. Nits do not force a loop; missing reviewers leave certification incomplete. |
 | `/codex-setup`          | Installs + authenticates the Codex CLI that powers `code-review`'s independent second review (Homebrew cask or npm), then verifies it with a real review run. Optional — everything works without it. |
 | `/review-md`            | Generates a repo-root `REVIEW.md` so Anthropic's cloud Code Review (`@claude review`, `/code-review ultra`) enforces the same Bymax rules the local gate blocks on. |
 | `/tdd`                  | Strict red-green-refactor cycle (Jest/Vitest or Rust `#[test]`/`cargo test`). Forces failing test before implementation. 80%+ coverage minimum. |
@@ -382,8 +384,8 @@ Skip the heavy chain — use `/plan` (single PR), then `/tdd` (new code) or the 
       ORCHESTRATOR (main session, long-lived, small context)
         ├─ spawns ONE implementer sub-agent in an isolated git worktree
         │    └─ IMPLEMENTER: executes the phase's task files → runs every gate
-        │       → /bymax-quality:code-review + /security-review iterated to ZERO findings
-        │       → opens the PR, requests the review bot, returns the PR number, STOPS
+        │       → gates run; /security-review candidates verified, never iterated to zero
+        │       → returns committed candidate and evidence; orchestrator certifies, pushes and opens PR
         ├─ watches CI + review bot via background signals (never a dead gap)
         ├─ fixes every finding (escalating the model when a phase stalls)
         ├─ merges ONLY on the full gate conjunction + grace window
@@ -681,7 +683,7 @@ Inspired by:
 ## Bounded Claude and Codex review
 
 `/bymax-quality:code-review` uses one Claude pass and one Codex pass with the same pinned
-scope and context, then at most two correction rounds. It verifies findings before edits
+scope and context. Autonomous shipping uses six candidates across pushes; standalone review uses three. It verifies findings before edits
 and records evidence for the exact pushed commit. See the
 [protocol](plugins/bymax-quality/references/review-protocol.md) for setup and limitations.
 Install the global Claude policy/guard and a local plugin overlay with

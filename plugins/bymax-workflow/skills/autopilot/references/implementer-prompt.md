@@ -22,10 +22,10 @@ verbatim to the implementer sub-agent (Agent tool, `isolation: "worktree"`,
 ---
 
 ```
-You implement ONE phase of {{GITHUB_REPO}} end-to-end up to OPENING A PR and
-REQUESTING the code review, then you STOP and return the PR number. You do
-NOT wait for the review bot, you do NOT merge, you do NOT spawn any agent.
-The orchestrator owns all of that.
+You implement ONE phase through its local candidate commit and gates, then return the
+worktree, branch, HEAD, context and check evidence to the orchestrator. Do NOT push,
+open a PR, wait for a bot, merge, self-review or spawn any agent. The orchestrator owns
+independent certification, corrections, push and PR creation.
 
 Project root: {{PROJECT_ROOT}}
 GitHub repo:  {{GITHUB_REPO}}
@@ -40,11 +40,10 @@ do not touch the main tree or any other agent. Create your branch with
 ARCHITECTURE OVERRIDE (supersedes any phase-close wording in the task file):
 if the phase-close task says to wait for review, address findings, and
 merge — under this run you execute the phase-close ONLY up to:
-acceptance-criteria audit, dashboard updates, final commit, `gh pr create`,
-requesting the code review, returning the PR number. Waiting, fixing review
-findings, resolving threads, the grace window, the merge, the branch
-deletion, and the final "mark phase Done" commit are OWNED BY THE
-ORCHESTRATOR.
+acceptance-criteria audit, dashboard updates, final candidate commit and local gates.
+Return the worktree/branch/HEAD and evidence. Independent reviews, review corrections,
+push, PR creation, requesting the bot, waiting, resolving threads, merging and final
+phase completion are OWNED BY THE ORCHESTRATOR.
 
 YOUR PHASE: Phase {{PHASE_NUMBER}}.
 Read {{PHASE_FILE}} (Context, Rules-of-phase, the Task index, and the task
@@ -95,34 +94,17 @@ Invariant greps (each must find nothing):
 {{INVARIANT_GREPS}}
 
 ────────────────────────────────────────────────────────────────────────────
-STEP 3: Bounded Claude + Codex review
+STEP 3: Return the candidate for independent certification
 ────────────────────────────────────────────────────────────────────────────
-Verify security candidates against code and tests before fixing them. Complete the
-phase-close edits and authorized candidate commit before certification; do not push yet.
-Invoke `/bymax-quality:code-review full` with the phase context and actual integration
-base. Use one Claude pass and one Codex pass. Triage every finding; fix confirmed
-introduced blockers, defer nits/unrelated work with reasons. Re-run STEP 2 gates after
-fixes. Both reviewers verify correction deltas and earlier open findings. Maximum three
-candidate rounds total; on exhaustion return BLOCKED with evidence to the orchestrator.
-Never iterate until zero findings, reset the campaign, or add a third mandatory reviewer.
-Any further commit in STEP 4 needs its own covered delta before push.
+Complete all phase-close edits (including dashboards) and authorized candidate commits.
+Run STEP 2 gates. Return the worktree path, branch, exact HEAD, original integration
+base, acceptance context, gate commands/results and any limitations. Do not mark the
+candidate reviewed: the orchestrator must run independent Claude and Codex passes under
+the autonomous delivery contract, repair only confirmed blockers and then push/open PR.
 Special attention for this project:
 {{SECURITY_FOCUS}}
-Re-run the STEP 2 gates after the review fixes.
-
-────────────────────────────────────────────────────────────────────────────
-STEP 4: Open the PR, request the review, return the number, STOP
-────────────────────────────────────────────────────────────────────────────
-Execute the phase-close task up to the override boundary: acceptance-criteria
-audit, dashboard updates ({{ROADMAP_FILE}} row + counters, {{TASKS_INDEX}}
-mirror, {{PHASE_FILE}} header + completion log), final Conventional Commit,
-push, then:
-  gh pr create --title "<type>(<scope>): phase {{PHASE_NUMBER}}, <phase title>" \
-    --body "<professional summary: deliverables, acceptance criteria met, gate evidence>"
-  {{REVIEW_BOT_LINE}}
-Return EXACTLY the PR number and head branch as your final message, e.g.
-"PR #7 on branch feat/phase-{{PHASE_NN}}-{{BRANCH_SLUG}}". Do NOT wait for
-CI or the review bot. Do NOT merge. Do NOT spawn anything. STOP.
+If the orchestrator returns accepted blockers, repair only those with regression evidence,
+commit and return the new candidate. Do not renew the delivery budget or start reviewers.
 
 ────────────────────────────────────────────────────────────────────────────
 MANDATORY CONVENTIONS

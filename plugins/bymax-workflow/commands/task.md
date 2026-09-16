@@ -98,8 +98,10 @@ introduced defects with regression evidence; do not blindly apply scanner prose.
 ### 1.5 — Bounded code review
 
 Use `/bymax-quality:code-review` and its shared context/triage protocol. Both Claude and
-Codex review committed release candidates, with at most two correction rounds after the
-initial pass. Fix confirmed blockers; defer nits and unrelated work with reasons.
+Codex review committed release candidates. Shipping uses the shared six-candidate
+autonomous delivery budget; standalone review keeps its three-candidate budget. Fix confirmed blockers; defer nits and unrelated work with reasons.
+An implementer subagent returns its candidate and evidence to the orchestrator for the
+fresh reviewer pair; it never performs self-review or spawns nested reviewers.
 A task that is not authorized to commit may request one `--preview` pair over its work;
 label that result provisional. Push clearance is performed after the authorized candidate
 commit, not by repeatedly reviewing the dirty tree. Never create a commit in this command.

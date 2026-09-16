@@ -69,3 +69,6 @@ personal/*.local.*
 # go, it moves the original to <name>.bak-<TIMESTAMP> before writing the
 # symlink. Throwaway safety copies — not source of truth.
 *.bak-*
+
+# Codex workflow state and local audit evidence
+.bymax/codex/

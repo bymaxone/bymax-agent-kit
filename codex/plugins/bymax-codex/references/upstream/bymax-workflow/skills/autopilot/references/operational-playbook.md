@@ -20,7 +20,7 @@ naive design.
 │  • Verifies external preconditions before each phase.                     │
 │  • Spawns ONE implementer sub-agent per phase (isolated git worktree).    │
 │  • Picks the implementer's model per the config's model policy.           │
-│  • Receives the PR number the implementer returns.                        │
+│  • Certifies the candidate, pushes and opens its PR.                        │
 │  • Owns every long wait: CI, review bot, grace window — via background    │
 │    watchers that exit on a SIGNAL, plus a ScheduleWakeup fallback.        │
 │  • Merges after the full gate conjunction, updates dashboards, chains     │
@@ -31,8 +31,8 @@ naive design.
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ IMPLEMENTER  (a sub-agent: one per phase, in its own worktree)            │
 │                                                                           │
-│  • Implements every task, runs the gates, completes bounded reviews,   │
-│    opens the PR, requests the review bot, returns the PR number, STOPS.   │
+│  • Implements tasks, commits the candidate and runs gates;   │
+│    returns the worktree/HEAD and evidence to the orchestrator, STOPS.   │
 │  • NEVER waits for the review bot. NEVER merges. NEVER spawns anything.   │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
@@ -75,16 +75,19 @@ only when **ALL** hold:
   the config's review-bot timeout with no review submitted is treated as
   bot-unresponsive and cleared (§9) — it must never hold the gate forever.
 - **No open bot threads**: every `reviewThreads` node `isResolved: true`.
-- **No bot review newer than the pending HEAD**: compare each
-  `reviews[].submittedAt` against `commits[-1].committedDate`.
+- **Every arrived review triaged**: fetch reviews and current `headRefOid` again;
+  inspect the review's `commit.oid` where available and record processed review IDs.
+  A clean review of the current HEAD is evidence to proceed, not a reason to push
+  another commit. Revalidate stale findings against current code before acting.
 - **Grace elapsed**: the config's grace window (default **≥ 4–5 min**) since
   the last push, measured concretely — record the push timestamp, compute
   the elapsed time; never eyeball it.
 
 After a fix-push, the watcher has **three valid exit criteria**:
 
-- `BOT_REREVIEWED` — a review with `submittedAt` > HEAD `committedDate`
-  arrived, **or**
+- `BOT_REREVIEWED` — a previously unprocessed review ID arrived; triage it against
+  current HEAD, then emit `BOT_COMMENTED` for confirmed blockers or re-evaluate
+  `READY_TO_MERGE` after grace. A clean review does not create another push, **or**
 - `GRACE_NO_REVIEW` — `reviewRequests` empty **and** the grace window
   elapsed with no new review (covers PRs where the bot does not re-review),
   **or**
@@ -104,12 +107,12 @@ the gate opens.
    that created it; git refuses to check the same branch out in two
    worktrees. If the implementer's worktree still holds it:
    `git worktree remove <path> --force`.
-2. **Fix everything, not a sample.** Address **every** failing check and
-   **every** bot comment — all severities, down to nit. Partial fixes
-   restart the whole review cycle and cost more than they save. Fix inline
-   in a fresh worktree on the phase branch, or spawn a fix sub-agent
-   (worktree isolation, model escalated per the config — especially for
-   security-review findings).
+2. **Triage before editing.** Verify each bot suggestion against current code and a
+   reproduction. Batch confirmed introduced blockers; defer nits and unrelated issues
+   with reasons. Apply the autonomous-delivery contract using the same persistent
+   six-candidate ledger across every fix-push. Fresh comments do not renew it.
+   The orchestrator owns the independent reviewers; a fix subagent only returns a
+   committed correction and regression evidence. No reviewer may grade its own fix.
 3. **Local gates before pushing.** The same gates the implementer ran; a fix
    that breaks other tests is worse than the original failure.
 4. Push, then resolve threads (next section), then start a **new** watcher.
@@ -209,7 +212,7 @@ gh api graphql -f query='mutation{resolveReviewThread(input:{threadId:"<FRESH_ID
 |---|---|
 | CI status | `gh pr checks <N> --json bucket` → count `pass` / `fail` / `pending` (config says which `skipping` are expected) |
 | Pending review request | `gh pr view <N> --json reviewRequests` (empty = nothing queued) |
-| Re-review detection | `reviews[].submittedAt` vs `commits[-1].committedDate` |
+| Re-review detection | Fresh review IDs and reviewed `commit.oid` versus current `headRefOid` |
 | Open threads | GraphQL `reviewThreads.nodes[]` → `isResolved`, `viewerCanResolve`, `comments[0].databaseId` |
 | PR identity | `gh pr view <N> --json number,headRefName,state,mergeStateStatus` |
 | Failing job log | `gh run view <run-id> --log-failed` |
@@ -225,14 +228,14 @@ the verdict to a scratchpad file the orchestrator reads on re-invocation.
 ## 9. Review-bot request
 
 If the config names a review bot (e.g. GitHub Copilot code review), the
-implementer requests it right after `gh pr create`:
+orchestrator requests it right after `gh pr create`:
 
 ```bash
 gh pr edit <PR#> --add-reviewer copilot-pull-request-reviewer[bot]
 ```
 
-If the reviewer slug is rejected, the implementer notes it in its final
-message and the orchestrator requests the review via the UI-equivalent API
+If the reviewer slug is rejected, the orchestrator records the failure and
+requests the review via the UI-equivalent API
 or proceeds with CI-only gating — the merge-gate conjunction adapts (no
 pending-review / no-threads terms still apply to whatever reviews exist).
 
@@ -255,10 +258,10 @@ implementer split exists to prevent. The bound is the config's
    that do exist) and proceeds normally.
 
 This is safe because the review floor was already enforced **before the PR
-opened**: the implementer iterated /bymax-quality:code-review and
+opened**: the orchestrator completed independent dual review and
 security verification with no unresolved confirmed blockers. The bot is a second opinion, not the
 only gate — a dead second opinion must not become an infinite wait. If the
 bot reviews *after* the timeout cleared it, the normal rules resume: its
 threads must be resolved before merge (the no-open-threads and
-no-newer-review terms still apply to whatever arrives before the merge
+all-arrived-reviews-triaged terms still apply to whatever arrives before the merge
 actually executes).
