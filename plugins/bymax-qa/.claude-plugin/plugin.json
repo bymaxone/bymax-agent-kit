@@ -1,14 +1,14 @@
 {
   "name": "bymax-qa",
   "description": "Whole-system QA and security audit for any project, with evidence and hand-off. Point /bymax-qa:audit at a target: a Jira ticket key (it verifies Jira access, reads the acceptance criteria, and reports each PASS/FAIL/BLOCKED/NOT-VERIFIABLE with evidence), a branch or ref range or PR (it scopes the hunt to the change, like a code review), or nothing (the whole system via a signed scope). It maps the stack and its trust boundaries, hunts by domain (authentication, authorization and tenant isolation, injection and input, cache/Redis, database/Postgres, observability, transport and config, architecture, frontend, supply chain) with read-only finder agents, probes the running stack against the allow-listed hosts only, and admits a finding only after verification: a runnable reproduction, captured evidence and verified impact, with an independent verifier for every hunted candidate. Every finding carries ASVS 5.0, CWE and API Top 10 references, a CVSS vector, and a status that moves OPEN → HANDED-OFF → FIX-CLAIMED → VALIDATED or REOPENED. Fixes are never applied by the auditor: findings are handed to the owning peer session over cross-session messaging, filed as GitHub issues when no peer is live, or written back to the ticket as a comment, and re-tested before they close. A PreToolUse hook is a floor under the scope while an audit is active: a network tool in command position may only reach allow-listed hosts, and a Write/Edit tool call may only land in .claude/qa/ (arbitrary Bash writes and unlisted network binaries rest on the skill's never-edit-the-target discipline and its read-only finders). External scanners (semgrep, gitleaks, osv-scanner, trivy, zap, nuclei, axe, Lighthouse) are used when present and never bundled.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": {
     "name": "Bymax One",
     "email": "support@bymax.one",
     "url": "https://github.com/bymaxone"
   },
   "license": "MIT",
-  "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-qa",
+  "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-qa",
   "keywords": [
     "qa",
     "security",

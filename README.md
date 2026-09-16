@@ -1,18 +1,21 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/%40bymaxone-claude--code-A3FF3C?style=for-the-badge&logo=anthropic&logoColor=000000" alt="@bymaxone/claude-code" />
+  <img src="https://img.shields.io/badge/Claude_Code-8_plugins-D97757?style=for-the-badge&logo=claude&logoColor=white&labelColor=000000" alt="Claude Code — 8 plugins" />
+  &nbsp;
+  <img src="https://img.shields.io/badge/Codex-27_skills-10A37F?style=for-the-badge&logoColor=white&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxZW0iIGhlaWdodD0iMWVtIiB2aWV3Qm94PSIwIDAgMjQgMjQiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik0yMi4yODIgOS44MjFhNiA2IDAgMCAwLS41MTYtNC45MWE2LjA1IDYuMDUgMCAwIDAtNi41MS0yLjlBNi4wNjUgNi4wNjUgMCAwIDAgNC45ODEgNC4xOGE2IDYgMCAwIDAtMy45OTggMi45YTYuMDUgNi4wNSAwIDAgMCAuNzQzIDcuMDk3YTUuOTggNS45OCAwIDAgMCAuNTEgNC45MTFhNi4wNSA2LjA1IDAgMCAwIDYuNTE1IDIuOUE2IDYgMCAwIDAgMTMuMjYgMjRhNi4wNiA2LjA2IDAgMCAwIDUuNzcyLTQuMjA2YTYgNiAwIDAgMCAzLjk5Ny0yLjlhNi4wNiA2LjA2IDAgMCAwLS43NDctNy4wNzNNMTMuMjYgMjIuNDNhNC40OCA0LjQ4IDAgMCAxLTIuODc2LTEuMDRsLjE0MS0uMDgxbDQuNzc5LTIuNzU4YS44LjggMCAwIDAgLjM5Mi0uNjgxdi02LjczN2wyLjAyIDEuMTY4YS4wNy4wNyAwIDAgMSAuMDM4LjA1MnY1LjU4M2E0LjUwNCA0LjUwNCAwIDAgMS00LjQ5NCA0LjQ5NE0zLjYgMTguMzA0YTQuNDcgNC40NyAwIDAgMS0uNTM1LTMuMDE0bC4xNDIuMDg1bDQuNzgzIDIuNzU5YS43Ny43NyAwIDAgMCAuNzggMGw1Ljg0My0zLjM2OXYyLjMzMmEuMDguMDggMCAwIDEtLjAzMy4wNjJMOS43NCAxOS45NWE0LjUgNC41IDAgMCAxLTYuMTQtMS42NDZNMi4zNCA3Ljg5NmE0LjUgNC41IDAgMCAxIDIuMzY2LTEuOTczVjExLjZhLjc3Ljc3IDAgMCAwIC4zODguNjc3bDUuODE1IDMuMzU0bC0yLjAyIDEuMTY4YS4wOC4wOCAwIDAgMS0uMDcxIDBsLTQuODMtMi43ODZBNC41MDQgNC41MDQgMCAwIDEgMi4zNCA3Ljg3MnptMTYuNTk3IDMuODU1bC01LjgzMy0zLjM4N0wxNS4xMTkgNy4yYS4wOC4wOCAwIDAgMSAuMDcxIDBsNC44MyAyLjc5MWE0LjQ5NCA0LjQ5NCAwIDAgMS0uNjc2IDguMTA1di01LjY3OGEuNzkuNzkgMCAwIDAtLjQwNy0uNjY3bTIuMDEtMy4wMjNsLS4xNDEtLjA4NWwtNC43NzQtMi43ODJhLjc4Ljc4IDAgMCAwLS43ODUgMEw5LjQwOSA5LjIzVjYuODk3YS4wNy4wNyAwIDAgMSAuMDI4LS4wNjFsNC44My0yLjc4N2E0LjUgNC41IDAgMCAxIDYuNjggNC42NnptLTEyLjY0IDQuMTM1bC0yLjAyLTEuMTY0YS4wOC4wOCAwIDAgMS0uMDM4LS4wNTdWNi4wNzVhNC41IDQuNSAwIDAgMSA3LjM3NS0zLjQ1M2wtLjE0Mi4wOEw4LjcwNCA1LjQ2YS44LjggMCAwIDAtLjM5My42ODF6bTEuMDk3LTIuMzY1bDIuNjAyLTEuNWwyLjYwNyAxLjV2Mi45OTlsLTIuNTk3IDEuNWwtMi42MDctMS41WiIvPjwvc3ZnPg%3D%3D" alt="Codex — 27 skills" />
 </p>
 
-<h1 align="center">Bymax Claude Code</h1>
+<h1 align="center">Bymax Agent Kit</h1>
 
 <p align="center">
-  <strong>A complete, opinionated toolkit for Claude Code</strong><br />
-  <sub>Phased Planning · Loop-Engineering Autopilot · Strict Quality Gates · Project Bootstrap · Mobile Sims · Battle-tested Templates</sub>
+  <strong>One engineering discipline, two coding agents</strong><br />
+  <sub>Phased Planning · Bounded Dual Review · Loop-Engineering Autopilot · QA &amp; Security Audit · Project Bootstrap · Battle-tested Templates</sub>
 </p>
 
 <p align="center">
-  <a href="https://github.com/bymaxone/bymax-claude-code/blob/main/LICENSE"><img src="https://img.shields.io/github/license/bymaxone/bymax-claude-code?style=flat-square&colorA=000000&colorB=000000" alt="license" /></a>
-  <a href="https://github.com/bymaxone/bymax-claude-code/stargazers"><img src="https://img.shields.io/github/stars/bymaxone/bymax-claude-code?style=flat-square&colorA=000000&colorB=000000" alt="stars" /></a>
-  <a href="https://github.com/bymaxone/bymax-claude-code"><img src="https://img.shields.io/badge/Claude_Code-marketplace-A3FF3C?style=flat-square&colorA=000000" alt="claude code marketplace" /></a>
+  <a href="https://github.com/bymaxone/bymax-agent-kit/blob/main/LICENSE"><img src="https://img.shields.io/github/license/bymaxone/bymax-agent-kit?style=flat-square&colorA=000000&colorB=000000" alt="license" /></a>
+  <a href="https://github.com/bymaxone/bymax-agent-kit/stargazers"><img src="https://img.shields.io/github/stars/bymaxone/bymax-agent-kit?style=flat-square&colorA=000000&colorB=000000" alt="stars" /></a>
+  <a href="./INSTALL.md"><img src="https://img.shields.io/badge/Claude_Code-marketplace-D97757?style=flat-square&colorA=000000&logo=claude&logoColor=white" alt="claude code marketplace" /></a>
+  <a href="./CODEX.md"><img src="https://img.shields.io/badge/Codex-plugin-10A37F?style=flat-square&colorA=000000" alt="codex plugin" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" /></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-edition%202024-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust" /></a>
   <a href="https://eslint.org/"><img src="https://img.shields.io/badge/ESLint-flat--config-4B32C3?style=flat-square&logo=eslint&logoColor=white" alt="ESLint" /></a>
@@ -22,6 +25,8 @@
 <p align="center">
   <a href="#-overview">Overview</a> ·
   <a href="#-quick-start">Quick Start</a> ·
+  <a href="#-what-runs-where">What runs where</a> ·
+  <a href="#-bounded-dual-review">Dual Review</a> ·
   <a href="#-plugins">Plugins</a> ·
   <a href="#-the-workflow">The Workflow</a> ·
   <a href="#-loop-engineering-the-autopilot">Loop Engineering</a> ·
@@ -31,94 +36,244 @@
 
 ---
 
+> **Renamed.** This project shipped as `bymax-claude-code` until v2.
+>
+> It is now **Bymax Agent Kit** — `bymaxone/bymax-agent-kit`. The name changed because the toolkit
+> is no longer Claude-only: the same procedures now ship as a **native Codex package** next to the
+> Claude Code marketplace, and the flagship review runs **both models against one pinned scope**.
+> A name that said "claude-code" described one of its two runtimes.
+>
+> The old GitHub URL redirects. The **marketplace id does not** — it moved from
+> `@bymax-claude-code` to `@bymax-agent-kit`, so an existing install needs three commands:
+> see [Migrating from `bymax-claude-code`](#migrating-from-bymax-claude-code).
+
+---
+
 ## ✨ Overview
 
-**Installing or updating?** Start with [INSTALL.md](./INSTALL.md) for prerequisites, both runtimes, hooks, authentication and verification.
+**Bymax Agent Kit** is a production-ready toolkit that turns a coding agent into a **disciplined
+senior engineer** — and it ships for both of the agents people actually run in a terminal.
 
-**Using Codex?** Read [CODEX.md](./CODEX.md) for the separate Codex package, one-command installation, native code review, and capability boundaries. The Claude installation below is unchanged.
+<table>
+<tr>
+<th width="50%"><img src="https://img.shields.io/badge/Claude_Code-D97757?style=flat-square&logo=claude&logoColor=white&labelColor=000000" alt="Claude Code" /></th>
+<th width="50%"><img src="https://img.shields.io/badge/Codex-10A37F?style=flat-square&logoColor=white&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxZW0iIGhlaWdodD0iMWVtIiB2aWV3Qm94PSIwIDAgMjQgMjQiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik0yMi4yODIgOS44MjFhNiA2IDAgMCAwLS41MTYtNC45MWE2LjA1IDYuMDUgMCAwIDAtNi41MS0yLjlBNi4wNjUgNi4wNjUgMCAwIDAgNC45ODEgNC4xOGE2IDYgMCAwIDAtMy45OTggMi45YTYuMDUgNi4wNSAwIDAgMCAuNzQzIDcuMDk3YTUuOTggNS45OCAwIDAgMCAuNTEgNC45MTFhNi4wNSA2LjA1IDAgMCAwIDYuNTE1IDIuOUE2IDYgMCAwIDAgMTMuMjYgMjRhNi4wNiA2LjA2IDAgMCAwIDUuNzcyLTQuMjA2YTYgNiAwIDAgMCAzLjk5Ny0yLjlhNi4wNiA2LjA2IDAgMCAwLS43NDctNy4wNzNNMTMuMjYgMjIuNDNhNC40OCA0LjQ4IDAgMCAxLTIuODc2LTEuMDRsLjE0MS0uMDgxbDQuNzc5LTIuNzU4YS44LjggMCAwIDAgLjM5Mi0uNjgxdi02LjczN2wyLjAyIDEuMTY4YS4wNy4wNyAwIDAgMSAuMDM4LjA1MnY1LjU4M2E0LjUwNCA0LjUwNCAwIDAgMS00LjQ5NCA0LjQ5NE0zLjYgMTguMzA0YTQuNDcgNC40NyAwIDAgMS0uNTM1LTMuMDE0bC4xNDIuMDg1bDQuNzgzIDIuNzU5YS43Ny43NyAwIDAgMCAuNzggMGw1Ljg0My0zLjM2OXYyLjMzMmEuMDguMDggMCAwIDEtLjAzMy4wNjJMOS43NCAxOS45NWE0LjUgNC41IDAgMCAxLTYuMTQtMS42NDZNMi4zNCA3Ljg5NmE0LjUgNC41IDAgMCAxIDIuMzY2LTEuOTczVjExLjZhLjc3Ljc3IDAgMCAwIC4zODguNjc3bDUuODE1IDMuMzU0bC0yLjAyIDEuMTY4YS4wOC4wOCAwIDAgMS0uMDcxIDBsLTQuODMtMi43ODZBNC41MDQgNC41MDQgMCAwIDEgMi4zNCA3Ljg3MnptMTYuNTk3IDMuODU1bC01LjgzMy0zLjM4N0wxNS4xMTkgNy4yYS4wOC4wOCAwIDAgMSAuMDcxIDBsNC44MyAyLjc5MWE0LjQ5NCA0LjQ5NCAwIDAgMS0uNjc2IDguMTA1di01LjY3OGEuNzkuNzkgMCAwIDAtLjQwNy0uNjY3bTIuMDEtMy4wMjNsLS4xNDEtLjA4NWwtNC43NzQtMi43ODJhLjc4Ljc4IDAgMCAwLS43ODUgMEw5LjQwOSA5LjIzVjYuODk3YS4wNy4wNyAwIDAgMSAuMDI4LS4wNjFsNC44My0yLjc4N2E0LjUgNC41IDAgMCAxIDYuNjggNC42NnptLTEyLjY0IDQuMTM1bC0yLjAyLTEuMTY0YS4wOC4wOCAwIDAgMS0uMDM4LS4wNTdWNi4wNzVhNC41IDQuNSAwIDAgMSA3LjM3NS0zLjQ1M2wtLjE0Mi4wOEw4LjcwNCA1LjQ2YS44LjggMCAwIDAtLjM5My42ODF6bTEuMDk3LTIuMzY1bDIuNjAyLTEuNWwyLjYwNyAxLjV2Mi45OTlsLTIuNTk3IDEuNWwtMi42MDctMS41WiIvPjwvc3ZnPg%3D%3D" alt="Codex" /></th>
+</tr>
+<tr>
+<td valign="top">
 
-**Bymax Claude Code** is a production-ready toolkit that turns Claude Code into a **disciplined senior engineer**. Instead of ad-hoc prompts, you get:
+**8 plugins** on a public marketplace — 23 slash commands, 6 skills, 10 sub-agents, 4 hooks,
+26 templates.
+
+```bash
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-quality@bymax-agent-kit
+```
+
+Full setup → [INSTALL.md](./INSTALL.md)
+
+</td>
+<td valign="top">
+
+**1 plugin, 27 native skills** — every first-party entrypoint in one install, with a native
+Codex review procedure.
+
+```bash
+git clone https://github.com/bymaxone/bymax-agent-kit.git
+cd bymax-agent-kit && ./scripts/install-codex.sh
+```
+
+Full setup → [CODEX.md](./CODEX.md)
+
+</td>
+</tr>
+</table>
+
+Instead of ad-hoc prompts, you get:
 
 - A **phased planning workflow** (spec → roadmap → phase-tasks → task) with explicit user-approval gates and JIRA-style dashboards.
-- A **loop-engineering autopilot** (`/bymax-workflow:autopilot`) that executes an approved roadmap **autonomously, end to end** — one merge-gated PR per phase, isolated worktree sub-agents, background CI/review watching, and dashboards kept in sync — turning the planning docs into a self-driving build. See [Loop Engineering](#-loop-engineering-the-autopilot).
-- **Strict quality gates** — `/code-review` (CRITICAL → LOW), `/tdd` (red-green-refactor), `/verify` (5 checks), and a `secret-scanner` hook that **blocks** writes containing credentials.
-- **Seven specialist sub-agents** (architect, code-reviewer, security-reviewer, typescript-reviewer, rust-reviewer, database-reviewer, planner) ready to delegate to.
+- A **bounded dual review** — one Claude pass and one Codex pass over the *same pinned scope*, findings verified before any edit, a **budgeted** number of correction candidates, and a **Git pre-push receipt** for the exact SHA you ship. See [Bounded dual review](#-bounded-dual-review).
+- A **loop-engineering autopilot** (`/bymax-workflow:autopilot`) that executes an approved roadmap **autonomously, end to end** — one merge-gated PR per phase, isolated worktree sub-agents, background CI/review watching, and dashboards kept in sync. See [Loop Engineering](#-loop-engineering-the-autopilot).
+- **Strict quality gates** — `/bymax-quality:tdd` (red-green-refactor), `/bymax-workflow:verify` (5 gates), and a `secret-scanner` hook that **blocks** writes containing credentials.
+- **Ten specialist sub-agents** — architect, code-reviewer, security-reviewer, typescript-reviewer, rust-reviewer, database-reviewer, planner, plus the QA trio (recon, hunter, verifier).
 - **A whole-system QA + security audit** (`/bymax-qa:audit`) that runs as the Security QA engineer of your agent team. Point it at a **Jira ticket** (acceptance criteria verified PASS/FAIL with evidence), a **branch or PR** (the hunt scoped to the change), or the **whole system**: a stack + threat map, read-only per-domain finders, live probes against allow-listed hosts only, and a finding admitted **only after an independent verifier reproduces it** — then handed to the owning agent, filed as a GitHub issue, or commented back on the ticket, and re-tested until it holds.
 - **TypeScript _and_ Rust** — the quality + workflow skills are language-detecting: TypeScript rules for `package.json` projects, and a parallel **Rust track** (clippy/rustfmt with `-D warnings`, typed `thiserror` errors, `#![forbid(unsafe_code)]`, rustdoc, `cargo test` + `cargo llvm-cov`, `cargo deny`/`audit`/`vet`) for `Cargo.toml` projects.
 - **Project bootstrap** with strict TypeScript, ESLint flat-config (security plugin + import-order + suppression bans), Prettier, format-on-save VS Code, Husky + commitlint + lint-staged — for **Next.js, Expo / React Native, Vite + React, and Node backends (Express / Fastify / Hono / NestJS / plain Node)** stacks.
-- **Mobile sims** — `/sim-ios` and `/sim-android` boot the iOS Simulator and Android Emulator on Expo / React Native projects in one command (auto-detects whether to reattach Metro or do a full rebuild).
+- **Mobile sims** — `/bymax-mobile:sim-ios` and `/bymax-mobile:sim-android` boot the iOS Simulator and Android Emulator on Expo / React Native projects in one command.
 - **Beautiful starter templates** for `CLAUDE.md`, `AGENTS.md`, and `README.md` — distilled from real production projects.
 
 Built and used daily across mobile (Expo / React Native) and web (Next.js / NestJS) products.
 
 ### Why this exists
 
-Every Claude Code user reinvents the same scaffolding: standards docs, review skills, planning rituals, ESLint configs, hooks, agents. This repo packages a **battle-tested set** that works across stacks — install once, focus on your product.
-
-```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-workflow@bymax-claude-code
-claude plugin install bymax-quality@bymax-claude-code
-claude plugin install bymax-bootstrap@bymax-claude-code
-claude plugin install bymax-mobile@bymax-claude-code
-claude plugin install bymax-web-verify@bymax-claude-code
-claude plugin install bymax-pr@bymax-claude-code
-claude plugin install bymax-pm@bymax-claude-code
-claude plugin install bymax-qa@bymax-claude-code
-```
-
-That's it. Restart Claude Code and you have **8 installable plugins** with **23 slash commands**, **6 skills**, **10 sub-agents**, **4 hooks**, and **26 templates** — the full workflow ready.
+Every agent user reinvents the same scaffolding: standards docs, review skills, planning rituals,
+ESLint configs, hooks, agents. Worse, each runtime wants its own copy — and the two drift. This
+repo packages a **battle-tested set** that works across stacks *and* across both agents, from one
+canonical source: `plugins/` is the source of truth, and the Codex package ships byte-for-byte
+copies of it, verified in CI so an edit cannot silently diverge.
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Install the marketplace
+### Claude Code
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
+# 1. Register the marketplace
+claude plugin marketplace add bymaxone/bymax-agent-kit
+
+# 2. Install the plugins you want (they install user-wide by default)
+claude plugin install bymax-workflow@bymax-agent-kit      # planning + execution
+claude plugin install bymax-quality@bymax-agent-kit       # review + TDD + agents + hooks
+claude plugin install bymax-bootstrap@bymax-agent-kit     # scaffold new projects
+claude plugin install bymax-mobile@bymax-agent-kit        # iOS Simulator + Android Emulator
+claude plugin install bymax-web-verify@bymax-agent-kit    # real-browser verification (needs agent-browser)
+claude plugin install bymax-pr@bymax-agent-kit            # push + autonomous PR babysitting (needs gh CLI)
+claude plugin install bymax-pm@bymax-agent-kit            # engineering PM for multi-agent development
+claude plugin install bymax-qa@bymax-agent-kit            # whole-system QA + security audit
 ```
 
-### 2. Install plugins
+Then **restart Claude Code** and type `/` — every `bymax-*` command should be listed. Non-interactive
+check: `claude plugin list`.
 
-Claude Code installs plugins individually — install the ones you want:
+> To pin a plugin to a single project instead of user-wide, add it to `enabledPlugins` in that
+> project's `.claude/settings.json`.
+
+**For the bounded dual review and its pre-push receipt**, one more step — it installs the shared
+reviewer runtime, the global push handoff and the managed policy block:
 
 ```bash
-claude plugin install bymax-workflow@bymax-claude-code      # planning + execution
-claude plugin install bymax-quality@bymax-claude-code       # review + TDD + agents + hooks
-claude plugin install bymax-bootstrap@bymax-claude-code     # scaffold new projects
-claude plugin install bymax-mobile@bymax-claude-code        # iOS Simulator + Android Emulator
-claude plugin install bymax-web-verify@bymax-claude-code    # real-browser verification (needs agent-browser)
-claude plugin install bymax-pr@bymax-claude-code            # autonomous PR babysitting (needs gh CLI)
-claude plugin install bymax-pm@bymax-claude-code            # engineering PM for multi-agent development
-claude plugin install bymax-qa@bymax-claude-code            # whole-system QA + security audit
+git clone https://github.com/bymaxone/bymax-agent-kit.git
+cd bymax-agent-kit
+python3 scripts/install-review-flow.py
 ```
 
-> Plugins install user-wide by default (available in every project). To pin a plugin to a single project instead, add it to `enabledPlugins` in that project's `.claude/settings.json`.
+It backs up every file it touches under `~/.claude/backups/` and preserves unrelated settings.
+Restart Claude Code afterwards. Full prerequisites, authentication and verification:
+[INSTALL.md](./INSTALL.md).
 
-### 3. Restart Claude Code
+### Codex
 
-Reopen your terminal session so the new commands and hooks are picked up.
+The Codex package is a **separate local marketplace** under `codex/` — installing it does not
+install Claude Code, change Claude settings, or register Claude hooks.
 
-### 4. Verify
-
-In Claude Code, type `/` — you should see all the `bymax-*` commands. Try:
-
+```bash
+git clone https://github.com/bymaxone/bymax-agent-kit.git
+cd bymax-agent-kit
+./scripts/install-codex.sh --dry-run   # preview, no writes
+./scripts/install-codex.sh
+./scripts/install-codex.sh --check     # registration + version + enabled state
 ```
-/bymax-workflow:standards     # show the universal coding rules
-/bymax-workflow:spec          # start a new feature spec
-/bymax-bootstrap:bootstrap    # scaffold a new project
+
+Keep the checkout: it *is* the registered marketplace, and updates run from it. Start a **new Codex
+task**, then invoke a skill by name or from the picker:
+
+```text
+Use $bymax-codex:bymax-code-review to review my uncommitted changes.
 ```
 
-Non-interactive check: `claude plugin list` should show every plugin you installed.
+Every entrypoint and every capability boundary: [CODEX.md](./CODEX.md).
+
+### Verify both
+
+```bash
+python3 scripts/doctor.py --auth     # CLIs, runtime version, authentication — reports no credentials
+./scripts/install-codex.sh --check
+```
+
+### Migrating from `bymax-claude-code`
+
+The GitHub URL redirects, but the **marketplace id changed**, so Claude Code will not update the
+old entry into the new one. Re-point it once:
+
+```bash
+claude plugin marketplace remove bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-quality@bymax-agent-kit   # …and each plugin you had
+```
+
+Nothing else moves: plugin names, command names, hooks, your `~/.claude/settings.json` and any
+project's `.claude/` are untouched. `scripts/install-review-flow.py --local-plugin-overlay`
+resolves a cache installed under **either** id, so a development overlay keeps working across the
+rename.
 
 > 🤖 **AI agents**: installing this toolkit for a user? Follow the step-by-step runbook in [`llms-install.md`](./llms-install.md) — idempotent commands, verification after each step, and the DO-NOT list.
+
+---
+
+## 🤝 What runs where
+
+The procedures are the same; the runtimes are not. This table is the honest boundary — it is what
+the Codex package's own [capability table](./CODEX.md#available-workflows-and-capability-boundaries)
+says, summarised.
+
+| Capability | Claude Code | Codex | Notes |
+|---|:---:|:---:|---|
+| Planning chain — spec, roadmap, phase-tasks, plan, brainstorm | ✅ | ✅ | Same templates, bundled into the Codex package |
+| Standards, TDD, tester, verify, checkpoint | ✅ | ✅ | Both detect the target's own stack and gates |
+| Code review | ✅ | ✅ | Claude runs the bounded campaign; Codex has a **native** review procedure of its own |
+| Dual-review push certification | ✅ | ⚠️ | Needs **both** CLIs plus the shared runtime (`scripts/install-review-flow.py`) either way — a single model never certifies itself. A Codex-led session reaches the Claude pass through a constrained CLI adapter; the Codex installer alone installs neither the runtime nor any hook |
+| Bootstrap / upgrade-standards | ✅ | ✅ | Same templates |
+| Push + PR babysitting | ✅ | ✅ | `gh` authenticated; the babysitter never merges |
+| PM, autopilot | ✅ | ⚠️ | Adapts to the host's worker coordination and durable continuation; no promise without a real scheduling response |
+| Web verify / test / record | ✅ | ⚠️ | Codex uses its host browser tools or the `agent-browser` CLI |
+| Mobile simulators | ✅ | ✅ | Xcode / Android SDK on the machine, either way |
+| QA audit | ✅ | ⚠️ | Static hunting works in both; the `qa-guard` **hook** and probe wrapper are Claude-only, so a workflow that depends on them is blocked explicitly rather than silently downgraded |
+| `secret-scanner` / `console-log-scan` hooks | ✅ | ❌ | Claude hook events; the Codex installer registers no hooks |
+| Pre-push receipt gate | ✅ | ⚠️ | Once installed it is a Git hook, so it holds for whoever pushes — but **`install-codex.sh` installs no gate**, and a Codex review on its own never creates the receipt. Do not fabricate one |
+
+⚠️ means capability-aware adaptation, not parity. Nothing here claims Codex reproduces the Claude
+runtime, and nothing claims a missing capability was verified.
+
+---
+
+## 🛡️ Bounded dual review
+
+The toolkit's flagship gate, and the clearest reason the kit is no longer Claude-only.
+`/bymax-quality:code-review` is not "ask a model to look at the diff until it stops complaining".
+
+| Property | What it means |
+|---|---|
+| **Two models, one scope** | One Claude pass and one Codex pass over the *same* pinned context, base and HEAD. A shared model family is never presented as independent corroboration. |
+| **Immutable candidate** | The commit under review is frozen before the reviewers run. A stale or dirty report is rejected, not reconciled. |
+| **Findings are candidates** | Every suggestion — grep hit or reviewer claim — is confirmed against the code and a reproduction before an edit. Justified rejections are recorded with their counterevidence. |
+| **Corrections carry evidence** | A correction round requires the author's own `--probe` attempts to defeat the fix, lists every test file the delta touched (a flipped expectation is a finding), and reviews only the delta plus impacted behaviour. |
+| **A budget, not a loop** | Standalone review permits three candidates; autonomous shipping permits six across pushes and completed campaigns. Nits never force a round. On exhaustion with real blockers it **stops with evidence**. |
+| **The round retrospective** | At each triage the runtime records which blocking findings sit in files the round's own correction changed. `review_flow.py lessons` prints them before the next correction — a fix that caused the next finding is visible, not rediscovered. |
+| **A receipt, not an assertion** | `finish` writes a receipt for the exact source SHA; a Git `pre-push` hook verifies it. Missing or failed reviewers mean **incomplete review**, never approval. |
+
+```bash
+FLOW=~/.claude/bymax-review/review_flow.py     # installed by scripts/install-review-flow.py
+
+python3 "$FLOW" start --autonomous --base <merge-base-sha> --context <ctx.json>
+python3 "$FLOW" prompt                          # the one prompt BOTH reviewers get
+python3 "$FLOW" codex                           # read-only sandbox, approvals never, fresh thread
+python3 "$FLOW" record --reviewer claude --report <claude-report.json>
+python3 "$FLOW" triage --report <dispositions.json>   # every finding, accepted or rejected with evidence
+python3 "$FLOW" lessons                         # findings the previous round's own fix landed in
+python3 "$FLOW" check -- npm test               # every check the context declared
+python3 "$FLOW" finish                          # writes the receipt for this exact SHA
+git push -u origin HEAD:feature-name            # the pre-push hook reads it
+```
+
+Protocol, receipts, evidence format and **stated limitations**:
+[`references/review-protocol.md`](./plugins/bymax-quality/references/review-protocol.md).
+Autonomous shipping, the shared budget and the blocked-push handoff:
+[`references/autonomous-delivery.md`](./plugins/bymax-quality/references/autonomous-delivery.md).
+
+> **No review system guarantees zero bugs.** What this one guarantees is that the coverage, the
+> checks that ran, and the unresolved risks are reported as they happened — including the reviewer
+> that was unavailable.
 
 ---
 
 ## 🔌 External tools & MCP servers
 
 The plugins follow a **"require, don't embed"** philosophy: external CLIs and MCP servers are consulted at runtime, never bundled. Nothing below is needed to *install* the plugins — but each row unlocks a plugin or makes the skills measurably better. Install what matches your usage.
+
+Two rows are load-bearing rather than optional: **Python 3.10+** and **Git** are what the review
+runtime and its receipt hook are written in, and the **Codex CLI** is what makes a dual review
+dual. macOS or Linux for that runtime — its file locks use Python's `fcntl`; on Windows use WSL.
 
 > Rows below reference **"§0"** — the [simplicity ladder](./plugins/bymax-workflow/skills/standards/SKILL.md) that opens the `/bymax-workflow:standards` skill: a reuse-first decision ladder (YAGNI → reuse → stdlib → installed dep → minimum that works) the agent runs before writing any code. "§15" is the same skill's Rust track.
 
@@ -132,7 +287,7 @@ The plugins follow a **"require, don't embed"** philosophy: external CLIs and MC
 | **`axe` + Lighthouse** — **optional** | `bymax-qa` frontend domain (accessibility + Core Web Vitals), driven through `bymax-web-verify` when a UI is present | `npm i -g @axe-core/cli lighthouse` |
 | **`docker` + `docker compose`** — optional | `bymax-qa` `--live` — brings a target stack up for live probes against `local`/`staging` hosts | [docs.docker.com](https://docs.docker.com/get-docker/) |
 | **`agent-browser`** | `bymax-web-verify` — drives the real browser | run `/bymax-web-verify:setup` once (installs the CLI + Chrome for Testing, ends with a smoke test) |
-| **Codex CLI** (authenticated) — **optional** | `bymax-quality` — Review B, the independent second opinion `/bymax-quality:code-review` runs in *every* mode | run `/bymax-quality:codex-setup` once (Homebrew cask or npm, then an interactive `codex login`, then a real review run to prove it) |
+| **Codex CLI** (authenticated) — **required for dual-review certification** | `bymax-quality` — Review B, the independent second opinion `/bymax-quality:code-review` runs in *every* mode. Everything else in the plugin works without it; a campaign that cannot reach Codex reports **incomplete**, never approval | run `/bymax-quality:codex-setup` once (Homebrew cask or npm, then an interactive `codex login`, then a real review run to prove it) |
 | **OpenAI Codex plugin** — `codex@openai-codex`, **optional** | `bymax-quality` — Review C, the adversarial second opinion, only under `/bymax-quality:code-review --adversarial`; needs the row above as well, since the script gates on the CLI and its session before it looks for the plugin | `claude plugin marketplace add openai/codex-plugin-cc`, then `claude plugin install codex@openai-codex` — the plugin is `codex`, its marketplace `openai-codex`, the repo behind it `openai/codex-plugin-cc`; type both commands as written |
 | **pnpm** | `/bymax-workflow:verify`, `/bymax-workflow:task`, `/bymax-quality:tdd` and the `tester` skill on pnpm repos | `corepack enable pnpm` |
 | **Xcode + Command Line Tools** | `bymax-mobile` `/sim-ios` (`xcrun simctl`) | App Store (Xcode) + `xcode-select --install` — macOS only |
@@ -198,7 +353,10 @@ graphify hook install
 
 ## 📦 Plugins
 
-The toolkit ships as **eight composable plugins** (plus a reference index). Use them à la carte or all at once via `bymax-all`.
+For Claude Code the toolkit ships as **eight composable plugins** (plus a reference index) — use
+them à la carte. For Codex the same surface arrives as **one plugin with 27 native skills**; the
+short name in the tables below maps to `bymax-codex:bymax-<name>` there, and the full mapping is
+in [CODEX.md](./CODEX.md#available-workflows-and-capability-boundaries).
 
 ### 🧭 [`bymax-workflow`](./plugins/bymax-workflow/) — Planning + Execution
 
@@ -228,7 +386,7 @@ Strict quality gates and specialist reviewers.
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `/code-review` | Bounded Claude + Codex review: shared context, pinned candidate, verified findings, correction deltas and explicit check evidence. Standalone review permits three candidates; autonomous delivery permits six across pushes. Nits do not force a loop; missing reviewers leave certification incomplete. |
 | `/codex-setup`          | Installs + authenticates the Codex CLI that powers `code-review`'s independent second review (Homebrew cask or npm), then verifies it with a real review run. Optional — everything works without it. |
-| `/review-md`            | Generates a repo-root `REVIEW.md` so Anthropic's cloud Code Review (`@claude review`, `/code-review ultra`) enforces the same Bymax rules the local gate blocks on. |
+| `/review-md`            | Generates a repo-root `REVIEW.md` and the `AGENTS.md` review block so the **cloud** reviewers (`@claude review`, `/code-review ultra`, and Codex on a PR) enforce the same Bymax rules the local gate blocks on. Run it once per repository — without it, both bots report wording preferences as blocking findings. |
 | `/tdd`                  | Strict red-green-refactor cycle (Jest/Vitest or Rust `#[test]`/`cargo test`). Forces failing test before implementation. 80%+ coverage minimum. |
 | `tester` skill          | Multi-stack test writer — auto-detects Jest / Vitest / RN / pure logic / Rust `cargo test`. 100% file coverage. Rich `it()` / `#[test]` comments. |
 | `architect` agent       | System design, scalability, technical decisions.                                                                                           |
@@ -240,6 +398,7 @@ Strict quality gates and specialist reviewers.
 | `planner`               | Complex feature and refactor planning.                                                                                                     |
 | `secret-scanner` hook   | **PreToolUse** — blocks Write/Edit/MultiEdit if AWS keys, GitHub PATs, OpenAI/Anthropic/Stripe tokens, JWTs, or private keys are detected. |
 | `console-log-scan` hook | **Stop** — warns on stray `console.log/warn/error/debug/info` in modified TS/JS files.                                                     |
+| `review_flow.py` runtime | The campaign state machine behind `/code-review`: `start` · `prompt` · `codex` · `claude` · `record` · `triage` · `lessons` · `range` · `check` · `finish` · `status`, plus the `review_prepush.py` receipt hook it installs. Deployed by `scripts/install-review-flow.py`. |
 
 `/code-review` also flags **30+ Tailwind v4 canonical-class patterns** in projects on Tailwind 4 (skipped on v3 / NativeWind 4): CSS variable shorthand (`[var(--x)]` → `(--x)`), ARIA boolean variants (`aria-[invalid=true]:` → `aria-invalid:`), on-scale `rem` values (`[8rem]` → `32`), gradient renames (`bg-gradient-to-r` → `bg-linear-to-r`), scale shifts (`shadow` → `shadow-sm`, `rounded` → `rounded-sm`, etc.), individual renames (`outline-none` → `outline-hidden`, `flex-shrink-*` → `shrink-*`, etc.), opacity-modifier deprecation (`bg-opacity-50` → `bg-blue-500/50`), arbitrary z-index integers (`z-[200]` → `z-200`), on-scale filter px (`backdrop-blur-[12px]` → `backdrop-blur-md`), and negative zero (`-bottom-0` → `bottom-0`). Full reference in `/standards § 12`.
 
@@ -431,69 +590,98 @@ And Osmani's warning — *"unattended loops make unattended mistakes; verificati
 
 ## 🧱 Architecture
 
+One source of truth, two distribution packages. `plugins/` is canonical; the Codex package
+carries **byte-for-byte copies** of it under `references/upstream/`, and `codex/scripts/bundle.py`
++ CI compare the two so the packages cannot silently drift.
+
 ```
-bymax-claude-code/
+bymax-agent-kit/
 ├── .claude-plugin/
-│   └── marketplace.json                ← marketplace metadata
+│   └── marketplace.json                ← the CLAUDE marketplace contract (name: bymax-agent-kit)
 │
-├── plugins/                            ← installable via /plugin install
-│   ├── bymax-workflow/                 ← planning + execution
-│   ├── bymax-quality/                  ← review + TDD + agents + hooks
-│   ├── bymax-bootstrap/                ← project scaffolding
+├── plugins/                            ← canonical source · installable via claude plugin install
+│   ├── bymax-workflow/                 ← planning + execution + autopilot
+│   ├── bymax-quality/                  ← dual review + TDD + 7 agents + hooks + review runtime
+│   │   ├── commands/ skills/ agents/ hooks/
+│   │   ├── references/                 ← review-protocol.md · autonomous-delivery.md
+│   │   └── scripts/                    ← review_flow.py · review_prepush.py · review_push.py …
+│   ├── bymax-bootstrap/                ← project scaffolding (20 templates)
 │   ├── bymax-mobile/                   ← iOS Simulator + Android Emulator
 │   ├── bymax-web-verify/               ← real-browser verification (needs agent-browser)
-│   ├── bymax-pr/                       ← autonomous PR babysitting (needs gh CLI)
+│   ├── bymax-pr/                       ← push + autonomous PR babysitting (needs gh CLI)
 │   ├── bymax-pm/                       ← engineering PM for multi-agent development
-│   ├── bymax-qa/                       ← whole-system QA + security audit
+│   ├── bymax-qa/                       ← whole-system QA + security audit (3 agents, 18 refs)
 │   └── bymax-all/                      ← reference index (no auto-install in Claude Code)
 │
-├── templates/                          ← project bootstrapping templates
-│   ├── CLAUDE.md                       ← starter CLAUDE.md (load-on-demand pattern)
-│   ├── AGENTS.starter.md               ← starter AGENTS.md (full spec for agents; named so Codex does not read it as this repo's guidance)
-│   └── README.md                       ← beautiful README starter (badges + sections + emojis)
-│
-├── vendor/                             ← third-party MIT-licensed extras (backup, not in marketplace)
-│   ├── ecc-skills/                     ← Everything Claude Code domain skills
-│   └── ui-ux-pro-max/                  ← UI/UX design intelligence skill
-│
-├── personal/                           ← author's personal config (backup, not in marketplace)
-│   ├── settings.template.json          ← sanitized ~/.claude/settings.json
-│   ├── mcp.template.json               ← sanitized ~/.mcp.json (context7 + sequential-thinking)
-│   └── prettier-format.sh              ← personal autoformat hook
+├── codex/                              ← the CODEX marketplace root — register THIS, not the repo root
+│   ├── .agents/plugins/marketplace.json
+│   ├── plugins/bymax-codex/
+│   │   ├── .codex-plugin/plugin.json
+│   │   ├── skills/bymax-*/             ← 27 native Codex entrypoints
+│   │   ├── scripts/review_scope.py     ← read-only Git scope capture
+│   │   └── references/
+│   │       ├── runtime.md · catalog.json · review-checklist.md
+│   │       ├── upstream/               ← exact bundled copies of plugins/ — never hand-edit
+│   │       └── upstream-sha256.json    ← drift index, enforced in CI
+│   ├── scripts/                        ← bundle.py · install.py · validate.py
+│   └── tests/                          ← isolated packaging / install / discovery checks
 │
 ├── scripts/
-│   ├── install.sh                      ← restore everything to ~/.claude/ (for new Mac)
-│   └── validate.sh                     ← validate marketplace.json + plugin.json
+│   ├── install-review-flow.py          ← shared review runtime + push handoff + policy (Claude)
+│   ├── install-codex.sh                ← register + install the Codex package
+│   ├── install.sh                      ← author-only: restore vendor/personal/MCP into ~/.claude/
+│   ├── doctor.py                       ← CLIs, runtime version, authentication
+│   ├── validate.sh / validate-codex.sh ← the two release gates
+│   └── tests/                          ← review-flow, pre-push, delivery, install, command-shell
 │
-└── docs/
-    └── PROPOSAL.md                     ← original design proposal
+├── templates/                          ← project starters (for OTHER repos)
+│   ├── CLAUDE.md · AGENTS.starter.md · README.md
+│
+├── vendor/                             ← third-party MIT extras (backup, not in either marketplace)
+│   ├── ecc-skills/ · ui-ux-pro-max/
+│
+├── personal/                           ← author's personal config (backup, not in either marketplace)
+│   ├── settings.template.json · mcp.template.json · prettier-format.sh
+│
+├── INSTALL.md                          ← prerequisites, both packages, verification, recovery
+├── CODEX.md                            ← the Codex package: install, review, capability boundaries
+├── AGENTS.md                           ← rules agents follow IN this repo (+ the shared review block)
+├── REVIEW.md                           ← rules the cloud PR reviewers read
+├── TESTING.md                          ← the regression coverage map and its stated limits
+├── llms-install.md                     ← step-by-step runbook for an AI agent installing this
+└── docs/PROPOSAL.md                    ← original design proposal (historical)
 ```
 
-### Two ways to use this repo
+### Three ways to use this repo
 
-**A. Public marketplace** (recommended for everyone)
+**A. Claude Code marketplace** (recommended for everyone)
+
+The commands are in [Quick Start](#claude-code). Only the `plugins/` content is exposed through
+`claude plugin install` — `vendor/` and `personal/` are visible in the repo for backup and are not
+installable. Add `python3 scripts/install-review-flow.py` from a clone when you want the bounded
+dual review and its pre-push receipt.
+
+**B. Codex local marketplace**
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-workflow@bymax-claude-code
-claude plugin install bymax-quality@bymax-claude-code
-claude plugin install bymax-bootstrap@bymax-claude-code
-claude plugin install bymax-mobile@bymax-claude-code
-claude plugin install bymax-web-verify@bymax-claude-code
-claude plugin install bymax-pr@bymax-claude-code
-claude plugin install bymax-pm@bymax-claude-code
-claude plugin install bymax-qa@bymax-claude-code
+git clone https://github.com/bymaxone/bymax-agent-kit.git
+cd bymax-agent-kit
+./scripts/install-codex.sh
 ```
 
-Only the `plugins/` content is exposed via `/plugin install`. The vendor/ and personal/ folders are visible in the repo for backup but not installable.
+The registered marketplace root is `codex/`, **not** the repository root — the root's
+`.claude-plugin/marketplace.json` is the Claude contract. Keep the checkout: it is the
+marketplace, and `git pull --ff-only` + a rerun is how updates land. The installer refuses to
+replace a `bymax-codex` marketplace that points somewhere else, and detects a same-version stale
+cache instead of reporting success. Removal is two commands, in [CODEX.md](./CODEX.md).
 
-**B. Personal restore** (full Mac wipe — author workflow)
+**C. Personal restore** (full Mac wipe — author workflow)
 
 After installing Claude Code itself (`npm install -g @anthropic-ai/claude-code` or the [native installer](https://docs.claude.com/en/docs/claude-code/setup)):
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/bymaxone/bymax-claude-code ~/dotfiles-claude
+git clone https://github.com/bymaxone/bymax-agent-kit ~/dotfiles-claude
 cd ~/dotfiles-claude
 
 # 2. Preview what install.sh will do (no writes)
@@ -509,26 +697,34 @@ cp personal/settings.template.json ~/.claude/settings.json
 $EDITOR ~/.claude/settings.json
 
 # 5. Install marketplace plugins
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-workflow@bymax-claude-code
-claude plugin install bymax-quality@bymax-claude-code
-claude plugin install bymax-bootstrap@bymax-claude-code
-claude plugin install bymax-mobile@bymax-claude-code
-claude plugin install bymax-web-verify@bymax-claude-code
-claude plugin install bymax-pr@bymax-claude-code
-claude plugin install bymax-pm@bymax-claude-code
-claude plugin install bymax-qa@bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-workflow@bymax-agent-kit
+claude plugin install bymax-quality@bymax-agent-kit
+claude plugin install bymax-bootstrap@bymax-agent-kit
+claude plugin install bymax-mobile@bymax-agent-kit
+claude plugin install bymax-web-verify@bymax-agent-kit
+claude plugin install bymax-pr@bymax-agent-kit
+claude plugin install bymax-pm@bymax-agent-kit
+claude plugin install bymax-qa@bymax-agent-kit
 claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin install frontend-design@claude-plugins-official
 claude plugin marketplace add getsentry/sentry-mcp
 claude plugin install sentry-mcp@sentry-mcp
 
-# 6. GitHub access — authenticate the gh CLI (short-lived OAuth, no PAT).
+# 6. Shared review runtime, push handoff and managed policy (backs everything up first)
+python3 scripts/install-review-flow.py
+
+# 7. The Codex package
+./scripts/install-codex.sh && ./scripts/install-codex.sh --check
+
+# 8. GitHub access — authenticate the gh CLI (short-lived OAuth, no PAT).
 #    This is what bymax-pr and every GitHub operation in the toolkit use;
 #    no github MCP server is needed.
 brew install gh && gh auth login
 
-# 7. Restart Claude Code; type "/" — you should see all bymax-* commands.
+# 9. Restart Claude Code; type "/" — you should see all bymax-* commands.
+#    Then confirm the whole setup:
+python3 scripts/doctor.py --auth
 ```
 
 #### What `install.sh` restores
@@ -623,23 +819,30 @@ Contributions, bug reports, and ideas are very welcome! Please read [CONTRIBUTIN
 
 ```bash
 # Clone the repo
-git clone https://github.com/bymaxone/bymax-claude-code.git
-cd bymax-claude-code
+git clone https://github.com/bymaxone/bymax-agent-kit.git
+cd bymax-agent-kit
 
-# Validate marketplace + plugin manifests
-./scripts/validate.sh
+# The two release gates — both run in CI, and each ends with its behavioral suite
+python3 -m pip install pyyaml   # the validators need it; shellcheck too, mandatory in CI
+./scripts/validate.sh           # manifests, +x, shellcheck, frontmatter, files + scripts/tests
+./scripts/validate-codex.sh     # drift, 27 entrypoints, links, manifests + codex/tests
 
-# Test locally
+# Test the Claude package locally
 claude plugin marketplace add ./
-claude plugin install bymax-workflow@bymax-claude-code
-claude plugin install bymax-quality@bymax-claude-code
-claude plugin install bymax-bootstrap@bymax-claude-code
-claude plugin install bymax-mobile@bymax-claude-code
-claude plugin install bymax-web-verify@bymax-claude-code
-claude plugin install bymax-pr@bymax-claude-code
-claude plugin install bymax-pm@bymax-claude-code
-claude plugin install bymax-qa@bymax-claude-code
+claude plugin install bymax-workflow@bymax-agent-kit
+claude plugin install bymax-quality@bymax-agent-kit
+claude plugin install bymax-bootstrap@bymax-agent-kit
+claude plugin install bymax-mobile@bymax-agent-kit
+claude plugin install bymax-web-verify@bymax-agent-kit
+claude plugin install bymax-pr@bymax-agent-kit
+claude plugin install bymax-pm@bymax-agent-kit
+claude plugin install bymax-qa@bymax-agent-kit
 ```
+
+Changing a shared procedure means editing the **canonical** file under `plugins/`, then
+`python3 codex/scripts/bundle.py` and a Codex manifest bump — CI fails on a stale bundle. Every
+plugin change ships with its own version bump, the marketplace bump, and the `CHANGELOG.md` line.
+What each gate proves — and what it does not — is in [TESTING.md](./TESTING.md).
 
 ---
 
@@ -665,8 +868,10 @@ It also **fetches** (never bundles) these third-party design skills from their u
 Inspired by:
 
 - [Anthropic Claude Code](https://github.com/anthropics/claude-code) and the [official plugin marketplace](https://github.com/anthropics/claude-plugins-official).
+- [OpenAI Codex](https://developers.openai.com/codex/) — the CLI and plugin/skill surface the `codex/` package targets.
 - [Superpowers](https://github.com/obra/superpowers) — for the spec → plan → execute discipline mindset.
 - [awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) — community index.
+- Addy Osmani's [loop engineering](https://addyosmani.com/blog/loop-engineering/) essay — the frame the autopilot is built on.
 
 ---
 
@@ -679,13 +884,3 @@ Inspired by:
 <p align="center">
   <sub>Built with ❤️ by <a href="https://github.com/bymaxone">Bymax One</a> · Used in production every day at <a href="https://bymax.one">bymax.one</a></sub>
 </p>
-
-## Bounded Claude and Codex review
-
-`/bymax-quality:code-review` uses one Claude pass and one Codex pass with the same pinned
-scope and context. Autonomous shipping uses six candidates across pushes; standalone review uses three. It verifies findings before edits
-and records evidence for the exact pushed commit. See the
-[protocol](plugins/bymax-quality/references/review-protocol.md) for setup and limitations.
-Install the global Claude policy/guard and a local plugin overlay with
-`python3 scripts/install-review-flow.py --local-plugin-overlay`; restart Claude afterward.
-Existing local files are backed up. Publishing the release is a separate step.

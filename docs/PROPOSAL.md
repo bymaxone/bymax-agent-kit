@@ -1,6 +1,12 @@
 # 🗂️ Original design proposal — bymax-claude-code
 
-> Saved on 2026-04-25 from the conversation that led to this repo. Kept here as a record of the design decisions and the rationale for the layout you see today.
+> Saved on 2026-04-25 from the conversation that led to this repo. Kept here as a record of
+> the design decisions and the rationale for the layout you see today.
+>
+> **Historical document.** The project is now **Bymax Agent Kit** (`bymaxone/bymax-agent-kit`)
+> and ships a second package for Codex alongside the Claude Code marketplace. The old name and
+> the Claude-only plugin list below are preserved as written; the current layout is in the
+> [README](../README.md).
 
 ---
 

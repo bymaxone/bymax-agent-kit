@@ -1,14 +1,14 @@
 {
   "name": "bymax-pr",
   "description": "The PR lifecycle, powered by the `gh` CLI. /bymax-pr:push ships work safely: branch (never the default branch) \u2192 stage \u2192 complete Conventional-Commits message \u2192 push, with an explicit `pr` opt-in that opens a fully-described PR (Summary / Changes / How to verify). /bymax-pr:babysit-pr autonomously shepherds an open PR to merge-readiness: resolves merge conflicts, polls CI at a cadence matched to the CI's real duration (270 s floor), classifies failures as real vs flaky (re-running flaky checks), fixes real failures locally before pushing, triages bot review comments (4-tier), and notifies you when the PR is green. Never merges, never pushes to the base branch, never force-pushes. A built-in preflight verifies the gh CLI is installed and authenticated. Depends on `gh` + `git` but never bundles them.",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "author": {
     "name": "Bymax One",
     "email": "support@bymax.one",
     "url": "https://github.com/bymaxone"
   },
   "license": "MIT",
-  "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-pr",
+  "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-pr",
   "keywords": [
     "pull-request",
     "pr",

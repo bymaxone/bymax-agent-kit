@@ -273,7 +273,7 @@ This codebase is maintained by humans **and** AI agents. Thorough documentation 
 
 ## 🔄 Feature Workflow
 
-When adding or modifying a feature, follow the **Bymax Claude Code workflow**:
+When adding or modifying a feature, follow the **Bymax Agent Kit workflow**:
 
 1. **Vague idea?** → `/brainstorm` to refine.
 2. **Big multi-phase feature?** → `/spec` → `/roadmap` → `/phase-tasks` → `/task`.

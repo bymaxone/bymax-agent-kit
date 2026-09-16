@@ -1,7 +1,8 @@
 # Review instructions
 
-This repository is a Claude Code plugin marketplace. Its product is instruction text plus
-small Python and shell runtimes, so most of the diff is Markdown that models read, and
+This repository publishes two plugin packages from one canonical `plugins/` tree: a Claude
+Code marketplace at the root and a Codex plugin under `codex/`. Its product is instruction
+text plus Python and shell runtimes, so most of the diff is Markdown that models read, and
 calibrating severity for that is the whole point of this file.
 
 ## What Important means here

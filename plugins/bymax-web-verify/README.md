@@ -7,8 +7,8 @@ This plugin **depends on** `agent-browser` but never bundles it — the same "re
 ## Install
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-web-verify@bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-web-verify@bymax-agent-kit
 ```
 
 Then, once (or after a fresh macOS install), let Claude install the CLI + browser:
@@ -18,6 +18,10 @@ Then, once (or after a fresh macOS install), let Claude install the CLI + browse
 ```
 
 That's the whole "format-my-Mac" recovery path: install the plugin, run `/bymax-web-verify:setup`, done.
+
+### Also in Codex
+
+The same procedures ship in the Codex package as `bymax-web-setup`, `bymax-web-verify`, `bymax-web-test`, `bymax-web-record` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
 
 ## What you get
 

@@ -40,7 +40,7 @@ Closes #
 ```bash
 # Example
 claude plugin marketplace add ./
-claude plugin install bymax-quality@bymax-claude-code
+claude plugin install bymax-quality@bymax-agent-kit
 # /tdd ... worked as expected
 ```
 

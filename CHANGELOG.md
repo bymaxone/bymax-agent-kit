@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renamed to Bymax Agent Kit: marketplace `2.0.0`, every plugin patched, Codex `1.1.1`** — the repository is `bymaxone/bymax-agent-kit` and the marketplace id is `bymax-agent-kit`. The project ships two packages built from one canonical `plugins/` tree — the Claude Code marketplace and the Codex plugin — so a name that said "claude-code" described one of its two runtimes. **Breaking for existing installs:** the GitHub URL redirects, the marketplace id does not. Run `claude plugin marketplace remove bymax-claude-code`, add `bymaxone/bymax-agent-kit`, and reinstall each plugin under the new `@bymax-agent-kit` suffix. Plugin names, command names, hooks and user settings are unchanged. `scripts/install-review-flow.py --local-plugin-overlay` now resolves a plugin cache installed under either marketplace id and refuses ambiguity when both exist, with regression tests for both cases; the Codex marketplace id `bymax-codex` is unaffected.
+
+- **Documentation rewritten for two runtimes** — the README leads with Claude Code *and* Codex (logo badges, a per-runtime quick start, a "what runs where" capability table that marks adaptation rather than claiming parity, and a migration section), promotes the bounded dual review from a stray tail section into the body with its real command sequence, and replaces the architecture tree with one that includes `codex/`, the review runtime under `plugins/bymax-quality/scripts/`, the root `scripts/` installers and gates, and the top-level docs. `AGENTS.md` now describes both packages and all four verification gates instead of `validate.sh` alone; `CONTRIBUTING.md` documents the bundle-then-bump rule, the behavioral suites and the Codex manifest bump; `llms-install.md` gains the review-runtime step, the Codex pointer and four failure rows; every plugin README names its Codex entrypoints. Corrected against the code: the pre-push checker is installed by **every** `start`, not only `start --autonomous`; the Codex CLI is **required for dual-review certification** rather than optional; the post-implementation chain reviews a committed candidate and verifies findings instead of applying every one.
+
 - **Round retrospective: marketplace `1.17.0`, quality `1.10.0`** — at every triage the runtime records which blocking findings sit in files the round's own correction changed, one entry per round with its evidence; a rejection with counterevidence excludes a finding. `review_flow.py lessons` prints them for the author before the next correction; a finding the previous correction introduced needs a probe entry naming it (`covers`); two consecutive such triages make the next round a design round whose brief names the reason; both reviewers are told when the previous correction produced findings. `/bymax-quality:code-review` step 5 reads `lessons` before any correction.
 
 - **Autonomous delivery: marketplace `1.16.0`, quality `1.9.0`, workflow `1.7.0`, PR `1.3.0`, Codex `1.1.0`** — share a six-candidate shipping budget across pushes and completed campaigns, continue a hook-blocked push through certification, assign independent reviewers to the orchestrator, and add a constrained Claude CLI adapter for Codex-led dual review. Add complete installation/diagnostic guidance and regression tests for budget continuity and reviewer failure. A correction after a cleared candidate names what it answers with `--answers <path:slug>`, so the correction-scope rule measures it against those files instead of going blind once no finding is open; a spent delivery budget is an alarm a human answers with `--extend-delivery "<who, why>"`, recorded in the ledger and shown to both reviewers, never by deleting the ledger.
@@ -859,17 +863,17 @@ Initial public release of the toolkit. Five composable plugins, six specialist s
 - **`scripts/validate.sh`** — validates `marketplace.json` and every `plugin.json` (valid JSON, required fields, every command/agent/skill path exists, every command file has a YAML frontmatter `description`, every agent file has `name` + `description` + `tools`, every shell hook is `chmod +x`, shellcheck on every shell script when installed, every required project-level file is present). Used by CI and locally before pushing.
 - **`docs/PROPOSAL.md`** — original design proposal preserved for context.
 
-[Unreleased]: https://github.com/bymaxone/bymax-claude-code/compare/v1.12.0...HEAD
-[1.12.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.9.0...v1.12.0
-[1.9.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.8.0...v1.9.0
-[1.8.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.7.0...v1.8.0
-[1.7.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.6.1...v1.7.0
-[1.6.1]: https://github.com/bymaxone/bymax-claude-code/compare/v1.6.0...v1.6.1
-[1.6.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.5.0...v1.6.0
-[1.5.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.4.0...v1.5.0
-[1.4.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.3.0...v1.4.0
-[1.3.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.1.1...v1.2.0
-[1.1.1]: https://github.com/bymaxone/bymax-claude-code/compare/v1.1.0...v1.1.1
-[1.1.0]: https://github.com/bymaxone/bymax-claude-code/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/bymaxone/bymax-claude-code/releases/tag/v1.0.0
+[Unreleased]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.9.0...v1.12.0
+[1.9.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.6.1...v1.7.0
+[1.6.1]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.1.1...v1.2.0
+[1.1.1]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/bymaxone/bymax-agent-kit/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/bymaxone/bymax-agent-kit/releases/tag/v1.0.0

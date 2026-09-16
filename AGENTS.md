@@ -1,4 +1,4 @@
-# AGENTS.md — bymax-claude-code
+# AGENTS.md — bymax-agent-kit
 
 Guidance for coding agents working in this repository, and the rules Codex applies when it
 reviews a pull request here. Codex reads this file from the tree under review: per its GitHub
@@ -9,25 +9,45 @@ here as a real file, kept in step by the `agents-sync` workflow.
 
 ## What this repository is
 
-A Claude Code plugin marketplace. The product is **instruction text**: every file under
-`plugins/*/commands/`, `plugins/*/skills/*/SKILL.md` and `plugins/*/agents/` is a contract read
-by a model at run time, and most of the reviewable surface is Markdown. The executable parts are
-small — `scripts/validate.sh`, `scripts/lib/check-frontmatter.py`, `plugins/*/scripts/*.sh` and
-`plugins/*/hooks/*.sh`.
+Two plugin packages built from one source: a **Claude Code marketplace** at the root, and a
+**Codex marketplace** under `codex/`. `plugins/` is canonical for both — the Codex package ships
+byte-for-byte copies of it under `codex/plugins/bymax-codex/references/upstream/`, and the bundler
+plus CI compare them so the packages cannot diverge.
+
+The product is **instruction text**: every file under `plugins/*/commands/`,
+`plugins/*/skills/*/SKILL.md`, `plugins/*/agents/` and `codex/plugins/bymax-codex/skills/*/SKILL.md`
+is a contract read by a model at run time, and most of the reviewable surface is Markdown.
+
+The executable surface is no longer small. It is `scripts/**`, `plugins/*/scripts/**` (the
+`review_flow.py` campaign runtime, its pre-push receipt checker, the delivery ledger and the
+Claude adapter), `plugins/*/hooks/*.sh`, and `codex/{scripts,tests}/**` plus
+`codex/plugins/bymax-codex/scripts/**`. Apply the shared source rules there.
 
 ## How to verify work
 
 ```bash
-./scripts/validate.sh        # manifests, +x bits, shellcheck, frontmatter, required files
+./scripts/validate.sh        # manifests, +x, shellcheck, frontmatter, files + scripts/tests
+./scripts/validate-codex.sh  # drift, 27 entrypoints, links, manifests + codex/tests
 ```
 
-It needs the `claude` CLI and PyYAML (`python3 -m pip install pyyaml`; `--break-system-packages`
-on a PEP 668 Python, as CI does). A missing `claude`, `python3` or PyYAML is a red run, not a
-skipped check. **shellcheck is the one optional dependency:** absent locally, the lint step
-prints a warning and is skipped, and CI — which installs it — is where that gate is enforced.
-So a green local run proves the manifests, the frontmatter and the required files, and proves
-shellcheck only when it is installed. Done means `validate.sh` is green **and** the command text
-says what it means — see the first narrowing below.
+Each script ends with its behavioral suite, so those two commands are the whole gate; running
+`python3 -m unittest discover -s scripts/tests` by hand is the same tests, not an extra one.
+
+Both validators need the `claude` CLI and PyYAML (`python3 -m pip install pyyaml`;
+`--break-system-packages` on a PEP 668 Python, as CI does). A missing `claude`, `python3` or
+PyYAML is a red run, not a skipped check. **shellcheck is the one optional dependency:** absent
+locally, the lint step prints a warning and is skipped, and CI — which installs it — is where that
+gate is enforced. The Codex isolated install + skill-discovery test is likewise skipped without
+the Codex CLI and required in CI; force it locally with `BYMAX_REQUIRE_CODEX_TEST=1`.
+
+So a green local run proves the manifests, the frontmatter, the required files, the bundle parity
+and the behavioral suites — and proves shellcheck and Codex discovery only when those are
+installed. Changing a canonical file under `plugins/` without running
+`python3 codex/scripts/bundle.py` leaves a stale bundle, and `validate-codex.sh` says so.
+
+Done means both validators and both suites are green **and** the command text says what it
+means — see the first narrowing below. The coverage map, with its stated gaps, is in
+[TESTING.md](TESTING.md).
 
 ## Code Review Rules
 

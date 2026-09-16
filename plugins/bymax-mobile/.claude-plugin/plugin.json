@@ -1,14 +1,14 @@
 {
   "name": "bymax-mobile",
   "description": "Slash commands to boot the iOS Simulator (/bymax-mobile:sim-ios) and Android Emulator (/bymax-mobile:sim-android) for Expo / React Native projects. Auto-detects whether `expo start` (Metro reattach) or `expo run:ios|run:android` (full rebuild + install) is the right call. macOS-first; Android also works on Linux when the SDK is configured.",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "author": {
     "name": "Bymax One",
     "email": "support@bymax.one",
     "url": "https://github.com/bymaxone"
   },
   "license": "MIT",
-  "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-mobile",
+  "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-mobile",
   "keywords": [
     "mobile",
     "expo",

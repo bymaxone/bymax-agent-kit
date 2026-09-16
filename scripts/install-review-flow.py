@@ -8,6 +8,7 @@ import shutil
 import shlex
 
 ROOT = Path(__file__).resolve().parents[1]
+MARKETPLACES = ('bymax-agent-kit', 'bymax-claude-code')
 BEGIN = '<!-- bymax-review:begin -->'
 END = '<!-- bymax-review:end -->'
 
@@ -112,7 +113,11 @@ def overlays(home, backup_dir):
     plugins = json.loads(registry.read_text())['plugins']
     targets = []
     for name in ('bymax-quality', 'bymax-workflow', 'bymax-pr'):
-        entries = [i for i in plugins.get(name + '@bymax-claude-code', []) if i.get('scope') == 'user']
+        # An install predating the marketplace rename keys its cache entry under the
+        # old id, so both ids must resolve to the one installed user plugin.
+        installed = [i for marketplace in MARKETPLACES
+                     for i in plugins.get(name + '@' + marketplace, [])]
+        entries = [i for i in installed if i.get('scope') == 'user']
         if len(entries) != 1:
             raise ValueError('Expected exactly one installed user plugin: ' + name)
         path = Path(entries[0]['installPath']).resolve()

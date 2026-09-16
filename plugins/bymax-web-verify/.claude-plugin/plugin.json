@@ -1,14 +1,14 @@
 {
   "name": "bymax-web-verify",
   "description": "Real-browser verification and assisted UI testing for web apps. /bymax-web-verify:test brings the full stack up — reuses a running backend instance or starts one, opens the frontend in the Claude Desktop Browser pane (preview) — and walks a UI flow step by step while the user watches, verifying via page state, console, network (2xx gate), and server logs; falls back to the agent-browser CLI in a terminal. /bymax-web-verify:verify drives a real browser to confirm a single change works. /bymax-web-verify:setup installs the agent-browser CLI + Chrome for Testing in one shot. A SessionStart hook detects a missing CLI and offers to install it. Depends on `agent-browser` but never bundles it. /bymax-web-verify:record captures a UI flow as reviewable video evidence: the project's own Playwright with video forced on for one isolated run, human pacing (slowMo with a resized timeout), ffmpeg lead-in trim with a verified first frame, an ffprobe pacing gate, optional --mp4, and a plain-text walkthrough derived from the spec that ran.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": {
     "name": "Bymax One",
     "email": "support@bymax.one",
     "url": "https://github.com/bymaxone"
   },
   "license": "MIT",
-  "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-web-verify",
+  "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-web-verify",
   "keywords": [
     "browser",
     "automation",

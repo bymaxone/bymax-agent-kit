@@ -157,6 +157,52 @@ class InstallTests(unittest.TestCase):
             hook = repo / '.git/hooks/pre-push'
             self.assertTrue(hook.exists() and os.access(hook, os.X_OK), 'hook missing from real install')
 
+    def _overlay_profile(self, home, marketplace):
+        """Build a synthetic Claude profile whose plugin cache is keyed by one marketplace id."""
+        registry = {'plugins': {}}
+        for name in ('bymax-quality', 'bymax-workflow', 'bymax-pr'):
+            install_path = home / 'plugins/cache' / marketplace / name
+            (install_path / 'commands').mkdir(parents=True)
+            (install_path / 'commands/stale.md').write_text('replaced by the overlay')
+            registry['plugins'][name + '@' + marketplace] = [
+                dict(scope='user', installPath=str(install_path))]
+        (home / 'plugins').mkdir(parents=True, exist_ok=True)
+        (home / 'plugins/installed_plugins.json').write_text(json.dumps(registry))
+        return registry
+
+    def test_overlay_finds_the_cache_under_either_marketplace_id(self):
+        """The marketplace id moved, and an install keyed by either one still overlays."""
+        for marketplace in ('bymax-agent-kit', 'bymax-claude-code'):
+            with self.subTest(marketplace=marketplace), tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                self._overlay_profile(home, marketplace)
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
+                     '--claude-home', tmp, '--local-plugin-overlay'],
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                overlaid = home / 'plugins/cache' / marketplace / 'bymax-quality'
+                self.assertTrue((overlaid / 'commands/code-review.md').exists())
+                self.assertTrue((overlaid / 'scripts/review_flow.py').exists())
+
+    def test_overlay_refuses_a_plugin_installed_under_both_marketplace_ids(self):
+        """Two caches for one plugin is ambiguous, so nothing is overwritten."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            registry = self._overlay_profile(home, 'bymax-agent-kit')
+            legacy = home / 'plugins/cache/bymax-claude-code/bymax-quality'
+            legacy.mkdir(parents=True)
+            registry['plugins']['bymax-quality@bymax-claude-code'] = [
+                dict(scope='user', installPath=str(legacy))]
+            (home / 'plugins/installed_plugins.json').write_text(json.dumps(registry))
+            result = subprocess.run(
+                [sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
+                 '--claude-home', tmp, '--local-plugin-overlay'],
+                capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('bymax-quality', result.stderr)
+            self.assertFalse((legacy / 'commands').exists())
+
     def test_unknown_policy_boundary_is_not_overwritten(self):
         """An incomplete managed section fails before settings or policy change."""
         with tempfile.TemporaryDirectory() as tmp:

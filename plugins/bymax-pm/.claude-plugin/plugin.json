@@ -1,14 +1,14 @@
 {
   "name": "bymax-pm",
   "description": "Engineering Project Manager for multi-agent development. The /bymax-pm:pm command turns the current session into a PM/TPM that coordinates INDEPENDENT Claude Code peer sessions: discovers agents via ListAgents, delegates structured task contracts via SendMessage, tracks a deterministic task lifecycle (assignment → acknowledgement → evidence → independent review → PM verification), detects stuck agents through one-shot idle notices instead of polling, resolves blockers between agents before escalating, and keeps all project truth in a persistent, git-friendly .claude/pm/ workspace that survives session restarts. Evidence-driven: a worker saying done is never enough — DONE requires diffs, tests, CI and PM verification. The PM coordinates; it does not implement.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": {
     "name": "Bymax One",
     "email": "support@bymax.one",
     "url": "https://github.com/bymaxone"
   },
   "license": "MIT",
-  "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-pm",
+  "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-pm",
   "keywords": [
     "project-manager",
     "tpm",

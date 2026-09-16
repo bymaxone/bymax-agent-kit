@@ -41,4 +41,4 @@ cp /tmp/ecc/LICENSE vendor/ecc-skills/LICENSE
 
 ---
 
-If you are the author of ECC and prefer this content not be vendored here, please [open an issue](https://github.com/bymaxone/bymax-claude-code/issues) — we'll remove it promptly.
+If you are the author of ECC and prefer this content not be vendored here, please [open an issue](https://github.com/bymaxone/bymax-agent-kit/issues) — we'll remove it promptly.
