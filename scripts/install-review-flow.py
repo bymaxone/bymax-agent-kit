@@ -108,10 +108,10 @@ def overlays(home, backup_dir):
     """Overlay installed user plugin files without changing registry or marketplace source."""
     registry = home / 'plugins/installed_plugins.json'
     if not registry.exists():
-        raise ValueError('Install the Bymax quality and workflow plugins with Claude first.')
+        raise ValueError('Install the Bymax quality, workflow and PR plugins with Claude first.')
     plugins = json.loads(registry.read_text())['plugins']
     targets = []
-    for name in ('bymax-quality', 'bymax-workflow'):
+    for name in ('bymax-quality', 'bymax-workflow', 'bymax-pr'):
         entries = [i for i in plugins.get(name + '@bymax-claude-code', []) if i.get('scope') == 'user']
         if len(entries) != 1:
             raise ValueError('Expected exactly one installed user plugin: ' + name)
@@ -145,7 +145,8 @@ def install(home, overlay):
     runtime.mkdir(parents=True, exist_ok=True)
     # review_flow.start installs review_prepush.py from beside itself, so the hook
     # source must travel with the runtime or no repository ever gets the hook.
-    for name in ('review_flow.py', 'review_push.py', 'review_prepush.py', 'review-report.schema.json'):
+    for name in ('review_flow.py', 'review_push.py', 'review_prepush.py', 'review_delivery.py',
+                 'review_claude.py', 'review-report.schema.json'):
         shutil.copy2(ROOT / 'plugins/bymax-quality/scripts' / name, runtime / name)
     settings_path.write_text(json.dumps(updated_settings, indent=2) + '\n')
     policy_path.write_text(updated_policy)

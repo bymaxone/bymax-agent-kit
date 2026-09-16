@@ -31,6 +31,13 @@ paths or workflow names.
 
 ---
 
+For every corrective push, read the quality plugin's `references/autonomous-delivery.md`.
+Reuse its branch/PR ledger with `start --autonomous`: at most six frozen candidates across
+all wakeups, CI fingerprints and bot comments. Completed intermediate campaigns do not
+renew it. Continue verified in-scope corrections without another permission question;
+report a real exhausted-budget or evidence blocker rather than silently opening another
+campaign. This total budget is additional to the repeated-CI-failure limit below.
+
 ## Phase −1: Preflight (MANDATORY — run FIRST, every first invocation)
 
 Before anything else, verify the GitHub CLI is usable. **This skill cannot
@@ -471,7 +478,7 @@ auto-implement. The developer triages human feedback.
 | Tier | Examples | Action |
 |---|---|---|
 | **MUST FIX** | Security vuln, correctness bug, data-loss risk, race condition, missing auth check | Fix |
-| **SHOULD FIX** | Real clarity win, measured perf regression, missing error handling | Fix |
+| **SHOULD FIX** | Measured perf regression, reachable missing error handling | Fix |
 | **SKIP — nitpick** | "Consider extracting", "could be more readable", comment on self-evident code, defensive code for unreachable paths | Dismiss with reasoning |
 | **SKIP — contradicts project rules** | Suggestion that violates the project's `CLAUDE.md`/`AGENTS.md` (architecture, typing, logging, dependency policy) | Dismiss citing the specific rule |
 | **SKIP — new external service/dependency** | Suggests adding Redis, Kafka, a new SaaS, a heavyweight dep, etc. | Dismiss and `PushNotification` so the developer can decide |
@@ -481,12 +488,14 @@ When unsure between MUST FIX and SKIP, prefer SKIP and surface a
 articulate.
 
 ### Implementing a relevant comment
-1. Open the file at the comment's `path` + `line`.
+1. Revalidate all candidate comments against current HEAD and reproduce the accepted
+   defects. Batch them by invariant, including evidence in the delivery probe.
 2. Apply the smallest fix that addresses the concern.
 3. Run the local gate (typecheck + relevant tests) before committing.
 4. Commit: `fix: address <bot-name> review — <short summary>` (use the bot's
    `user.login`, e.g. Copilot, CodeRabbit, SonarCloud).
-5. Push.
+5. Complete the same autonomous delivery with both independent reviewers, declared
+   gates and a receipt, then push. Do not create one commit/review per comment.
 6. Reply on the thread with the marker:
    `<!-- babysit-reply --> Fixed in <commit-sha>: <one-sentence explanation>.`
 7. Resolve the review thread via GraphQL — **follow the MANDATORY procedure in

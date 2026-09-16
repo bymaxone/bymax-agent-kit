@@ -165,6 +165,8 @@ section "Verifying required project files"
 
 REQUIRED_FILES=(
   "README.md"
+  "INSTALL.md"
+  "TESTING.md"
   "LICENSE"
   "CONTRIBUTING.md"
   "CHANGELOG.md"

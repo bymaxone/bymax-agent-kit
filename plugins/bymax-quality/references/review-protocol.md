@@ -4,6 +4,12 @@ The orchestration layer records evidence; it does not prove that a model's reaso
 true. Never fabricate a report, test result or disposition to satisfy its schema. The
 human remains able to inspect the reports and decide a blocked campaign's next scope.
 
+For a push request, [autonomous delivery](autonomous-delivery.md) supplies the budget,
+continuation and reviewer-ownership rules. Enroll with `start --autonomous`: six candidates
+shared across this feature branch's pushes, with no automatic renewal after clearance.
+Where this document describes a new campaign after clearance, that applies only outside
+an enrolled delivery; its next candidate remains a correction delta with the same budget.
+
 ## Context and lifecycle
 
 Run helpers from the target repository. Set `FLOW` to `~/.claude/bymax-review/review_flow.py`:
@@ -146,7 +152,7 @@ A correction round carries evidence the helper requires and both reviewers see:
 ```bash
 python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--design-round] \
     [--no-regression-reason "<why>"] [--nit-round "<why>"] [--after-archived "<authorization>"] \
-    [--widen-scope "<why>"]
+    [--widen-scope "<why>"] [--answers <path:slug>...] [--extend-delivery "<authorization>"]
 ```
 
 `--probe` is a nonempty JSON list of `{"command", "expected", "observed"}`: what the author

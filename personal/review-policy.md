@@ -19,10 +19,14 @@ merely to obtain an empty review. Inspect related callers to preserve existing b
 
 Correct accepted blockers in one minimal batch. Run regression tests and project gates;
 commit authorized fixes, then review only the correction delta and impacted behavior with
-both models, verifying each earlier open finding. Maximum: initial candidate plus two
-correction candidates per unfinished campaign. On exhaustion, stop with blockers and a
-scope proposal. Never reset state, switch branches or disable a reviewer to evade the limit.
+both models, verifying each earlier open finding. For shipping, use `start --autonomous`: initial candidate plus five correction candidates,
+with a persistent branch/PR budget that survives completed campaigns and pushes. On exhaustion with real blockers, stop with evidence. Before that, continue ordinary
+in-scope repairs and root-cause analysis without asking again. Never reset state, switch branches or disable a reviewer to evade the limit.
 Missing/failed reviewers mean incomplete review, not product defects or approval.
+
+A blocked push is an automatic handoff: run the review skill, certify the corrected candidate,
+and retry the original destination/refspec. Do not end the task at the blocked hook or at a
+clean review. Read the plugin autonomous-delivery contract.
 
 The runtime is `~/.claude/bymax-review/review_flow.py`. Follow the plugin protocol for
 `start`, `prompt`, `codex`, `record`, `triage`, `check`, `finish` and `status`. Save context

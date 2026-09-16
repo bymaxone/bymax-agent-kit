@@ -17,6 +17,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 FLOW = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
+sys.path.insert(0, str(FLOW.parent))
 
 # Every form found across the review campaigns that ever reached git with argv `push`
 # while a text-level guard reported no push. Each must fail at the hook instead.

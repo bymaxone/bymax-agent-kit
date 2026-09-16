@@ -1,5 +1,5 @@
 ---
-description: 'Bounded Claude and Codex code review with shared context, pinned scope, verified findings, regression checks and at most three candidate rounds. Full review first, correction deltas thereafter; never fix speculative findings or loop until zero nits. Triggers: "code review", "review changes", "revisar código".'
+description: 'Bounded Claude and Codex code review with shared context, pinned scope, verified findings, regression checks and bounded candidate rounds and autonomous shipping. Full review first, correction deltas thereafter; never fix speculative findings or loop until zero nits. Triggers: "code review", "review changes", "revisar código".'
 argument-hint: "[quick|full|deep] [target] [--fix] [--preview]"
 ---
 
@@ -17,6 +17,12 @@ context capture, executable lifecycle commands, report/triage schemas, correctio
 and the exact conditions for a completed review. Its verification and scope rules take
 precedence over the generic checklist below. Read the target project's actual policies;
 explicit local constraints take precedence over generic Bymax conventions.
+
+For a shipping request, also read
+`${CLAUDE_PLUGIN_ROOT}/references/autonomous-delivery.md`. Its six-candidate delivery
+budget and automatic continuation apply across pushes; ordinary standalone reviews keep
+three candidates. A hook requesting AUTOMATIC CONTINUATION means execute that contract
+and resume the pending push, without another permission question.
 
 ## First run in a repository (mandatory, once)
 
@@ -117,9 +123,9 @@ a separate design audit, report it separately from this campaign.
 6. **A reopened finding ends patching.** If a finding is open in two consecutive
    triages, the previous correction addressed the instance and not the cause; `start`
    refuses the next round unless it is declared `--design-round`, and that round is
-   spent on the approach — a design proposal for the human, or a change that removes
+   spent on the approach — an independent root-cause analysis and an in-scope change that removes
    the class — not on another patch. Both reviewers are told it is a design round.
-7. At three candidate rounds (initial + two correction rounds), stop if still blocked.
+7. At the recorded candidate limit (six for autonomous delivery; three otherwise), stop if still blocked.
    Present unresolved invariants, attempted fixes and a proposed scope split. Do not
    reset the campaign, change branches, disable Codex or clear a receipt to evade the
    limit, and do not archive the campaign and open another on the same finding without

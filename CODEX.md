@@ -18,6 +18,8 @@ The agent needs local filesystem and shell access. An ordinary web chat cannot
 install a local Codex plugin. Keep the checkout: it is the registered local
 marketplace used for updates. A directory containing spaces is supported.
 
+For complete prerequisites, dual-review shipping and optional capabilities, read [INSTALL.md](INSTALL.md).
+
 ## Installation
 
 Prerequisites: Git, Python **3.10+**, and a Codex CLI supporting `codex plugin

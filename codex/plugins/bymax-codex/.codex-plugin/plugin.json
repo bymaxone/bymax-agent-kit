@@ -1,6 +1,6 @@
 {
   "name": "bymax-codex",
-  "version": "1.0.2+codex.20260914230000",
+  "version": "1.1.0+codex.20260915234704",
   "description": "Bymax workflows for Codex: evidence-based code review, planning, testing, PR management and capability-aware orchestration.",
   "author": {
     "name": "Bymax One",
