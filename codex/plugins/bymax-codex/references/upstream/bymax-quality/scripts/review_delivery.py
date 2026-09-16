@@ -27,18 +27,30 @@ def cap(directory):
 
 
 def extend(directory, reason):
-    """Record who authorised continuing past the budget, and why; both reviewers read it.
+    """Record who decided to continue past a spent budget, and why; both reviewers read it.
 
-    A spent budget is an alarm about the corrections, and the person watching the
-    alarm decides. Without this the only way on was deleting the ledger by hand, which
-    the protocol forbids — so the alarm was a wall, and a wall with a hand-made door is
-    worse than a recorded decision.
+    The budget is an alarm about the corrections and the person watching it decides; the
+    ledger is never deleted. An extension is recorded only when the budget is actually
+    spent, so a flag passed early or on a start that is then refused cannot pre-buy a
+    budget, and only with a reason that says something.
     """
     ledger = load(directory)
     if ledger is None:
         raise ValueError('No delivery to extend on this branch: enroll with --autonomous first.')
-    ledger.setdefault('extensions', []).append(dict(at_used=ledger['used'], reason=reason))
+    if not reason.strip():
+        raise ValueError('--extend-delivery needs a reason: who decided to continue, and why.')
+    limit = MAX_CANDIDATES * (1 + len(ledger.get('extensions', [])))
+    if ledger['used'] < limit:
+        raise ValueError(f"The delivery budget is not spent ({ledger['used']} of {limit} candidates); "
+                         'there is nothing to extend yet.')
+    ledger.setdefault('extensions', []).append(dict(at_used=ledger['used'], reason=reason.strip()))
     write(directory, ledger)
+
+
+def previous_head(directory):
+    """The last candidate this delivery froze, or None: what a moved-aside campaign loses."""
+    ledger = load(directory)
+    return ledger['heads'][-1] if ledger and ledger.get('heads') else None
 
 
 def write(directory, ledger):

@@ -59,7 +59,96 @@ class DeliveryTests(unittest.TestCase):
                         extend='Max decided to continue after reading the six-candidate alarm')
         self.assertEqual(state['round'], 7)
         self.assertEqual(state['max_rounds'], 12)
-        self.assertIn('extended by a recorded decision', c.text('prompt'))
+        self.assertIn('by a recorded decision', c.text('prompt'))
+
+    def test_a_cleared_campaign_moved_aside_is_still_the_delivery_in_progress(self):
+        """Losing the state directory must not turn the second candidate into a first round.
+
+        Both reviewers found this: with the cleared campaign's directory renamed there was
+        no state, so start read a first round — no answers, no probe, the original base,
+        and "Round 1" in the prompt — while the ledger counted the head anyway.
+        """
+        c = self.case
+        first = self.enroll()
+        c.complete()
+        directory = Path(c.flow('status')['directory'])
+        directory.rename(directory.with_name(directory.name + '.archived'))
+        (c.repo / 'unasked.txt').write_text('a mechanism nobody asked for\n')
+        c.git('add', '-A')
+        c.git('commit', '-qm', 'a correction after the campaign state was moved aside')
+        plain = c.flow('start', '--base', c.base, '--context', str(c.context), ok=False).stderr
+        self.assertIn('--after-archived', plain)
+        self.assertIn(first['head'][:12], plain)
+        # The decision recorded, the answers named, but unasked.txt named by nothing: widens.
+        arguments = ['start', '--base', c.base, '--context', str(c.context),
+                     '--after-archived', 'fixture: Max decided to go on without the state',
+                     '--probe', str(c.root / 'probe.json'), '--no-regression-reason', 'fixture']
+        (c.root / 'probe.json').write_text(json.dumps([dict(command='c', expected='e', observed='e')]))
+        widened = c.flow(*arguments, '--answers', 'code.txt:bot-thread', ok=False)
+        self.assertIn('unasked.txt', widened.stderr)
+        # A new file is in no reviewed tree, so it cannot be an answer; it is a widening.
+        ghost = c.flow(*arguments, '--answers', 'code.txt:bot-thread', 'unasked.txt:new', ok=False)
+        self.assertIn('name none: unasked.txt', ghost.stderr)
+        state = c.flow(*arguments, '--answers', 'code.txt:bot-thread',
+                       '--widen-scope', 'fixture: the bot asked for a new file')
+        self.assertEqual(state['round'], 2)
+        self.assertEqual(state['review_base'], first['head'])
+        self.assertEqual(state['delivery_used'], 2)
+        prompt = c.text('prompt')
+        self.assertIn('Round 2/6', prompt)
+        self.assertIn('Max decided to go on without the state', prompt)
+        self.assertIn('declared by the author as: code.txt:bot-thread', prompt)
+
+    def test_answers_are_refused_while_findings_are_open(self):
+        """A declared answer must not stand in for --widen-scope or --nit-round."""
+        c = self.case
+        self.enroll()
+        c.report('claude', [dict(id='code.txt:nit', kind='nit', priority='P3', evidence='reads oddly')])
+        c.report('codex')
+        c.triage([dict(id='claude::code.txt:nit', status='open', evidence='Confirmed')])
+        (c.repo / 'other.txt').write_text('something else\n')
+        c.commit('fix')
+        refused = c.start(correction=True, nit='', answers=['other.txt:bot-thread'], ok=False).stderr
+        self.assertIn('--answers is for a correction after a cleared candidate', refused)
+        state = c.start(correction=True, widen='fixture: the fix needs other.txt')
+        self.assertEqual(state['answers'], [])
+
+    def test_an_extension_needs_a_spent_budget_and_a_reason(self):
+        """A flag passed early, blank, or on a refused start must not pre-buy a budget."""
+        c = self.case
+        self.enroll()
+        early = c.start(extend='too soon', ok=False).stderr
+        self.assertIn('not spent', early)
+        for number in range(1, 6):
+            c.complete()
+            c.commit('correction ' + str(number))
+            c.start(correction=True, answers=['code.txt:bot-thread-' + str(number)])
+        c.complete()
+        c.commit('seventh')
+        blank = c.start(correction=True, answers=['code.txt:t'], extend='   ', ok=False).stderr
+        self.assertIn('needs a reason', blank)
+        c.start(correction=True, answers=['code.txt:t'], extend='first decision')
+        self.assertEqual(c.flow('status')['max_rounds'], 12)
+        for number in range(7, 12):
+            c.complete()
+            c.commit('correction ' + str(number))
+            c.start(correction=True, answers=['code.txt:bot-thread-' + str(number)])
+        c.complete()
+        c.commit('thirteenth')
+        c.start(correction=True, answers=['code.txt:t'], extend='second decision')
+        prompt = c.text('prompt')
+        self.assertIn('extended 2 time(s)', prompt)
+        self.assertIn('first decision', prompt)
+        self.assertIn('second decision', prompt)
+
+    def test_an_answer_carries_a_slug(self):
+        """A bare path gives the reviewers no invariant to judge against."""
+        c = self.case
+        self.enroll()
+        c.complete()
+        c.commit('fix')
+        bare = c.start(correction=True, answers=['code.txt'], ok=False).stderr
+        self.assertIn('no slug: code.txt', bare)
 
     def test_a_correction_after_clearance_names_what_it_answers(self):
         """No open findings after a clearance, so the scope rule measures against the answers."""
@@ -94,10 +183,17 @@ class DeliveryTests(unittest.TestCase):
         directory = Path(state['directory'])
         directory.rename(directory.with_name(directory.name + '.archived'))
         c.commit('after authorized archive')
+        # The moved-aside campaign never cleared, but the ledger froze its head, so this
+        # restart is the delivery's correction: a probe and what it answers, like any other.
+        probe = c.root / 'probe.json'
+        probe.write_text(json.dumps([dict(command='c', expected='e', observed='e')]))
         state = c.flow('start', '--base', c.base, '--context', str(c.context),
-                       '--after-archived', 'Fixture explicit authorization')
+                       '--after-archived', 'Fixture explicit authorization',
+                       '--probe', str(probe), '--no-regression-reason', 'fixture',
+                       '--answers', 'code.txt:lost-campaign-finding')
         self.assertEqual(state['delivery_used'], 2)
         self.assertEqual(state['max_rounds'], 6)
+        self.assertEqual(state['round'], 2)
 
     def test_changed_scope_does_not_silently_start_new_delivery(self):
         """A cleared receipt is not permission to change the delivery contract."""

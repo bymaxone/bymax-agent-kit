@@ -376,6 +376,10 @@ def answered_files(old, answers):
     """
     if not answers:
         return set()
+    require(all(':' in answer and answer.split(':', 1)[1].strip() for answer in answers),
+            'Each answer is <path>:<slug>, the file the external finding is about and a short name '
+            'for its invariant; these have no slug: '
+            + ', '.join(a for a in answers if ':' not in a or not a.split(':', 1)[1].strip()))
     listing = git_raw('ls-tree', '-r', '-z', '--full-tree', '--name-only', old['head'])
     reviewed = {path for path in listing.split('\0') if path}
     named = {answer.split(':', 1)[0] for answer in answers}
@@ -499,9 +503,16 @@ def next_round(args, old, head, directory, base, context):
     # PR-bot thread, a CI failure — and must say what, or the scope rule has nothing to
     # measure it against and the round is limited by the budget alone.
     require(not old.get('cleared') or args.answers,
-            'The previous candidate cleared, so this correction answers an external finding. Name '
+            'The previous candidate cleared, or its campaign state is gone, so no open finding '
+            'defines this correction: it answers an external one. Name '
             'each one with --answers <path:slug> (the file it is about, then a short invariant name); '
             'both reviewers are told, and the scope rule measures the correction against those files.')
+    # And only then: while findings are open they define the scope, and a declared answer
+    # would stand in for --widen-scope and --nit-round with no recorded why.
+    require(old.get('cleared') or not args.answers,
+            '--answers is for a correction after a cleared candidate. Here the open findings define '
+            'the scope: touch what they name, record --widen-scope "<why>" for anything else, and '
+            '--nit-round "<why>" to spend the round on nits.')
     extra = widened(old, head, args.answers or ())
     require(not extra or args.widen_scope,
             'A correction round answers the open findings and nothing else. No open finding '
@@ -517,6 +528,26 @@ def next_round(args, old, head, directory, base, context):
     return correction
 
 
+def recovered_candidate(directory, base, context, after_archived):
+    """The delivery's previous candidate, rebuilt from the ledger when its campaign is gone.
+
+    A cleared campaign moved aside leaves no state, and a start would read that as a first
+    round: no --answers, no probe, the original base, and reviewers told "Round 1". The
+    ledger still names the last head it froze, so the start is the correction it is,
+    against that head, and the decision to continue without the campaign is recorded.
+    """
+    head = review_delivery.previous_head(directory)
+    if head is None:
+        return None
+    require(after_archived, 'This delivery already froze ' + head[:12] + ' and its campaign state is '
+            'gone. Restore the state directory, or record why the delivery continues without it '
+            'with --after-archived "<who decided, and why>"; both reviewers are told.')
+    ledger = review_delivery.load(directory)
+    return dict(head=head, base=base, context=context, round=ledger['used'], cleared=True,
+                reviews={'claude': dict(findings=[]), 'codex': dict(findings=[])}, triage=[],
+                autonomous=True, max_rounds=review_delivery.cap(directory))
+
+
 def start(args, directory):
     """Freeze a full baseline or advance a campaign to a correction delta."""
     review_rules_notice()
@@ -530,6 +561,10 @@ def start(args, directory):
     autonomous = review_delivery.active(directory, args.autonomous)
     if args.extend_delivery:
         review_delivery.extend(directory, args.extend_delivery)
+    recovered = False
+    if old is None and autonomous:
+        old = recovered_candidate(directory, base, context, args.after_archived)
+        recovered = old is not None
     if old and autonomous:
         old.update(autonomous=True, max_rounds=review_delivery.cap(directory))
     if old and old['head'] == head:
@@ -547,7 +582,7 @@ def start(args, directory):
                  nit_round=args.nit_round if old else '',
                  widen_scope=args.widen_scope if old else '',
                  answers=list(args.answers or ()) if old else [],
-                 after_archived='' if old else args.after_archived,
+                 after_archived=args.after_archived if (recovered or not old) else '',
                  round=old['round'] + 1 if old else 1,
                  review_base=old['head'] if old else base,
                  previous_triage=old.get('triage', []) if old else [],
@@ -702,11 +737,6 @@ def correction_brief(state):
         lines.append('The previous candidate had cleared. This round answers external findings the '
                      'campaign never saw, declared by the author as: ' + ', '.join(state['answers'])
                      + '. Judge whether the correction answers exactly those, and nothing beside them.')
-    if state.get('delivery_extensions'):
-        latest = state['delivery_extensions'][-1]
-        lines.append('This delivery spent its candidate budget and was extended by a recorded decision: '
-                     + latest['reason'] + '. That is a signal the corrections have kept producing the '
-                     'next finding; weigh whether this one does too.')
     if state.get('widen_scope'):
         lines.append('This round touches files no open finding named, which is how a correction turns '
                      'into new surface for the next review. The author recorded: '
@@ -729,6 +759,17 @@ def correction_brief(state):
     return '\n'.join(lines)
 
 
+def delivery_note(state):
+    """What the reviewers must know when a delivery continued past its budget."""
+    extensions = state.get('delivery_extensions') or []
+    if not extensions:
+        return ''
+    reasons = '; '.join(f"after {e['at_used']} candidates: {e['reason']}" for e in extensions)
+    return (f'This delivery spent its candidate budget and was extended {len(extensions)} time(s) by a '
+            'recorded decision (' + reasons + '). That is the signal that corrections have kept '
+            'producing the next finding; weigh whether this one does too.')
+
+
 def archived_note(state):
     """What the reviewers must know when a campaign was authorised to start over."""
     if not state.get('after_archived'):
@@ -748,6 +789,7 @@ Round {state['round']}/{state.get('max_rounds', 3)}. Read surrounding code, call
 Context and acceptance contract:
 {state['context']}
 {archived_note(state)}
+{delivery_note(state)}
 The checks listed in that context are executed and recorded by the caller through review_flow.py check;
 do not run them, and do not run the project's test suite or builds: your sandbox is read-only and
 denies $TMPDIR, where such tools write their caches. Whatever you cannot execute is a limitation to

@@ -18,7 +18,11 @@ watcher wakeups, new bot comments and campaign archives do not renew the budget.
 Omitting `--autonomous` on later starts does not disable an enrolled delivery.
 A spent budget is an alarm that the corrections keep producing the next finding, not a
 wall: a human who decides to continue records it with `--extend-delivery "<who, why>"`,
-which grants another budget and is shown to both reviewers. Never delete the ledger.
+accepted only once the budget is actually spent, granting another budget and shown to
+both reviewers with every earlier reason. Never delete the ledger. A cleared campaign
+moved aside does not make the next start a first round: the ledger names the last
+candidate, and `start` continues from it as a correction, requiring `--after-archived`
+for the decision to go on without the campaign state, and `--answers` as usual.
 Keep the same original base and context throughout the feature branch/PR, even after
 pushing. A new feature belongs on a new branch; never create one to evade this budget.
 Standalone reviews retain their ordinary three-candidate default until enrolled.
@@ -28,7 +32,9 @@ verification of prior open findings, and checks of affected callers. Even after 
 intermediate candidate, the next start retains the prior head as review base and requires
 `--probe` and regression evidence, and it names what it answers with
 `--answers <path:slug>...`: after a clearance there are no open findings, so those
-declared answers are what the correction-scope rule measures the change against. A new
+declared answers are what the correction-scope rule measures the change against. While
+findings are open, `--answers` is refused; the findings define the scope then, and
+`--widen-scope` records anything beyond them. A new
 external finding is included in that probe's command/expected/observed evidence and in
 the orchestrator's handoff, not used to reopen unrelated parts of the original
 implementation.
