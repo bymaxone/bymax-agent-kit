@@ -76,7 +76,7 @@ Both vendored skills are MIT-licensed. Per MIT terms, redistribution is permitte
 - ✅ The original copyright notice is preserved (see `LICENSE` file in each subfolder).
 - ✅ Attribution to the original author is given (see `ATTRIBUTION.md` in each subfolder).
 
-If you are the author of either project and prefer not to be vendored here, please [open an issue](https://github.com/bymaxone/bymax-claude-code/issues) and we'll remove your content.
+If you are the author of either project and prefer not to be vendored here, please [open an issue](https://github.com/bymaxone/bymax-agent-kit/issues) and we'll remove your content.
 
 ---
 

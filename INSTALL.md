@@ -1,4 +1,4 @@
-# Install, update and verify Bymax
+# Install, update and verify Bymax Agent Kit
 
 This checkout contains two independent plugin packages: eight Claude Code plugins and
 one Codex plugin with 27 skills. A plugin installation supplies instructions, not the
@@ -33,24 +33,29 @@ or platform approval prompts cannot be bypassed by a skill.
 Clone this repository and run subsequent installation commands from its root:
 
 ```bash
-git clone https://github.com/bymaxone/bymax-claude-code.git
-cd bymax-claude-code
+git clone https://github.com/bymaxone/bymax-agent-kit.git
+cd bymax-agent-kit
 ```
 
 ## Claude package
 
-Register the marketplace and install all eight components:
+Register the marketplace and install all eight components. If this machine still has the
+former `bymax-claude-code` marketplace registered, remove it first — the GitHub URL
+redirects but the marketplace id does not, and mixing the two suffixes installs two copies:
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-quality@bymax-claude-code
-claude plugin install bymax-workflow@bymax-claude-code
-claude plugin install bymax-pr@bymax-claude-code
-claude plugin install bymax-bootstrap@bymax-claude-code
-claude plugin install bymax-mobile@bymax-claude-code
-claude plugin install bymax-web-verify@bymax-claude-code
-claude plugin install bymax-pm@bymax-claude-code
-claude plugin install bymax-qa@bymax-claude-code
+claude plugin marketplace list                      # only if bymax-claude-code is listed:
+claude plugin marketplace remove bymax-claude-code
+
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-quality@bymax-agent-kit
+claude plugin install bymax-workflow@bymax-agent-kit
+claude plugin install bymax-pr@bymax-agent-kit
+claude plugin install bymax-bootstrap@bymax-agent-kit
+claude plugin install bymax-mobile@bymax-agent-kit
+claude plugin install bymax-web-verify@bymax-agent-kit
+claude plugin install bymax-pm@bymax-agent-kit
+claude plugin install bymax-qa@bymax-agent-kit
 ```
 
 Install the shared reviewer runtime, global push handoff and managed policy:
@@ -94,7 +99,7 @@ No Claude global hooks are installed by the Codex installer itself.
   its output against the project's real invariants instead of importing generic nits.
 - Work on a feature branch with a known destination and integration base. A candidate
   must be committed and clean; unrelated staged/unstaged files are not silently included.
-- `review_flow.py start --autonomous` installs the Git pre-push checker if absent. An
+- Every `review_flow.py start` installs the Git pre-push checker if absent. An
   existing foreign hook or custom `core.hooksPath` must preserve its existing checks
   and delegate to the installed `review_prepush.py`, passing Git's stdin and returning
   its failure. The runtime tests compatibility; it never overwrites foreign hooks.
@@ -151,7 +156,7 @@ or every optional external integration. See [TESTING.md](TESTING.md) for the cov
 ## Update and recover
 
 Update this persistent checkout with a clean working tree, then update the Claude
-marketplace/plugins using `claude plugin marketplace update bymax-claude-code` and the
+marketplace/plugins using `claude plugin marketplace update bymax-agent-kit` and the
 CLI's plugin update commands. Re-run `python3 scripts/install-review-flow.py` for the
 shared runtime and `./scripts/install-codex.sh` for Codex; restart/new task, then doctor.
 For local package edits use the documented cachebuster workflow in [CODEX.md](CODEX.md).

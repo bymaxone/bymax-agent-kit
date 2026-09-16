@@ -5,15 +5,15 @@
 ## Install
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-workflow@bymax-claude-code
-claude plugin install bymax-quality@bymax-claude-code
-claude plugin install bymax-bootstrap@bymax-claude-code
-claude plugin install bymax-mobile@bymax-claude-code
-claude plugin install bymax-web-verify@bymax-claude-code
-claude plugin install bymax-pr@bymax-claude-code
-claude plugin install bymax-pm@bymax-claude-code
-claude plugin install bymax-qa@bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-workflow@bymax-agent-kit
+claude plugin install bymax-quality@bymax-agent-kit
+claude plugin install bymax-bootstrap@bymax-agent-kit
+claude plugin install bymax-mobile@bymax-agent-kit
+claude plugin install bymax-web-verify@bymax-agent-kit
+claude plugin install bymax-pr@bymax-agent-kit
+claude plugin install bymax-pm@bymax-agent-kit
+claude plugin install bymax-qa@bymax-agent-kit
 ```
 
 ## What you get

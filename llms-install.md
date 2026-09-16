@@ -1,11 +1,21 @@
 # llms-install.md — AI-agent installation runbook
 
-> **Audience:** AI coding agents (Claude Code, Cline, Cursor, Codex, …) installing the **bymax-claude-code** toolkit for a user.
+> **Audience:** AI coding agents (Claude Code, Cline, Cursor, Codex, …) installing the **Bymax Agent Kit** toolkit for a user.
 > **Scope:** the PUBLIC toolkit only. This is **not** the author's machine-restore flow — **never run `scripts/install.sh`, never copy `personal/` or `vendor/`** unless the human explicitly states they are the repo author restoring their own machine.
 >
+> **This runbook installs the CLAUDE CODE package.** To install the **Codex** package instead (or
+> as well), follow [`CODEX.md`](./CODEX.md): clone the repo to a persistent path and run
+> `./scripts/install-codex.sh`, then `--check`. The two are independent — neither installer touches
+> the other's configuration. `scripts/install.sh` is neither of them.
+>
 > Name mapping (the most common command-construction error):
-> - GitHub slug: `bymaxone/bymax-claude-code`
-> - Marketplace name (used after `@` in install commands): `bymax-claude-code`
+> - GitHub slug: `bymaxone/bymax-agent-kit`
+> - Marketplace name (used after `@` in install commands): `bymax-agent-kit`
+> - **Renamed from `bymax-claude-code`.** The GitHub URL redirects; the marketplace id does not. If
+>   `claude plugin marketplace list` shows `bymax-claude-code`, run
+>   `claude plugin marketplace remove bymax-claude-code` before Step 1, then reinstall each plugin
+>   under the new id. Never mix the two suffixes in one install.
+> - Codex plugin: `bymax-codex@bymax-codex`, from the local `codex/` directory — not from a Git URL.
 
 Every step is idempotent — re-running is safe. After each step, run the **Verify** command; do not proceed on failure (see [Failure guidance](#failure-guidance)).
 
@@ -17,6 +27,7 @@ Every step is idempotent — re-running is safe. After each step, run the **Veri
 claude --version   # Claude Code CLI must exist
 node --version     # ≥ 18 required for plugin hooks (≥ 20 recommended)
 git --version      # any recent version
+python3 --version  # ≥ 3.10 — only needed if Step 4.5 will run
 ```
 
 Missing item → STOP and report to the human:
@@ -26,14 +37,15 @@ Missing item → STOP and report to the human:
 | `claude` | `npm install -g @anthropic-ai/claude-code` (or the native installer from docs.claude.com) |
 | `node` | `brew install node` (macOS) / nvm — must be on the non-interactive shell PATH |
 | `git` | `xcode-select --install` (macOS) or the platform package manager |
+| `python3` ≥ 3.10 | Only blocks Step 4.5 (the review runtime), never Steps 1–4 — [python.org](https://www.python.org/downloads/) or the platform package manager |
 
 ## Step 1 — Add the marketplace
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
 ```
 
-**Verify:** `claude plugin marketplace list` shows `bymax-claude-code`.
+**Verify:** `claude plugin marketplace list` shows `bymax-agent-kit`.
 
 ## Step 2 — Choose and install plugins (decision point)
 
@@ -41,14 +53,14 @@ Default when the human didn't specify: install the **core pair** plus whatever t
 
 | Plugin | Install when | Command |
 |---|---|---|
-| `bymax-workflow` | always (core) | `claude plugin install bymax-workflow@bymax-claude-code` |
-| `bymax-quality` | always (core — ships the hooks + sub-agents) | `claude plugin install bymax-quality@bymax-claude-code` |
-| `bymax-bootstrap` | the human will scaffold new projects | `claude plugin install bymax-bootstrap@bymax-claude-code` |
-| `bymax-mobile` | Expo / React Native projects only | `claude plugin install bymax-mobile@bymax-claude-code` |
-| `bymax-web-verify` | web projects only (needs Step 4's `agent-browser`) | `claude plugin install bymax-web-verify@bymax-claude-code` |
-| `bymax-pr` | only if `gh` will be authenticated (Step 4) | `claude plugin install bymax-pr@bymax-claude-code` |
-| `bymax-pm` | the human coordinates multiple Claude Code sessions | `claude plugin install bymax-pm@bymax-claude-code` |
-| `bymax-qa` | the human wants a whole-system QA / security audit | `claude plugin install bymax-qa@bymax-claude-code` |
+| `bymax-workflow` | always (core) | `claude plugin install bymax-workflow@bymax-agent-kit` |
+| `bymax-quality` | always (core — ships the hooks + sub-agents) | `claude plugin install bymax-quality@bymax-agent-kit` |
+| `bymax-bootstrap` | the human will scaffold new projects | `claude plugin install bymax-bootstrap@bymax-agent-kit` |
+| `bymax-mobile` | Expo / React Native projects only | `claude plugin install bymax-mobile@bymax-agent-kit` |
+| `bymax-web-verify` | web projects only (needs Step 4's `agent-browser`) | `claude plugin install bymax-web-verify@bymax-agent-kit` |
+| `bymax-pr` | only if `gh` will be authenticated (Step 4) | `claude plugin install bymax-pr@bymax-agent-kit` |
+| `bymax-pm` | the human coordinates multiple Claude Code sessions | `claude plugin install bymax-pm@bymax-agent-kit` |
+| `bymax-qa` | the human wants a whole-system QA / security audit | `claude plugin install bymax-qa@bymax-agent-kit` |
 
 ⚠️ **Do NOT install `bymax-all`** — it is a documentation index; it installs no commands.
 
@@ -72,7 +84,12 @@ Each row: check → install → verify. Skip rows whose plugin wasn't installed.
 would make them eligible on every default install — but they install external software and spend a
 billed Codex turn, so being eligible is not the same as being wanted. **Default to skipping both.**
 Run them only if the human has asked for the Codex second opinion; if they have not said, ask, and
-skip on no answer. Everything in `bymax-quality` works without them.
+skip on no answer.
+
+Every `bymax-quality` command **runs** without them: skipping costs the second opinion, not the
+plugin. What it does cost is **certification** — `/bymax-quality:code-review` completing with a
+receipt needs a real Codex pass, so a campaign that cannot reach Codex reports *incomplete review*.
+Say that to the human when they decline, and never record an incomplete campaign as approval.
 
 | Tool | Check | Install | Verify |
 |---|---|---|---|
@@ -124,6 +141,34 @@ disabled.
 Never record this row as passed on an *unverified* verdict: nothing about `codex@openai-codex`
 was checked, and the first `--adversarial` run is where the user would find out.
 
+## Step 4.5 — The bounded dual review runtime (only if the human wants certified pushes)
+
+`/bymax-quality:code-review` runs without this. The **pre-push receipt**, the shared campaign state
+and the global push handoff do not: they live in a runtime installed from a checkout, not from the
+marketplace. Install it only when the human has said they want dual-review certification, and only
+after Step 4's `codex` row is done — a receipt needs both reviewers.
+
+```bash
+git clone https://github.com/bymaxone/bymax-agent-kit.git   # persistent path; keep it
+cd bymax-agent-kit
+python3 scripts/install-review-flow.py
+```
+
+It writes `~/.claude/bymax-review/`, registers one `PreToolUse` Bash guard, and merges a managed
+block into `~/.claude/CLAUDE.md`. **It backs up every file it touches** under `~/.claude/backups/`
+and prints that directory — report the path to the human. It preserves unrelated settings and
+unrelated hooks; it refuses (nonzero, no writes) when a legacy hook is chained to another command,
+which needs a hand migration.
+
+**Verify:** `python3 scripts/doctor.py --auth` prints one `ok` per prerequisite and reports no
+credentials. It requires `gh` and its login too, so on an install that skipped Step 4's `gh` row it
+exits nonzero on `gh` alone — read the named entries, not the exit code. Every entry except a `gh`
+one the human declined must be `ok` before proceeding.
+
+Do **not** pass `--local-plugin-overlay` for a user install: it copies this checkout over the
+installed plugin caches and is a repo-development flag. Prerequisites: macOS or Linux (the
+runtime's file locks use `fcntl`; on Windows the human needs WSL) and Python ≥ 3.10.
+
 ## Step 5 — MCP servers (optional — ask the human, default: context7 only)
 
 Use the `claude mcp add` one-liners (do **not** use the `personal/mcp.template.json` copy method — that is the author-restore path):
@@ -157,10 +202,11 @@ graphify hook install          # post-commit graph refresh
 ## Final verification checklist
 
 ```bash
-claude plugin marketplace list   # bymax-claude-code present
+claude plugin marketplace list   # bymax-agent-kit present, and bymax-claude-code absent
 claude plugin list               # every chosen plugin present
 claude mcp list                  # every chosen MCP present (if Step 5 ran)
 gh auth status                   # exit 0 (only if bymax-pr or bymax-qa installed)
+python3 scripts/doctor.py --auth # only if Step 4.5 ran; a declined gh is the one allowed failure
 ```
 
 Report a pass/fail summary per step to the human. Done.
@@ -175,13 +221,19 @@ Report a pass/fail summary per step to the human. Done.
 - ❌ **Never run `graphify claude install`** (the "always use the graph" mode) — its always-on `PreToolUse` hooks add per-prompt overhead and conflict with the `bymax-quality` hooks. The toolkit's integration is presence-gated and needs no hooks.
 - ❌ **Never add a GitHub MCP server** — GitHub access in this toolkit is `gh` CLI only (short-lived OAuth; org policies often reject long-lived PATs).
 - ❌ **Never guess the Obsidian vault path** — ask the human.
+- ❌ **Never run `scripts/install-review-flow.py --local-plugin-overlay`** for a user install — it overwrites the installed plugin caches with this checkout. Repo development only.
+- ❌ **Never edit `codex/plugins/bymax-codex/references/upstream/`** — generated copies of `plugins/`, regenerated by the bundler and compared in CI.
+- ❌ **Never report a review as passed when a reviewer was unavailable** — a missing Codex CLI or a failed pass means *incomplete review*, never approval, and never a product defect.
 
 ## Failure guidance
 
 | Symptom | Likely cause → action |
 |---|---|
 | `marketplace add` fails | Network/auth → retry once; still failing → report to human with the exact error |
-| `plugin install` fails | Marketplace-name typo — it is `@bymax-claude-code` (hyphen), never `@bymax.claude-code` |
+| `plugin install` fails | Marketplace-name typo — it is `@bymax-agent-kit` (hyphens), never `@bymax.agent-kit`; and never the old `@bymax-claude-code`, which no longer matches the registered marketplace |
+| `install-review-flow.py` exits nonzero naming another hook | A legacy guard chained to somebody else's command. It refuses rather than deleting it — **hand the exact stderr to the human**; do not edit `settings.json` yourself |
+| `doctor.py --auth` nonzero | It names the CLI/runtime that is missing, outdated or unauthenticated; `gh` counts, so a declined `gh` row is a nonzero exit with nothing wrong. `codex login` and `claude auth login` are interactive → HUMAN HANDOFF |
+| `install-codex.sh` stops on the marketplace name | A `bymax-codex` marketplace already points at another checkout. It refuses to replace it — ask the human which checkout is current |
 | Commands missing after install | Step 3 restart not done → hand off to the human again |
 | MCP server missing from `claude mcp list` | Re-run the `claude mcp add` line; if listed but inactive, check `enabledMcpjsonServers` in `~/.claude/settings.local.json` |
 | Hooks not firing (`secret-scanner` etc.) | Plugin disabled or restart pending → `claude plugin list`, then restart handoff |

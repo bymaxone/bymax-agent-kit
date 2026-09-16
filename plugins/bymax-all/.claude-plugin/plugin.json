@@ -1,14 +1,14 @@
 {
   "name": "bymax-all",
   "description": "Meta-plugin reference for the complete bymax toolkit (workflow + quality + bootstrap + mobile + web-verify + pr + pm + qa). Note: Claude Code's plugin manifest does not auto-install dependencies — install bymax-workflow, bymax-quality, bymax-bootstrap, bymax-mobile, bymax-web-verify, bymax-pr, bymax-pm, and bymax-qa individually.",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "author": {
     "name": "Bymax One",
     "email": "support@bymax.one",
     "url": "https://github.com/bymaxone"
   },
   "license": "MIT",
-  "homepage": "https://github.com/bymaxone/bymax-claude-code",
+  "homepage": "https://github.com/bymaxone/bymax-agent-kit",
   "keywords": [
     "meta",
     "all-in-one",

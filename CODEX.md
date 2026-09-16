@@ -1,15 +1,26 @@
-# Install and use Bymax in Codex
+# Install and use Bymax Agent Kit in Codex
 
 This repository distributes a **separate Codex plugin** alongside its Claude Code
 marketplace. The Codex package contains 27 skills, bundled Bymax source references,
 and a native code-review procedure. Installing it does not install Claude Code,
 change Claude settings, or register Claude hooks.
 
+The repository was renamed from `bymax-claude-code` to `bymax-agent-kit` because this
+Codex package exists: the toolkit now targets two runtimes from one canonical source.
+The old GitHub URL redirects. The Codex marketplace and plugin ids are unchanged
+(`bymax-codex@bymax-codex`) — only the checkout path moves. If a `bymax-codex`
+marketplace is registered against an old checkout, point it at the current one rather
+than keeping both; the installer refuses to replace a marketplace silently.
+
+What the Codex package does and does not reproduce from the Claude runtime is in
+[Available workflows and capability boundaries](#available-workflows-and-capability-boundaries)
+below, and summarised in the README's [What runs where](README.md#-what-runs-where) table.
+
 ## Give this repository to a Codex agent
 
 Use this request:
 
-> Install the Codex integration from https://github.com/bymaxone/bymax-claude-code.
+> Install the Codex integration from https://github.com/bymaxone/bymax-agent-kit.
 > Read CODEX.md first, clone the repository into a persistent local directory if
 > needed, run scripts/install-codex.sh, and verify the installed package. Do not
 > run scripts/install.sh, which restores the author's Claude configuration.
@@ -32,8 +43,8 @@ missing, the installer stops and names it; install that prerequisite and rerun.
 From a persistent checkout:
 
 ```bash
-git clone https://github.com/bymaxone/bymax-claude-code.git
-cd bymax-claude-code
+git clone https://github.com/bymaxone/bymax-agent-kit.git
+cd bymax-agent-kit
 ./scripts/install-codex.sh --dry-run
 ./scripts/install-codex.sh
 ./scripts/install-codex.sh --check
@@ -50,7 +61,7 @@ registered; rerunning is safe. It does not roll back unrelated configuration.
 The underlying commands are:
 
 ```bash
-codex plugin marketplace add /absolute/path/to/bymax-claude-code/codex
+codex plugin marketplace add /absolute/path/to/bymax-agent-kit/codex
 codex plugin add bymax-codex@bymax-codex
 codex plugin list --marketplace bymax-codex --json
 ```

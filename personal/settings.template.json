@@ -76,10 +76,10 @@
   "extraKnownMarketplaces": {
     "_comment": "Each marketplace is a git repo with a .claude-plugin/marketplace.json. Add as needed.",
 
-    "bymax-claude-code": {
+    "bymax-agent-kit": {
       "source": {
         "source": "github",
-        "repo": "bymaxone/bymax-claude-code"
+        "repo": "bymaxone/bymax-agent-kit"
       }
     },
     "claude-plugins-official": {
@@ -100,7 +100,7 @@
     "_comment_1": "Set to true to enable; set the value to false (or remove the key) to disable.",
     "_comment_2": "After a fresh install, also run: claude plugin install <name>@<marketplace>",
 
-    "bymax-all@bymax-claude-code": true,
+    "bymax-all@bymax-agent-kit": true,
     "frontend-design@claude-plugins-official": true,
     "sentry-mcp@sentry-mcp": true
   },
@@ -112,8 +112,8 @@
   "_comment_github": "GitHub access is via the gh CLI, NOT an MCP server (orgs reject long-lived PATs; gh uses short-lived OAuth). Restore with: brew install gh && gh auth login",
 
   "_comment_post_install": "After settings.json + .mcp.json + settings.local.json are in place, install marketplace plugins:",
-  "_comment_post_install_cmd_1": "  claude plugin marketplace add bymaxone/bymax-claude-code",
-  "_comment_post_install_cmd_2": "  claude plugin install bymax-all@bymax-claude-code",
+  "_comment_post_install_cmd_1": "  claude plugin marketplace add bymaxone/bymax-agent-kit",
+  "_comment_post_install_cmd_2": "  claude plugin install bymax-all@bymax-agent-kit",
   "_comment_post_install_cmd_3": "  claude plugin install frontend-design@claude-plugins-official",
   "_comment_post_install_cmd_4": "  claude plugin install sentry-mcp@sentry-mcp"
 }

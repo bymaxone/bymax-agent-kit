@@ -5,9 +5,13 @@
 ## Install
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-workflow@bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-workflow@bymax-agent-kit
 ```
+
+### Also in Codex
+
+The same procedures ship in the Codex package as `bymax-brainstorm`, `bymax-spec`, `bymax-roadmap`, `bymax-phase-tasks`, `bymax-plan`, `bymax-task`, `bymax-verify`, `bymax-checkpoint`, `bymax-standards`, `bymax-autopilot` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
 
 ## What you get
 

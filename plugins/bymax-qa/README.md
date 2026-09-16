@@ -12,9 +12,13 @@
 ## Install
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-qa@bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-qa@bymax-agent-kit
 ```
+
+### Also in Codex
+
+The same procedures ship in the Codex package as `bymax-audit` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
 
 ## Why it is a separate plugin
 

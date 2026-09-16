@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "bymax-claude-code",
-  "description": "A complete, production-ready toolkit for Claude Code: planning workflow (spec \u2192 roadmap \u2192 phase-tasks \u2192 task), loop-engineering autopilot (autonomous roadmap execution, one merge-gated PR per phase), quality gates (TDD + code-review + security-review) for TypeScript and Rust, specialized review agents, project bootstrap with strict ESLint/Prettier/TypeScript, autonomous PR babysitting, and battle-tested templates. Stack templates for Next.js, Expo / React Native, Vite + React, and Node backends.",
-  "version": "1.17.0",
+  "name": "bymax-agent-kit",
+  "description": "A complete, production-ready toolkit for BOTH Claude Code and Codex, from one canonical source. Bounded dual review (one Claude pass and one Codex pass over a pinned scope, verified findings, a candidate budget and a Git pre-push receipt), a phased planning workflow (spec \u2192 roadmap \u2192 phase-tasks \u2192 task), a loop-engineering autopilot that drives an approved roadmap to done one merge-gated PR per phase, a whole-system QA and security audit with an independent verifier, quality gates (TDD, 5-gate verify, credential-blocking hooks) for TypeScript and Rust, ten specialist agents, an engineering PM for multi-agent development, real-browser verification, mobile simulators, and project bootstrap with strict ESLint/Prettier/TypeScript. Stack templates for Next.js, Expo / React Native, Vite + React and Node backends. The Codex package installs separately from ./codex; see CODEX.md.",
+  "version": "2.0.0",
   "owner": {
     "name": "Bymax One",
     "email": "support@bymax.one",
@@ -14,63 +14,63 @@
       "description": "Spec \u2192 Roadmap \u2192 Phase-Tasks \u2192 Task \u2014 a phased planning + execution workflow with explicit user-approval gates and JIRA-style task dashboards. Includes /bymax-workflow:brainstorm, /bymax-workflow:plan, /bymax-workflow:verify, /bymax-workflow:checkpoint, the universal /bymax-workflow:standards reference (with the \u00a70 reuse-first simplicity ladder), and /bymax-workflow:autopilot \u2014 the loop-engineering executor that autonomously drives an approved roadmap to done, one merge-gated PR per phase.",
       "category": "workflow",
       "source": "./plugins/bymax-workflow",
-      "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-workflow"
+      "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-workflow"
     },
     {
       "name": "bymax-quality",
       "description": "Bounded Claude + Codex code review with shared context, verified findings and correction deltas, plus TDD, specialist reviewers and security hooks. The Codex CLI is required for dual-review certification.",
       "category": "quality",
       "source": "./plugins/bymax-quality",
-      "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-quality"
+      "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-quality"
     },
     {
       "name": "bymax-bootstrap",
       "description": "Scaffold new projects (Next.js, Expo/RN, Vite+React, Node) with strict TS, ESLint flat-config + security plugin, Prettier, .vscode (format-on-save), Husky + commitlint + lint-staged, and CLAUDE.md/AGENTS.md/README.md templates. Also upgrades existing projects non-destructively.",
       "category": "scaffolding",
       "source": "./plugins/bymax-bootstrap",
-      "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-bootstrap"
+      "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-bootstrap"
     },
     {
       "name": "bymax-mobile",
       "description": "Slash commands to boot the iOS Simulator (/bymax-mobile:sim-ios) and Android Emulator (/bymax-mobile:sim-android) for Expo / React Native projects. Auto-detects whether to reattach Metro (fast) or run a full rebuild + install (slow). Honors $BYMAX_SIM_IOS, $BYMAX_SIM_ANDROID, and $APP_VARIANT.",
       "category": "mobile",
       "source": "./plugins/bymax-mobile",
-      "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-mobile"
+      "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-mobile"
     },
     {
       "name": "bymax-web-verify",
       "description": "Real-browser verification and assisted UI testing. /bymax-web-verify:test brings the full stack up (reuses or starts the backend, frontend in the Claude Desktop Browser pane) and walks a UI flow while the user watches, with console/network/server-log verification per step; agent-browser fallback in terminals. /bymax-web-verify:verify confirms a single web change in a live browser. /bymax-web-verify:setup installs the agent-browser CLI + Chrome in one shot. Depends on agent-browser; never bundles it. /bymax-web-verify:record captures a UI flow as a reviewable video: the project's own Playwright with video forced on for one run, human pacing (slowMo + resized timeout), trimmed and pacing-gated with ffmpeg/ffprobe, published with a plain-text walkthrough derived from the spec that ran.",
       "category": "quality",
       "source": "./plugins/bymax-web-verify",
-      "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-web-verify"
+      "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-web-verify"
     },
     {
       "name": "bymax-pr",
       "description": "The PR lifecycle, powered by the gh CLI. /bymax-pr:push ships work safely (feature branch \u2014 never the default branch \u2014 staged set respected, complete Conventional-Commits message, push with upstream; `pr` token opens a fully-described PR). /bymax-pr:babysit-pr shepherds the open PR to merge-readiness: resolves conflicts, polls CI at a cadence matched to the CI's real duration (270 s floor), classifies real vs flaky failures, fixes real ones locally, triages bot review comments, and notifies you when green. Never merges, never pushes to the base branch. Depends on gh + git; never bundles them.",
       "category": "workflow",
       "source": "./plugins/bymax-pr",
-      "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-pr"
+      "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-pr"
     },
     {
       "name": "bymax-pm",
       "description": "Engineering Project Manager for multi-agent development. /bymax-pm:pm turns the session into a PM/TPM above independent Claude Code peer sessions: discovers agents via ListAgents, delegates structured task contracts via SendMessage, enforces an evidence-based lifecycle (assign, acknowledge, independent review, PM verification \u2014 a worker saying done is never enough), detects stuck agents with one-shot idle notices instead of polling, resolves blockers and cross-repo dependencies, and persists all project truth in a git-friendly .claude/pm/ workspace that survives restarts. The PM coordinates; it does not implement.",
       "category": "workflow",
       "source": "./plugins/bymax-pm",
-      "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-pm"
+      "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-pm"
     },
     {
       "name": "bymax-qa",
       "description": "Whole-system QA and security audit for any project, with evidence and hand-off. Point /bymax-qa:audit at a target: a Jira ticket key (verifies access, reads the acceptance criteria, reports each PASS/FAIL/BLOCKED/NOT-VERIFIABLE with evidence), a branch or ref range or PR (scopes the hunt to the change, like a code review), or nothing (the whole system via a signed scope). It maps the stack and its trust boundaries, hunts by domain (authentication, authorization and tenant isolation, injection and input, cache/Redis, database/Postgres, observability, transport and config, architecture, frontend, supply chain) with read-only finder agents, probes the running stack against allow-listed hosts only, and admits a finding only after verification: a runnable reproduction, captured evidence and verified impact, with an independent verifier for every hunted candidate. Findings carry ASVS 5.0, CWE and API Top 10 references and a CVSS vector, and move OPEN \u2192 HANDED-OFF \u2192 FIX-CLAIMED \u2192 VALIDATED or REOPENED. The auditor never edits source: findings are handed to the owning peer session over cross-session messaging, filed as GitHub issues when no peer is live, or written back to the ticket as a comment, and re-tested before they close. A PreToolUse hook is a floor under the scope while an audit runs: network probes in command position reach only allow-listed hosts, and Write/Edit tool calls land only in .claude/qa/ (arbitrary Bash writes rest on the skill's discipline). External scanners are used when present, never bundled.",
       "category": "quality",
       "source": "./plugins/bymax-qa",
-      "homepage": "https://github.com/bymaxone/bymax-claude-code/tree/main/plugins/bymax-qa"
+      "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-qa"
     },
     {
       "name": "bymax-all",
       "description": "Meta-plugin reference. Claude Code does not auto-install dependencies \u2014 install bymax-workflow, bymax-quality, bymax-bootstrap, bymax-mobile, bymax-web-verify, bymax-pr, bymax-pm, and bymax-qa individually for the full toolkit.",
       "category": "meta",
       "source": "./plugins/bymax-all",
-      "homepage": "https://github.com/bymaxone/bymax-claude-code"
+      "homepage": "https://github.com/bymaxone/bymax-agent-kit"
     }
   ]
 }

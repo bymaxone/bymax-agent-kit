@@ -14,8 +14,8 @@ custom transport: state is markdown in `.claude/pm/`, evidence is git/GitHub.
 
 ```bash
 # marketplace (once per machine, if not already added)
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-pm@bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-pm@bymax-agent-kit
 ```
 
 Per-project instead of global: `claude plugin install` is user-wide regardless of
@@ -24,6 +24,10 @@ where it runs, so the genuinely project-scoped path is copying `skills/pm/` into
 runs from (step 1 below), never a worker's repository; project-level skills need no
 plugin. Verify the plugin install with `claude plugin list`, or the copied skill by
 typing `/pm` in a session started there.
+
+### Also in Codex
+
+The same procedures ship in the Codex package as `bymax-pm` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
 
 ## Set up the topology
 

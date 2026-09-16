@@ -1,12 +1,12 @@
 # 🛡️ Bymax Quality
 
-> Strict quality gates and specialist reviewers for Claude Code (TypeScript and Rust). Code-review with severity blocking, red-green-refactor TDD, multi-stack tester, seven sub-agents (incl. a Rust reviewer), and a credential-blocking pre-write hook.
+> Bounded **Claude + Codex** review with a pre-push receipt, plus strict quality gates and specialist reviewers (TypeScript and Rust): red-green-refactor TDD, a multi-stack tester, seven sub-agents (incl. a Rust reviewer), and a credential-blocking pre-write hook.
 
 ## Install
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-quality@bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-quality@bymax-agent-kit
 ```
 
 ### First run in a repository (once, mandatory)
@@ -23,21 +23,45 @@ Push certification requires the Codex CLI with an active login and the Claude re
 pass. Run `/bymax-quality:codex-setup` if needed. The optional OpenAI Codex plugin is not
 required by this flow; keep its Stop review gate disabled to avoid a second loop.
 
-The default campaign uses shared context, one full review pair, then at most two
-correction-delta pairs. All findings are verified before edits. Nits and unrelated
-pre-existing bugs do not force new rounds. Missing reviewers leave the review incomplete.
-Read [the protocol](references/review-protocol.md) for receipts, evidence and limitations.
+A campaign pins one candidate and gives **both reviewers the same context, base and HEAD**.
+A standalone review permits three candidates — the initial one plus two correction deltas.
+`start --autonomous` enrolls the branch in a **six-candidate budget shared across pushes**
+and across completed campaigns, so clearance does not renew it; on exhaustion with real
+blockers the campaign stops with evidence instead of looping.
 
-To install the global guard and policy from this checkout, including a backed-up local
-overlay of the installed quality/workflow plugins:
+Every finding is verified before an edit, and every disposition — accepted or rejected —
+carries its evidence. A correction round additionally requires `--probe` (the author's own
+attempts to defeat the fix), lists every test file the delta changed so a flipped
+expectation is a finding, and runs `lessons`: the blocking findings that landed in files
+the previous round's own correction touched. Nits and unrelated pre-existing bugs never
+force a round. Missing or failed reviewers leave the review **incomplete** — not approved,
+and not evidence of a product defect.
+
+`finish` writes a receipt for the exact source SHA, and the `review_prepush.py` Git hook
+verifies it at push time. Read [the protocol](references/review-protocol.md) for the
+context schema, evidence format and limitations, and
+[autonomous delivery](references/autonomous-delivery.md) for the budget, reviewer
+ownership and the blocked-push handoff.
+
+The runtime, the pre-push hook and the managed policy block are installed from a checkout,
+not from the marketplace:
 
 ```bash
-python3 scripts/install-review-flow.py --local-plugin-overlay
+python3 scripts/install-review-flow.py                          # ordinary install
+python3 scripts/install-review-flow.py --local-plugin-overlay   # plugin development only
 ```
 
-Run this from the marketplace root. Restart Claude afterward. Local overlays are replaced
-by official plugin updates; publish these plugin versions before relying on remote updates.
-The installer preserves unrelated settings and reports its rollback directory.
+Run this from the marketplace root, then restart Claude. The installer preserves unrelated
+settings and hooks, reports its rollback directory under `~/.claude/backups/`, and refuses
+rather than deleting a legacy hook chained to another command. `--local-plugin-overlay`
+also copies this checkout over the installed quality/workflow/PR caches — official plugin
+updates replace that overlay, so publish these plugin versions before relying on remote
+updates. The overlay resolves a cache installed under either the current `bymax-agent-kit`
+marketplace id or the former `bymax-claude-code` one.
+
+### Also in Codex
+
+The same procedures ship in the Codex package as `bymax-code-review`, `bymax-codex-setup`, `bymax-review-md`, `bymax-tdd`, `bymax-tester` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
 
 ## What you get
 
@@ -49,6 +73,22 @@ The installer preserves unrelated settings and reports its rollback directory.
 | `/bymax-quality:codex-setup`  | Gets the Codex CLI ready so `code-review` can run its independent second review: diagnoses what is missing (binary, session, or nothing), installs through the right channel (`brew install --cask codex` on macOS, `npm install -g @openai/codex` elsewhere), walks the user through the interactive `codex login`, and verifies with a real review run rather than an exit code. Codex is required for dual-review certification. |
 | `/bymax-quality:review-md`    | Generates a repo-root `REVIEW.md` — the distilled Bymax rules injected verbatim into Anthropic's built-in Code Review (cloud `@claude review` on PRs, `/code-review ultra`), so the cloud engine enforces the same invariants the local gate blocks on. |
 | `/bymax-quality:tdd`          | Strict red-green-refactor cycle (Jest/Vitest or Rust `#[test]`/`cargo test`). Forces failing test before implementation. 80%+ coverage minimum (100% on critical paths). Every `it()` / `#[test]` carries a block comment. |
+
+### The review runtime
+
+`scripts/` holds the campaign state machine. `scripts/install-review-flow.py` at the
+repository root deploys the first six rows to `~/.claude/bymax-review/`; the last stays
+in the plugin and is invoked from there:
+
+| File | Role |
+| --- | --- |
+| `review_flow.py` | The campaign: `start` · `prompt` · `codex` · `claude` · `record` · `triage` · `lessons` · `range` · `check` · `finish` · `status`. State lives in the Git common directory, survives sessions, and never enters the diff. |
+| `review_prepush.py` | The Git `pre-push` hook. Validates the receipt for every source SHA being pushed. Every `start` installs it when absent; it is never written over a foreign hook, nor into a custom `core.hooksPath`, which must delegate to it instead. |
+| `review_push.py` | The `PreToolUse` Bash guard that turns a blocked push into a handoff instead of a dead end. |
+| `review_delivery.py` | The delivery ledger: the six-candidate budget shared across pushes and completed campaigns. |
+| `review_claude.py` | A constrained Claude CLI adapter, so a Codex-led session can obtain the independent Claude pass. |
+| `review-report.schema.json` | The report contract both reviewers return. A report with `status: incomplete` is rejected even when its findings list is empty. |
+| `codex-review.sh` (not deployed) | A standalone second opinion outside a campaign (`codex exec review`, or the `openai-codex` plugin's adversarial mode). Bounded campaigns use `review_flow.py`, not this. |
 
 ### Skill
 
@@ -80,16 +120,23 @@ Designed to be invoked one after another (or via `/bymax-workflow:task` which or
 ```
 implementation
    ↓
-/bymax-workflow:verify          (5 gates: static checks, exercise, root-cause, regression scan, acceptance criteria)
+/bymax-workflow:verify        (5 gates: static checks, exercise, root-cause, regression scan,
+   ↓                           acceptance criteria)
+/security-review              (Claude Code built-in; candidates, verified before any edit)
    ↓
-/security-review (apply every finding)
+commit the candidate          (a campaign reviews a committed, clean tree — nothing else)
    ↓
-/bymax-quality:code-review     (apply CRITICAL + HIGH + MEDIUM)
-   ↓
-ready for commit
+/bymax-quality:code-review    (Claude pass + Codex pass on one pinned scope → triage with
+   ↓                           evidence → minimal correction batch → check → receipt)
+push                          (the pre-push hook reads the receipt for this exact SHA)
 ```
 
-If any of `/bymax-workflow:verify`, `/security-review`, `/bymax-quality:code-review` finds something and fixes it, the flow loops back to `/bymax-workflow:verify`.
+A confirmed blocking finding sends the flow back to `/bymax-workflow:verify`, and the next
+campaign reviews **only the correction delta and the behaviour it touched** — not the whole
+change again. A finding is not a fix order: verify it against the code, the dependency
+contract and a reproduction first, record justified rejections with their counterevidence,
+and defer nits and unrelated pre-existing issues with a reason. Never rewrite unrelated code
+to obtain an empty review.
 
 ## Banned suppression patterns
 

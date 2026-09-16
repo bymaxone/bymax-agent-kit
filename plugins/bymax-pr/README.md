@@ -7,9 +7,13 @@ This plugin **depends on** the `gh` CLI but never bundles it — the same "requi
 ## Install
 
 ```bash
-claude plugin marketplace add bymaxone/bymax-claude-code
-claude plugin install bymax-pr@bymax-claude-code
+claude plugin marketplace add bymaxone/bymax-agent-kit
+claude plugin install bymax-pr@bymax-agent-kit
 ```
+
+### Also in Codex
+
+The same procedures ship in the Codex package as `bymax-push`, `bymax-babysit-pr` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
 
 ## Prerequisites
 
