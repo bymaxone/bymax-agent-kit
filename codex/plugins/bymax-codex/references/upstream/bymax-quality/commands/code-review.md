@@ -116,9 +116,15 @@ a separate design audit, report it separately from this campaign.
    refuses a probe that names none of those findings, and a second such round in a row
    is a design round. Then fix accepted blockers in one small batch, in this order, and
    do not reorder it:
-   1. **Regression first.** Turn each accepted finding's reproduction into a permanent
-      test case that fails on the current candidate, in the suite the campaign's
-      `checks` already runs. The suite is the cumulative invariant matrix: every case
+   1. **Regression first, and show it failing.** Turn each accepted finding's
+      reproduction into a permanent test case that fails on the current candidate, in
+      the suite the campaign's `checks` already runs — then **prove it fails**: revert
+      the production change, run the case, and record the failure. A case you believe
+      exercises the fix and never watched fail is not evidence; measured across two
+      campaigns, that belief was wrong every time it was checked, and always by a
+      reviewer rather than by the author. `start` refuses a correction round that
+      touches a test without a probe entry carrying `without_fix`, which is where that
+      output goes. The suite is the cumulative invariant matrix: every case
       from every round stays, so a later fix that breaks an earlier case is caught by
       the gate, not by a reviewer. Assert the invariant (what must and must not
       happen), never the fix's mechanism, and never the shell's or a parser's verdict
@@ -133,7 +139,13 @@ a separate design audit, report it separately from this campaign.
       test to both reviewers so an unjustified flip is a finding.
    4. **Probe your own fix before committing.** Spend bounded effort trying to defeat
       the correction the way a reviewer would, record each attempt as
-      `{command, expected, observed}`, and pass that file to `start --probe`. It is
+      `{command, expected, observed}`, and pass that file to `start --probe`.
+      **Every sentence you write about the code is a claim, and an unmeasured claim is
+      a defect the gates cannot see.** Before a comment, a docstring or a commit
+      message asserts what the code does, run the thing that shows it; if you cannot,
+      delete the sentence rather than soften it. The reviewer checklist already
+      requires this of a reviewer reading a finding — it applies to the author writing
+      the code, for the same reason and more often. It is
       required for every correction round and both reviewers see it. What you find
       here costs nothing; the same hole found after commit costs a round.
    5. Check affected callers, error paths and lifecycle transitions. Run the regression

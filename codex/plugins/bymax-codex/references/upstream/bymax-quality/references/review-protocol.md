@@ -240,6 +240,16 @@ python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--desig
     [--widen-scope "<why>"] [--answers <path:slug>...] [--extend-delivery "<authorization>"]
 ```
 
+A correction that adds or changes a test must also show that test failing. `start` refuses one
+whose probe carries no `without_fix` entry: a string naming what was reverted and what failed as
+a result. Reverting the production change and running the case takes seconds; believing the case
+exercises the fix has been wrong every time it was checked, and it was always a reviewer who
+checked. The entry is shown to both reviewers, who can re-run it.
+
+Everything a comment, a docstring or a commit message says about the code is a claim with no gate
+behind it. Measure it before writing it, or do not write it — a sentence that describes a branch
+nobody exercised is read as fact by the next person and by the next reviewer.
+
 `--probe` is a nonempty JSON list of `{"command", "expected", "observed"}`: what the author
 ran against the correction before committing it — reproductions of the defect and of the
 fix, never the declared project gates, which `check` runs and records. The prompt shows it

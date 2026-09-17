@@ -120,8 +120,12 @@ class ReviewFlowTests(unittest.TestCase):
         args = ['start', '--base', self.base, '--context', str(self.context)]
         if correction:
             path = self.root / 'probe.json'
+            # The default entry carries without_fix because a correction that touches a test
+            # must show it failing; a fixture exercising another rule should not have to know
+            # that. The case that owns the rule passes its own probe, with and without it.
             path.write_text(json.dumps(probe if probe is not None else [
-                dict(command='python3 -c "print(1)"', expected='1', observed='1')]))
+                dict(command='python3 -c "print(1)"', expected='1', observed='1',
+                     without_fix='fixture: reverted the change and the case failed')]))
             args += ['--probe', str(path), '--no-regression-reason', reason]
             if nit:
                 args += ['--nit-round', nit]
@@ -1344,6 +1348,35 @@ class ReviewFlowTests(unittest.TestCase):
                          if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                          and node.end_lineno - node.lineno + 1 > 50})
         self.assertFalse(over, f'functions over 50 lines: {over}')
+
+    def test_a_correction_that_changes_a_test_must_show_it_failing(self):
+        """A case the author believes exercises the fix is not evidence that it does.
+
+        Measured across two campaigns on two repositories: every such belief that was
+        checked turned out wrong, and a reviewer checked it every time, by reverting the
+        change and watching the case stay green. Reverting costs seconds, so the round asks
+        for that output instead of the belief.
+        """
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        # Deliberately not finished: a cleared candidate makes the next start a first round
+        # with no correction contract at all, so the rule under test is never reached. An
+        # earlier version of this case did exactly that and the runtime answered 0, not 2.
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests' / 'test_thing.py').write_text('def test_thing():\n    assert True\n')
+        self.commit('correction that changes a test')
+
+        believed = [dict(command='python3 -m pytest tests/test_thing.py', expected='passes',
+                         observed='passes')]
+        refused = self.start(ok=False, correction=True, probe=believed).stderr
+        self.assertIn('without_fix', refused)
+        self.assertIn('never watched fail', refused)
+
+        shown = [dict(believed[0], without_fix='reverted the guard; the case failed with '
+                                               'AssertionError on the invariant it names')]
+        self.assertEqual(self.start(correction=True, probe=shown)['round'], 2)
 
     def test_the_substitute_is_refused_without_a_waiver_the_runtime_granted(self):
         """claude-b is the stand-in for a Codex the probe could not run. With Codex available
