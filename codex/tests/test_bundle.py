@@ -1,6 +1,9 @@
 """Bundler regression tests: a renamed delimiter must fail loudly, never ship silently."""
 
 import importlib.util
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -40,6 +43,56 @@ class ShippedResourceTests(unittest.TestCase):
         # And a file the repository really does ship is still in the set.
         tracked = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
         self.assertIn(tracked.resolve(), canonical)
+
+
+    def fixture(self, inside_another_repo=False):
+        """A tree with one shipped resource, optionally untracked inside another repo."""
+        root = Path(tempfile.mkdtemp())
+        if inside_another_repo:
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            root = root / 'unpacked-copy'
+        (root / 'plugins/demo/commands').mkdir(parents=True)
+        (root / 'plugins/demo/commands/thing.md').write_text('a shipped resource\n')
+        return root
+
+    def test_git_answering_with_nothing_is_not_an_answer(self):
+        """`git ls-files plugins` exits 0 and prints nothing when the index has no plugins/
+        entry while the directory is fully populated — an unpacked copy inside another repo,
+        a re-inited checkout before the first add, a foreign GIT_DIR. Treating that as the
+        canonical set makes it empty, and a write run then deletes every bundled file and
+        reports success. Measured on the real package: 111 files under references/upstream
+        before, 0 after, rc=0, 'verified: 0 canonical resources'."""
+        module = bundler()
+        module.ROOT = self.fixture(inside_another_repo=True)
+        listing = subprocess.run(['git', '-C', str(module.ROOT), 'ls-files', '-z', 'plugins'],
+                                 capture_output=True)
+        self.assertEqual((listing.returncode, listing.stdout), (0, b''))  # the case must be the case
+        with self.assertRaises(SystemExit):
+            module.shipped()
+
+    def test_git_that_cannot_run_is_reported_rather_than_raised(self):
+        """The bundler depends on git now, so the absence of git is its own answer and must
+        read as one instead of a FileNotFoundError from the middle of a helper."""
+        module = bundler()
+        module.ROOT = self.fixture()
+        original = os.environ.get('PATH', '')
+        os.environ['PATH'] = str(Path(tempfile.mkdtemp()))
+        self.addCleanup(os.environ.__setitem__, 'PATH', original)
+        with self.assertRaises(SystemExit):
+            module.shipped()
+
+    def test_a_carriage_return_in_a_tracked_name_survives_the_listing(self):
+        """-z is asked for so a name is delimited by NUL and nothing else. Reading that
+        stream with universal newlines rewrites a CR inside a name before the split, and the
+        file it belongs to vanishes from the canonical set without a word."""
+        module = bundler()
+        root = self.fixture()
+        subprocess.run(['git', 'init', '-q', str(root)], check=True)
+        odd = root / 'plugins/demo/commands/carriage\rreturn.md'
+        odd.write_text('also shipped\n')
+        subprocess.run(['git', '-C', str(root), 'add', '-A'], check=True)
+        module.ROOT = root
+        self.assertIn(odd.resolve(), module.shipped())
 
 
 class BundleSectionTests(unittest.TestCase):

@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -20,13 +21,29 @@ def shipped():
     became four canonical resources and four manifest entries that no clone has, so the
     bundle verified on the machine that produced it and was stale everywhere else.
     """
-    listing = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', 'plugins'],
-                             capture_output=True, text=True)
+    # Bytes, not text: -z is asked for so a name is delimited by NUL and nothing else, and
+    # universal-newline translation rewrites a CR inside a name before the split, dropping the
+    # file it belongs to without a word.
+    try:
+        listing = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', 'plugins'],
+                                 capture_output=True)
+    except OSError as error:
+        raise SystemExit('bundle.py asks git which files this repository ships, and git could '
+                         f'not be run: {error}. Install git, or run the bundler from a checkout.')
     if listing.returncode != 0:
-        raise SystemExit('bundle.py asks git which files this repository ships, and git '
-                         f'could not answer in {ROOT}: {listing.stderr.strip()}. Run it from a '
-                         'checkout rather than from an exported tree.')
-    return {(ROOT / name).resolve() for name in listing.stdout.split('\0') if name}
+        raise SystemExit('bundle.py asks git which files this repository ships, and git could '
+                         f'not answer in {ROOT}: {listing.stderr.decode(errors="replace").strip()}. '
+                         'Run it from a checkout rather than from an exported tree.')
+    names = [name for name in listing.stdout.split(b'\0') if name]
+    # An empty answer is not an empty repository. git exits 0 and prints nothing whenever the
+    # index holds no plugins/ entry while the directory is full — an unpacked copy inside
+    # another repository, a re-inited checkout before its first add, a foreign GIT_DIR. Believing it
+    # would delete every bundled resource and report success, so it stops here instead.
+    if not names:
+        raise SystemExit(f'git tracks no file under plugins/ in {ROOT}, so the canonical set '
+                         'would be empty and bundling would delete every shipped resource. Run '
+                         'the bundler from the checkout that tracks these files.')
+    return {(ROOT / os.fsdecode(name)).resolve() for name in names}
 
 
 def source_files():
