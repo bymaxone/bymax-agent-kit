@@ -4,6 +4,8 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -15,6 +17,11 @@ import tempfile
 import time
 
 import review_delivery
+# The receipt predicate lives in the hook, which is the enforcement boundary and must stay
+# self-contained; it is imported here rather than restated, so the runtime cannot clear a
+# candidate on terms the hook would not honour.
+from review_prepush import (CODEX_LOCATIONS, WAIVER_TTL, explain, resolve_codex,
+                            reviewers_needed, satisfied, waiver_ok)
 
 POLICY = 2
 
@@ -105,6 +112,12 @@ def context_contract(path):
 
 HOOK_MARKER = 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.'
 
+# sha256 of every bundled hook a previous release installed. The hook carries the receipt
+# rule, so shipping a change to that rule means replacing the copy git actually runs; an
+# untouched bundle is this campaign's own file and is replaced, and anything else — a hook
+# somebody merged a check into, or wrote — is never overwritten, only reported.
+SUPERSEDED = frozenset({'c02a58c70dddeba812740dd2f83a5be43c14ad8e6cd2e35cbba62355f42f8ecc'})
+
 
 def install_hook():
     """Place the pre-push receipt check in this repository, refusing to displace another.
@@ -136,6 +149,14 @@ def install_hook():
         require(HOOK_MARKER in text,
                 'A pre-push hook not managed by this campaign exists at ' + str(target)
                 + '; merge the receipt check into it by hand, keeping its marker line, before starting.')
+        # An untouched bundle from an earlier release carries an earlier receipt rule. It is
+        # this campaign's own file, so it is replaced rather than reported; a symlink points
+        # at somebody's arrangement and is never written through.
+        if not target.is_symlink() and hashlib.sha256(target.read_bytes()).hexdigest() in SUPERSEDED:
+            target.write_bytes(source.read_bytes())
+            target.chmod(0o755)
+            usable_hook(target)
+            return
         # Carries the check at the current policy but is not the bundled file: merged or
         # edited by hand, so it is kept; the probe pushes decide whether it still enforces.
         usable_hook(target)
@@ -164,7 +185,7 @@ def run_hook(path, remote, line):
     return probe.returncode
 
 
-PROBE_BOUND = 8 * HOOK_SECONDS  # must exceed every hook run of one probe at the ceiling;
+PROBE_BOUND = 11 * HOOK_SECONDS  # must exceed every hook run of one probe at the ceiling;
 # test_sweep_bound_outlasts_every_hook_run_of_one_probe counts the runs and enforces it
 
 
@@ -188,8 +209,42 @@ def sweep_probes(root):
             subprocess.run(['git', 'update-ref', '-d', name], capture_output=True)
 
 
+def hook_view(checker):
+    """Resolve Codex the way the hook under test will, so a probe receipt is built from its
+    view of this machine rather than from a second opinion about it.
+
+    A hook that cannot be loaded as a module — a shell stub delegating to the checker, a
+    copy from before waivers existed — has no view to borrow, and this runtime's own is
+    used. That is the case the probe exists to catch: such a hook refuses the receipt,
+    which is what makes it visible instead of silently blocking real pushes later.
+    """
+    try:
+        # An explicit source loader, because a hook file has no .py suffix and nothing would
+        # infer one: the silent result is a spec with no loader, and the fallback below.
+        loader = importlib.machinery.SourceFileLoader('bymax_hook_view', str(checker))
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(module)
+        return module.resolve_codex()
+    except Exception:  # not importable, or not a checker that knows about waivers
+        return resolve_codex()
+
+
+def waived_shape(checker, stale=False):
+    """A receipt shape for a candidate whose Codex the runtime could not run.
+
+    The hook under test is asked exactly what a real waived receipt would ask it: where
+    Codex is installed that is a quota waiver naming the resolved binary, and where it is
+    not, an absent one. With stale=True the waiver is older than a waiver may be, which
+    every hook must refuse.
+    """
+    binary = hook_view(checker)
+    at = int(time.time()) - (WAIVER_TTL + 60 if stale else 0)
+    waiver = dict(reason='quota' if binary else 'absent', at=at, binary=binary or '')
+    return {'claude': {}, 'claude-b': {}}, waiver
+
+
 @contextlib.contextmanager
-def probe_receipt(sha, held=True, legacy=False):
+def probe_receipt(sha, held=True, legacy=False, waived=None, stale=False):
     """Hold a completed receipt for one commit only while this process probes the hook.
 
     Each probe gets a directory of its own, so concurrent starts in linked worktrees do
@@ -198,6 +253,9 @@ def probe_receipt(sha, held=True, legacy=False):
     commit nobody can push, whatever pid the system hands out next. With held=False the
     holder exists but is not locked; with legacy=True the receipt names a pid and nothing
     to hold. A checker must treat both as void: a probe receipt is valid only while held.
+    With waived=<hook path> the receipt carries the substitute reviewer pair and the waiver
+    that hook's own view of this machine would produce, which a current hook must honour;
+    with stale=True that waiver is expired, which every hook must refuse.
     """
     root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
     root.mkdir(parents=True, exist_ok=True)
@@ -205,6 +263,8 @@ def probe_receipt(sha, held=True, legacy=False):
     directory = Path(tempfile.mkdtemp(prefix='probe-', dir=root))
     receipt = dict(head=sha, cleared=True, policy=POLICY, reviews=dict(claude={}, codex={}),
                    probe_pid=os.getpid())
+    if waived:
+        receipt['reviews'], receipt['codex_waiver'] = waived_shape(waived, stale)
     if not legacy:
         receipt['probe_lock'] = 'holder'
     (directory / 'completed-probe.json').write_text(json.dumps(receipt))
@@ -267,7 +327,7 @@ def usable_hook(path):
     # records by a property all three of the probe's records share can still miss one, and
     # hook code written to recognise the probe is trusted code. The probe raises the floor;
     # it does not certify the hook.
-    unreceipted, held, orphaned, legacy, partial = push_probes(path)
+    unreceipted, held, orphaned, legacy, partial, waived, stale = push_probes(path)
     require(unreceipted != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
             f'receipts. Make it invoke {checker}, or delete it.')
@@ -279,6 +339,15 @@ def usable_hook(path):
             'without checking their holder: a probe receipt nobody holds is void. Delete it so start '
             f'reinstalls the bundled hook, or point it at the current {checker}, keeping any check you '
             'merged into it.')
+    require(waived == 0,
+            f'{path} refused a push of a commit whose receipt carries an independent second Claude '
+            'review in place of a Codex this machine cannot run (exit ' + str(waived) + '). It '
+            'predates that receipt shape and would block every waived push in silence. Delete it so '
+            f'start reinstalls the bundled hook, or merge the current {checker} into it.')
+    require(stale != 0,
+            f'{path} accepted a push named by a receipt whose Codex waiver has expired (exit 0). A '
+            'waiver is evidence about a machine at a moment; past its window the candidate needs a '
+            f'reviewer again. Point it at the current {checker}, keeping any check you merged in.')
     require(all(status != 0 for status in partial),
             f'{path} accepted a push of three refs one of whose commits holds no receipt (exit 0). git '
             'hands a hook one record per pushed ref and every record must be checked; a hook that leaves '
@@ -288,11 +357,11 @@ def usable_hook(path):
 
 def push_probes(path):
     """Run the hook on the probe push without a receipt, with a held one, with an unheld one,
-    with a pid-only one, and on three-ref pushes that give the unreceipted commit each
-    position in turn.
+    with a pid-only one, on three-ref pushes that give the unreceipted commit each position
+    in turn, and with a receipt whose Codex review was waived — once current, once expired.
 
-    Returns four exit statuses and the tuple of the multi-ref ones. The refs exist only
-    for the duration.
+    Returns the exit statuses, with the multi-ref ones as a tuple. The refs exist only for
+    the duration.
     """
     head = git('rev-parse', 'HEAD')
     nonce, second = os.urandom(8).hex(), os.urandom(8).hex()
@@ -321,7 +390,7 @@ def push_probes(path):
     try:
         unreceipted = run_hook(path, remote, line)
         if unreceipted == 0:
-            return unreceipted, None, None, None, ()
+            return unreceipted, None, None, None, (), None, None
         with probe_receipt(dangling):
             held = run_hook(path, remote, line)
             partial = tuple(run_hook(path, remote, records) for records in multi)
@@ -329,10 +398,14 @@ def push_probes(path):
             orphaned = run_hook(path, remote, line)
         with probe_receipt(dangling, legacy=True):
             legacy = run_hook(path, remote, line)
+        with probe_receipt(dangling, waived=path):
+            waived = run_hook(path, remote, line)
+        with probe_receipt(dangling, waived=path, stale=True):
+            stale = run_hook(path, remote, line)
     finally:
         for name in refs:
             git('update-ref', '-d', name)
-    return unreceipted, held, orphaned, legacy, partial
+    return unreceipted, held, orphaned, legacy, partial, waived, stale
 
 
 # What `codex/scripts/bundle.py` writes. Regenerating them is how a fix is shipped, so a
@@ -495,7 +568,8 @@ def next_round(args, old, head, directory, base, context):
             'Round limit reached. STOP; report blockers and request a scope decision. Never clear automatically.'
             + (' If a human decides to continue this delivery anyway, record it with --extend-delivery '
                '"<who authorised it, and why>"; both reviewers are told.' if old.get('autonomous') else ''))
-    require(set(old['reviews']) == {'claude', 'codex'}, 'Complete both reviews before advancing a correction round.')
+    require(satisfied(old), 'Complete both reviews before advancing a correction round: '
+            + ', '.join(sorted(reviewers_needed(old))) + '.' + waiver_note(old))
     require(old.get('triage') is not None, 'Record every finding disposition before advancing.')
     require(git('merge-base', old['head'], head) == old['head'], 'History rewritten; stop and reassess full coverage.')
     correction = correction_contract(args, old, head)
@@ -620,11 +694,12 @@ def review_range(directory):
 
 
 TEST_PATH = re.compile(r'(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]+\.py$|_test\.|\.test\.|\.spec\.', re.IGNORECASE)
-# Triage and resolution keys are reviewer::<id>. No path begins with `claude::` or
-# `codex::`, so a copied key is recognised by its prefix alone and a finding on a real
-# file under a codex/ directory can never be mistaken for one.
+# Triage and resolution keys are reviewer::<id>. No path begins with `claude::`,
+# `claude-b::` or `codex::`, so a copied key is recognised by its prefix alone and a
+# finding on a real file under a codex/ directory can never be mistaken for one.
 SEPARATOR = '::'
-REVIEWERS = ('claude' + SEPARATOR, 'codex' + SEPARATOR)
+SUBSTITUTE = 'claude-b'
+REVIEWERS = ('claude' + SEPARATOR, SUBSTITUTE + SEPARATOR, 'codex' + SEPARATOR)
 
 
 TEST_DIRECTORY = re.compile(r'(^|/)(tests?|spec|__tests__)/', re.IGNORECASE)
@@ -813,6 +888,28 @@ def archived_note(state):
             'over; report anything that still holds.')
 
 
+def waiver_note(state):
+    """Name the substitute a receipt rests on, or say why a recorded waiver no longer holds."""
+    waiver = state.get('codex_waiver')
+    if not waiver:
+        return ''
+    if waiver_ok(waiver):
+        return (f" Codex was waived on this candidate by the runtime's own probe ({waiver['reason']}), so "
+                'the second review is ' + SUBSTITUTE + ': an independent fresh-context Claude pass on the '
+                'same diff, recorded with --reviewer ' + SUBSTITUTE + '.')
+    return ' ' + explain(state)
+
+
+def substitute_note(state):
+    """Tell a reviewer when it is one of two Claude passes standing in for Codex."""
+    if not waiver_ok(state.get('codex_waiver')):
+        return ''
+    return ('This candidate could not be given to Codex (' + state['codex_waiver']['reason'] + '), so it is '
+            'reviewed by two independent Claude passes instead of the usual pair. The other pass reads this '
+            'same diff and prompt knowing nothing of your findings, and neither of you is the author. Assume '
+            'nothing has been covered for you.')
+
+
 def prompt(state):
     """Build the same bounded read-only task for both independent reviewers."""
     return f'''Review only; do not edit, commit, push, invoke review skills, or launch other reviewers.
@@ -823,6 +920,7 @@ Round {state['round']}/{state.get('max_rounds', 3)}. Read surrounding code, call
 Context and acceptance contract:
 {state['context']}
 {archived_note(state)}
+{substitute_note(state)}
 {delivery_note(state)}
 The checks listed in that context are executed and recorded by the caller through review_flow.py check;
 do not run them, and do not run the project's test suite or builds: your sandbox is read-only and
@@ -894,7 +992,18 @@ def record(args, directory, state):
                 if isinstance(i.get('id'), str) and isinstance(i.get('evidence'), str) and i['evidence'].strip()}
     require(unresolved <= resolved, 'Recheck every previous open finding, with evidence, including any still open.')
     require(args.reviewer not in state['reviews'], 'Reviewer already recorded for this candidate; reuse it.')
+    # The substitute exists only where the runtime's own probe found no Codex to run. The
+    # probe is the authority on that, never the caller: without a waiver it stands on the
+    # record, so recording it would be a second reading dressed as the missing one.
+    require(args.reviewer != SUBSTITUTE or waiver_ok(state.get('codex_waiver')),
+            SUBSTITUTE + ' stands in for a Codex the runtime could not run, and no valid waiver '
+            'covers this candidate. Run `review_flow.py codex` and let its probe decide; if it '
+            'completes, that report is the second review.')
     state['reviews'][args.reviewer] = report
+    if args.reviewer == 'codex':
+        # Codex reviewed after all — credits returned, or a report was obtained elsewhere.
+        # The real reviewer replaces the reason it was missing, so the receipt names it.
+        state.pop('codex_waiver', None)
     state['cleared'] = False
     save(directory, state)
 
@@ -971,7 +1080,8 @@ def triage(args, directory, state):
             'candidate the reports describe: note the sha of your correction commit, git reset --hard '
             f"{state['head'][:12]}, triage, then git reset --hard back to that sha; start refuses a new "
             'round until every finding has a disposition.')
-    require(set(state['reviews']) == {'claude', 'codex'}, 'Both reviewer reports are required.')
+    require(satisfied(state), 'Every reviewer this candidate needs must have reported first: '
+            + ', '.join(sorted(reviewers_needed(state))) + '.' + waiver_note(state))
     items = json.loads(Path(args.report).read_text())
     require(isinstance(items, list), 'Triage must be a JSON list.')
     expected = {key(name, f['id']) for name, r in state['reviews'].items() for f in r['findings']}
@@ -1012,7 +1122,8 @@ def check(args, directory, state):
 def finish(directory, state):
     """Clear only a fully reviewed candidate with gates and dispositions recorded."""
     current(state)
-    require(set(state['reviews']) == {'claude', 'codex'}, 'Claude and Codex must both complete.')
+    require(satisfied(state), 'Both reviews must complete: '
+            + ', '.join(sorted(reviewers_needed(state))) + '.' + waiver_note(state))
     require(state['triage'] is not None, 'Missing finding dispositions; record [] for no findings.')
     dispositions = {i['id']: i for i in state['triage']}
     for name, report in state['reviews'].items():
@@ -1029,23 +1140,191 @@ def finish(directory, state):
     save(directory, state)
 
 
+BUDGET_SPENT = (
+    'Codex retry budget exhausted: the helper will not run Codex again on this candidate. Report '
+    'the failure with both attempt logs; if a human authorises starting over, rename this '
+    'state directory keeping its whole current name and adding to it, delete nothing, and '
+    'start a new '
+    'campaign covering the same commits. A completed Codex report obtained outside the helper may still be recorded; an '
+    'incomplete one never advances a round.')
+
+
 def reserve_codex(directory):
     """Reserve one attempt without holding the lock throughout model execution."""
     with locked(directory):
         state = read_state(directory)
         current(state)
         require('codex' not in state['reviews'], 'Reuse the completed Codex review.')
-        require(state.get('codex_attempts', 0) < 2,
-                'Codex retry budget exhausted: the helper will not run Codex again on this candidate. Report '
-                'the failure with both attempt logs; if a human authorises starting over, rename this '
-                'state directory keeping its whole current name and adding to it, delete nothing, and '
-                'start a new '
-                'campaign covering the same commits. A completed Codex report obtained outside the helper may still be recorded; an '
-                'incomplete one never advances a round.')
+        require(state.get('codex_attempts', 0) < 2, BUDGET_SPENT)
         state['codex_attempts'] = state.get('codex_attempts', 0) + 1
         state['codex_running'] = True
         save(directory, state)
         return state
+
+
+def spent(directory):
+    """The candidate's state when its Codex attempts are gone, or None while one is left."""
+    with locked(directory):
+        state = read_state(directory)
+        current(state)
+        require('codex' not in state['reviews'], 'Reuse the completed Codex review.')
+        return state if state.get('codex_attempts', 0) >= 2 else None
+
+
+# Codex prints its fatal reason on lines of its own, and the whole review prompt is echoed
+# into the same log. Only these lines are classified, and only near the end: a review whose
+# own context discusses a usage limit would otherwise read as one and waive the reviewer it
+# was meant to run. Anything unmatched stays a failure, which is the blocking answer.
+ERROR_LINE = re.compile(r'^\s*(?:ERROR\b|error:|stream error|codex:\s*error)', re.IGNORECASE)
+ERROR_TAIL = 30
+# An account with nothing left to spend. Transient rate limiting is deliberately absent:
+# that is a reason to retry, not a reviewer this machine cannot run.
+QUOTA_SIGNS = ('usage limit', 'insufficient_quota', 'exceeded your current quota', 'quota exceeded',
+               'purchase more credits', 'out of credits', 'credit balance is too low',
+               'billing hard limit', 'payment required')
+# Setup, not absence: one command fixes it, and waiving it would make deleting a single
+# credentials file a universal bypass of the receipt rule.
+AUTH_SIGNS = ('not logged in', 'codex login', 'please log in', 'please sign in', 'unauthorized',
+              'invalid api key', 'no credentials', 'authentication failed', 'authentication error')
+
+
+def codex_verdict(text):
+    """Classify a failed Codex run from the error lines it ended with.
+
+    Returns (verdict, detail): `quota` is waivable, `auth` is setup the caller must fix,
+    and `failed` — including a run that printed no error line at all — is what it has
+    always been, a review that did not happen.
+    """
+    tail = [line.strip() for line in text.splitlines() if line.strip()][-ERROR_TAIL:]
+    errors = [line for line in tail if ERROR_LINE.match(line)]
+    detail, joined = ' | '.join(dict.fromkeys(errors))[:400], ' '.join(errors).lower()
+    if not errors:
+        return 'failed', ''
+    if any(sign in joined for sign in AUTH_SIGNS):
+        return 'auth', detail
+    if any(sign in joined for sign in QUOTA_SIGNS):
+        return 'quota', detail
+    return 'failed', detail
+
+
+def waive(directory, state, reason, detail, log, binary):
+    """Record what this runtime's own probe found about Codex on this machine.
+
+    Written here and nowhere else. No flag, argument or reviewer report the caller passes
+    can produce a waiver, and nobody honours one on trust: this runtime, the Bash guard and
+    the pre-push hook each re-run the same probe against the machine in front of them. A
+    waiver that does not already describe this one is refused rather than stored, so a
+    campaign never clears on a reason the hook would reject at push time.
+    """
+    waiver = dict(reason=reason, at=int(time.time()), detail=detail,
+                  log=str(log), binary=binary, head=state['head'])
+    require(waiver_ok(waiver),
+            'This probe produced a waiver that does not describe this machine, so it is not '
+            'recorded: Codex changed underneath the run. Run `review_flow.py codex` again.')
+    with locked(directory):
+        latest = read_state(directory)
+        current(latest)
+        require('codex' not in latest['reviews'], 'Codex already reviewed this candidate.')
+        latest['codex_waiver'] = waiver
+        latest['cleared'] = False
+        save(directory, latest)
+    print('Codex was waived on this candidate (' + reason + '): ' + (detail or 'not installed')
+          + '. The second review is ' + SUBSTITUTE + ': run the generated prompt in a second '
+          'fresh-context reviewer subagent that shares nothing with the first, and record its '
+          'report with --reviewer ' + SUBSTITUTE + '. Say so in the report to the user.', file=sys.stderr)
+    return latest
+
+
+def codex_outcome(directory, state, log, binary):
+    """Turn a failed Codex run into a waiver, a setup instruction, or the failure it is."""
+    verdict, detail = codex_verdict(log.read_text(errors='replace') if log.exists() else '')
+    require(verdict != 'auth',
+            'Codex is installed at ' + binary + ' but is not signed in, which is setup rather than a '
+            'reviewer this machine cannot run: run /bymax-quality:codex-setup and then `review_flow.py '
+            'codex` again. This is never waived, because a missing credentials file would otherwise '
+            'clear any candidate. Evidence: ' + detail + ' (' + str(log) + ').')
+    require(verdict == 'quota', 'Codex failed; inspect ' + str(log))
+    return waive(directory, state, 'quota', detail, log, binary)
+
+
+# Codex layers $CODEX_HOME/<name>.config.toml over its base config for `exec -p <name>`.
+# The package names the profile and never the model: the catalog rots — slugs are retired
+# within a release or two — and which model is worth escalating to is the user's judgement,
+# written once by /bymax-quality:codex-setup. A machine with no such file gets exactly
+# today's behaviour, because an absent binding is a choice and not a misconfiguration.
+ESCALATED_PROFILE = 'escalated'
+
+
+def codex_home():
+    """Codex's own configuration directory, found the way Codex finds it."""
+    return Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex')
+
+
+def escalation(state):
+    """`-p <profile>` on the rounds where a better reviewer earns its cost, or nothing.
+
+    Decided from the campaign's own state, never by the caller and never by a model
+    remembering to ask: a round this runtime has already declared decisive — the approach
+    is under review rather than a patch, a finding came back after a claimed fix, or this
+    is the last candidate the budget allows — is where a defect the reviewer misses costs
+    the whole delivery. Every other round uses the standing model, which is also what keeps
+    the shared quota pool from being spent at the top of the price list.
+    """
+    frozen = max(state.get('round', 1), state.get('delivery_used', 0))
+    decisive = bool(state.get('design_round') or state.get('reopened')
+                    or frozen >= state.get('max_rounds', 3))
+    if not decisive or not (codex_home() / (ESCALATED_PROFILE + '.config.toml')).is_file():
+        return []
+    return ['-p', ESCALATED_PROFILE]
+
+
+# Not a review: no diff, no context, no schema. A live account answers it for a token or
+# two; an exhausted one fails the way it always does, which is the answer being asked for.
+AVAILABILITY_PROMPT = 'Reply with the single word OK. Do not read files or run commands.\n'
+PROBE_BUDGET = 2
+
+
+def availability(directory, state, owner_fd):
+    """Ask whether Codex can run at all, once this candidate's review attempts are gone.
+
+    The budget exists to stop a reviewer being run again; it must not decide, by itself,
+    that a machine has a reviewer. An exhausted account is discovered only by spending
+    attempts, so the state that most needs a waiver is the one the budget locks out: a
+    round that hit the wall and retried, and every campaign frozen before waivers existed.
+
+    This asks the machine now rather than rereading an old log, so credits that came back
+    are seen, a Codex uninstalled since is seen, and no file on disk becomes a way to claim
+    a reviewer is missing. What it cannot answer is bounded too: the refusals below are the
+    same ones a spent budget always gave.
+    """
+    binary = resolve_codex()
+    if binary is None:
+        return waive(directory, state, 'absent', '', '', '')
+    require(state.get('codex_probes', 0) < PROBE_BUDGET,
+            BUDGET_SPENT + ' Its availability probe has also run ' + str(PROBE_BUDGET)
+            + ' times on this candidate without a recognisable answer; stop and report that.')
+    with locked(directory):
+        latest = read_state(directory)
+        latest['codex_probes'] = latest.get('codex_probes', 0) + 1
+        save(directory, latest)
+    log = directory / f"codex-{state['round']}-probe-{state.get('codex_probes', 0) + 1}.log"
+    with log.open('w') as output:
+        result = subprocess.run([binary, 'exec', '-c', 'approval_policy="never"', '--sandbox',
+                                 'read-only', '--ephemeral', '-'],
+                                input=AVAILABILITY_PROMPT, text=True, stdout=output,
+                                stderr=subprocess.STDOUT, timeout=120, pass_fds=(owner_fd,))
+    verdict, detail = codex_verdict(log.read_text(errors='replace'))
+    require(result.returncode != 0,
+            BUDGET_SPENT + ' Codex answered an availability probe just now, so the account is not '
+            'the problem and there is nothing to waive: the two attempts failed for another reason, '
+            'and that reason is what to report.')
+    require(verdict != 'auth',
+            'Codex is installed at ' + binary + ' but is not signed in, which is setup rather than a '
+            'reviewer this machine cannot run: run /bymax-quality:codex-setup, then `review_flow.py '
+            'codex` again. Evidence: ' + detail + ' (' + str(log) + ').')
+    require(verdict == 'quota', BUDGET_SPENT + ' Its availability probe failed for a reason nobody '
+            'recognises, so nothing is waived; inspect ' + str(log) + '.')
+    return waive(directory, state, 'quota', detail, log, binary)
 
 
 def codex_review(directory):
@@ -1060,23 +1339,46 @@ def codex_review(directory):
 
 
 def execute_codex(directory, owner_fd):
-    """Consume a bounded attempt; let the child retain ownership if the parent dies."""
+    """Consume a bounded attempt; let the child retain ownership if the parent dies.
+
+    A Codex this machine has no way to run is not a review that failed: the probe that
+    established that records a waiver and the campaign continues on the substitute pair.
+    Everything else a run can do — time out, crash, return an incomplete report, print an
+    error nobody recognises — is still a review that did not happen. With the attempts
+    already spent there is no review left to run, and the question that remains — whether
+    this machine has a reviewer at all — is answered by an availability probe instead.
+    """
+    exhausted = spent(directory)
+    if exhausted is not None:
+        return availability(directory, exhausted, owner_fd)
     state = reserve_codex(directory)
     report = directory / f"codex-{state['round']}-{state['codex_attempts']}.json"
     log = report.with_suffix('.log')
     schema = directory / 'report-schema.json'
     try:
-        schema.write_text(Path(__file__).with_name('review-report.schema.json').read_text())
-        command = ['codex', 'exec', '-c', 'approval_policy="never"', '--sandbox',
-                   'read-only', '--ephemeral', '--output-schema', str(schema),
-                   '--output-last-message', str(report), '-']
-        with log.open('w') as output:
-            result = subprocess.run(command, input=prompt(state), text=True,
-                                    stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
-        require(result.returncode == 0, 'Codex failed; inspect ' + str(log))
-        with locked(directory):
-            latest = read_state(directory)
-            record(argparse.Namespace(reviewer='codex', report=str(report)), directory, latest)
+        binary = resolve_codex()
+        if binary is None:
+            waive(directory, state, 'absent', '', '', '')
+        else:
+            schema.write_text(Path(__file__).with_name('review-report.schema.json').read_text())
+            # The resolved absolute path, never the bare name: the binary a waiver names must
+            # be the installed one, not whatever a single command's $PATH pointed at.
+            profile = escalation(state)
+            if profile:
+                print('Decisive round: this Codex pass uses the ' + ESCALATED_PROFILE
+                      + ' profile from ' + str(codex_home()) + '.', file=sys.stderr)
+            command = [binary, 'exec', *profile, '-c', 'approval_policy="never"', '--sandbox',
+                       'read-only', '--ephemeral', '--output-schema', str(schema),
+                       '--output-last-message', str(report), '-']
+            with log.open('w') as output:
+                result = subprocess.run(command, input=prompt(state), text=True,
+                                        stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
+            if result.returncode == 0:
+                with locked(directory):
+                    latest = read_state(directory)
+                    record(argparse.Namespace(reviewer='codex', report=str(report)), directory, latest)
+            else:
+                codex_outcome(directory, state, log, binary)
     finally:
         with locked(directory):
             latest = read_state(directory)
@@ -1084,6 +1386,21 @@ def execute_codex(directory, owner_fd):
                 latest['codex_running'] = False
                 save(directory, latest)
     return latest
+
+
+def codex_check():
+    """Report what the availability probe sees, spending neither an attempt nor a token.
+
+    The same resolution every consumer of a waiver runs, exposed so a human can see why
+    one was granted or refused without reading state by hand.
+    """
+    binary = resolve_codex()
+    profile = codex_home() / (ESCALATED_PROFILE + '.config.toml')
+    return dict(installed=bool(binary), binary=binary or '', on_path=shutil.which('codex') or '',
+                searched=list(CODEX_LOCATIONS), waiver_ttl_hours=WAIVER_TTL // 3600,
+                waivable=['absent', 'quota'], never_waived=['auth', 'failed'],
+                codex_home=str(codex_home()), escalated_profile=str(profile),
+                escalation_bound=profile.is_file())
 
 
 def parser():
@@ -1110,10 +1427,13 @@ def parser():
                        help='After a cleared candidate: the external findings this correction answers.')
     begin.add_argument('--extend-delivery', default='',
                        help='Continue past a spent delivery budget: who authorised it, and why.')
-    for action in ('status', 'prompt', 'finish', 'codex', 'claude', 'range', 'lessons'):
+    for action in ('status', 'prompt', 'finish', 'codex', 'codex-check', 'range', 'lessons'):
         sub.add_parser(action)
+    pas = sub.add_parser('claude')
+    pas.add_argument('--as', dest='reviewer', choices=('claude', SUBSTITUTE), default='claude',
+                     help='Which Claude pass this run is: the first, or the substitute for a waived Codex.')
     rec = sub.add_parser('record')
-    rec.add_argument('--reviewer', choices=('claude', 'codex'), required=True)
+    rec.add_argument('--reviewer', choices=('claude', SUBSTITUTE, 'codex'), required=True)
     rec.add_argument('--report', required=True)
     tri = sub.add_parser('triage')
     tri.add_argument('--report', required=True)
@@ -1125,10 +1445,13 @@ def parser():
 def main():
     """Run a serialized operation and surface actionable failures."""
     args = parser().parse_args()
+    if args.action == 'codex-check':
+        print(json.dumps(codex_check(), indent=2))
+        return
     directory = location()
     if args.action == 'claude':
         import review_claude
-        print(json.dumps(review_claude.run(directory, sys.modules[__name__]), indent=2))
+        print(json.dumps(review_claude.run(directory, sys.modules[__name__], args.reviewer), indent=2))
         return
     if args.action == 'codex':
         print(json.dumps(codex_review(directory), indent=2))
@@ -1155,9 +1478,20 @@ def main():
         print(json.dumps(dict(directory=str(directory), **state), indent=2))
 
 
-if __name__ == '__main__':
+def cli():
+    """The process entry point: one operation, and a refusal the caller can act on.
+
+    Separate from main() so a test can drive the same entry point in a process whose
+    Codex resolution table it controls. There is no such control at the command line:
+    what a waiver may claim about this machine is decided by the probe, never by an
+    argument, an environment variable or a $PATH the caller spelled.
+    """
     try:
         main()
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
         print('BLOCKED: ' + str(error), file=sys.stderr)
         sys.exit(2)
+
+
+if __name__ == '__main__':
+    cli()

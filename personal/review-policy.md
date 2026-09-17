@@ -22,7 +22,11 @@ commit authorized fixes, then review only the correction delta and impacted beha
 both models, verifying each earlier open finding. For shipping, use `start --autonomous`: initial candidate plus five correction candidates,
 with a persistent branch/PR budget that survives completed campaigns and pushes. On exhaustion with real blockers, stop with evidence. Before that, continue ordinary
 in-scope repairs and root-cause analysis without asking again. Never reset state, switch branches or disable a reviewer to evade the limit.
-Missing/failed reviewers mean incomplete review, not product defects or approval.
+Missing/failed reviewers mean incomplete review, not product defects or approval. The one
+exception is decided by the runtime and never by you: where its own probe finds no Codex to
+run — none installed, or an account with nothing left to spend — it records a waiver, and an
+independent fresh-context second Claude pass (`--reviewer claude-b`) is the second reviewer.
+A signed-out Codex is never waived; run `/bymax-quality:codex-setup`. Report any waiver.
 
 A blocked push is an automatic handoff: run the review skill, certify the corrected candidate,
 and retry the original destination/refspec. Do not end the task at the blocked hook or at a

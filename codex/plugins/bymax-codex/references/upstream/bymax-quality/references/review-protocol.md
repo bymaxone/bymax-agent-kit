@@ -63,7 +63,9 @@ with `status: incomplete` is rejected even if its findings list is empty.
 One failed attempt may be retried for an infrastructure/format error; never retry a valid
 review to seek a different opinion, and do not spend the retry on a report whose summary
 cites a sandbox or permission denial: the same sandbox fails identically, and `record` says
-so. The generated prompt tells both reviewers that the declared checks are the caller's to
+so. Two of the ways a run can fail are not reviews that failed but a reviewer this machine
+cannot run, and those are waived rather than retried — see
+[When Codex cannot run](#when-codex-cannot-run). The generated prompt tells both reviewers that the declared checks are the caller's to
 run and that anything they cannot execute is a limitation to state, not `incomplete`. The
 Codex sandbox is read-only by construction (`--sandbox read-only`), so no project
 configuration makes a test suite or build runnable inside it; a reviewer that reaches for
@@ -109,13 +111,96 @@ must appear in each new report's `resolutions` as `{ "id": "claude::<finding-id>
 If still broken, also include it in the new findings. This prevents silent disappearance
 from being reported as a verified fix.
 
+## When Codex cannot run
+
+A campaign needs two independent readings of the diff. It does not need them from any
+particular vendor, and a machine with no Codex to run is not a product defect, a blocked
+push or a reason to edit anything. `codex` therefore has three outcomes, and **the runtime
+decides which, from its own probe**. No flag, argument or report a caller passes can
+produce a waiver, and a caller's claim that Codex is missing is not evidence of anything.
+
+| What the probe finds | Outcome |
+|---|---|
+| No Codex at any install location, and none on `$PATH` | waived (`absent`) |
+| Codex runs and reports an exhausted account — a usage limit, spent credits, no quota | waived (`quota`) |
+| Codex runs and reports it is not signed in | **blocked**: run `/bymax-quality:codex-setup`, then `codex` again |
+| Anything else — a timeout, a crash, an incomplete report, an error nobody recognises | **blocked**, exactly as before |
+
+Being signed out is setup, one command away, and waiving it would make deleting a
+credentials file enough to clear any candidate. A run that fails without saying why is a
+review that did not happen. Classification reads only the error lines Codex ends with,
+because the whole prompt is echoed into the same log and a candidate whose own context
+discusses a usage limit must not read as one.
+
+The attempt budget does not decide this. An exhausted account is discovered only by
+spending attempts, so the candidate that most needs a waiver is the one whose budget is
+already gone — a round that hit the wall and retried, and every campaign frozen before
+waivers existed. With the attempts spent there is no review left to run, so `codex` asks
+the machine a different question instead: an **availability probe**, a prompt asking for
+one word, with no diff, no context and no schema. A live account answers it for a token or
+two and the spent budget stands (the two failures are a defect to report, not a missing
+reviewer); an exhausted one fails exactly as it always does and the waiver is recorded.
+The probe never spends a review attempt, has a small budget of its own, and is never run
+for a candidate whose Codex report is already on the record.
+
+A waiver does not lower the bar to one reviewer. It changes who the second reviewer is:
+
+```bash
+python3 "$FLOW" codex                      # the probe decides; a waiver is printed
+python3 "$FLOW" record --reviewer claude   --report <claude-report.json>
+python3 "$FLOW" record --reviewer claude-b --report <substitute-report.json>
+```
+
+`claude-b` is a second Claude pass in a **fresh-context reviewer subagent that shares
+nothing with the first one and nothing with the session that wrote the candidate** — the
+same independence the Codex pass provides, from the same generated prompt, which tells
+both passes they are standing in for Codex. Running it in the authoring session, or
+reusing the first pass's context, produces one reading recorded twice. `record` refuses
+`claude-b` on any candidate without a valid waiver, and `triage`, `finish` and the next
+`start` all require the pair the waiver names.
+
+A waiver is evidence about a machine at a moment, so it is re-checked and never trusted:
+the runtime, the Bash adapter and the `pre-push` hook each re-run the same probe before
+honouring one. An `absent` waiver is void the moment Codex is installed; a `quota` waiver
+is void unless the binary it named is still the one this machine resolves; both expire
+after 24 hours. Codex is resolved from a fixed list of install locations first and only
+then from `$PATH`, so a `codex` placed ahead of the real one is not what a waiver measures.
+Recording a real Codex report at any point drops the waiver and restores the ordinary pair.
+
+Report the waiver to the user in the campaign's result — which reviewer was missing, why,
+and that the second reading came from `claude-b`. `python3 "$FLOW" codex-check` prints what
+the probe sees at any time, spending neither an attempt nor a token.
+
+## The reviewer on a decisive round
+
+Most rounds get the standing Codex model. Three do not, and the runtime decides which from
+the campaign's own state rather than from a caller that remembers to ask:
+
+- `--design-round`: the approach is under review, not a patch.
+- A finding reopened after a claimed fix.
+- The last candidate the budget allows.
+
+Those are the rounds where a defect the reviewer misses costs the whole delivery. On them
+`codex` adds `-p <profile>` to `codex exec`, layering `$CODEX_HOME/escalated.config.toml`
+over the base config through Codex's own profile mechanism.
+
+**The package names the profile; it never names a model.** The slug lives in that one file,
+written by the user during `/bymax-quality:codex-setup` from their own answer — the catalog
+rots, and a slug committed into a plugin is wrong within a release or two. A machine with no
+such file gets exactly today's behaviour, silently: an absent binding is a choice, not a
+misconfiguration. `review_flow.py codex-check` reports whether one is bound.
+
+This is a cost and quality argument, not an availability one. The quota pool is shared
+across models, so a cheaper standing model buys more runs from the same allowance — but
+switching models does not survive exhaustion. The waiver above is what does that.
+
 ## Triage and corrections
 
 ```bash
 python3 "$FLOW" triage --report <dispositions.json>
 ```
 
-The file is a JSON list with **every** report finding keyed by `claude::<id>` or `codex::<id>`:
+The file is a JSON list with **every** report finding keyed by `claude::<id>`, `codex::<id>` or, on a waived candidate, `claude-b::<id>`:
 
 ```json
 [
@@ -220,7 +305,7 @@ about the approach; a patch to the same instance is then itself a finding. A sti
 defect repeated under the prefixed id a reviewer saw in an earlier disposition still names
 the same invariant: keys are `reviewer::<id>`, whose two parts stay recoverable by one
 split from the left, so `record` removes **one** copied prefix from a finding id and
-refuses an id that still begins with `claude::` or `codex::` — such an id is not
+refuses an id that still begins with `claude::`, `claude-b::` or `codex::` — such an id is not
 representable, and removing prefixes until none was left would let an id's own content
 move the boundary. A repeat within one report is a duplicate, and a finding on a real
 file under a `codex/` directory is exactly what it says.
@@ -241,16 +326,17 @@ running a different trivial command; rerun the same failed command successfully 
 fixing its cause. The helper requires every command declared in the context. It cannot infer whether that
 list covers the project's requirements: check it against project docs before starting.
 
-`finish` requires both reports, every disposition, no open or deferred confirmed P0–P2
-blocker, a clean matching HEAD, and passing check records. Same-HEAD reuse is intentional.
+`finish` requires both reports — `claude` and `codex`, or `claude` and `claude-b` where the
+probe waived Codex — every disposition, no open or deferred confirmed P0–P2 blocker, a
+clean matching HEAD, and passing check records. Same-HEAD reuse is intentional.
 New work after a completed campaign starts a new full campaign. Exhausting the round
 budget hands the campaign to the human who authorised the work: report the blockers and
 the proposed scope, and wait. Keeping the state aside and starting over needs that
 human's explicit authorization **for that campaign** — an authorization given once is not
 standing, and a second campaign on the same finding is the signal to stop and hand over,
 not to archive again. A round whose Codex
-budget is spent without a recorded report cannot complete: `triage` needs both reports and
-`start` needs the triage. The exit is the same as for any stalled campaign, and `codex`
+budget is spent on failures the probe did not waive cannot complete: `triage` needs both
+reports and `start` needs the triage. The exit is the same as for any stalled campaign, and `codex`
 says so when it refuses. A stalled campaign has
 no automatic reset: explain the blockers and obtain a scope decision. Preserve its
 `state.json` and round files if a human authorizes archiving it and starting over.

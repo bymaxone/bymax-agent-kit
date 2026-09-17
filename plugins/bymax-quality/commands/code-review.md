@@ -5,9 +5,13 @@ argument-hint: "[quick|full|deep] [target] [--fix] [--preview]"
 
 # Code Review
 
-Run a bounded review campaign using **both Claude and Codex**. Default `full` means
-one Claude review and one independent Codex review. The Claude review is this command's
-read-only pass; do not additionally invoke the built-in `/code-review`. Never invoke
+Run a bounded review campaign using **two independent reviewers**. Default `full` means
+one Claude review and one independent Codex review. Where this machine has no Codex to
+run — none installed, or an account with nothing left to spend — the runtime's own probe
+waives it and the second reviewer becomes `claude-b`, a fresh-context Claude pass that
+shares nothing with the first; the campaign never drops to a single reading, and a missing
+Codex never blocks a push. See **When Codex cannot run** in the protocol. The Claude review
+is this command's read-only pass; do not additionally invoke the built-in `/code-review`. Never invoke
 this command recursively or start a Stop-hook review loop. `deep` widens risk analysis,
 not the number of automatic review/correction rounds. `quick` focuses the same pair on
 correctness and security; it does not skip a reviewer.
@@ -66,7 +70,8 @@ receipts for partial or mutable scopes. Preview is one pass per reviewer; do not
 `--fix` authorizes minimal fixes only after both raw reports and triage are recorded.
 It does not authorize speculative refactors, unrelated repairs, commits or pushes.
 Legacy `--no-codex`, `--no-builtin` and `--adversarial` flags do not alter certification:
-explain that the bounded campaign uses exactly the Claude/Codex pair. If the user wants
+explain that the bounded campaign always uses two independent reviewers, and that which
+second reviewer it uses is the runtime's decision, not a flag's. If the user wants
 a separate design audit, report it separately from this campaign.
 
 ## Review execution
@@ -77,6 +82,14 @@ a separate design audit, report it separately from this campaign.
    but never the other reviewer's current findings before freezing your own report.
 2. Start `review_flow.py codex` in a background shell. It runs a fresh read-only Codex
    context with the explicit diff and task contract, and persists its completed report.
+   Its probe, not your reading of the error, decides whether a failure is a reviewer this
+   machine cannot run: it prints a waiver for an absent Codex or an exhausted account, and
+   blocks on everything else, including a Codex that is merely signed out. Never announce
+   a missing Codex before that command has said so, and never offer to skip a reviewer.
+   Run it even when the candidate's attempt budget is already spent — there it runs an
+   availability probe instead of a review, which is how a campaign that hit the wall
+   mid-round reaches a waiver at all. The same command escalates the reviewer model on a
+   decisive round when the user has bound a profile; that is its decision, not yours.
    While it runs, perform the Claude pass using `review_flow.py prompt` and the relevant
    checklist below. Read enough callers and tests to prove each proposed finding.
    On a correction round, or whenever this session authored the candidate, delegate the
@@ -84,8 +97,13 @@ a separate design audit, report it separately from this campaign.
    the generated prompt and nothing from this conversation; record its JSON report as
    the Claude report. The author's own reading is not the Claude review.
 3. Save the Claude JSON report and record it. Await the Codex shell's completion;
-   inspect its exit status and `status`. Missing, malformed, failed or timed-out review
-   means **INCOMPLETE**, never an approval and never a reason to edit the product.
+   inspect its exit status and `status`. A malformed, timed-out or unexplained failure
+   means **INCOMPLETE**, never an approval and never a reason to edit the product. If the
+   command instead recorded a waiver, run the second reviewer: give the same generated
+   prompt to another fresh-context read-only subagent — one that shares nothing with the
+   first pass and nothing with the session that wrote the candidate — and record its
+   report with `--reviewer claude-b`. Two passes in one context are one reading recorded
+   twice. Tell the user, in the result, which reviewer was waived and why.
 4. Read both reports, verify every candidate, deduplicate by violated invariant and
    record every disposition. Preserve reviewer provenance and original severity.
    Agreement is not proof; rejection needs concrete counterevidence. Report at most
@@ -133,8 +151,8 @@ a separate design audit, report it separately from this campaign.
    the class — not on another patch. Both reviewers are told it is a design round.
 7. At the recorded candidate limit (six for autonomous delivery; three otherwise), stop if still blocked.
    Present unresolved invariants, attempted fixes and a proposed scope split. Do not
-   reset the campaign, change branches, disable Codex or clear a receipt to evade the
-   limit, and do not archive the campaign and open another on the same finding without
+   reset the campaign, change branches, uninstall or hide Codex, or clear a receipt to
+   evade the limit, and do not archive the campaign and open another on the same finding without
    the human's explicit authorization for that campaign. A limit is a handoff, never
    automatic approval. These limits are operational defaults, not a claim that three
    passes prove correctness. Findings about instruction prose are deferred and batched:

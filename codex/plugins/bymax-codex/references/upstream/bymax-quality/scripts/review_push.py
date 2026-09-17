@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 from review_flow import POLICY, require
-from review_prepush import orphaned
+from review_prepush import explain, orphaned, satisfied
 
 # Anything that would skip the pre-push hook or point git at another repository, plus
 # husky's own skip switch (its dispatcher exits before the tracked hook when HUSKY=0).
@@ -101,9 +101,11 @@ def approved(cwd, source):
             continue
         if orphaned(path, state):
             continue
-        require(set(state.get('reviews', {})) == {'claude', 'codex'}, 'Receipt lacks both reviews.')
+        # Same predicate the hook applies, including the fresh probe behind a Codex waiver:
+        # this adapter exists to report the refusal usefully, never to reach a softer verdict.
+        require(satisfied(state), 'The receipt for ' + sha[:12] + ' cannot clear this push: ' + explain(state))
         return
-    raise ValueError('No completed Claude + Codex review for pushed commit ' + sha[:12])
+    raise ValueError('No completed review for pushed commit ' + sha[:12])
 
 
 def main():
@@ -122,7 +124,9 @@ def main():
             approved(cwd, source)
 
 
-if __name__ == '__main__':
+def cli():
+    """The process entry point, separate from main() so a test can drive it in a process
+    whose Codex resolution table it controls; the command line never controls it."""
     try:
         main()
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
@@ -132,3 +136,7 @@ if __name__ == '__main__':
               'Do not ask whether to review or continue ordinary verified corrections. Keep the original scope '
               'and six-candidate delivery budget; never bypass a real blocker or disable this hook.', file=sys.stderr)
         sys.exit(2)
+
+
+if __name__ == '__main__':
+    cli()

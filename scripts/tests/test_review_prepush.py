@@ -5,6 +5,7 @@ Bash tool would, and then inspects the remote. The assertion is about what lande
 not about what any parser thought of the text, so a new spelling that defeats the
 Bash adapter still has to get past the pre-push hook that git invokes with the SHA.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -118,15 +119,84 @@ class PrePushInvariantTests(unittest.TestCase):
         return subprocess.run(['bash', '-c', spelling], cwd=self.repo, env=self.env,
                               capture_output=True, text=True, timeout=30)
 
-    def test_hook_policy_matches_the_campaign_runtime(self):
-        """The self-contained hook must recognise receipts written by the current runtime."""
+    def modules(self):
+        """Load the runtime and the self-contained checker beside it, as modules."""
         import importlib.util
-        modules = {}
+        loaded = {}
         for name in ('review_flow', 'review_prepush'):
             spec = importlib.util.spec_from_file_location(name, FLOW.with_name(name + '.py'))
-            modules[name] = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(modules[name])
+            loaded[name] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(loaded[name])
+        return loaded
+
+    def receipt(self, sha, reviews=None, **extra):
+        """Write a completed receipt for a commit, in the shape a cleared campaign leaves."""
+        directory = self.repo / '.git/bymax-review/manual'
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f'completed-{sha}.json').write_text(json.dumps(dict(
+            head=sha, cleared=True, policy=2,
+            reviews=reviews if reviews is not None else dict(claude={}, codex={}), **extra)))
+
+    def dangling(self, message):
+        """A child of HEAD that exists only to be pushed."""
+        return self.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', message)
+
+    def install(self, flow):
+        """Run install_hook against the fixture repository."""
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        try:
+            flow.install_hook()
+        finally:
+            os.chdir(cwd)
+
+    def test_hook_policy_matches_the_campaign_runtime(self):
+        """The self-contained hook must recognise receipts written by the current runtime."""
+        modules = self.modules()
         self.assertEqual(modules['review_prepush'].POLICY, modules['review_flow'].POLICY)
+
+    def test_a_waived_receipt_reaches_the_remote_and_a_broken_one_does_not(self):
+        """A candidate whose Codex the runtime could not run clears on the substitute pair,
+        and the real hook lets it land. The same receipt past its window does not, and
+        neither does one that names the substitute with no waiver at all: the hook re-runs
+        the probe rather than reading the claim."""
+        prepush = self.modules()['review_prepush']
+        binary = prepush.resolve_codex()
+        waiver = dict(reason='quota' if binary else 'absent', at=int(time.time()), binary=binary or '')
+        substitute = {'claude': {}, 'claude-b': {}}
+
+        landed = self.dangling('waived candidate')
+        self.receipt(landed, reviews=substitute, codex_waiver=waiver)
+        self.assertEqual(self.attempt(f'git push origin {landed}:refs/heads/waived').returncode, 0)
+        self.assertTrue(self.remote_has(landed))
+
+        for name, broken in (('stale', dict(waiver, at=int(time.time()) - prepush.WAIVER_TTL - 60)),
+                             ('future', dict(waiver, at=int(time.time()) + 7200)),
+                             ('alone', None)):
+            refused = self.dangling(name + ' waiver')
+            self.receipt(refused, reviews=substitute, **({'codex_waiver': broken} if broken else {}))
+            result = self.attempt(f'git push origin {refused}:refs/heads/{name}')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(self.remote_has(refused))
+
+    def test_an_untouched_bundle_from_an_earlier_release_is_replaced(self):
+        """The hook carries the receipt rule, so shipping a change to that rule means
+        replacing the copy git actually runs. Only bytes a release shipped: a hook somebody
+        merged a check into is reported for reconciliation, never overwritten."""
+        flow = self.modules()['review_flow']
+        hook = self.repo / '.git/hooks/pre-push'
+        bundle = FLOW.with_name('review_prepush.py').read_bytes()
+        earlier = bundle + b'\n# shipped by an earlier release\n'
+        hook.write_bytes(earlier)
+        flow.SUPERSEDED = frozenset({hashlib.sha256(earlier).hexdigest()})
+        self.install(flow)
+        self.assertEqual(hook.read_bytes(), bundle)
+
+        merged = bundle + b'\n# a check merged in by hand\n'
+        hook.write_bytes(merged)
+        hook.chmod(0o755)
+        self.install(flow)
+        self.assertEqual(hook.read_bytes(), merged)
 
     def test_hook_installed_by_start(self):
         """The receipt check is the repository's own pre-push hook."""
@@ -153,7 +223,7 @@ class PrePushInvariantTests(unittest.TestCase):
                          'if true; then git -C . push origin HEAD:feature; fi'):
             with self.subTest(spelling=spelling):
                 result = self.attempt(spelling)
-                self.assertIn('no completed Claude + Codex review', result.stderr, spelling)
+                self.assertIn('cannot be pushed: no completed review', result.stderr, spelling)
 
     def test_receipt_admits_the_exact_commit_only(self):
         """A completed campaign clears its head, and nothing newer rides along."""
@@ -205,7 +275,7 @@ class PrePushInvariantTests(unittest.TestCase):
         # unreceipted commit off the remote.
         self.commit('unreviewed')
         refused = self.attempt('git push origin HEAD:feature')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def start_refused(self):
@@ -267,7 +337,7 @@ class PrePushInvariantTests(unittest.TestCase):
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
         self.commit('unreviewed')
         refused = self.attempt('git push origin HEAD:feature')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def test_concurrent_starts_in_linked_worktrees_probe_independently(self):
@@ -316,7 +386,7 @@ class PrePushInvariantTests(unittest.TestCase):
         # The same hook keeps enforcing when git runs it from the root on a real push.
         self.commit('unreviewed')
         refused = self.attempt('git push origin HEAD:feature')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def test_husky_stub_delegating_to_a_tracked_hook_qualifies(self):
@@ -342,7 +412,7 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertEqual((husky / '_' / 'pre-push').read_text(), stub)
         self.commit('unreviewed')
         refused = self.attempt('git push origin HEAD:feature')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
         # The tracked hook without the check is what is judged, not the stub's shape.
         self.git('reset', '-q', '--hard', 'HEAD~1')
@@ -361,17 +431,17 @@ class PrePushInvariantTests(unittest.TestCase):
             head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}),
             probe_lock='holder', probe_pid=os.getpid())))  # a live pid: the lock decides, not the pid
         refused = self.attempt(f'git push origin {orphan}:refs/heads/orphan')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(orphan))
         guard = subprocess.run([sys.executable, str(FLOW.with_name('review_push.py'))], cwd=self.repo, env=self.env,
                                input=json.dumps(dict(tool_input=dict(command=f'git push origin {orphan}:refs/heads/orphan'))),
                                capture_output=True, text=True)
         self.assertEqual(guard.returncode, 2, guard.stderr)
-        self.assertIn('No completed Claude + Codex review', guard.stderr)
+        self.assertIn('No completed review for pushed commit', guard.stderr)
         # A probe receipt with a pid and nothing to hold is void too, however alive that pid is.
         (left / 'completed-probe.json').write_text(json.dumps(dict(
             head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}), probe_pid=os.getpid())))
-        self.assertIn('pre-push: no completed Claude + Codex review',
+        self.assertIn('cannot be pushed: no completed review',
                       self.attempt(f'git push origin {orphan}:refs/heads/orphan').stderr)
         (left / 'completed-probe.json').write_text(json.dumps(dict(
             head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}),
@@ -480,7 +550,7 @@ class PrePushInvariantTests(unittest.TestCase):
             head=cleared, cleared=True, policy=2, reviews=dict(claude={}, codex={}))))
         for spelling in (f'git push origin {cleared}:refs/heads/a {unreviewed}:refs/heads/b',
                          f'git push origin {unreviewed}:refs/heads/b {cleared}:refs/heads/a'):
-            self.assertIn('pre-push: no completed Claude + Codex review', self.attempt(spelling).stderr)
+            self.assertIn('cannot be pushed: no completed review', self.attempt(spelling).stderr)
             self.assertFalse(self.remote_has(unreviewed) or self.remote_has(cleared))
 
     def test_interrupted_probe_ref_is_swept_once_older_than_a_probe(self):

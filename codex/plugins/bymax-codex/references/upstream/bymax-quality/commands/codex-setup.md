@@ -1,13 +1,20 @@
 ---
-description: 'Get the Codex CLI ready so /bymax-quality:code-review can run its independent second review. Diagnoses what is missing (binary, session, or nothing), installs Codex through the right channel for the platform (Homebrew cask on macOS, npm elsewhere), walks the user through the interactive login, and verifies the result with a real review run instead of trusting the exit code. Idempotent and safe to re-run; never needed for the rest of the plugin, which works without Codex. Triggers: "instalar codex", "configurar codex", "codex setup", "preparar segunda revisão", "install codex", "codex nao funciona", "/bymax-quality:codex-setup".'
+description: 'Get the Codex CLI ready so /bymax-quality:code-review can run its independent second review. Diagnoses what is missing (binary, session, or nothing), installs Codex through the right channel for the platform (Homebrew cask on macOS, npm elsewhere), walks the user through the interactive login, and verifies the result with a real review run instead of trusting the exit code. Idempotent and safe to re-run. Never needed for the rest of the plugin, and not a gate for code review either: an absent Codex or an exhausted account is waived automatically and reviewed by a second Claude pass — but a Codex that is installed and signed out is never waived, and this command is what fixes it. Triggers: "instalar codex", "configurar codex", "codex setup", "preparar segunda revisão", "install codex", "codex nao funciona", "/bymax-quality:codex-setup".'
 ---
 
 # Codex setup
 
-`/bymax-quality:code-review` requires one completed Codex review alongside Claude for
-push certification. This command prepares the Codex CLI and login. Without them the
-campaign stays INCOMPLETE. The OpenAI Codex plugin and its adversarial tools are optional
-standalone features; they are not part of the bounded pair.
+`/bymax-quality:code-review` gives every candidate to two independent reviewers, and Codex
+is the second one wherever this machine can run it. This command prepares the CLI and the
+login. It is worth running, and it is not a gate: where Codex is absent or the account has
+nothing left to spend, the campaign's own probe waives it and a second fresh-context Claude
+pass reviews the candidate instead, so a push is never blocked for want of Codex.
+
+One state is the exception, and it is the one this command fixes fastest: a Codex that is
+**installed but signed out** is never waived. That is setup rather than an absent reviewer,
+and waiving it would make deleting a credentials file enough to clear any candidate — so
+the campaign blocks and points here. The OpenAI Codex plugin and its adversarial tools are
+optional standalone features; they are not part of the bounded pair.
 
 ## Step 0 — Diagnose before changing anything
 
@@ -86,6 +93,44 @@ Confirm before moving on — the exact string matters less than the exit code:
 ```bash
 codex login status    # "Logged in using ChatGPT" / "Logged in using an API key", exit 0
 ```
+
+## Step 2.5 — Bind the escalated reviewer (optional, and the user names the model)
+
+Most review rounds should run the standing model. Three should not: a design round, a
+finding reopened after a claimed fix, and the last candidate a budget allows. The campaign
+escalates those by itself, through Codex's own profile mechanism — `codex exec -p escalated`
+layers `$CODEX_HOME/escalated.config.toml` over the base config.
+
+**Never write a model slug the user did not choose, and never overwrite an existing
+profile.** The plugin names the profile and nothing else: the catalog is revised constantly,
+and a slug committed into a skill is wrong within a release or two. Read what is there
+before proposing anything:
+
+```bash
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+grep -E '^model' "$CODEX_HOME/config.toml"           # the standing model
+ls "$CODEX_HOME/escalated.config.toml" 2>/dev/null   # already bound?
+```
+
+If the file exists, report it and change nothing. If it does not, tell the user what the
+binding would do, ask which model they want for decisive rounds, and write **only** their
+answer into `$CODEX_HOME/escalated.config.toml` — with the file tool, never through shell,
+because a value a person names is not shell source:
+
+```toml
+model = "the model the user named"
+```
+
+Skip this step entirely on an unattended run, and never invent an answer to avoid asking.
+A machine with no such file behaves exactly as it always has: no escalation, no warning,
+no degradation. `python3 ~/.claude/bymax-review/review_flow.py codex-check` reports whether
+a profile is bound.
+
+Worth saying to the user while choosing: the plan's quota is **one pool shared across
+models**, measured in messages per period rather than per model, so a cheaper standing model
+buys more runs from the same allowance. A campaign can spend up to two Codex attempts per
+candidate across six candidates, which is why the most expensive model as the *standing*
+default is what empties an account fastest.
 
 ## Step 3 — Verify with a real run
 
@@ -170,6 +215,7 @@ do not add it to every push or bypass its invocation restrictions.
 | `absent` right after a successful install | the shell's PATH predates the install | open a new shell, or check `codex doctor` → *PATH entries* |
 | `unauthenticated` right after `codex login` | the browser flow never completed, or a different `CODEX_HOME` is in play | re-run `codex login`; check `codex doctor` → `CODEX_HOME` |
 | `failed` on every run | rate limit, expired plan, or network egress blocked | run `codex exec review --uncommitted` directly and read its stderr |
+| the account hits its usage limit mid-campaign | the standing model is an expensive slot, and a campaign spends up to two attempts per candidate | the review is **not** blocked — the campaign waives Codex and a second Claude pass reviews the candidate. To stop it recurring, lower the *standing* model in `config.toml` and keep the expensive one in the `escalated` profile (Step 2.5). Switching models does not restore quota: the pool is shared across all of them |
 | `failed` only in one repository | not a git repo, or the scope is empty | confirm with `git rev-parse --show-toplevel` and `git status` |
 | `timeout` on a large change | budget too small | the bounded runner allows ten minutes per attempt and one infrastructure retry; inspect the log and split an oversized scope instead of automatically raising the budget |
 | two `codex` binaries on PATH | installed via both brew and npm | remove one; `codex doctor` names the active install |
