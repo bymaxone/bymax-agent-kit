@@ -174,7 +174,9 @@ a separate design audit, report it separately from this campaign.
    reset the campaign, change branches, uninstall or hide Codex, or clear a receipt to
    evade the limit, and do not archive the campaign and open another on the same finding without
    the human's explicit authorization for that campaign. A limit is a handoff, never
-   automatic approval. These limits are operational defaults, not a claim that three
+   automatic approval. A finding only counts against that limit if it carries a `trigger` —
+   the command or test that makes the defect appear — so an argument about a sentence can no
+   longer hold a receipt; report it, fix what is real, and let it be deferred. These limits are operational defaults, not a claim that three
    passes prove correctness. Findings about instruction prose are deferred and batched:
    correcting prose in a round of its own is how a loop starts, since every correction
    to text no test can check is a new surface for the next review.

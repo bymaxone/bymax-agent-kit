@@ -141,12 +141,30 @@ class ReviewFlowTests(unittest.TestCase):
             args.append('--design-round')
         return self.flow(*args, ok=ok)
 
+    TRIGGER = 'python3 -m pytest tests/test_regression.py::test_the_invariant'
+
     def report(self, name, findings=None, resolutions=None, ok=True):
-        """Provide a completed reviewer fixture for the current endpoints."""
+        """Provide a completed reviewer fixture for the current endpoints.
+
+        A blocking finding names the command that makes the defect appear, so a fixture that
+        means "a blocker" gets one by default and a fixture exercising some other rule need
+        not know the field exists. Copies, never the caller's dicts: several cases report the
+        same finding twice and then compare it. The cases that own the trigger rule set the
+        field themselves, present or absent, and are unaffected by this.
+        """
+        items = [dict(item) for item in (findings or [])]
+        for item in items:
+            if (item.get('kind') in ('defect', 'policy') and item.get('priority') != 'P3'
+                    and 'trigger' not in item):
+                item['trigger'] = self.TRIGGER
+        # trigger=None means the reviewer never wrote the field, which is how a real report
+        # that omits it arrives; an empty string would be a reviewer claiming an empty command.
+        items = [{k: v for k, v in item.items() if not (k == 'trigger' and v is None)}
+                 for item in items]
         state = self.flow('status')
         path = self.root / (name + '.json')
         path.write_text(json.dumps(dict(status='completed', head=state['head'], base=state['review_base'], summary='Inspected fixture',
-                                       findings=findings or [], resolutions=resolutions or [])))
+                                       findings=items, resolutions=resolutions or [])))
         return self.flow('record', '--reviewer', name, '--report', str(path), ok=ok)
 
     def triage(self, items=None, ok=True):
@@ -358,6 +376,54 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('Shallow probing is a finding', prompt.stdout)
         # A probe the reviewer's sandbox cannot run is a limitation to state, not `incomplete`.
         self.assertIn('is a limitation to state in your summary, not a reason to report incomplete', prompt.stdout)
+
+    def test_a_finding_with_nothing_to_run_cannot_hold_the_receipt(self):
+        """The runtime trusted the label the reviewer typed, so a sentence about a docstring
+        arrived as a P2 defect, finish refused to clear it and refused to let it be deferred,
+        and the budget went on prose. Measured over two campaigns in two repositories: every
+        finding worth a round could name a command and every finding that wasted one could not.
+        It is still recorded, still triaged, still shown to the next reviewer — it just cannot
+        refuse a receipt while two readers argue about a label."""
+        prose = dict(id='code.txt:docstring-contradicts-the-code', kind='defect', priority='P2',
+                     evidence='the sentence names a return arity the function no longer has',
+                     trigger=None)
+        self.start()
+        self.checks()
+        # The author is told, on stderr, rather than the report being rejected: a reviewer that
+        # omitted the field still produced a review, and a real defect is still theirs to fix.
+        path = self.root / 'claude.json'
+        state = self.flow('status')
+        path.write_text(json.dumps(dict(status='completed', head=state['head'], base=state['review_base'],
+                                        summary='Inspected fixture',
+                                        findings=[{k: v for k, v in prose.items() if v is not None}],
+                                        resolutions=[])))
+        result = subprocess.run([sys.executable, str(FLOW), 'record', '--reviewer', 'claude',
+                                 '--report', str(path)], cwd=self.repo, capture_output=True,
+                                text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('named no trigger', result.stderr)
+        self.assertIn('code.txt:docstring-contradicts-the-code', result.stderr)
+        self.report('codex', [])
+        self.triage([dict(id='claude::code.txt:docstring-contradicts-the-code', status='deferred',
+                          evidence='real, and batched into a follow-up campaign')])
+        self.assertTrue(self.flow('finish')['cleared'])
+
+    def test_a_policy_finding_that_names_a_gate_command_still_blocks(self):
+        """The rule narrows what blocks; it does not soften it. A trigger need not be a test —
+        a gate command that fails is one — and a P2 carrying one cannot be deferred away, which
+        is the behaviour that must survive the change that ended the argument about prose."""
+        violation = dict(id='code.txt:suppression-added', kind='policy', priority='P2',
+                         evidence='an eslint-disable was introduced on the changed line',
+                         trigger='npm run lint')
+        self.start()
+        self.checks()
+        self.report('claude', [violation])
+        self.report('codex', [])
+        # triage records the disposition the author chose; finish is what refuses it.
+        self.triage([dict(id='claude::code.txt:suppression-added', status='deferred',
+                          evidence='would rather not')])
+        refused = self.flow('finish', ok=False).stderr
+        self.assertIn('Confirmed blocker cannot be deferred', refused)
 
     def test_the_declared_gates_run_before_a_reviewer_reads_the_tree(self):
         """A reviewer round is the scarcest thing a campaign spends, so the machine answers
@@ -801,7 +867,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.triage([dict(id='claude::docs:wording', status='open', evidence='Confirmed')])
         self.commit('correct the wording')
         refused = self.start(ok=False, correction=True, nit='').stderr
-        self.assertIn('Every open finding is P3', refused)
+        self.assertIn('No open finding is one a round is for', refused)
         self.assertIn('--nit-round', refused)
         # Recorded, the round proceeds and both reviewers are told why.
         state = self.start(correction=True, nit='the wording misleads a reader of the protocol')
@@ -825,7 +891,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.triage([dict(id='claude::docs:wording', status='open', evidence='Confirmed')])
         self.commit('reword')
         refused = self.start(ok=False, correction=True, nit='').stderr
-        self.assertIn('Every open finding is P3', refused)
+        self.assertIn('No open finding is one a round is for', refused)
 
     def test_a_campaign_kept_aside_is_found_however_it_was_renamed(self):
         """The runtime's own recovery messages name a rename; each spelling must be seen."""

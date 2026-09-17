@@ -298,9 +298,25 @@ copy: a copy outlives what it describes, and the block then has to guess whether
 holds. An empty answer means the scope is the working tree against `HEAD`, which is what
 a preview reviews.
 
-`start` refuses a correction round whose every open finding is a nit — one `finish` would
-not refuse to leave open — because correcting text no test can check is where a loop
-starts. Defer them with their reasons and finish, or batch them into a follow-up; to spend
+**A finding blocks a receipt only if it names a trigger.** `trigger` is the command or test,
+runnable by the author in this tree, that makes the defect appear; `blocks_a_receipt` requires it
+alongside the kind and the priority. Until this the runtime trusted the label a reviewer typed, so
+"this docstring contradicts the code" arrived as a P2 defect, `finish` refused to clear it and
+refused to let it be deferred, and the budget went on prose. Measured over two campaigns in two
+repositories: every finding worth a round could have named a command, and every finding that
+wasted one could not. A trigger is a command, never a scenario — "set this variable and wait for a
+poll" reads like one and reproduces nothing.
+
+A finding without a trigger is still recorded, still triaged and still shown to the next reviewer,
+and `record` names those the reviewer called blocking so the author judges them on their merits.
+It simply cannot refuse a receipt. This is the norm the package was alone in violating: a change
+that improves the health of the code is approved even when imperfect, and a nit does not force
+another iteration
+(<https://google.github.io/eng-practices/review/reviewer/standard.html>).
+
+`start` refuses a correction round whose every open finding is one `finish` would not refuse to
+leave open — a P3, or a claim with nothing to run — because correcting text no test can check is
+where a loop starts. Defer them with their reasons and finish, or batch them into a follow-up; to spend
 the round on them anyway, record why with `--nit-round "<why>"`, which both reviewers read.
 `start` also refuses to open a campaign on a branch whose earlier campaign was kept aside
 without clearing, unless `--after-archived "<who authorised it and for what scope>"`
