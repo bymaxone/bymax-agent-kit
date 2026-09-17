@@ -70,6 +70,12 @@ implementation.
 6. Run all declared gates against the final candidate, finish, push to the saved target,
    then verify the remote SHA. Do not stop at a clean review when the request was to push.
    PR/babysit/autopilot handlers reuse this ledger and triage, not a new local budget.
+   The ledger is keyed by branch, so a budget spent on one phase's branch costs the next
+   phase nothing. An unattended chain therefore **parks** a phase whose budget is spent with
+   a triggered blocker open — mark it blocked, leave its branch and PR carrying the triage
+   and both reports, and continue with the next phase whose transitive dependencies hold no
+   blocked phase — rather than ending the run. Refusing to merge past a confirmed blocker is
+   correct and stays; letting that refusal end the whole chain was not.
 
 Each reviewer has at most two CLI attempts per candidate. Diagnose infrastructure or
 schema failures and retry once when the cause is addressed. Never retry a valid review
