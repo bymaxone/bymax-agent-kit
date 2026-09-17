@@ -543,25 +543,74 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertEqual(list((self.repo / '.git/bymax-review').glob('probe-*')), [])
         self.assertEqual(self.git('for-each-ref', 'refs/bymax-review/'), '')
 
-    def test_sweep_bound_outlasts_every_hook_run_of_one_probe(self):
+    def test_sweep_bound_outlasts_every_bounded_execution_of_one_probe(self):
         """An interrupted probe's refs are swept only once older than a probe can be, so the
-        bound must exceed what the probe's own hook runs can consume: a push added to the
-        probe without raising it would let a sibling start sweep refs still in flight."""
-        import importlib.util
-        spec = importlib.util.spec_from_file_location('flow_bound', FLOW)
-        flow = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(flow)
-        runs = []
-        original = flow.run_hook
-        flow.run_hook = lambda path, remote, line, _o=original: (runs.append(line), _o(path, remote, line))[1]
-        cwd = os.getcwd()
-        os.chdir(self.repo)
-        try:
-            flow.install_hook()
-        finally:
-            os.chdir(cwd)
+        bound must exceed what one probe can consume — and what it consumes is every bounded
+        execution inside its window, not one kind of them. Counting only the pushes is how a
+        bound that no longer held went on passing: a second kind of bounded execution was
+        added inside the window and the guard could not see it. Both kinds are counted here,
+        so a third kind fails this rather than a sibling's sweep."""
+        flow = self.modules()['review_flow']
+        runs, views = [], []
+        run_hook, hook_view = flow.run_hook, flow.hook_view
+        flow.run_hook = lambda path, remote, line, _o=run_hook: (runs.append(line), _o(path, remote, line))[1]
+        flow.hook_view = lambda checker, _o=hook_view: (views.append(checker), _o(checker))[1]
+        # A hand-merged hook, so install_hook probes what it keeps rather than writing a bundle.
+        hook = self.repo / '.git/hooks/pre-push'
+        hook.write_bytes(FLOW.with_name('review_prepush.py').read_bytes() + b'\n# merged by hand\n')
+        hook.chmod(0o755)
+        self.install(flow)
         self.assertTrue(runs)
-        self.assertGreater(flow.PROBE_BOUND, len(runs) * flow.HOOK_SECONDS)
+        bounded = len(runs) + len(views)
+        self.assertGreater(flow.PROBE_BOUND, bounded * flow.HOOK_SECONDS,
+                           f'{len(runs)} pushes + {len(views)} views at {flow.HOOK_SECONDS}s each')
+
+    def test_a_kept_hook_that_resolves_this_machine_differently_is_refused(self):
+        """The probe receipt is built from the hook's own view, so a kept hook that computes
+        the Codex name differently validates its own answer and passes — then refuses every
+        real waived push, because the receipt the runtime writes names the other path. That
+        disagreement is invisible to a probe of receipt shape: both sides understand waivers
+        perfectly. Replacing byte-identical bundles by hash does not reach a hook somebody
+        merged a check into, so the agreement itself is what must be required."""
+        flow = self.modules()['review_flow']
+        hook = self.repo / '.git/hooks/pre-push'
+        merged = (FLOW.with_name('review_prepush.py').read_bytes()
+                  + b'\n# merged by hand\ndef resolve_codex():\n    return "/another/name/for/codex"\n')
+        hook.write_bytes(merged)
+        hook.chmod(0o755)
+        with self.assertRaises(ValueError) as refusal:
+            self.install(flow)
+        self.assertIn('resolves', str(refusal.exception))
+        self.assertEqual(hook.read_bytes(), merged)  # reported, never overwritten
+
+    def test_the_view_survives_whatever_a_hook_writes_at_import(self):
+        """stdout is the channel the view comes back on, and a hook may write anything to it
+        before the driver answers. Strict decoding turns a stray byte into an exception that
+        is neither OSError nor SubprocessError, so it escapes the fallback this function
+        promises; an unterminated write swallows the answer line instead."""
+        flow = self.modules()['review_flow']
+        hook = self.root / 'writes-at-import'
+
+        hook.write_bytes(b'#!/usr/bin/env python3\nimport sys\n'
+                         b'sys.stdout.buffer.write(b"\xff\xfe not utf-8\n")\n')
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+
+        hook.write_text('#!/usr/bin/env python3\nimport sys\n'
+                        'sys.stdout.write("no newline here")\n'
+                        'def resolve_codex():\n    return "/the/real/view"\n')
+        self.assertEqual(flow.hook_view(hook), '/the/real/view')
+
+    def test_a_hook_that_outlasts_the_bound_is_not_waited_on(self):
+        """The timeout is the only thing standing between a probe and a hook that never
+        returns; the stdin case returns because the child is fed nothing, and proves the
+        other branch."""
+        flow = self.modules()['review_flow']
+        flow.HOOK_SECONDS = 1
+        hook = self.root / 'slow-hook'
+        hook.write_text('#!/usr/bin/env python3\nimport time\ntime.sleep(30)\n')
+        began = time.monotonic()
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+        self.assertLess(time.monotonic() - began, 15)
 
     def test_kept_hook_must_check_every_record_of_a_multi_ref_push(self):
         """git hands the hook one record per pushed ref. A hook that reads a single one of them

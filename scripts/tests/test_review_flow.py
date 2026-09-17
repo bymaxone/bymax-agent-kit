@@ -1325,9 +1325,14 @@ class ReviewFlowTests(unittest.TestCase):
         """AGENTS.md names a function over 50 lines as a finding for what a change
         introduces, including a change that pushes an existing one past it. A rule only a
         reviewer remembers is a rule that comes back; this is the gate for these modules."""
+        modules = sorted(FLOW.parent.glob('*.py'))
+        # Discovered, not listed: a module added later is inside the rule it exists to
+        # enforce, and a list is the thing that silently stops covering what it names.
+        self.assertGreaterEqual(len(modules), 5)
         over = {}
-        for name in ('review_flow', 'review_prepush', 'review_push', 'review_claude', 'review_delivery'):
-            tree = ast.parse(FLOW.with_name(name + '.py').read_text())
+        for module in modules:
+            name = module.stem
+            tree = ast.parse(module.read_text())
             over.update({f'{name}.{node.name}': node.end_lineno - node.lineno + 1
                          for node in ast.walk(tree)
                          if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))

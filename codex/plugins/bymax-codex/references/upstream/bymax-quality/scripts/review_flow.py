@@ -4,8 +4,6 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -186,8 +184,11 @@ def run_hook(path, remote, line):
     return probe.returncode
 
 
-PROBE_BOUND = 11 * HOOK_SECONDS  # must exceed every hook run of one probe at the ceiling;
-# test_sweep_bound_outlasts_every_hook_run_of_one_probe counts the runs and enforces it
+# Must exceed every BOUNDED EXECUTION one probe can make at its ceiling, not every push:
+# the pushes were the only kind until a second appeared inside the window and the guard,
+# counting pushes, went on passing a bound that no longer held.
+# test_sweep_bound_outlasts_every_bounded_execution_of_one_probe counts both kinds.
+PROBE_BOUND = 15 * HOOK_SECONDS
 
 
 def sweep_probes(root):
@@ -231,34 +232,42 @@ def hook_view(checker):
     # sys.exit() is a SystemExit no `except` for Exception catches and no caller expects,
     # while a read of stdin never returns. Bounded, fed nothing, and answered through a
     # marker so an exit that prints nothing is a fallback rather than a machine with no Codex.
-    # The marker carries a nonce the hook cannot predict, because a hook that printed the
-    # fixed one at import would otherwise dictate the answer instead of being asked for it.
+    # The marker carries a nonce, so a hook that prints the fixed one at import announces a
+    # view instead of being asked for one. It is not a defence against a hook that means to
+    # lie: the driver is -c source the hook's own process can read. Nothing here can be —
+    # the hook is the enforcement point, and a hostile one needs no view to defeat.
     marker = VIEW_MARKER + os.urandom(8).hex() + ':'
     driver = ('import importlib.machinery as loaders, importlib.util as util, sys\n'
               'loader = loaders.SourceFileLoader("bymax_hook_view", sys.argv[1])\n'
               'module = util.module_from_spec(util.spec_from_loader(loader.name, loader))\n'
               'loader.exec_module(module)\n'
-              'print("' + marker + '" + (module.resolve_codex() or ""))\n')
+              # A leading newline: a hook's unterminated write at import would otherwise
+              # absorb this line and discard the answer with it.
+              'print("\\n' + marker + '" + (module.resolve_codex() or ""))\n')
     try:
-        probe = subprocess.run([sys.executable, '-c', driver, str(checker)], text=True,
+        probe = subprocess.run([sys.executable, '-c', driver, str(checker)],
                                capture_output=True, timeout=HOOK_SECONDS, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):  # unrunnable, or past the bound
         return resolve_codex()
-    for line in reversed(probe.stdout.splitlines()):
+    # Decoded leniently: stdout is a channel a hook may write anything to, and a strict
+    # decode raises what is neither an OSError nor a SubprocessError, escaping the fallback
+    # this function exists to provide.
+    for line in reversed(probe.stdout.decode('utf-8', 'replace').splitlines()):
         if line.startswith(marker):
             return line[len(marker):] or None
     return resolve_codex()  # not importable, or not a checker that knows about waivers
 
 
-def waived_shape(checker, stale=False):
+def waived_shape(stale=False):
     """A receipt shape for a candidate whose Codex the runtime could not run.
 
-    The hook under test is asked exactly what a real waived receipt would ask it: where
-    Codex is installed that is a quota waiver naming the resolved binary, and where it is
-    not, an absent one. With stale=True the waiver is older than a waiver may be, which
-    every hook must refuse.
+    Built from this runtime's view, which usable_hook has already required the hook to
+    share: where Codex is installed that is a quota waiver naming the resolved binary, and
+    where it is not, an absent one. With stale=True the waiver is older than a waiver may
+    be, which every hook must refuse. Nothing here runs the hook — every bounded execution
+    inside a probe's window counts against the bound that lets a sibling sweep it.
     """
-    binary = hook_view(checker)
+    binary = resolve_codex()
     at = int(time.time()) - (WAIVER_TTL + 60 if stale else 0)
     waiver = dict(reason='quota' if binary else 'absent', at=at, binary=binary or '')
     return {'claude': {}, 'claude-b': {}}, waiver
@@ -274,9 +283,9 @@ def probe_receipt(sha, held=True, legacy=False, waived=None, stale=False):
     commit nobody can push, whatever pid the system hands out next. With held=False the
     holder exists but is not locked; with legacy=True the receipt names a pid and nothing
     to hold. A checker must treat both as void: a probe receipt is valid only while held.
-    With waived=<hook path> the receipt carries the substitute reviewer pair and the waiver
-    that hook's own view of this machine would produce, which a current hook must honour;
-    with stale=True that waiver is expired, which every hook must refuse.
+    With waived=True the receipt carries the substitute reviewer pair and the waiver this
+    machine's view produces, which a current hook must honour; with stale=True that waiver
+    is expired, which every hook must refuse.
     """
     root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
     root.mkdir(parents=True, exist_ok=True)
@@ -285,7 +294,7 @@ def probe_receipt(sha, held=True, legacy=False, waived=None, stale=False):
     receipt = dict(head=sha, cleared=True, policy=POLICY, reviews=dict(claude={}, codex={}),
                    probe_pid=os.getpid())
     if waived:
-        receipt['reviews'], receipt['codex_waiver'] = waived_shape(waived, stale)
+        receipt['reviews'], receipt['codex_waiver'] = waived_shape(stale)
     if not legacy:
         receipt['probe_lock'] = 'holder'
     (directory / 'completed-probe.json').write_text(json.dumps(receipt))
@@ -348,6 +357,18 @@ def usable_hook(path):
     # records by a property all three of the probe's records share can still miss one, and
     # hook code written to recognise the probe is trusted code. The probe raises the floor;
     # it does not certify the hook.
+    # Asked once, before the probes open anything, and required to agree: a receipt names
+    # the Codex its waiver was measured against and this hook re-resolves that name, so a
+    # hook that computes it differently refuses every waived push — while passing every
+    # probe, because a receipt built from its own view is one it agrees with. No probe of
+    # receipt shape can see that; both sides understand waivers perfectly.
+    view = hook_view(path)
+    require(view == resolve_codex(),
+            f'{path} resolves Codex to {view or "none"} while this runtime resolves '
+            f'{resolve_codex() or "none"}. A waiver names the binary it was measured against and '
+            'this hook re-resolves that name before honouring it, so every waived push would be '
+            'refused for a disagreement no message explains. Delete it so start reinstalls the '
+            f'bundled hook, or merge the current {checker} into it.')
     upholds(path, checker, *push_probes(path))
 
 
@@ -430,9 +451,9 @@ def push_probes(path):
             orphaned = run_hook(path, remote, line)
         with probe_receipt(dangling, legacy=True):
             legacy = run_hook(path, remote, line)
-        with probe_receipt(dangling, waived=path):
+        with probe_receipt(dangling, waived=True):
             waived = run_hook(path, remote, line)
-        with probe_receipt(dangling, waived=path, stale=True):
+        with probe_receipt(dangling, waived=True, stale=True):
             stale = run_hook(path, remote, line)
     finally:
         for name in refs:
