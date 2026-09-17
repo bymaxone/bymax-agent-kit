@@ -93,6 +93,15 @@ An implementer subagent returns the committed candidate, worktree path, context 
 results. The main orchestrator owns both independent reviews, corrections, push and PR
 creation; the implementer neither reviews its own work nor spawns nested reviewers.
 When Claude orchestrates, use its fresh read-only reviewer subagent plus `codex` helper.
+A delivery is never blocked for want of a Codex to run: where the runtime's own probe
+finds none installed, or an account with nothing left to spend, it waives the reviewer and
+the second reading comes from `claude-b`, an independent fresh-context Claude pass. The
+budget, the continuation and every other rule here are unchanged by that; the protocol's
+**When Codex cannot run** section holds the contract. The last candidate a budget allows is
+also a decisive round, so the reviewer escalates to the user's bound profile there if one
+exists — the runtime decides that from this ledger, not the orchestrator. Report the waiver in the delivery's
+result rather than reporting a completed Codex review.
+
 When Codex orchestrates an explicitly requested dual-review push, use the same installed
 helper and lifecycle. Record the independent Codex report from a fresh context and run
 `review_flow.py claude` for the other side (or run both helper reviewers from the parent).

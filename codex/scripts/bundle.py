@@ -4,25 +4,122 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / 'codex/plugins/bymax-codex'
 DESTINATION = PACKAGE / 'references/upstream'
 
 
+BUNDLED = ('commands', 'skills', 'agents', 'templates', 'scripts', 'hooks', 'references')
+
+
+def own_index():
+    """Whether the index that would answer about ignores is this repository's own.
+
+    `rev-parse --show-toplevel` names the working tree the answering index belongs to. For a
+    clone, a linked worktree, a submodule and a shallow checkout that is this directory; for a
+    copy unpacked inside another repository it is the enclosing one, whose patterns would apply
+    to every resource here because it tracks none of them.
+    """
+    try:
+        answer = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--show-toplevel'],
+                                capture_output=True)
+    except OSError:          # git found on PATH but not runnable; source_files() has the message
+        return False
+    if answer.returncode != 0:
+        return False
+    # samefile, not string equality. git derives its answer from getcwd(), which collapses a
+    # macOS firmlink and folds case on an insensitive volume; Path.resolve() does neither, so
+    # comparing the names calls the same directory two different places. Measured: invoked by
+    # absolute path through /System/Volumes/Data, --check reported the bundle stale because the
+    # ignore answer was skipped and a local .pytest_cache became canonical again — the defect
+    # this whole change exists to prevent, returning through the comparison meant to prevent it.
+    try:
+        return Path(os.fsdecode(answer.stdout.strip())).samefile(ROOT)
+    except OSError:          # a toplevel that no longer exists is not this tree
+        return False
+
+
+def ignored(candidates):
+    """Which of these resources git is told to ignore.
+
+    This is the whole of what git is asked. An earlier version asked git the opposite
+    question — which files the repository ships — and that answer is wrong in more ways than
+    it is right: git prints nothing when its index holds no plugins/ entry, prints one name
+    when plugins/ is tracked as a symlink, and prints a subset when the index is partial or
+    belongs to another repository. Each of those made the canonical set smaller, and a set
+    that is too small does not fail: it deletes the mirror and reports success. Measured on
+    this package while it worked that way — 111 files to 0, and 111 to 30.
+
+    Asked this way round the failure is inverted: a bad answer makes the set too LARGE, which
+    shows up as extra files in a diff somebody reads rather than as a silent deletion. What
+    makes that true is not the direction of the question but the index behind it — check-ignore
+    consults the index and never reports a TRACKED path as ignored, so no pattern can remove a
+    resource the repository ships.
+
+    That veto belongs to one index, and only the repository rooted here holds it. Where the
+    index answering belongs to an enclosing repository, every resource is untracked to it and
+    every one of its patterns applies: an outer .gitignore of `templates/` took this package
+    from 111 files to 85 with exit 0 while that went unnoticed. So the answer is used only when
+    it is about this tree, and otherwise nothing is left out — over-inclusion being the failure
+    this mechanism is willing to have.
+    """
+    if not candidates or not own_index():
+        return set()
+    names = b'\0'.join(os.fsencode(str(path.relative_to(ROOT))) for path in candidates)
+    try:
+        answer = subprocess.run(['git', '-C', str(ROOT), 'check-ignore', '--stdin', '-z'],
+                                input=names, capture_output=True)
+    except OSError as error:
+        raise SystemExit('bundle.py asks git which resources to leave out of the package, and '
+                         f'git could not be run: {error}. Install git, or run the bundler from a '
+                         'checkout.')
+    # check-ignore exits 1 when it matched nothing, which is an answer, not a failure.
+    if answer.returncode > 1:
+        raise SystemExit('bundle.py asks git which resources to leave out of the package, and git '
+                         f'could not answer in {ROOT}: '
+                         f'{answer.stderr.decode(errors="replace").strip()}. Run the bundler from a '
+                         'checkout of this repository, with plugins/ a real directory.')
+    # Bytes throughout: -z is asked for so a name is delimited by NUL and nothing else, and
+    # universal-newline translation would rewrite a CR inside one before the split.
+    return {ROOT / os.fsdecode(name) for name in answer.stdout.split(b'\0') if name}
+
+
 def source_files():
     """Return runtime resources without registering Claude manifests or hooks."""
-    for plugin in sorted((ROOT / 'plugins').iterdir()):
-        for directory in ('commands', 'skills', 'agents', 'templates', 'scripts', 'hooks', 'references'):
-            for path in sorted((plugin / directory).rglob('*')):
-                if path.is_file() and '__pycache__' not in path.parts:
-                    yield path
+    if not shutil.which('git'):
+        raise SystemExit('bundle.py asks git which resources to leave out of the package, and '
+                         'git is not on PATH. Install git, or run the bundler from a checkout.')
+    plugins = ROOT / 'plugins'
+    if not plugins.is_dir():
+        raise SystemExit(f'{plugins} is not a directory, so there is nothing to bundle. Run the '
+                         'bundler from a checkout of this repository.')
+    candidates = [path
+                  for plugin in sorted(plugins.iterdir())
+                  for directory in BUNDLED
+                  for path in sorted((plugin / directory).rglob('*')) if path.is_file()]
+    skip = ignored(candidates)
+    return [path for path in candidates if path not in skip]
 
 
 def expected_files():
-    """Map package-relative resource paths to canonical bytes."""
+    """Map package-relative resource paths to canonical bytes.
+
+    The one refusal left guards the value that drives synchronize()'s deletions. It is the
+    only guard this mechanism needs: nothing above can make the set smaller than the disk, so
+    an empty set means the resources are not there to read — a checkout missing its
+    directories, or plugins/ that is not a directory at all.
+    """
     files = {path.relative_to(ROOT / 'plugins'): path.read_bytes() for path in source_files()}
+    if not files:
+        raise SystemExit(f'no resource was found under {ROOT / "plugins"}, so the canonical set is '
+                         'empty and bundling would delete every shipped file. A package is never '
+                         'empty: check that the resource directories are present and that plugins/ '
+                         'holds them.')
     return files
 
 

@@ -5,6 +5,7 @@ Bash tool would, and then inspects the remote. The assertion is about what lande
 not about what any parser thought of the text, so a new spelling that defeats the
 Bash adapter still has to get past the pre-push hook that git invokes with the SHA.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -118,15 +119,130 @@ class PrePushInvariantTests(unittest.TestCase):
         return subprocess.run(['bash', '-c', spelling], cwd=self.repo, env=self.env,
                               capture_output=True, text=True, timeout=30)
 
-    def test_hook_policy_matches_the_campaign_runtime(self):
-        """The self-contained hook must recognise receipts written by the current runtime."""
+    def modules(self):
+        """Load the runtime and the self-contained checker beside it, as modules."""
         import importlib.util
-        modules = {}
+        loaded = {}
         for name in ('review_flow', 'review_prepush'):
             spec = importlib.util.spec_from_file_location(name, FLOW.with_name(name + '.py'))
-            modules[name] = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(modules[name])
+            loaded[name] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(loaded[name])
+        return loaded
+
+    def receipt(self, sha, reviews=None, **extra):
+        """Write a completed receipt for a commit, in the shape a cleared campaign leaves."""
+        directory = self.repo / '.git/bymax-review/manual'
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f'completed-{sha}.json').write_text(json.dumps(dict(
+            head=sha, cleared=True, policy=2,
+            reviews=reviews if reviews is not None else dict(claude={}, codex={}), **extra)))
+
+    def dangling(self, message):
+        """A child of HEAD that exists only to be pushed."""
+        return self.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', message)
+
+    def install(self, flow):
+        """Run install_hook against the fixture repository."""
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        try:
+            flow.install_hook()
+        finally:
+            os.chdir(cwd)
+
+    def test_hook_policy_matches_the_campaign_runtime(self):
+        """The self-contained hook must recognise receipts written by the current runtime."""
+        modules = self.modules()
         self.assertEqual(modules['review_prepush'].POLICY, modules['review_flow'].POLICY)
+
+    def test_a_waived_receipt_reaches_the_remote_and_a_broken_one_does_not(self):
+        """A candidate whose Codex the runtime could not run clears on the substitute pair,
+        and the real hook lets it land. The same receipt past its window does not, and
+        neither does one that names the substitute with no waiver at all: the hook re-runs
+        the probe rather than reading the claim."""
+        prepush = self.modules()['review_prepush']
+        binary = prepush.resolve_codex()
+        waiver = dict(reason='quota' if binary else 'absent', at=int(time.time()), binary=binary or '')
+        substitute = {'claude': {}, 'claude-b': {}}
+
+        landed = self.dangling('waived candidate')
+        self.receipt(landed, reviews=substitute, codex_waiver=waiver)
+        self.assertEqual(self.attempt(f'git push origin {landed}:refs/heads/waived').returncode, 0)
+        self.assertTrue(self.remote_has(landed))
+
+        for name, broken in (('stale', dict(waiver, at=int(time.time()) - prepush.WAIVER_TTL - 60)),
+                             ('future', dict(waiver, at=int(time.time()) + 7200)),
+                             ('alone', None)):
+            refused = self.dangling(name + ' waiver')
+            self.receipt(refused, reviews=substitute, **({'codex_waiver': broken} if broken else {}))
+            result = self.attempt(f'git push origin {refused}:refs/heads/{name}')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(self.remote_has(refused))
+
+    def test_a_hook_that_resolves_this_machine_differently_is_replaced(self):
+        """A receipt names the Codex its waiver was measured against, and the hook re-resolves
+        that name before honouring it. A hook left by a release that computed the name
+        differently therefore refuses every waived push, for a disagreement no message
+        explains and no probe of receipt shape can see — both sides understand waivers
+        perfectly. Shipping a change to how the name is computed means replacing the copy git
+        runs, and what start leaves behind must agree with the runtime about this machine."""
+        flow = self.modules()['review_flow']
+        hook = self.repo / '.git/hooks/pre-push'
+        bundle = FLOW.with_name('review_prepush.py').read_bytes()
+        earlier = bundle + b'\n\ndef resolve_codex():\n    return "/an/earlier/release/codex"\n'
+        hook.write_bytes(earlier)
+        hook.chmod(0o755)
+        self.assertNotEqual(flow.hook_view(hook), flow.resolve_codex())
+
+        flow.SUPERSEDED = frozenset({hashlib.sha256(earlier).hexdigest()})
+        self.install(flow)
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+        self.assertEqual(hook.read_bytes(), bundle)
+
+    def test_a_hook_that_runs_at_import_cannot_escape_or_hang_the_view(self):
+        """usable_hook asks the kept hook how it resolves Codex, to require that its answer
+        matches the runtime's, and the hook it asks may be one somebody merged a check into — the
+        shape install_hook asks for by name. Such a hook runs its check at import: executing it
+        in this process
+        lets SystemExit past every guard the runtime has, since it is not an Exception, and a
+        hook that reads stdin at import never returns at all. Neither may reach start."""
+        flow = self.modules()['review_flow']
+        hook = self.root / 'handmade-pre-push'
+
+        hook.write_text('#!/usr/bin/env python3\nimport sys\nsys.exit(3)\n')
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+
+        hook.write_text('#!/usr/bin/env python3\nimport sys\nsys.stdin.read()\nsys.exit(0)\n')
+        began = time.monotonic()
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+        self.assertLess(time.monotonic() - began, flow.HOOK_SECONDS)
+
+        # A hook is asked for its view; it does not get to announce one. Measured before the
+        # marker carried a nonce: a hook printing the fixed marker at import did win.
+        hook.write_text('#!/usr/bin/env python3\nprint("' + flow.VIEW_MARKER + '/spoofed/codex")\n')
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+
+        # A checker that does know about waivers is still the one that is asked.
+        self.assertEqual(flow.hook_view(FLOW.with_name('review_prepush.py')), flow.resolve_codex())
+
+    def test_an_untouched_bundle_from_an_earlier_release_is_replaced(self):
+        """The hook carries the receipt rule, so shipping a change to that rule means
+        replacing the copy git actually runs. Only bytes a release shipped: a hook somebody
+        merged a check into is reported for reconciliation, never overwritten."""
+        flow = self.modules()['review_flow']
+        hook = self.repo / '.git/hooks/pre-push'
+        bundle = FLOW.with_name('review_prepush.py').read_bytes()
+        earlier = bundle + b'\n# shipped by an earlier release\n'
+        hook.write_bytes(earlier)
+        flow.SUPERSEDED = frozenset({hashlib.sha256(earlier).hexdigest()})
+        self.install(flow)
+        self.assertEqual(hook.read_bytes(), bundle)
+
+        merged = bundle + b'\n# a check merged in by hand\n'
+        hook.write_bytes(merged)
+        hook.chmod(0o755)
+        self.install(flow)
+        self.assertEqual(hook.read_bytes(), merged)
 
     def test_hook_installed_by_start(self):
         """The receipt check is the repository's own pre-push hook."""
@@ -153,7 +269,7 @@ class PrePushInvariantTests(unittest.TestCase):
                          'if true; then git -C . push origin HEAD:feature; fi'):
             with self.subTest(spelling=spelling):
                 result = self.attempt(spelling)
-                self.assertIn('no completed Claude + Codex review', result.stderr, spelling)
+                self.assertIn('cannot be pushed: no completed review', result.stderr, spelling)
 
     def test_receipt_admits_the_exact_commit_only(self):
         """A completed campaign clears its head, and nothing newer rides along."""
@@ -205,7 +321,7 @@ class PrePushInvariantTests(unittest.TestCase):
         # unreceipted commit off the remote.
         self.commit('unreviewed')
         refused = self.attempt('git push origin HEAD:feature')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def start_refused(self):
@@ -267,7 +383,7 @@ class PrePushInvariantTests(unittest.TestCase):
         self.flow('start', '--base', self.base, '--context', str(self.root / 'context.json'))
         self.commit('unreviewed')
         refused = self.attempt('git push origin HEAD:feature')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def test_concurrent_starts_in_linked_worktrees_probe_independently(self):
@@ -316,7 +432,7 @@ class PrePushInvariantTests(unittest.TestCase):
         # The same hook keeps enforcing when git runs it from the root on a real push.
         self.commit('unreviewed')
         refused = self.attempt('git push origin HEAD:feature')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def test_husky_stub_delegating_to_a_tracked_hook_qualifies(self):
@@ -342,7 +458,7 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertEqual((husky / '_' / 'pre-push').read_text(), stub)
         self.commit('unreviewed')
         refused = self.attempt('git push origin HEAD:feature')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
         # The tracked hook without the check is what is judged, not the stub's shape.
         self.git('reset', '-q', '--hard', 'HEAD~1')
@@ -361,17 +477,17 @@ class PrePushInvariantTests(unittest.TestCase):
             head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}),
             probe_lock='holder', probe_pid=os.getpid())))  # a live pid: the lock decides, not the pid
         refused = self.attempt(f'git push origin {orphan}:refs/heads/orphan')
-        self.assertIn('pre-push: no completed Claude + Codex review', refused.stderr)
+        self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(orphan))
         guard = subprocess.run([sys.executable, str(FLOW.with_name('review_push.py'))], cwd=self.repo, env=self.env,
                                input=json.dumps(dict(tool_input=dict(command=f'git push origin {orphan}:refs/heads/orphan'))),
                                capture_output=True, text=True)
         self.assertEqual(guard.returncode, 2, guard.stderr)
-        self.assertIn('No completed Claude + Codex review', guard.stderr)
+        self.assertIn('No completed review for pushed commit', guard.stderr)
         # A probe receipt with a pid and nothing to hold is void too, however alive that pid is.
         (left / 'completed-probe.json').write_text(json.dumps(dict(
             head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}), probe_pid=os.getpid())))
-        self.assertIn('pre-push: no completed Claude + Codex review',
+        self.assertIn('cannot be pushed: no completed review',
                       self.attempt(f'git push origin {orphan}:refs/heads/orphan').stderr)
         (left / 'completed-probe.json').write_text(json.dumps(dict(
             head=orphan, cleared=True, policy=2, reviews=dict(claude={}, codex={}),
@@ -428,25 +544,126 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertEqual(list((self.repo / '.git/bymax-review').glob('probe-*')), [])
         self.assertEqual(self.git('for-each-ref', 'refs/bymax-review/'), '')
 
-    def test_sweep_bound_outlasts_every_hook_run_of_one_probe(self):
+    def test_sweep_bound_outlasts_every_bounded_execution_of_one_probe(self):
         """An interrupted probe's refs are swept only once older than a probe can be, so the
-        bound must exceed what the probe's own hook runs can consume: a push added to the
-        probe without raising it would let a sibling start sweep refs still in flight."""
-        import importlib.util
-        spec = importlib.util.spec_from_file_location('flow_bound', FLOW)
-        flow = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(flow)
-        runs = []
-        original = flow.run_hook
-        flow.run_hook = lambda path, remote, line, _o=original: (runs.append(line), _o(path, remote, line))[1]
-        cwd = os.getcwd()
-        os.chdir(self.repo)
-        try:
-            flow.install_hook()
-        finally:
-            os.chdir(cwd)
-        self.assertTrue(runs)
-        self.assertGreater(flow.PROBE_BOUND, len(runs) * flow.HOOK_SECONDS)
+        bound must exceed what one probe can consume — and what it consumes is every bounded
+        execution inside its window, not one kind of them. Counting only the pushes is how a
+        bound that no longer held went on passing: a second kind of bounded execution was
+        added inside the window and the guard could not see it. Both kinds are counted here,
+        so a third kind fails this rather than a sibling's sweep."""
+        flow = self.modules()['review_flow']
+        # Counted at the one place every bounded execution must pass through, rather than at
+        # the two this test knows the names of. Naming the kinds is what let a second kind be
+        # added inside the window while the guard went on passing; a third would do it again.
+        bounded = []
+        original = flow.subprocess.run
+
+        def counted(*args, **kwargs):
+            if kwargs.get('timeout'):
+                bounded.append(kwargs['timeout'])
+            return original(*args, **kwargs)
+
+        flow.subprocess.run = counted
+        self.addCleanup(setattr, flow.subprocess, 'run', original)
+        # A hand-merged hook, so install_hook probes what it keeps rather than writing a bundle.
+        hook = self.repo / '.git/hooks/pre-push'
+        hook.write_bytes(FLOW.with_name('review_prepush.py').read_bytes() + b'\n# merged by hand\n')
+        hook.chmod(0o755)
+        self.install(flow)
+        self.assertTrue(bounded)
+        self.assertGreater(flow.PROBE_BOUND, sum(bounded),
+                           f'{len(bounded)} bounded executions totalling {sum(bounded)}s')
+
+    def test_a_kept_hook_whose_waiver_window_differs_is_refused(self):
+        """A receipt carries a waiver dated at a moment, and the hook decides whether that
+        moment is still inside the window. A kept hook with a window of its own therefore
+        refuses real waived pushes while passing every probe, exactly as one that resolved
+        the binary differently did — the probes bounded the window from above and never from
+        below, because the receipt they showed was dated now, which any window accepts."""
+        flow = self.modules()['review_flow']
+        hook = self.repo / '.git/hooks/pre-push'
+        # Edited where the constant is declared, not appended: a hook runs main() from its
+        # own __main__ block, so anything after it never executes and a window bolted on the
+        # end is a window the hook never has. The case must be the case before it is asserted.
+        bundle = FLOW.with_name('review_prepush.py').read_bytes()
+        shorter = bundle.replace(b'WAIVER_TTL = 24 * 3600', b'WAIVER_TTL = 3600')
+        shorter += b'\n# merged by hand\n'
+        self.assertNotIn(b'WAIVER_TTL = 24 * 3600', shorter)
+        hook.write_bytes(shorter)
+        hook.chmod(0o755)
+        with self.assertRaises(ValueError) as refusal:
+            self.install(flow)
+        self.assertIn('waiver', str(refusal.exception).lower())
+        self.assertEqual(hook.read_bytes(), shorter)
+
+    def test_a_kept_hook_that_resolves_this_machine_differently_is_refused(self):
+        """A kept hook that computes the Codex name differently refuses every real waived push,
+        because the receipt the runtime writes names the other path. The waived probe catches
+        that too, since the receipt it shows the hook carries the runtime's name — measured, and
+        worth stating rather than claiming the probes are blind to it. What the agreement check
+        adds is the divergence a probe cannot reach, one that exists only while the hook is
+        imported, and a refusal that names the disagreement instead of reporting a refused
+        push. Replacing byte-identical bundles by hash reaches neither."""
+        flow = self.modules()['review_flow']
+        hook = self.repo / '.git/hooks/pre-push'
+        # Diverted inside resolve_codex, not appended past the module body: a hook runs main()
+        # from its own __main__ block, so anything after it never executes and the divergence
+        # would exist only for the importing view — the same injection-point defect this file
+        # corrected once already, in the window fixture below.
+        merged = FLOW.with_name('review_prepush.py').read_bytes().replace(
+            b'    for location in CODEX_LOCATIONS:',
+            b'    return "/another/name/for/codex"\n    for location in CODEX_LOCATIONS:')
+        merged += b'\n# merged by hand\n'
+        self.assertIn(b'return "/another/name/for/codex"', merged)
+        hook.write_bytes(merged)
+        hook.chmod(0o755)
+        with self.assertRaises(ValueError) as refusal:
+            self.install(flow)
+        self.assertIn('resolves', str(refusal.exception))
+        self.assertEqual(hook.read_bytes(), merged)  # reported, never overwritten
+
+    def test_the_view_survives_whatever_a_hook_writes_at_import(self):
+        """stdout is the channel the view comes back on, and a hook may write anything to it
+        before the driver answers. Strict decoding turns a stray byte into an exception that
+        is neither OSError nor SubprocessError, so it escapes the fallback this function
+        promises; an unterminated write swallows the answer line instead.
+
+        Each case proves it reached the branch it names before asserting the outcome. The
+        first version of this test did not: its hook carried the stray byte in its source,
+        which does not compile, so the child died before writing anything and the assertion
+        held against unfixed code. An outcome a case reaches by another road is not evidence
+        about the road it names.
+        """
+        flow = self.modules()['review_flow']
+        hook = self.root / 'writes-at-import'
+
+        # Valid source, invalid output: the byte must reach the decode, so the raw stdout
+        # this case produces must itself be undecodable. Asserted, not assumed.
+        hook.write_text('#!/usr/bin/env python3\nimport sys\n'
+                        'sys.stdout.buffer.write(bytes([0xff, 0xfe]))\n'
+                        'sys.stdout.buffer.flush()\n'
+                        'def resolve_codex():\n    return "/the/hooks/own/view"\n')
+        raw = subprocess.run([sys.executable, str(hook)], capture_output=True).stdout
+        with self.assertRaises(UnicodeDecodeError):
+            raw.decode('utf-8')
+        self.assertEqual(flow.hook_view(hook), '/the/hooks/own/view')
+
+        hook.write_text('#!/usr/bin/env python3\nimport sys\n'
+                        'sys.stdout.write("no newline here")\n'
+                        'def resolve_codex():\n    return "/the/real/view"\n')
+        self.assertEqual(flow.hook_view(hook), '/the/real/view')
+
+    def test_a_hook_that_outlasts_the_bound_is_not_waited_on(self):
+        """The timeout is the only thing standing between a probe and a hook that never
+        returns; the stdin case returns because the child is fed nothing, and proves the
+        other branch."""
+        flow = self.modules()['review_flow']
+        flow.HOOK_SECONDS = 1
+        hook = self.root / 'slow-hook'
+        hook.write_text('#!/usr/bin/env python3\nimport time\ntime.sleep(30)\n')
+        began = time.monotonic()
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+        self.assertLess(time.monotonic() - began, 15)
 
     def test_kept_hook_must_check_every_record_of_a_multi_ref_push(self):
         """git hands the hook one record per pushed ref. A hook that reads a single one of them
@@ -480,7 +697,7 @@ class PrePushInvariantTests(unittest.TestCase):
             head=cleared, cleared=True, policy=2, reviews=dict(claude={}, codex={}))))
         for spelling in (f'git push origin {cleared}:refs/heads/a {unreviewed}:refs/heads/b',
                          f'git push origin {unreviewed}:refs/heads/b {cleared}:refs/heads/a'):
-            self.assertIn('pre-push: no completed Claude + Codex review', self.attempt(spelling).stderr)
+            self.assertIn('cannot be pushed: no completed review', self.attempt(spelling).stderr)
             self.assertFalse(self.remote_has(unreviewed) or self.remote_has(cleared))
 
     def test_interrupted_probe_ref_is_swept_once_older_than_a_probe(self):
