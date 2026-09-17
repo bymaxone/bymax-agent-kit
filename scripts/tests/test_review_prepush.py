@@ -179,6 +179,51 @@ class PrePushInvariantTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(self.remote_has(refused))
 
+    def test_a_hook_that_resolves_this_machine_differently_is_replaced(self):
+        """A receipt names the Codex its waiver was measured against, and the hook re-resolves
+        that name before honouring it. A hook left by a release that computed the name
+        differently therefore refuses every waived push, for a disagreement no message
+        explains and no probe of receipt shape can see — both sides understand waivers
+        perfectly. Shipping a change to how the name is computed means replacing the copy git
+        runs, and what start leaves behind must agree with the runtime about this machine."""
+        flow = self.modules()['review_flow']
+        hook = self.repo / '.git/hooks/pre-push'
+        bundle = FLOW.with_name('review_prepush.py').read_bytes()
+        earlier = bundle + b'\n\ndef resolve_codex():\n    return "/an/earlier/release/codex"\n'
+        hook.write_bytes(earlier)
+        hook.chmod(0o755)
+        self.assertNotEqual(flow.hook_view(hook), flow.resolve_codex())
+
+        flow.SUPERSEDED = frozenset({hashlib.sha256(earlier).hexdigest()})
+        self.install(flow)
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+        self.assertEqual(hook.read_bytes(), bundle)
+
+    def test_a_hook_that_runs_at_import_cannot_escape_or_hang_the_view(self):
+        """A probe receipt is built from the checker's own view of the machine, and the hook
+        it borrows that from may be one somebody merged a check into — the shape install_hook
+        asks for by name. Such a hook runs its check at import: executing it in this process
+        lets SystemExit past every guard the runtime has, since it is not an Exception, and a
+        hook that reads stdin at import never returns at all. Neither may reach start."""
+        flow = self.modules()['review_flow']
+        hook = self.root / 'handmade-pre-push'
+
+        hook.write_text('#!/usr/bin/env python3\nimport sys\nsys.exit(3)\n')
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+
+        hook.write_text('#!/usr/bin/env python3\nimport sys\nsys.stdin.read()\nsys.exit(0)\n')
+        began = time.monotonic()
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+        self.assertLess(time.monotonic() - began, flow.HOOK_SECONDS)
+
+        # A hook is asked for its view; it does not get to announce one. Measured before the
+        # marker carried a nonce: a hook printing the fixed marker at import did win.
+        hook.write_text('#!/usr/bin/env python3\nprint("' + flow.VIEW_MARKER + '/spoofed/codex")\n')
+        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+
+        # A checker that does know about waivers is still the one that is asked.
+        self.assertEqual(flow.hook_view(FLOW.with_name('review_prepush.py')), flow.resolve_codex())
+
     def test_an_untouched_bundle_from_an_earlier_release_is_replaced(self):
         """The hook carries the receipt rule, so shipping a change to that rule means
         replacing the copy git actually runs. Only bytes a release shipped: a hook somebody

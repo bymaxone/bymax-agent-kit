@@ -43,13 +43,19 @@ def resolve_codex():
 
     $PATH is consulted last and only as a fallback for an unusual prefix, so a `codex`
     placed ahead of the real one cannot be the binary a waiver is measured against.
+
+    The path is made absolute but never dereferenced. Every install channel here puts a
+    stable name in front of a versioned file, so following the symlink would pin a waiver
+    to a release and let a routine upgrade inside the window void a receipt that already
+    cleared. Following it buys nothing either: both sides of the comparison call this same
+    function, and whoever can move the symlink can move what runs.
     """
     for location in CODEX_LOCATIONS:
         candidate = Path(location).expanduser()
         if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate.resolve())
+            return os.path.abspath(candidate)
     found = shutil.which('codex')
-    return str(Path(found).resolve()) if found else None
+    return os.path.abspath(found) if found else None
 
 
 def waiver_ok(waiver, now=None):

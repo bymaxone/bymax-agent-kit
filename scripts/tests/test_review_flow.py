@@ -1,4 +1,6 @@
 """Regression layer: exercise review state and push guards in isolated Git repositories."""
+import ast
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -1135,7 +1137,9 @@ class ReviewFlowTests(unittest.TestCase):
         self.start()
         waiver, locations = self.waive(script=self.QUOTA)
         self.assertEqual(waiver['reason'], 'quota')
-        self.assertEqual(waiver['binary'], str(Path(locations[0]).resolve()))
+        # Not .resolve(): the waiver records the stable name, so an upgrade that repoints
+        # it does not void a receipt that already cleared.
+        self.assertEqual(waiver['binary'], os.path.abspath(locations[0]))
         self.assertIn('usage limit', waiver['detail'])
         self.report('claude')
         self.report('claude-b')
@@ -1289,6 +1293,46 @@ class ReviewFlowTests(unittest.TestCase):
         spelled = eval(argv.read_text())
         self.assertEqual(spelled[spelled.index('-p') + 1], 'escalated')
         self.assertLess(spelled.index('-p'), spelled.index('--sandbox'))
+
+    def loaded(self, name):
+        """Import one runtime module on its own, for a check that needs no repository."""
+        spec = importlib.util.spec_from_file_location(name, FLOW.with_name(name + '.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_a_waiver_names_the_codex_path_and_not_the_file_it_points_at(self):
+        """Every install channel here puts a stable name in front of a versioned file, so
+        dereferencing pins a waiver to a release: a routine upgrade inside the window then
+        voids a receipt that already cleared and blocks a certified push. Dereferencing buys
+        nothing — both sides of the comparison call this same function."""
+        prepush = self.loaded('review_prepush')
+        real = self.root / 'versions' / '1.0.0' / 'codex'
+        real.parent.mkdir(parents=True)
+        real.write_text('#!/bin/sh\nexit 0\n')
+        real.chmod(0o755)
+        link = self.root / 'stable' / 'codex'
+        link.parent.mkdir()
+        link.symlink_to(real)
+        prepush.CODEX_LOCATIONS = (str(link),)
+        self.assertEqual(prepush.resolve_codex(), str(link))
+
+        # And the comparison still holds against what a waiver recorded, which is the point.
+        waiver = dict(reason='quota', at=int(time.time()), binary=prepush.resolve_codex())
+        self.assertTrue(prepush.waiver_ok(waiver))
+
+    def test_the_runtime_keeps_its_functions_under_the_size_limit(self):
+        """AGENTS.md names a function over 50 lines as a finding for what a change
+        introduces, including a change that pushes an existing one past it. A rule only a
+        reviewer remembers is a rule that comes back; this is the gate for these modules."""
+        over = {}
+        for name in ('review_flow', 'review_prepush', 'review_push', 'review_claude', 'review_delivery'):
+            tree = ast.parse(FLOW.with_name(name + '.py').read_text())
+            over.update({f'{name}.{node.name}': node.end_lineno - node.lineno + 1
+                         for node in ast.walk(tree)
+                         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                         and node.end_lineno - node.lineno + 1 > 50})
+        self.assertFalse(over, f'functions over 50 lines: {over}')
 
     def test_the_substitute_is_refused_without_a_waiver_the_runtime_granted(self):
         """claude-b is the stand-in for a Codex the probe could not run. With Codex available

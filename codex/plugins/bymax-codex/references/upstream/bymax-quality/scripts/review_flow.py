@@ -116,7 +116,8 @@ HOOK_MARKER = 'Git pre-push hook: refuse to publish any commit that lacks a comp
 # rule, so shipping a change to that rule means replacing the copy git actually runs; an
 # untouched bundle is this campaign's own file and is replaced, and anything else — a hook
 # somebody merged a check into, or wrote — is never overwritten, only reported.
-SUPERSEDED = frozenset({'c02a58c70dddeba812740dd2f83a5be43c14ad8e6cd2e35cbba62355f42f8ecc'})
+SUPERSEDED = frozenset({'c02a58c70dddeba812740dd2f83a5be43c14ad8e6cd2e35cbba62355f42f8ecc',
+                        'cd0a2f7f5b49b3557b1362a707347604f24cc136a3a96a3cb3fe7b956f52f7db'})
 
 
 def install_hook():
@@ -209,6 +210,11 @@ def sweep_probes(root):
             subprocess.run(['git', 'update-ref', '-d', name], capture_output=True)
 
 
+# What the view subprocess prefixes its answer with, so an empty answer is distinguishable
+# from a hook that printed nothing at all.
+VIEW_MARKER = 'bymax-hook-view:'
+
+
 def hook_view(checker):
     """Resolve Codex the way the hook under test will, so a probe receipt is built from its
     view of this machine rather than from a second opinion about it.
@@ -216,17 +222,32 @@ def hook_view(checker):
     A hook that cannot be loaded as a module — a shell stub delegating to the checker, a
     copy from before waivers existed — has no view to borrow, and this runtime's own is
     used. That is the case the probe exists to catch: such a hook refuses the receipt,
-    which is what makes it visible instead of silently blocking real pushes later.
+    which is what makes it visible instead of silently blocking real pushes later. A hook
+    that exits, hangs or reads stdin at import is the same case and must reach the same
+    answer rather than the caller's process.
     """
+    # In a subprocess, like every other hook execution here, and for the same reasons: a
+    # hook somebody merged a check into runs that check at import, and in this process its
+    # sys.exit() is a SystemExit no `except` for Exception catches and no caller expects,
+    # while a read of stdin never returns. Bounded, fed nothing, and answered through a
+    # marker so an exit that prints nothing is a fallback rather than a machine with no Codex.
+    # The marker carries a nonce the hook cannot predict, because a hook that printed the
+    # fixed one at import would otherwise dictate the answer instead of being asked for it.
+    marker = VIEW_MARKER + os.urandom(8).hex() + ':'
+    driver = ('import importlib.machinery as loaders, importlib.util as util, sys\n'
+              'loader = loaders.SourceFileLoader("bymax_hook_view", sys.argv[1])\n'
+              'module = util.module_from_spec(util.spec_from_loader(loader.name, loader))\n'
+              'loader.exec_module(module)\n'
+              'print("' + marker + '" + (module.resolve_codex() or ""))\n')
     try:
-        # An explicit source loader, because a hook file has no .py suffix and nothing would
-        # infer one: the silent result is a spec with no loader, and the fallback below.
-        loader = importlib.machinery.SourceFileLoader('bymax_hook_view', str(checker))
-        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-        loader.exec_module(module)
-        return module.resolve_codex()
-    except Exception:  # not importable, or not a checker that knows about waivers
+        probe = subprocess.run([sys.executable, '-c', driver, str(checker)], text=True,
+                               capture_output=True, timeout=HOOK_SECONDS, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):  # unrunnable, or past the bound
         return resolve_codex()
+    for line in reversed(probe.stdout.splitlines()):
+        if line.startswith(marker):
+            return line[len(marker):] or None
+    return resolve_codex()  # not importable, or not a checker that knows about waivers
 
 
 def waived_shape(checker, stale=False):
@@ -327,7 +348,11 @@ def usable_hook(path):
     # records by a property all three of the probe's records share can still miss one, and
     # hook code written to recognise the probe is trusted code. The probe raises the floor;
     # it does not certify the hook.
-    unreceipted, held, orphaned, legacy, partial, waived, stale = push_probes(path)
+    upholds(path, checker, *push_probes(path))
+
+
+def upholds(path, checker, unreceipted, held, orphaned, legacy, partial, waived, stale):
+    """What each probe push must have returned, and what its exit status means if not."""
     require(unreceipted != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
             f'receipts. Make it invoke {checker}, or delete it.')
@@ -355,6 +380,25 @@ def usable_hook(path):
             f'unreceipted commit here. Make it check every record, as {checker} does, or delete it.')
 
 
+def push_records(branch, head, refs, dangling, other):
+    """git's stdin for the probe pushes: the single-ref one, and the three-ref ones.
+
+    A record per ref, the first fast-forwarding the current branch and the rest creating
+    their own remote ref (all-zero remote sha). git hands a hook one record per pushed ref,
+    so the unreceipted commit takes each of the three positions in turn: a hook that leaves
+    one record unchecked reads only receipted commits in the push whose unreceipted one it
+    skips, exits 0, and is refused for it.
+    """
+    def push(*pairs):
+        first = f'{pairs[0][0]} {pairs[0][1]} {branch} {head}\n'
+        return first + ''.join(f'{name} {sha} {name} {"0" * 40}\n' for name, sha in pairs[1:])
+
+    return push((refs[0], dangling)), (
+        push((refs[0], dangling), (refs[1], other), (refs[2], dangling)),
+        push((refs[1], other), (refs[0], dangling), (refs[2], dangling)),
+        push((refs[0], dangling), (refs[2], dangling), (refs[1], other)))
+
+
 def push_probes(path):
     """Run the hook on the probe push without a receipt, with a held one, with an unheld one,
     with a pid-only one, on three-ref pushes that give the unreceipted commit each position
@@ -372,19 +416,7 @@ def push_probes(path):
     for name, sha in zip(refs, (dangling, other, dangling)):
         git('update-ref', name, sha)
 
-    def push(*pairs):
-        """Render git's stdin for one push: a record per ref, the first fast-forwarding
-        the branch and the rest creating their own remote ref (all-zero remote sha)."""
-        first = f'{pairs[0][0]} {pairs[0][1]} {branch} {head}\n'
-        return first + ''.join(f'{name} {sha} {name} {"0" * 40}\n' for name, sha in pairs[1:])
-
-    line = push((refs[0], dangling))
-    # git hands the hook one record per pushed ref. The unreceipted commit takes each of
-    # the three positions in turn, so any hook that leaves one record unchecked reads only
-    # receipted commits in the push whose unreceipted one it skips, exits 0 and is refused.
-    multi = (push((refs[0], dangling), (refs[1], other), (refs[2], dangling)),
-             push((refs[1], other), (refs[0], dangling), (refs[2], dangling)),
-             push((refs[0], dangling), (refs[2], dangling), (refs[1], other)))
+    line, multi = push_records(branch, head, refs, dangling, other)
     url = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True)
     remote = ('origin', url.stdout.strip() if url.returncode == 0 else 'origin')
     try:
