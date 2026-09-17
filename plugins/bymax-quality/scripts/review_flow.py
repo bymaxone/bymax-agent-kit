@@ -987,8 +987,37 @@ def substitute_note(state):
             'nothing has been covered for you.')
 
 
+def gate_first(state):
+    """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
+
+    A reviewer round is the scarcest thing a campaign spends, and a failing suite spends it
+    on what the suite already reports. Measured here: rounds were lost to a test that read
+    the developer machine's Codex and to a bundler that swept a local cache into the
+    manifest — both of which a gate names in seconds and a reader finds only by luck.
+
+    The gates ran after the reviewers until now, on the way to `finish`. That ordering asks
+    two people to read a tree nobody has checked, so it is inverted: the machine answers
+    what a machine can answer, and the reading is spent on what only a reader can.
+    """
+    latest = {tuple(c['command']): c for c in state['checks']}
+    missing = [c for c in state['required_checks'] if tuple(c) not in latest]
+    require(not missing,
+            'The declared gates have not run on this candidate: '
+            + '; '.join(' '.join(c) for c in missing)
+            + '. Run each with `review_flow.py check -- <command>` before a reviewer reads the '
+            'tree. A round spent on a failure the suite already names is a round not spent on '
+            'what only a reader finds.')
+    failed = sorted(' '.join(c['command']) + f" (exit {c['exit_code']})"
+                    for c in latest.values() if c['exit_code'] != 0)
+    require(not failed,
+            'These gates failed on this candidate: ' + '; '.join(failed) + '. Fix the candidate, '
+            're-run them, and only then ask for a review: reviewers read a tree its own gates '
+            'already accept.')
+
+
 def prompt(state):
     """Build the same bounded read-only task for both independent reviewers."""
+    gate_first(state)
     return f'''Review only; do not edit, commit, push, invoke review skills, or launch other reviewers.
 Read applicable AGENTS.md and CLAUDE.md constraints. Do not execute their implementation or push workflows.
 Candidate HEAD: {state['head']}; original base: {state['base']}.
@@ -999,8 +1028,9 @@ Context and acceptance contract:
 {archived_note(state)}
 {substitute_note(state)}
 {delivery_note(state)}
-The checks listed in that context are executed and recorded by the caller through review_flow.py check;
-do not run them, and do not run the project's test suite or builds: your sandbox is read-only and
+The checks listed in that context already ran on this candidate and passed; review_flow.py refuses
+to build this task otherwise, so a failure they name is not what you are looking for. Do not run them,
+and do not run the project's test suite or builds: your sandbox is read-only and
 denies $TMPDIR, where such tools write their caches. Whatever you cannot execute is a limitation to
 state in your summary, never a reason to report incomplete. Read, trace and reason instead.
 Previous dispositions (recheck fixes; do not reopen rejected findings without new evidence):

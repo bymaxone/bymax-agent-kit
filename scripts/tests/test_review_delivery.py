@@ -59,6 +59,7 @@ class DeliveryTests(unittest.TestCase):
                         extend='Max decided to continue after reading the six-candidate alarm')
         self.assertEqual(state['round'], 7)
         self.assertEqual(state['max_rounds'], 12)
+        c.checks()
         self.assertIn('by a recorded decision', c.text('prompt'))
 
     def test_a_cleared_campaign_moved_aside_continues_only_by_a_recorded_decision(self):
@@ -85,6 +86,7 @@ class DeliveryTests(unittest.TestCase):
         live = Path(state['directory'])
         self.assertEqual(sorted(p.name for p in live.iterdir() if p.name.startswith('completed-')), [],
                          'a receipt was written for a head nobody reviewed in this campaign')
+        c.checks()
         prompt = c.text('prompt')
         self.assertIn('Round 1/6', prompt)
         self.assertIn('Max decided to re-review in full', prompt)
@@ -194,6 +196,7 @@ class DeliveryTests(unittest.TestCase):
         c.complete()
         c.commit('thirteenth')
         c.start(correction=True, answers=['code.txt:t'], extend='second decision')
+        c.checks()
         prompt = c.text('prompt')
         self.assertIn('extended 2 time(s)', prompt)
         self.assertIn('first decision', prompt)
@@ -227,6 +230,7 @@ class DeliveryTests(unittest.TestCase):
         state = c.start(correction=True, answers=['code.txt:bot-thread'],
                         widen='fixture: the bot asked for a new file')
         self.assertEqual(state['answers'], ['code.txt:bot-thread'])
+        c.checks()
         self.assertIn('declared by the author as: code.txt:bot-thread', c.text('prompt'))
 
     def test_repeated_start_and_archive_do_not_renew_budget(self):
@@ -249,6 +253,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(state['max_rounds'], 6)
         self.assertEqual(state['round'], 1)
         self.assertEqual(state['review_base'], c.base)
+        c.checks()
         prompt = c.text('prompt')
         self.assertIn('kept aside without clearing', prompt)
         self.assertNotIn('had cleared', prompt)
@@ -286,6 +291,7 @@ class DeliveryTests(unittest.TestCase):
         report = dict(status='completed', head=state['head'], base=state['review_base'],
                       summary='Inspected fixture', findings=[], resolutions=[])
         env, capture = self.fake_claude(dict(structured_output=report, is_error=False))
+        c.checks()
         run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
                              env=env, capture_output=True, text=True, timeout=10)
         self.assertEqual(run.returncode, 0, run.stderr)
@@ -308,6 +314,7 @@ class DeliveryTests(unittest.TestCase):
         self.enroll()
         env, _ = self.fake_claude(dict(structured_output={'status': 'incomplete'}))
         for _ in range(3):
+            c.checks()
             run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
                                  env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(run.returncode, 2)
@@ -329,6 +336,7 @@ class DeliveryTests(unittest.TestCase):
         source = source.replace('print(', f'pathlib.Path({str(ready)!r}).touch()\n'
                                 f'while not pathlib.Path({str(release)!r}).exists(): time.sleep(0.01)\nprint(', 1)
         binary.write_text(source)
+        c.checks()
         process = subprocess.Popen([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:

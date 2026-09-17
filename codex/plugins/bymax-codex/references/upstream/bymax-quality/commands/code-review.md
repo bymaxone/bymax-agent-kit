@@ -80,7 +80,15 @@ a separate design audit, report it separately from this campaign.
    versions and required gate commands in the campaign context. Give both reviewers
    the identical generated prompt. Share prior dispositions on correction rounds,
    but never the other reviewer's current findings before freezing your own report.
-2. Start `review_flow.py codex` in a background shell. It runs a fresh read-only Codex
+2. **Run the declared gates before either reviewer reads the tree.** `python3 "$FLOW" check
+   -- <command>` for every gate the context names, and fix the candidate until they pass;
+   `prompt` refuses to build the reviewer task until they have, so this is not advice. A
+   reviewer round is the scarcest thing the campaign spends, and a failing suite spends it on
+   what the suite already prints. Two rounds here went that way — a test that read the
+   developer machine's Codex, and a bundler that swept a local cache into the shipped
+   manifest — and a gate named both in seconds. Run the gates again after the correction
+   commit of every later round, for the same reason.
+   Then start `review_flow.py codex` in a background shell. It runs a fresh read-only Codex
    context with the explicit diff and task contract, and persists its completed report.
    Its probe, not your reading of the error, decides whether a failure is a reviewer this
    machine cannot run: it prints a waiver for an absent Codex or an exhausted account, and

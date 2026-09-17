@@ -278,6 +278,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_abandoned_codex_reservation_keeps_retry_budget(self):
         """A dead owner permits one retry without resetting the attempt count."""
         state = self.start()
+        self.checks()
         reserve = ('import sys; sys.path.insert(0, ' + repr(str(FLOW.parent)) + '); '
                    'import review_flow as flow; flow.reserve_codex(flow.location())')
         subprocess.run([sys.executable, '-c', reserve], cwd=self.repo, check=True)
@@ -332,6 +333,7 @@ class ReviewFlowTests(unittest.TestCase):
         state = self.start(correction=True, design=True)
         self.assertTrue(state['design_round'])
         self.assertEqual(state['reopened'], ['guard:spelling'])
+        self.checks()
         prompt = self.flow('prompt')
         self.assertIn('DESIGN ROUND', prompt.stdout)
 
@@ -350,18 +352,50 @@ class ReviewFlowTests(unittest.TestCase):
             self.start(ok=False, correction=True, probe=hollow)
             self.assertEqual(self.flow('status')['round'], 1, f'advanced on hollow probe {hollow!r}')
         self.start(correction=True, probe=[dict(command='eval git push', expected='blocked', observed='blocked')])
+        self.checks()
         prompt = self.flow('prompt')
         self.assertIn('eval git push', prompt.stdout)
         self.assertIn('Shallow probing is a finding', prompt.stdout)
         # A probe the reviewer's sandbox cannot run is a limitation to state, not `incomplete`.
         self.assertIn('is a limitation to state in your summary, not a reason to report incomplete', prompt.stdout)
 
+    def test_the_declared_gates_run_before_a_reviewer_reads_the_tree(self):
+        """A reviewer round is the scarcest thing a campaign spends, so the machine answers
+        first. Until this, the declared gates ran on the way to finish — after both readings —
+        which is how two rounds here went to a test that read the developer machine's Codex and
+        a bundler that swept a local cache into the manifest. A gate names either in seconds."""
+        self.start()
+        refused = self.flow('prompt', ok=False).stderr
+        self.assertIn('have not run on this candidate', refused)
+        # The route that launches a reviewer, not only the one that prints the task: both build
+        # the text through prompt(), which is where the refusal lives, so there is one rule.
+        launched = self.codex_run('codex', locations=[self.fake_codex('#!/bin/sh\nexit 0\n')])
+        self.assertEqual(launched.returncode, 2, launched.stdout)
+        self.assertIn('have not run on this candidate', launched.stderr)
+        self.checks()
+        self.assertIn('already ran on this candidate and passed', self.text('prompt'))
+
+    def test_a_gate_that_failed_keeps_the_candidate_from_the_reviewers(self):
+        """Having run is not having passed. A red suite handed to two readers spends both
+        rounds on what the suite already prints, and the exit code is named in the refusal so
+        the author fixes the candidate rather than re-running the gate to see why."""
+        failing = [sys.executable, '-c', 'raise SystemExit(3)']
+        self.context.write_text(json.dumps(dict(
+            intent='Fix requested feature', acceptance=['Preserve callers'],
+            constraints=['No unrelated changes'], scope='Candidate against base', checks=[failing])))
+        self.start()
+        self.flow('check', '--', *failing, ok=False)
+        refused = self.flow('prompt', ok=False).stderr
+        self.assertIn('exit 3', refused)
+        self.assertIn('gates already accept', refused)
+
     def test_prompt_keeps_sandboxed_reviewers_off_the_declared_checks(self):
         """Declared checks are the caller's to run; a reviewer that gave up on a sandbox denial is
         told the environment fix, so the retry is not spent on the same failure."""
         self.start()
+        self.checks()
         prompt = self.flow('prompt')
-        self.assertIn('executed and recorded by the caller through review_flow.py check', prompt.stdout)
+        self.assertIn('already ran on this candidate and passed', prompt.stdout)
         self.assertIn('never a reason to report incomplete', prompt.stdout)
         state = self.flow('status')
         path = self.root / 'incomplete.json'
@@ -676,6 +710,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('has produced a finding yet', self.text('lessons'))
         self.commit('next')
         self.assertEqual(self.start(correction=True)['round'], 3)
+        self.checks()
         self.assertNotIn('the correction produced the finding', self.text('prompt'))
 
     def test_a_finding_elsewhere_is_not_blamed_on_the_correction(self):
@@ -721,6 +756,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('lessons', refused)
         state = self.start(correction=True, nit='', probe=named, design=True)
         self.assertTrue(state['design_round'])
+        self.checks()
         prompt = self.text('prompt')
         self.assertIn('the correction produced the finding', prompt)
         self.assertIn('DESIGN ROUND: two corrections in a row introduced', prompt)
@@ -748,6 +784,7 @@ class ReviewFlowTests(unittest.TestCase):
 
         widened = self.start(correction=True, widen='Max asked for it in the session')
         self.assertEqual(widened['widen_scope'], 'Max asked for it in the session')
+        self.checks()
         self.assertIn('touches files no open finding named', self.text('prompt'))
 
     def test_a_round_is_spent_on_a_defect_not_on_nits(self):
@@ -769,6 +806,7 @@ class ReviewFlowTests(unittest.TestCase):
         # Recorded, the round proceeds and both reviewers are told why.
         state = self.start(correction=True, nit='the wording misleads a reader of the protocol')
         self.assertEqual(state['round'], 2)
+        self.checks()
         self.assertIn('spent on P3 findings', self.flow('prompt').stdout)
         # A blocking finding needs no such reason; the nit is deferred, not carried open.
         keep = [dict(id='claude::docs:wording', evidence='reworded in this delta')]
@@ -858,6 +896,7 @@ class ReviewFlowTests(unittest.TestCase):
                                  'Max authorised a fresh campaign for the hook probe only'],
                                 cwd=self.repo, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.checks()
         self.assertIn('authorised to start over', self.flow('prompt').stdout)
 
     def test_the_command_the_notice_names_writes_both_files_it_checks(self):
@@ -917,6 +956,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.git('commit', '-qm', 'rename and extend')
         state = self.start(correction=True, reason='')
         self.assertEqual(state['regression_tests'], ['tests/test_new.py'])
+        self.checks()
         self.assertIn('tests/test_new.py', self.flow('prompt').stdout)
 
     def test_correction_without_tests_needs_a_recorded_reason(self):
@@ -937,6 +977,7 @@ class ReviewFlowTests(unittest.TestCase):
         state = self.start(correction=True, reason='')
         self.assertEqual(state['round'], 2)
         self.assertEqual(state['regression_tests'], ['tests/test_fix.py'])
+        self.checks()
         self.assertIn('Tests changed in this delta: tests/test_fix.py', self.flow('prompt').stdout)
         self.report('claude')
         self.report('codex')
@@ -951,6 +992,7 @@ class ReviewFlowTests(unittest.TestCase):
         state = self.start(correction=True, reason='removed a flaky test on purpose')
         self.assertEqual(state['round'], 3)
         self.assertEqual(state['removed_tests'], ['tests/test_fix.py'])
+        self.checks()
         prompt = self.flow('prompt').stdout
         self.assertIn('removed a flaky test on purpose', prompt)
         self.assertIn('Tests removed in this delta: tests/test_fix.py', prompt)
@@ -1042,6 +1084,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_codex_child_keeps_lock_after_launcher_is_killed(self):
         """An orphaned child excludes retries until it exits, then recovery is bounded."""
         self.start()
+        self.checks()
         ready, release, done = [self.root / name for name in ('ready', 'release', 'done')]
         binary = self.fake_codex(f"#!{sys.executable}\nimport time,pathlib\n"
             f"pathlib.Path({str(ready)!r}).touch()\n"
@@ -1083,6 +1126,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_codex_wait_does_not_lock_out_claude_report(self):
         """Concurrent model completion preserves both reports without blocking the writer."""
         state = self.start()
+        self.checks()
         ready, release = self.root / 'ready', self.root / 'release'
         report = dict(status='completed', head=state['head'], base=state['review_base'],
                       summary='Fixture review', findings=[], resolutions=[])
@@ -1145,6 +1189,7 @@ class ReviewFlowTests(unittest.TestCase):
         """A Codex that runs and reports an exhausted account is a reviewer this machine
         cannot run, and the waiver names the binary it was measured against."""
         self.start()
+        self.checks()
         waiver, locations = self.waive(script=self.QUOTA)
         self.assertEqual(waiver['reason'], 'quota')
         # Not .resolve(): the waiver records the stable name, so an upgrade that repoints
@@ -1163,6 +1208,7 @@ class ReviewFlowTests(unittest.TestCase):
         deleting a credentials file enough to clear any candidate."""
         self.locations = [self.fake_codex(self.AUTH)]
         self.start()
+        self.checks()
         result = self.flow('codex', ok=False)
         self.assertIn('codex-setup', result.stderr)
         self.assertNotIn('codex_waiver', self.flow('status'))
@@ -1177,6 +1223,7 @@ class ReviewFlowTests(unittest.TestCase):
                   'echo "ERROR: transport closed"\nexit 1\n')
         self.locations = [self.fake_codex(echoed)]
         self.start()
+        self.checks()
         result = self.flow('codex', ok=False)
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn('Codex failed', result.stderr)
@@ -1293,6 +1340,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.locations = [binary]
         self.bind_escalated()
         self.start()
+        self.checks()
         self.flow('codex', ok=False)
         self.assertNotIn('-p', eval(argv.read_text()))
 

@@ -66,7 +66,8 @@ cites a sandbox or permission denial: the same sandbox fails identically, and `r
 so. Two of the ways a run can fail are not reviews that failed but a reviewer this machine
 cannot run, and those are waived rather than retried — see
 [When Codex cannot run](#when-codex-cannot-run). The generated prompt tells both reviewers that the declared checks are the caller's to
-run and that anything they cannot execute is a limitation to state, not `incomplete`. The
+run, that they already passed on this candidate, and that anything they cannot execute is a
+limitation to state, not `incomplete`. The
 Codex sandbox is read-only by construction (`--sandbox read-only`), so no project
 configuration makes a test suite or build runnable inside it; a reviewer that reaches for
 the suite dies on the first cache write (Jest under `$TMPDIR`, for instance) and the
@@ -323,10 +324,15 @@ file under a `codex/` directory is exactly what it says.
 The Claude pass on a correction delta is performed by a fresh-context subagent given only
 the generated prompt, never by the session that authored the fix.
 
-Run every required gate named in the context after the final candidate commit:
+Run every required gate named in the context **after the candidate commit and before either
+reviewer reads it** — `prompt` refuses to build the reviewer task until every declared gate has
+run and passed on this candidate, and that includes the `codex` and `claude` commands, which
+build the same text. The gates ran on the way to `finish` until this; that ordering asked two
+readers to judge a tree nobody had checked, and a round spent on a failure the suite already
+prints is a round not spent on what only a reader finds.
 
 ```bash
-python3 "$FLOW" check -- <executable> <arguments>
+python3 "$FLOW" check -- <executable> <arguments>   # before the reviewers, every round
 python3 "$FLOW" finish
 python3 "$FLOW" status
 ```
