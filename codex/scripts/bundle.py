@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +15,22 @@ DESTINATION = PACKAGE / 'references/upstream'
 
 
 BUNDLED = ('commands', 'skills', 'agents', 'templates', 'scripts', 'hooks', 'references')
+
+
+def own_index():
+    """Whether the index that would answer about ignores is this repository's own.
+
+    `rev-parse --show-toplevel` names the working tree the answering index belongs to. For a
+    clone, a linked worktree, a submodule and a shallow checkout that is this directory; for a
+    copy unpacked inside another repository it is the enclosing one, whose patterns would apply
+    to every resource here because it tracks none of them.
+    """
+    answer = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--show-toplevel'],
+                            capture_output=True)
+    if answer.returncode != 0:
+        return False
+    toplevel = Path(os.fsdecode(answer.stdout.strip()))
+    return toplevel.resolve() == ROOT.resolve()
 
 
 def ignored(candidates):
@@ -27,17 +44,26 @@ def ignored(candidates):
     that is too small does not fail: it deletes the mirror and reports success. Measured on
     this package while it worked that way — 111 files to 0, and 111 to 30.
 
-    Asked this way round the failure is inverted and harmless. If git answers badly here the
-    set is too LARGE, which shows up as extra files in a diff somebody reads, not as a silent
-    deletion. The disk is what the bundle mirrors, so the disk is what decides what exists.
+    Asked this way round the failure is inverted: a bad answer makes the set too LARGE, which
+    shows up as extra files in a diff somebody reads rather than as a silent deletion. What
+    makes that true is not the direction of the question but the index behind it — check-ignore
+    consults the index and never reports a TRACKED path as ignored, so no pattern can remove a
+    resource the repository ships.
+
+    That veto belongs to one index, and only the repository rooted here holds it. Where the
+    index answering belongs to an enclosing repository, every resource is untracked to it and
+    every one of its patterns applies: an outer .gitignore of `templates/` took this package
+    from 111 files to 85 with exit 0 while that went unnoticed. So the answer is used only when
+    it is about this tree, and otherwise nothing is left out — over-inclusion being the failure
+    this mechanism is willing to have.
     """
-    if not candidates:
+    if not candidates or not own_index():
         return set()
     names = b'\0'.join(os.fsencode(str(path.relative_to(ROOT))) for path in candidates)
     try:
         answer = subprocess.run(['git', '-C', str(ROOT), 'check-ignore', '--stdin', '-z'],
                                 input=names, capture_output=True)
-    except OSError as error:
+    except OSError as error:  # kept: own_index() reports False rather than raising
         raise SystemExit('bundle.py asks git which resources to leave out of the package, and '
                          f'git could not be run: {error}. Install git, or run the bundler from a '
                          'checkout.')
@@ -54,6 +80,9 @@ def ignored(candidates):
 
 def source_files():
     """Return runtime resources without registering Claude manifests or hooks."""
+    if not shutil.which('git'):
+        raise SystemExit('bundle.py asks git which resources to leave out of the package, and '
+                         'git is not on PATH. Install git, or run the bundler from a checkout.')
     plugins = ROOT / 'plugins'
     if not plugins.is_dir():
         raise SystemExit(f'{plugins} is not a directory, so there is nothing to bundle. Run the '

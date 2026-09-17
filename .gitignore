@@ -26,6 +26,7 @@ Thumbs.db
 # Reproducible from sources on demand. Tracking these would bloat the repo
 # and create spurious diffs on every install / build.
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 .cache/

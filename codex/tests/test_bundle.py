@@ -56,12 +56,50 @@ class ShippedResourceTests(unittest.TestCase):
         produced it and was stale in every clone, which is what CI reported. Ignored is the
         property that distinguishes them, and it is the only thing git is asked."""
         module = bundler()
-        module.ROOT = self.package(ignore='.pytest_cache/')
+        module.ROOT = self.package()
         stray = module.ROOT / 'plugins/demo/commands/.pytest_cache/nodeids'
         stray.parent.mkdir(parents=True)
         stray.write_text('what a local run leaves behind\n')
+        # The shape this repository really has: pytest writes the marker, and until this round
+        # nothing else excluded the cache. A fixture that put `.pytest_cache/` in the root
+        # ignore file tested a rule the repository did not own.
+        (stray.parent / '.gitignore').write_text('# Created by pytest automatically.\n*\n')
         self.assertTrue(stray.is_file())          # the case must be the case before it asserts
         self.assertEqual(self.names(module), ['demo/commands/one.md', 'demo/commands/two.md'])
+
+    def test_the_index_vetoes_an_ignore_rule(self):
+        """The one fact the inversion rests on, and the reason asking about ignores is safe at
+        all: git check-ignore consults the index, so a TRACKED resource is never reported
+        ignored however the patterns read. Without this the question could still remove shipped
+        files and the redesign would only have moved the failure. Nothing in the suite noticed
+        when the property was mutated away, which is how a design becomes unchangeable."""
+        module = bundler()
+        root = self.package()
+        # The rule arrives AFTER the files are tracked, which is the only way to build the case
+        # this names. Writing it first means git never adds them and they are untracked, so the
+        # veto is never reached — which is what an earlier version of this fixture did.
+        (root / '.gitignore').write_text('commands/\n')
+        module.ROOT = root
+        tracked = subprocess.run(['git', '-C', str(root), 'ls-files', '-z', 'plugins'],
+                                 capture_output=True).stdout
+        self.assertIn(b'one.md', tracked)          # tracked, and matched by the rule above
+        self.assertEqual(self.names(module), ['demo/commands/one.md', 'demo/commands/two.md'])
+
+    def test_an_ignore_from_an_enclosing_repository_cannot_shrink_the_package(self):
+        """Measured on the real package while this was open: a copy unpacked inside a
+        repository whose .gitignore holds `templates/` gave 111 -> 85, exit 0, 'verified: 85',
+        twenty-six mirror files deleted. The index that vetoes patterns is the enclosing one,
+        which knows none of these paths, so every pattern applies. An answer from an index that
+        does not describe this tree is not an answer about this package."""
+        module = bundler()
+        outer = Path(tempfile.mkdtemp())
+        subprocess.run(['git', 'init', '-q', str(outer)], check=True)
+        (outer / '.gitignore').write_text('commands/\n')
+        inner = outer / 'unpacked-copy'
+        (inner / 'plugins/demo/commands').mkdir(parents=True)
+        (inner / 'plugins/demo/commands/one.md').write_text('shipped\n')
+        module.ROOT = inner
+        self.assertEqual(self.names(module), ['demo/commands/one.md'])
 
     def test_an_untracked_resource_is_still_shipped(self):
         """Expectation moved with the mechanism, and this is the direction that matters. Under
@@ -102,16 +140,22 @@ class ShippedResourceTests(unittest.TestCase):
         self.assertEqual(self.names(module), ['demo/commands/one.md'])
 
     def test_a_carriage_return_in_a_name_survives(self):
-        """-z is asked for so a name is delimited by NUL and nothing else. Reading that stream
-        with universal newlines rewrites a CR inside a name before the split; under the old
-        mechanism the file then vanished from the package, and under this one it would be the
-        ignore list that lost track of a name."""
+        """-z is asked for so a name is delimited by NUL and nothing else, and reading that
+        stream with universal newlines rewrites a CR inside a name before the split.
+
+        The file must be UNTRACKED for this to mean anything. A tracked path is vetoed by the
+        index before any pattern is consulted, so an earlier version of this case added the
+        file and asserted a property it could never reach: reintroducing the exact mangling it
+        names left the whole suite green.
+        """
         module = bundler()
-        root = self.package()
+        root = self.package(ignore='ignored-entirely.md')
         odd = root / 'plugins/demo/commands/carriage\rreturn.md'
-        odd.write_text('also shipped\n')
-        subprocess.run(['git', '-C', str(root), 'add', '-A'], check=True)
+        odd.write_text('shipped, and never added\n')
         module.ROOT = root
+        self.assertEqual(subprocess.run(['git', '-C', str(root), 'ls-files', '--error-unmatch',
+                                         str(odd.relative_to(root))], capture_output=True).returncode,
+                         1)                       # untracked, so the ignore answer decides it
         self.assertIn('demo/commands/carriage\rreturn.md', self.names(module))
 
     def test_git_that_cannot_run_is_reported_rather_than_raised(self):
