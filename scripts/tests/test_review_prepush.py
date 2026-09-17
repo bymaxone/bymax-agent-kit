@@ -200,9 +200,10 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertEqual(hook.read_bytes(), bundle)
 
     def test_a_hook_that_runs_at_import_cannot_escape_or_hang_the_view(self):
-        """A probe receipt is built from the checker's own view of the machine, and the hook
-        it borrows that from may be one somebody merged a check into — the shape install_hook
-        asks for by name. Such a hook runs its check at import: executing it in this process
+        """usable_hook asks the kept hook how it resolves Codex, to require that its answer
+        matches the runtime's, and the hook it asks may be one somebody merged a check into — the
+        shape install_hook asks for by name. Such a hook runs its check at import: executing it
+        in this process
         lets SystemExit past every guard the runtime has, since it is not an Exception, and a
         hook that reads stdin at import never returns at all. Neither may reach start."""
         flow = self.modules()['review_flow']
@@ -596,15 +597,24 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertEqual(hook.read_bytes(), shorter)
 
     def test_a_kept_hook_that_resolves_this_machine_differently_is_refused(self):
-        """A kept hook that computes the Codex name differently refuses every real waived
-        push, because the receipt the runtime writes names the other path. That disagreement
-        is invisible to a probe of receipt shape — both sides understand waivers perfectly —
-        and replacing byte-identical bundles by hash does not reach a hook somebody merged a
-        check into, so the agreement itself is what must be required."""
+        """A kept hook that computes the Codex name differently refuses every real waived push,
+        because the receipt the runtime writes names the other path. The waived probe catches
+        that too, since the receipt it shows the hook carries the runtime's name — measured, and
+        worth stating rather than claiming the probes are blind to it. What the agreement check
+        adds is the divergence a probe cannot reach, one that exists only while the hook is
+        imported, and a refusal that names the disagreement instead of reporting a refused
+        push. Replacing byte-identical bundles by hash reaches neither."""
         flow = self.modules()['review_flow']
         hook = self.repo / '.git/hooks/pre-push'
-        merged = (FLOW.with_name('review_prepush.py').read_bytes()
-                  + b'\n# merged by hand\ndef resolve_codex():\n    return "/another/name/for/codex"\n')
+        # Diverted inside resolve_codex, not appended past the module body: a hook runs main()
+        # from its own __main__ block, so anything after it never executes and the divergence
+        # would exist only for the importing view — the same injection-point defect this file
+        # corrected once already, in the window fixture below.
+        merged = FLOW.with_name('review_prepush.py').read_bytes().replace(
+            b'    for location in CODEX_LOCATIONS:',
+            b'    return "/another/name/for/codex"\n    for location in CODEX_LOCATIONS:')
+        merged += b'\n# merged by hand\n'
+        self.assertIn(b'return "/another/name/for/codex"', merged)
         hook.write_bytes(merged)
         hook.chmod(0o755)
         with self.assertRaises(ValueError) as refusal:

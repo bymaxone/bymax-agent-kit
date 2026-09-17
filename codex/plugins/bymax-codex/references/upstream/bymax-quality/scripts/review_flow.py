@@ -217,11 +217,11 @@ VIEW_MARKER = 'bymax-hook-view:'
 
 
 def hook_view(checker):
-    """Resolve Codex the way the hook under test will, so a probe receipt is built from its
-    view of this machine rather than from a second opinion about it.
+    """Resolve Codex the way the hook under test will, for the one question usable_hook asks
+    of it: does this hook agree with the runtime about the machine?
 
-    Read for one purpose only: usable_hook requires the answer to equal this runtime's, so
-    that a kept hook cannot resolve Codex to a name the runtime never writes. A hook that
+    Nothing here decides what a probe receipt contains — waived_shape does, and says so.
+    A hook that
     cannot be loaded as a module — a shell stub delegating to the checker, a copy from
     before waivers existed — has no view to borrow, and this runtime's own is used, which
     is agreement by default. A hook that exits, hangs, reads stdin or writes rubbish at
@@ -364,11 +364,13 @@ def usable_hook(path):
     # records by a property all three of the probe's records share can still miss one, and
     # hook code written to recognise the probe is trusted code. The probe raises the floor;
     # it does not certify the hook.
-    # Asked once, before the probes open anything, and required to agree: a receipt names
-    # the Codex its waiver was measured against and this hook re-resolves that name, so a
-    # hook that computes it differently refuses every waived push — while passing every
-    # probe, because a receipt built from its own view is one it agrees with. No probe of
-    # receipt shape can see that; both sides understand waivers perfectly.
+    # Asked once, before the probes open anything, and required to agree: a receipt names the
+    # Codex its waiver was measured against and this hook re-resolves that name, so a hook
+    # that computes it differently refuses every waived push. The waived probe below also
+    # catches a hook whose answer diverges when git runs it, since the receipt it is shown
+    # carries the runtime's name. This check is the one that survives a divergence the probe
+    # cannot reach — one that appears only at import — and it names the disagreement outright
+    # instead of reporting it as a refused push.
     view = hook_view(path)
     require(view == resolve_codex(),
             f'{path} resolves Codex to {view or "none"} while this runtime resolves '
