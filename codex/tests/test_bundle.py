@@ -16,6 +16,32 @@ def bundler():
     return module
 
 
+class ShippedResourceTests(unittest.TestCase):
+    """The canonical set is what the repository ships, not what the disk happens to hold."""
+
+    def test_an_untracked_file_under_plugins_is_not_a_canonical_resource(self):
+        """Running the suite here writes .pytest_cache under plugins/bymax-quality/scripts.
+        Walking the working tree made those four files canonical resources and four manifest
+        entries, so the bundle verified on the machine that produced it and was stale in
+        every clone — which is exactly what CI reported. The set must come from git."""
+        module = bundler()
+        stray = ROOT / 'plugins/bymax-quality/scripts/.bundle-regression-probe/nodeids'
+        stray.parent.mkdir(parents=True, exist_ok=True)
+        stray.write_text('what a local run leaves behind\n')
+        self.addCleanup(lambda: (stray.unlink(missing_ok=True),
+                                 stray.parent.rmdir() if stray.parent.is_dir() else None))
+        self.assertTrue(stray.is_file())          # the case must be the case before it asserts
+
+        # The behavioural assertion comes first, so this fails on what the bundler DOES
+        # rather than on a helper it does not have yet.
+        canonical = {path.resolve() for path in module.source_files()}
+        self.assertNotIn(stray.resolve(), canonical)
+
+        # And a file the repository really does ship is still in the set.
+        tracked = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
+        self.assertIn(tracked.resolve(), canonical)
+
+
 class BundleSectionTests(unittest.TestCase):
     """Protect the extraction that keeps Claude campaign machinery out of the package."""
 

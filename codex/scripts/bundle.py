@@ -5,18 +5,37 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / 'codex/plugins/bymax-codex'
 DESTINATION = PACKAGE / 'references/upstream'
 
 
+def shipped():
+    """Every file under plugins/ that the repository actually ships.
+
+    Asked of git rather than of the working tree, because the working tree also holds
+    whatever a local run left behind. A .pytest_cache written by running the suite here
+    became four canonical resources and four manifest entries that no clone has, so the
+    bundle verified on the machine that produced it and was stale everywhere else.
+    """
+    listing = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', 'plugins'],
+                             capture_output=True, text=True)
+    if listing.returncode != 0:
+        raise SystemExit('bundle.py asks git which files this repository ships, and git '
+                         f'could not answer in {ROOT}: {listing.stderr.strip()}. Run it from a '
+                         'checkout rather than from an exported tree.')
+    return {(ROOT / name).resolve() for name in listing.stdout.split('\0') if name}
+
+
 def source_files():
     """Return runtime resources without registering Claude manifests or hooks."""
+    tracked = shipped()
     for plugin in sorted((ROOT / 'plugins').iterdir()):
         for directory in ('commands', 'skills', 'agents', 'templates', 'scripts', 'hooks', 'references'):
             for path in sorted((plugin / directory).rglob('*')):
-                if path.is_file() and '__pycache__' not in path.parts:
+                if path.is_file() and path.resolve() in tracked:
                     yield path
 
 
