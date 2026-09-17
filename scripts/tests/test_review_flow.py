@@ -748,7 +748,8 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('claude::code.txt:second', self.text('lessons'))
 
     def test_retriaging_a_round_keeps_one_retrospective_entry(self):
-        """Two entries for one round would read as two rounds and force a design round early."""
+        """Two entries for one round would read as two rounds, misreporting the history the
+        author reads in `lessons` and the count the budget is measured against."""
         self.start()
         self.caused_round('first')
         self.commit('fix')
@@ -759,7 +760,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(rounds, [1, 2])
         self.commit('fix again')
         named = [dict(command='c', expected='e', observed='e', covers='code.txt:second')]
-        self.assertEqual(self.start(correction=True, nit='', probe=named)['round'], 3)
+        self.assertEqual(self.start(correction=True, nit='', probe=named, design=True)['round'], 3)
 
     def test_lessons_keep_their_evidence_after_the_next_round_starts(self):
         """The reports a lesson came from are reset by start; the lesson is not."""
@@ -770,7 +771,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.caused_round('second', previous='first')
         self.commit('fix again')
         named = [dict(command='c', expected='e', observed='e', covers='code.txt:second')]
-        self.start(correction=True, nit='', probe=named)
+        self.start(correction=True, nit='', probe=named, design=True)
         self.assertIn('claude::code.txt:second: wrong', self.text('lessons'))
 
     def test_a_deferred_self_inflicted_blocker_still_needs_its_probe(self):
@@ -784,7 +785,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex', resolutions=[dict(id='claude::code.txt:first', evidence='verified fixed')])
         self.triage([dict(id='claude::code.txt:second', status='deferred', evidence='later')])
         self.commit('fix again')
-        blind = self.start(ok=False, correction=True).stderr
+        blind = self.start(ok=False, correction=True, design=True).stderr
         self.assertIn('no probe names them', blind)
 
     def test_a_rejected_finding_is_not_blamed_on_the_correction(self):
@@ -827,33 +828,63 @@ class ReviewFlowTests(unittest.TestCase):
         self.start(correction=True, nit='')
         self.caused_round('second', previous='first')
         self.commit('fix again')
-        blind = self.start(ok=False, correction=True, nit='').stderr
+        # The round is a design round from here: the correction produced the finding it was
+        # reviewed for, and that is declared before anything else about the round is judged.
+        blind = self.start(ok=False, correction=True, nit='', design=True).stderr
         self.assertIn('no probe names them', blind)
         self.assertIn('claude::code.txt:second', blind)
         named = [dict(command='c', expected='e', observed='e', covers='code.txt:second')]
-        self.start(correction=True, nit='', probe=named)
+        self.start(correction=True, nit='', probe=named, design=True)
 
-    def test_two_self_inflicted_rounds_in_a_row_force_a_design_round(self):
-        """A third patch of a mechanism that produced two findings is what the rule stops."""
-        self.start(autonomous=True)  # a fourth round exists only inside a delivery's budget
+    def test_one_self_inflicted_round_already_forces_a_design_round(self):
+        """The second patch of a mechanism that produced a finding is what the rule stops.
+
+        This waited for two such rounds in a row, and waiting is what the second round was
+        spent proving. Measured in an unrelated repository on the same loop: when the author
+        finally ran a mutation matrix over the whole family instead of patching the latest
+        instance, it found two cells nothing in a 3100-test suite covered, in one round — the
+        round that should have been the second. Firing on the first is safe only because a
+        finding must name a trigger to be counted here, so an argument about a sentence in the
+        file just corrected no longer forces a redesign.
+        """
+        self.start(autonomous=True)
         self.caused_round('first')
-        for number in (2, 3):
-            self.commit('fix ' + str(number))
-            named = [dict(command='c', expected='e', observed='e', covers=f'code.txt:round{number - 1}')]
-            self.start(correction=True, nit='', probe=named)
-            self.caused_round(f'round{number}', previous='first' if number == 2 else 'round2')
-        self.commit('a third patch')
-        named = [dict(command='c', expected='e', observed='e', covers='code.txt:round3')]
+        # Round 1 has no correction to blame, so the first attributable round is round 2: this
+        # correction produces the finding round 2 is then reviewed for.
+        self.commit('a first patch')
+        self.start(correction=True, nit='',
+                   probe=[dict(command='c', expected='e', observed='e', covers='code.txt:first')])
+        self.caused_round('second', previous='first')
+        self.commit('a second patch')
+        named = [dict(command='c', expected='e', observed='e', covers='code.txt:second')]
         refused = self.start(ok=False, correction=True, nit='', probe=named).stderr
-        self.assertIn('Two corrections in a row introduced the finding', refused)
+        self.assertIn('The last correction introduced the finding it was then reviewed for', refused)
         self.assertIn('lessons', refused)
         state = self.start(correction=True, nit='', probe=named, design=True)
         self.assertTrue(state['design_round'])
         self.checks()
         prompt = self.text('prompt')
         self.assertIn('the correction produced the finding', prompt)
-        self.assertIn('DESIGN ROUND: two corrections in a row introduced', prompt)
+        self.assertIn('DESIGN ROUND: the last correction introduced', prompt)
         self.assertNotIn('reopened after a claimed fix: .', prompt)
+
+    def test_the_lessons_checklist_names_the_stale_bytecode_hazard(self):
+        """The checklist the author reads before the next correction asks for a mutation matrix,
+        so it must also name the way a matrix lies. CPython invalidates bytecode on (mtime
+        seconds, size), so two mutants of the same size written inside one second serve the
+        previous mutant's result — and the direction that fails is "broke nothing", which
+        manufactures a false claim that a rule is uncovered. One row of a real matrix did
+        exactly this. Restoring the tree does not clear it: a source comparison says restored."""
+        self.start(autonomous=True)
+        self.caused_round('first')
+        self.commit('a first patch')
+        self.start(correction=True, nit='',
+                   probe=[dict(command='c', expected='e', observed='e', covers='code.txt:first')])
+        self.caused_round('second', previous='first')
+        advice = self.text('lessons')
+        self.assertIn('PYTHONDONTWRITEBYTECODE=1', advice)
+        self.assertIn('__pycache__', advice)
+        self.assertIn('mutation matrix before committing', advice)
 
     def test_a_correction_may_not_touch_what_no_finding_named(self):
         """This is where every bad round of this branch went bad: a fix arrived with a mechanism.

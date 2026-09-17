@@ -851,12 +851,12 @@ def design_reasons(args, old):
             + '. Spend this round on the approach, not another patch: rerun start with --design-round.')
     repeating = streak(old)
     require(not repeating or args.design_round,
-            'Two corrections in a row introduced the finding they were then reviewed for. The next '
-            'patch will too: rewrite the mechanism against its full case list, or delete it, and '
-            'rerun start with --design-round. Read `review_flow.py lessons` first.')
+            'The last correction introduced the finding it was then reviewed for. The next patch '
+            'will too: rewrite the mechanism against its full case list, or delete it, and rerun '
+            'start with --design-round. Read `review_flow.py lessons` first.')
     require(again or repeating or not args.design_round,
-            '--design-round applies only when a finding was reopened or two corrections in a row '
-            'introduced findings; neither happened.')
+            '--design-round applies only when a finding was reopened or the last correction '
+            'introduced the finding it was then reviewed for; neither happened.')
     return again
 
 
@@ -927,8 +927,12 @@ def correction_brief(state):
         why = []
         if state.get('reopened'):
             why.append('these findings were reopened after a claimed fix: ' + ', '.join(state['reopened']))
-        if history[-2:] and all(r['still_open'] for r in history[-2:]):
-            why.append('two corrections in a row introduced the finding they were then reviewed for')
+        # streak(), not a second copy of it. The copy that used to stand here is how this
+        # brief came to say "DESIGN ROUND: ." with no reason at all: the rule moved from two
+        # rounds to one, the predicate here did not, and the round told both reviewers it was
+        # a design round while withholding why. One rule, one home.
+        if streak(state):
+            why.append('the last correction introduced the finding it was then reviewed for')
         lines.append('DESIGN ROUND: ' + '; '.join(why) + '. Judge whether this delta changes the '
                      'approach; a patch to the same instance is itself a finding.')
     if state.get('nit_round'):
@@ -1195,9 +1199,22 @@ def retrospective(state, items):
 
 
 def streak(old):
-    """Two consecutive triages with open findings the correction itself introduced."""
+    """A triage with an open finding the correction itself introduced.
+
+    This asked for two in a row until now, and waiting for the second is what the second
+    round was spent proving. Measured in an unrelated repository on the same loop: when the
+    author finally ran a mutation matrix over the whole family instead of patching the latest
+    instance, it found two cells nothing in a 3100-test suite covered, in one round — the
+    round that should have been the second. The evidence for a rewrite is complete the first
+    time a correction produces the finding it is then reviewed for; a second identical round
+    adds a data point nobody needed and costs a candidate.
+
+    Firing this early is only safe because a finding must now name a trigger to be counted
+    here at all: self_inflicted() reads blocks_a_receipt, so an argument about a sentence in
+    the file just corrected no longer forces a design round.
+    """
     history = old.get('retrospectives', [])
-    return len(history) >= 2 and all(r['still_open'] for r in history[-2:])
+    return bool(history) and bool(history[-1]['still_open'])
 
 
 def lessons(state):
@@ -1219,7 +1236,13 @@ def lessons(state):
         return 'No correction in this campaign has produced a finding yet.'
     lines.append('Before the next correction: list every case of the mechanism the finding names, '
                  'one probe per case with "covers": "<finding id>", and rewrite the function against '
-                 'the whole list rather than the instance. Two such rounds in a row is a design round.')
+                 'the whole list rather than the instance. One such round makes the next a design '
+                 'round; waiting for a second only buys a data point nobody needed. Run the case '
+                 'list as a mutation matrix before committing — disable each rule in turn and '
+                 'confirm one case fails — with PYTHONDONTWRITEBYTECODE=1 and __pycache__ cleared '
+                 'between mutants: CPython invalidates bytecode on (mtime seconds, size), so two '
+                 'mutants of the same size within one second serve stale bytecode, and the failure '
+                 'direction is "broke nothing", which manufactures false uncovered claims.')
     return '\n'.join(lines)
 
 

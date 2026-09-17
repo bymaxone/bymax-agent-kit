@@ -276,9 +276,23 @@ campaign state. Three things follow, all enforced by `start`:
 - Each such finding still open needs a probe entry with `"covers": "<finding id>"`: the
   case it exposed is the case you show being tried. A probe of something else does not
   answer it.
-- Two consecutive triages with such findings open make the next round a design round,
-  declared with `--design-round`: the mechanism is rewritten against its full case list
-  or deleted, never patched a third time.
+- **One** such triage makes the next round a design round, declared with `--design-round`:
+  the mechanism is rewritten against its full case list or deleted, never patched again.
+  This waited for two in a row, and waiting is what the second round was spent proving.
+  Measured in an unrelated repository on the same loop: when the author finally ran a
+  mutation matrix over the whole family instead of patching the latest instance, it found
+  two cells nothing in a 3100-test suite covered — in one round, the round that should have
+  been the second. Firing on the first is safe only because a finding must carry a `trigger`
+  to be counted here at all, so an argument about a sentence in the file just corrected no
+  longer forces a redesign.
+- Run that case list as a **mutation matrix before committing**, not at round nine: disable
+  each rule in turn and confirm a named case fails. Set `PYTHONDONTWRITEBYTECODE=1` and clear
+  `__pycache__` between mutants — CPython invalidates bytecode on `(int(mtime), size)`, so two
+  mutants of the same size written inside one second serve the previous one's result, and the
+  direction that fails is "broke nothing", which manufactures a false claim that a rule is
+  uncovered. A source comparison reporting "tree restored" does not clear it. Measured: twenty
+  minutes of matrix against three rounds without it, and it found a case that passed for the
+  wrong reason and another that built the payload it then asserted on.
 
 Both reviewers are told when the previous correction produced findings, so they look
 first at whether the new one repeats the pattern.
