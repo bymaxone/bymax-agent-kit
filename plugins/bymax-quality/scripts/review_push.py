@@ -33,6 +33,57 @@ EXPANSIONS = '*?[]{}~^+,!'
 ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
 
 
+# Shapes that only read. The disarming scan below is a substring match over the raw command,
+# which is right where a push is at stake and wrong everywhere else: it refused `git rev-parse
+# --git-dir`, which /bymax-pr:push Step 0 prescribes, a `shasum` of a hook path, a `grep` whose
+# PATTERN held one of the tokens, and an `echo` of the same text. A guard that blocks reading
+# protects nothing — no `rev-parse` reaches a remote — and it teaches whoever meets it to phrase
+# commands to slip past a matcher, which is the habit the guard exists to prevent.
+#
+# An allowlist, so the default stays refusal: anything not recognised as read-only is scanned
+# exactly as before. `rm` and `chmod -x` on the hook file are not on this list and are still
+# refused, which is why the question asked here is "does this only read" and not "is this a
+# push" — a command that deletes the hook never mentions pushing.
+READS = frozenset({'grep', 'rg', 'ack', 'cat', 'head', 'tail', 'wc', 'ls', 'stat', 'shasum',
+                   'sha256sum', 'md5sum', 'file', 'diff', 'echo', 'printf', 'basename',
+                   'dirname', 'realpath', 'readlink', 'true', 'test', 'awk', 'cut', 'sort',
+                   'uniq', 'column', 'jq'})
+GIT_READS = frozenset({'rev-parse', 'status', 'log', 'show', 'diff', 'ls-files', 'describe',
+                       'merge-base', 'symbolic-ref', 'for-each-ref', 'rev-list', 'cat-file',
+                       'check-ignore', 'blame', 'shortlog', 'ls-remote', 'ls-tree'})
+CONFIG_READS = ('--get', '--get-all', '--get-regexp', '--list', '-l')
+
+
+def reads_only(command):
+    """Whether this command is a recognised read-only shape, so a token in it disarms nothing.
+
+    Fail-closed in every direction: a shell metacharacter, an environment assignment (which is
+    how the directory variable is redirected), a `git -c` (which is how the hook path is
+    injected), an unparseable line, or an unrecognised program all answer no and are scanned
+    exactly as before.
+    """
+    if any(c in command for c in '$`;|&<>\n'):
+        return False
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return False
+    if not words or ASSIGNMENT.match(words[0]):
+        return False
+    if Path(words[0]).name != 'git':
+        return Path(words[0]).name in READS
+    rest = words[1:]
+    while rest and rest[0].startswith('-'):
+        if rest[0].startswith(('-c', '--git-dir', '--work-tree')):
+            return False
+        rest = rest[2:] if rest[0] == '-C' and len(rest) > 1 else rest[1:]
+    if rest[:1] == ['config']:
+        # Only the reading forms: writing the hook-path key is the redirection this guard
+        # exists to catch, and it differs from a read by one argument.
+        return any(flag in rest for flag in CONFIG_READS)
+    return bool(rest) and rest[0] in GIT_READS
+
+
 def git(cwd, *args):
     """Read repository state for the command's explicit working directory."""
     return subprocess.check_output(['git', '-C', str(cwd), *args], text=True, stderr=subprocess.DEVNULL).strip()
@@ -46,8 +97,10 @@ def parse(command, cwd):
     """
     # Case-insensitive: git reads config keys and most of these options that way too.
     lowered = command.lower()
-    require(not any(token.lower() in lowered for token in DISARMS),
-            'That would disable or redirect the pre-push receipt check; run a plain git push.')
+    require(reads_only(command) or not any(token.lower() in lowered for token in DISARMS),
+            'That would disable or redirect the pre-push receipt check; run a plain git push. '
+            'Reading one of these names is fine; this refusal is for a command that could act on '
+            'them, and yours was not recognised as one that only reads.')
     try:
         words = shlex.split(command)
     except ValueError:

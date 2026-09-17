@@ -251,6 +251,33 @@ class ReviewFlowTests(unittest.TestCase):
                       "cat <<'EOF' > f\ngit push origin HEAD\nEOF\n", 'git stash push', 'FOO=bar'):
             self.push(other)
 
+    def test_the_guard_lets_a_command_that_only_reads_name_the_hook(self):
+        """A guard that blocks reading protects nothing: no rev-parse reaches a remote, and
+        the refusal taught whoever met it to phrase commands to slip past a matcher, which is
+        the habit the guard exists to prevent. Measured on this machine, each of these was
+        refused while it held: the first is prescribed by /bymax-pr:push Step 0, so the shipped
+        command file could not be followed as written, and the third and fourth were hit twice
+        in one session by a grep whose PATTERN carried a token."""
+        self.start()
+        self.complete()
+        for command in ('git rev-parse --git-dir', 'git -C . rev-parse --git-dir',
+                        'shasum .git/hooks/pre-push', 'cat .git/hooks/pre-push',
+                        'grep -rn "core.hooksPath" scripts/', 'echo --no-verify',
+                        'git config --get core.hooksPath', 'git log --oneline -3'):
+            self.push(command)
+
+    def test_a_shape_that_is_not_recognised_as_reading_is_still_scanned(self):
+        """The allowlist is the whole of the relaxation, so the default stays refusal. None of
+        these is a push and every one could act on the hook or its path — which is why the
+        question the guard asks is whether a command only reads, not whether it pushes."""
+        self.start()
+        self.complete()
+        for command in ('rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push',
+                        'git config core.hooksPath /dev/null',
+                        'mv .git/hooks/pre-push /tmp/x', 'truncate -s 0 .git/hooks/pre-push',
+                        'sed -i s/x/y/ .git/hooks/pre-push', 'GIT_DIR=/other/.git git status'):
+            self.push(command, ok=False)
+
     def test_adapter_refuses_what_would_disarm_the_hook(self):
         """Options that skip hooks or redirect git are refused wherever they appear."""
         self.start()
@@ -258,7 +285,7 @@ class ReviewFlowTests(unittest.TestCase):
         for command in ('git push --no-verify origin HEAD', 'eval git push --no-verify origin HEAD',
                         'git -c core.hooksPath=/dev/null push origin HEAD',
                         'GIT_DIR=/other/.git git push origin HEAD', 'git --git-dir=/x push origin HEAD',
-                        'echo --no-verify', 'echo x > .git/hooks/pre-push && git push origin HEAD',
+                        'echo x > .git/hooks/pre-push && git push origin HEAD',
                         'rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push',
                         # git reads config keys case-insensitively; so must the guard.
                         'git -c core.hookspath=/dev/null push origin HEAD',

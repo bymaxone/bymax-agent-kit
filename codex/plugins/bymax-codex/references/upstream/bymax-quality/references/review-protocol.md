@@ -439,7 +439,18 @@ another worktree's receipt cannot authorize a different SHA. It also refuses any
 containing an option that would skip or redirect the hook (`no-verify`, `hooksPath`,
 `GIT_DIR`, `--git-dir`, `GIT_WORK_TREE`, writes under `.git/hooks`) or husky's own skip
 switch (`HUSKY=`, honoured by its dispatcher before the tracked hook runs), matched as a
-substring wherever it appears. **Every other command passes through untouched**: a push
+substring wherever it appears — **unless the command is a recognised read-only shape**.
+
+That exception is an allowlist, so the default stays refusal, and the question it asks is
+whether a command only reads rather than whether it pushes: `rm` and `chmod -x` on the hook
+file are neither pushes nor reads, and are still refused, as is any program the list does not
+name, any environment assignment, any `git -c`, any shell metacharacter and anything
+`shlex` cannot parse. What it stops refusing is reading: `git rev-parse --git-dir` — which
+`/bymax-pr:push` Step 0 prescribes, so the shipped command file could not be followed as
+written — a `shasum` or `cat` of a hook path, a `grep` whose *pattern* carries one of the
+tokens, and an `echo` of the same text. A guard that blocks reading protects nothing, since
+no `rev-parse` reaches a remote, and it teaches whoever meets it to phrase commands to slip
+past a matcher, which is the habit the guard exists to prevent. **Every other command passes through untouched**: a push
 spelled in any other arrangement is not the adapter's to judge, and the hook decides.
 
 The adapter is not the enforcement boundary and is not described as one. The residue no
