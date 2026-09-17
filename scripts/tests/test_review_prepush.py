@@ -551,27 +551,56 @@ class PrePushInvariantTests(unittest.TestCase):
         added inside the window and the guard could not see it. Both kinds are counted here,
         so a third kind fails this rather than a sibling's sweep."""
         flow = self.modules()['review_flow']
-        runs, views = [], []
-        run_hook, hook_view = flow.run_hook, flow.hook_view
-        flow.run_hook = lambda path, remote, line, _o=run_hook: (runs.append(line), _o(path, remote, line))[1]
-        flow.hook_view = lambda checker, _o=hook_view: (views.append(checker), _o(checker))[1]
+        # Counted at the one place every bounded execution must pass through, rather than at
+        # the two this test knows the names of. Naming the kinds is what let a second kind be
+        # added inside the window while the guard went on passing; a third would do it again.
+        bounded = []
+        original = flow.subprocess.run
+
+        def counted(*args, **kwargs):
+            if kwargs.get('timeout'):
+                bounded.append(kwargs['timeout'])
+            return original(*args, **kwargs)
+
+        flow.subprocess.run = counted
+        self.addCleanup(setattr, flow.subprocess, 'run', original)
         # A hand-merged hook, so install_hook probes what it keeps rather than writing a bundle.
         hook = self.repo / '.git/hooks/pre-push'
         hook.write_bytes(FLOW.with_name('review_prepush.py').read_bytes() + b'\n# merged by hand\n')
         hook.chmod(0o755)
         self.install(flow)
-        self.assertTrue(runs)
-        bounded = len(runs) + len(views)
-        self.assertGreater(flow.PROBE_BOUND, bounded * flow.HOOK_SECONDS,
-                           f'{len(runs)} pushes + {len(views)} views at {flow.HOOK_SECONDS}s each')
+        self.assertTrue(bounded)
+        self.assertGreater(flow.PROBE_BOUND, sum(bounded),
+                           f'{len(bounded)} bounded executions totalling {sum(bounded)}s')
+
+    def test_a_kept_hook_whose_waiver_window_differs_is_refused(self):
+        """A receipt carries a waiver dated at a moment, and the hook decides whether that
+        moment is still inside the window. A kept hook with a window of its own therefore
+        refuses real waived pushes while passing every probe, exactly as one that resolved
+        the binary differently did — the probes bounded the window from above and never from
+        below, because the receipt they showed was dated now, which any window accepts."""
+        flow = self.modules()['review_flow']
+        hook = self.repo / '.git/hooks/pre-push'
+        # Edited where the constant is declared, not appended: a hook runs main() from its
+        # own __main__ block, so anything after it never executes and a window bolted on the
+        # end is a window the hook never has. The case must be the case before it is asserted.
+        bundle = FLOW.with_name('review_prepush.py').read_bytes()
+        shorter = bundle.replace(b'WAIVER_TTL = 24 * 3600', b'WAIVER_TTL = 3600')
+        shorter += b'\n# merged by hand\n'
+        self.assertNotIn(b'WAIVER_TTL = 24 * 3600', shorter)
+        hook.write_bytes(shorter)
+        hook.chmod(0o755)
+        with self.assertRaises(ValueError) as refusal:
+            self.install(flow)
+        self.assertIn('waiver', str(refusal.exception).lower())
+        self.assertEqual(hook.read_bytes(), shorter)
 
     def test_a_kept_hook_that_resolves_this_machine_differently_is_refused(self):
-        """The probe receipt is built from the hook's own view, so a kept hook that computes
-        the Codex name differently validates its own answer and passes — then refuses every
-        real waived push, because the receipt the runtime writes names the other path. That
-        disagreement is invisible to a probe of receipt shape: both sides understand waivers
-        perfectly. Replacing byte-identical bundles by hash does not reach a hook somebody
-        merged a check into, so the agreement itself is what must be required."""
+        """A kept hook that computes the Codex name differently refuses every real waived
+        push, because the receipt the runtime writes names the other path. That disagreement
+        is invisible to a probe of receipt shape — both sides understand waivers perfectly —
+        and replacing byte-identical bundles by hash does not reach a hook somebody merged a
+        check into, so the agreement itself is what must be required."""
         flow = self.modules()['review_flow']
         hook = self.repo / '.git/hooks/pre-push'
         merged = (FLOW.with_name('review_prepush.py').read_bytes()
@@ -587,13 +616,27 @@ class PrePushInvariantTests(unittest.TestCase):
         """stdout is the channel the view comes back on, and a hook may write anything to it
         before the driver answers. Strict decoding turns a stray byte into an exception that
         is neither OSError nor SubprocessError, so it escapes the fallback this function
-        promises; an unterminated write swallows the answer line instead."""
+        promises; an unterminated write swallows the answer line instead.
+
+        Each case proves it reached the branch it names before asserting the outcome. The
+        first version of this test did not: its hook carried the stray byte in its source,
+        which does not compile, so the child died before writing anything and the assertion
+        held against unfixed code. An outcome a case reaches by another road is not evidence
+        about the road it names.
+        """
         flow = self.modules()['review_flow']
         hook = self.root / 'writes-at-import'
 
-        hook.write_bytes(b'#!/usr/bin/env python3\nimport sys\n'
-                         b'sys.stdout.buffer.write(b"\xff\xfe not utf-8\n")\n')
-        self.assertEqual(flow.hook_view(hook), flow.resolve_codex())
+        # Valid source, invalid output: the byte must reach the decode, so the raw stdout
+        # this case produces must itself be undecodable. Asserted, not assumed.
+        hook.write_text('#!/usr/bin/env python3\nimport sys\n'
+                        'sys.stdout.buffer.write(bytes([0xff, 0xfe]))\n'
+                        'sys.stdout.buffer.flush()\n'
+                        'def resolve_codex():\n    return "/the/hooks/own/view"\n')
+        raw = subprocess.run([sys.executable, str(hook)], capture_output=True).stdout
+        with self.assertRaises(UnicodeDecodeError):
+            raw.decode('utf-8')
+        self.assertEqual(flow.hook_view(hook), '/the/hooks/own/view')
 
         hook.write_text('#!/usr/bin/env python3\nimport sys\n'
                         'sys.stdout.write("no newline here")\n'

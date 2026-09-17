@@ -220,12 +220,12 @@ def hook_view(checker):
     """Resolve Codex the way the hook under test will, so a probe receipt is built from its
     view of this machine rather than from a second opinion about it.
 
-    A hook that cannot be loaded as a module — a shell stub delegating to the checker, a
-    copy from before waivers existed — has no view to borrow, and this runtime's own is
-    used. That is the case the probe exists to catch: such a hook refuses the receipt,
-    which is what makes it visible instead of silently blocking real pushes later. A hook
-    that exits, hangs or reads stdin at import is the same case and must reach the same
-    answer rather than the caller's process.
+    Read for one purpose only: usable_hook requires the answer to equal this runtime's, so
+    that a kept hook cannot resolve Codex to a name the runtime never writes. A hook that
+    cannot be loaded as a module — a shell stub delegating to the checker, a copy from
+    before waivers existed — has no view to borrow, and this runtime's own is used, which
+    is agreement by default. A hook that exits, hangs, reads stdin or writes rubbish at
+    import is the same case and must reach the same answer rather than the caller's process.
     """
     # In a subprocess, like every other hook execution here, and for the same reasons: a
     # hook somebody merged a check into runs that check at import, and in this process its
@@ -259,16 +259,23 @@ def hook_view(checker):
 
 
 def waived_shape(stale=False):
-    """A receipt shape for a candidate whose Codex the runtime could not run.
+    """The receipt shape for a candidate whose Codex the runtime could not run.
 
+    This is where that shape is defined; everything else points here rather than restating
+    it, because a description kept in several places is one that goes stale in all but one.
     Built from this runtime's view, which usable_hook has already required the hook to
     share: where Codex is installed that is a quota waiver naming the resolved binary, and
-    where it is not, an absent one. With stale=True the waiver is older than a waiver may
-    be, which every hook must refuse. Nothing here runs the hook — every bounded execution
+    where it is not, an absent one. Nothing here runs the hook — every bounded execution
     inside a probe's window counts against the bound that lets a sibling sweep it.
+
+    Both datings sit one minute either side of the window's far edge, which is what pins a
+    kept hook's window to this runtime's rather than merely bounding it from above. A hook
+    with a shorter window refuses the current receipt; one with a longer window accepts the
+    stale receipt; either way it disagrees about what a cleared receipt means, and the
+    probes see it rather than the user's next push.
     """
     binary = resolve_codex()
-    at = int(time.time()) - (WAIVER_TTL + 60 if stale else 0)
+    at = int(time.time()) - WAIVER_TTL + (-60 if stale else 60)
     waiver = dict(reason='quota' if binary else 'absent', at=at, binary=binary or '')
     return {'claude': {}, 'claude-b': {}}, waiver
 
@@ -283,9 +290,9 @@ def probe_receipt(sha, held=True, legacy=False, waived=None, stale=False):
     commit nobody can push, whatever pid the system hands out next. With held=False the
     holder exists but is not locked; with legacy=True the receipt names a pid and nothing
     to hold. A checker must treat both as void: a probe receipt is valid only while held.
-    With waived=True the receipt carries the substitute reviewer pair and the waiver this
-    machine's view produces, which a current hook must honour; with stale=True that waiver
-    is expired, which every hook must refuse.
+    With waived=True the receipt carries what waived_shape() builds, which a current hook
+    must honour; with stale=True that waiver is past the window, which every hook must
+    refuse.
     """
     root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
     root.mkdir(parents=True, exist_ok=True)
@@ -367,8 +374,9 @@ def usable_hook(path):
             f'{path} resolves Codex to {view or "none"} while this runtime resolves '
             f'{resolve_codex() or "none"}. A waiver names the binary it was measured against and '
             'this hook re-resolves that name before honouring it, so every waived push would be '
-            'refused for a disagreement no message explains. Delete it so start reinstalls the '
-            f'bundled hook, or merge the current {checker} into it.')
+            f'refused for a disagreement no message explains. Make it resolve Codex as {checker} '
+            'does — delegating to that file is the surest way — or, where this campaign installed '
+            'the hook, delete it and let start reinstall the bundle.')
     upholds(path, checker, *push_probes(path))
 
 
@@ -387,13 +395,17 @@ def upholds(path, checker, unreceipted, held, orphaned, legacy, partial, waived,
             'merged into it.')
     require(waived == 0,
             f'{path} refused a push of a commit whose receipt carries an independent second Claude '
-            'review in place of a Codex this machine cannot run (exit ' + str(waived) + '). It '
-            'predates that receipt shape and would block every waived push in silence. Delete it so '
-            f'start reinstalls the bundled hook, or merge the current {checker} into it.')
+            'review in place of a Codex this machine cannot run (exit ' + str(waived) + '). Either '
+            'it predates that receipt shape, or it honours a shorter waiver window than this '
+            'runtime; either way it would block every waived push in silence. Point it at the '
+            f'current {checker}, or, where this campaign installed the hook, delete it and let '
+            'start reinstall the bundle.')
     require(stale != 0,
-            f'{path} accepted a push named by a receipt whose Codex waiver has expired (exit 0). A '
-            'waiver is evidence about a machine at a moment; past its window the candidate needs a '
-            f'reviewer again. Point it at the current {checker}, keeping any check you merged in.')
+            f'{path} accepted a push named by a receipt whose Codex waiver is past the window (exit '
+            '0), or honours a longer window than this runtime. A waiver is evidence about a machine '
+            'at a moment, and the two sides must agree when it stops being evidence, or a receipt '
+            f'means one thing here and another at the hook. Point it at the current {checker}, '
+            'keeping any check you merged in.')
     require(all(status != 0 for status in partial),
             f'{path} accepted a push of three refs one of whose commits holds no receipt (exit 0). git '
             'hands a hook one record per pushed ref and every record must be checked; a hook that leaves '
