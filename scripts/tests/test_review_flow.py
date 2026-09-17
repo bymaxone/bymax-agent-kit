@@ -288,6 +288,11 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(latest['codex_attempts'], 2)
         self.assertFalse(latest['codex_running'])
         self.assertEqual(latest['head'], state['head'])
+        # The spent budget is asked against the Codex this test installed, not the one the
+        # developer happens to have: with the attempts gone the runtime probes availability,
+        # and a machine with no Codex answers `absent` and waives instead of refusing. That
+        # difference is why this passed here and failed on a runner.
+        self.locations = [binary]
         self.assertIn('budget exhausted', self.flow('codex', ok=False).stderr)
 
     def test_round_limit_survives_processes(self):
@@ -1063,6 +1068,7 @@ class ReviewFlowTests(unittest.TestCase):
                     break
                 time.sleep(0.01)
             self.assertEqual(self.flow('status')['codex_attempts'], 2)
+            self.locations = [binary]      # ask the spent budget against this test's Codex
             self.assertIn('budget exhausted', self.flow('codex', ok=False).stderr)
         finally:
             release.touch()
