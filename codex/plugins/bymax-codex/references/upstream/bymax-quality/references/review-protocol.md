@@ -25,7 +25,9 @@ The context is a JSON object, for example:
 ```json
 {
   "intent": "Requested behavior",
-  "acceptance": ["Observable success criterion"],
+  "acceptance": ["Observable success criterion", "A second one"],
+  "measured": ["540 of 540 cached records carry the field the gate reads",
+               "not measurable offline: the counter exists only in production telemetry"],
   "constraints": ["Preserve the existing API contract"],
   "scope": "Integration base, components and exclusions",
   "stack": "Versions and applicable policy paths",
@@ -41,6 +43,17 @@ The context must contain:
 - Scope exclusions; distinguish unrelated pre-existing defects from regressions.
 - Relevant stack/dependency versions and authoritative local policy paths.
 - Required project check commands and the regression evidence expected for fixes.
+- `measured`: **one entry per acceptance item, in the same order**, saying what you ran against
+  real data and what it returned — a number, not an adjective. Where it cannot be answered
+  offline, write `not measurable offline` and why; that is an honest answer and a recorded one.
+  A tree can be self-consistently wrong and no reviewer and no gate can see it: measured
+  elsewhere, a correct gate with green tests and thirteen of thirteen mutants caught did almost
+  nothing in production because 540 of 540 cached records carry an empty timestamp the date
+  floor rejects. Two commands answered it, and nobody ran them because nothing asked. Per item
+  or it is theatre — that author had production access and used it twice in the same hour,
+  measuring what they were curious about rather than the thing the feature turned on.
+  This and required status checks are **two mitigations for one class**, not alternatives: the
+  state a machine has and no other machine does, at the tooling layer and at the data layer.
 
 ```bash
 python3 "$FLOW" status

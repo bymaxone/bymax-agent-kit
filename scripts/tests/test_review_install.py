@@ -148,7 +148,7 @@ class InstallTests(unittest.TestCase):
             git('add', '.')
             git('commit', '-qm', 'candidate')
             context = Path(tmp) / 'context.json'
-            context.write_text(json.dumps(dict(intent='i', acceptance=['a'], constraints=['c'],
+            context.write_text(json.dumps(dict(intent='i', acceptance=['a'], measured=['ran the fixture gate against the candidate tree: 1 file read, nonempty'], constraints=['c'],
                                                scope='s', checks=[[sys.executable, '-c', 'pass']])))
             result = subprocess.run([sys.executable, str(runtime), 'start', '--base', base,
                                      '--context', str(context)], cwd=repo, env=env,

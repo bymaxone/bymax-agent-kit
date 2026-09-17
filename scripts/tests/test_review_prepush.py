@@ -84,7 +84,7 @@ class PrePushInvariantTests(unittest.TestCase):
         self.commit('base')
         self.base = self.git('rev-parse', 'HEAD')
         context = self.root / 'context.json'
-        context.write_text(json.dumps(dict(intent='i', acceptance=['a'], constraints=['c'], scope='s',
+        context.write_text(json.dumps(dict(intent='i', acceptance=['a'], measured=['ran the fixture gate against the candidate tree: 1 file read, nonempty'], constraints=['c'], scope='s',
                                            checks=[[sys.executable, '-c', 'pass']])))
         self.commit('candidate')
         self.head = self.git('rev-parse', 'HEAD')

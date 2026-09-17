@@ -44,7 +44,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.base = self.git('rev-parse', 'HEAD')
         self.context = self.root / 'context.md'
         self.context.write_text(json.dumps(dict(intent='Fix requested feature', acceptance=['Preserve callers'],
-            constraints=['No unrelated changes'], scope='Candidate against base',
+            measured=['ran the fixture gate against the candidate tree: 1 file read, nonempty'], constraints=['No unrelated changes'], scope='Candidate against base',
             checks=[[sys.executable, '-c', 'from pathlib import Path; assert Path("code.txt").read_text()']])))
         self.commit('candidate')
 
@@ -452,6 +452,53 @@ class ReviewFlowTests(unittest.TestCase):
         refused = self.flow('finish', ok=False).stderr
         self.assertIn('Confirmed blocker cannot be deferred', refused)
 
+    def test_the_prompt_names_the_one_base_a_report_may_carry(self):
+        """record rejects a report whose base is the campaign's original rather than the round's,
+        and on a correction round the two differ — so a prompt that printed both with equal
+        billing made the natural choice the wrong one, on every correction round. Two authors in
+        two repositories hit "Report scope mismatch" that way."""
+        self.start()
+        self.checks()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        self.commit('a correction')
+        state = self.start(correction=True)
+        self.checks()
+        self.assertNotEqual(state['base'], state['review_base'])
+        prompt = self.text('prompt')
+        self.assertIn('"base" field must be exactly ' + state['review_base'], prompt)
+        self.assertIn('original base (' + state['base'] + ')', prompt)
+        # And the value the prompt names is the one record accepts, which is the whole claim.
+        self.report('claude')
+
+    def test_the_context_measures_each_acceptance_item_against_real_data(self):
+        """A tree can be self-consistently wrong and no reviewer can see it from the diff.
+
+        Measured elsewhere: a correct gate, green tests, thirteen of thirteen mutants caught,
+        and a feature that did almost nothing because 540 of 540 cached records carry an empty
+        timestamp the date floor rejects. Two commands answered it and nobody ran them because
+        nothing asked. Per acceptance item, or it is theatre — that author had production
+        access and used it twice in the same hour, measuring what they were curious about
+        rather than the one thing the feature turned on, which a single free-text note would
+        have been satisfied by.
+        """
+        body = dict(intent='i', acceptance=['first criterion', 'second criterion'],
+                    constraints=['c'], scope='s', checks=[[sys.executable, '-c', 'pass']])
+        self.context.write_text(json.dumps(body))
+        refused = self.flow('start', '--base', self.base, '--context', str(self.context), ok=False).stderr
+        self.assertIn('one entry per acceptance item', refused)
+        self.assertIn('There are 2 acceptance items', refused)
+        # One note for two criteria is the shape that reads as measured and is not.
+        self.context.write_text(json.dumps(dict(body, measured=['540 of 540 records carry the field'])))
+        self.assertIn('one entry per acceptance item',
+                      self.flow('start', '--base', self.base, '--context', str(self.context), ok=False).stderr)
+        # "Not measurable offline" is an honest answer, and recording it is the point.
+        self.context.write_text(json.dumps(dict(body, measured=[
+            '540 of 540 cached records carry the field the gate reads',
+            'not measurable offline: the counter exists only in production telemetry'])))
+        self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context))['round'], 1)
+
     def test_the_declared_gates_run_before_a_reviewer_reads_the_tree(self):
         """A reviewer round is the scarcest thing a campaign spends, so the machine answers
         first. Until this, the declared gates ran on the way to finish — after both readings —
@@ -475,7 +522,7 @@ class ReviewFlowTests(unittest.TestCase):
         failing = [sys.executable, '-c', 'raise SystemExit(3)']
         self.context.write_text(json.dumps(dict(
             intent='Fix requested feature', acceptance=['Preserve callers'],
-            constraints=['No unrelated changes'], scope='Candidate against base', checks=[failing])))
+            measured=['ran the fixture gate against the candidate tree: 1 file read, nonempty'], constraints=['No unrelated changes'], scope='Candidate against base', checks=[failing])))
         self.start()
         self.flow('check', '--', *failing, ok=False)
         refused = self.flow('prompt', ok=False).stderr

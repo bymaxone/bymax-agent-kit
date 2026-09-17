@@ -95,17 +95,47 @@ def current(state):
 
 
 def context_contract(path):
-    """Validate the shared intent and explicit required gate commands."""
+    """Validate the shared intent, what was measured against real data, and the gate commands."""
     text = Path(path).read_text().strip()
     data = json.loads(text)
     require(isinstance(data, dict), 'Context must be a JSON object.')
     for key in ('intent', 'acceptance', 'constraints', 'scope', 'checks'):
         require(data.get(key), 'Context missing: ' + key)
+    measured_contract(data)
     checks = data['checks']
     require(isinstance(checks, list), 'checks must be a list of argument lists.')
     require(all(isinstance(c, list) and c and all(isinstance(a, str) and a for a in c)
                 for c in checks), 'Each check must be a nonempty command argument list.')
     return text, checks
+
+
+def measured_contract(data):
+    """Require one line per acceptance item saying what was run against real data.
+
+    A tree can be self-consistently wrong, and no reviewer and no gate can see it. Measured:
+    a campaign elsewhere shipped a correct gate with green tests and thirteen of thirteen
+    mutants caught, and the feature did almost nothing in production because 540 of 540 cached
+    records carry an empty timestamp the date floor rejects. Two commands answered it, a count
+    over a state file and a log grep, and nobody ran them because nothing asked.
+
+    Per acceptance item, or it is theatre. That author was not missing production access —
+    they used it twice in the same hour, and measured what they were curious about rather than
+    the one thing the feature turned on. A single free-text note would have been satisfied by
+    what they already knew.
+    """
+    acceptance = data['acceptance']
+    require(isinstance(acceptance, list) and all(isinstance(a, str) and a.strip() for a in acceptance),
+            'acceptance must be a list of nonempty strings, one observable criterion each.')
+    measured = data.get('measured')
+    require(isinstance(measured, list) and len(measured) == len(acceptance)
+            and all(isinstance(m, str) and m.strip() for m in measured),
+            'Context needs "measured": one entry per acceptance item, in the same order, saying '
+            'what you ran against real data and what it returned — a number, not an adjective. '
+            'Where it cannot be answered offline write "not measurable offline" and why, which is '
+            'an honest answer and a recorded one. There are ' + str(len(acceptance))
+            + ' acceptance items. A tree can be self-consistently wrong: green tests, every mutant '
+            'caught, and a feature that does nothing because the live data does not carry the '
+            'field the code reads. No reviewer can see that from the diff.')
 
 
 HOOK_MARKER = 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.'
@@ -1006,6 +1036,29 @@ def substitute_note(state):
             'nothing has been covered for you.')
 
 
+# The part of the reviewer task that never varies with the campaign. Kept out of prompt() so
+# that function stays under the size the suite enforces, and so this text has one home.
+FINDING_RULES = """Check every comment, docstring and commit-message claim against the code it describes: four findings
+in one campaign elsewhere, and three rounds in this one, were prose asserting what the code did not do.
+Nothing in a lint or a type gate can see that, and a wrong sentence about an error path is how the next
+reader stops checking. The context's "measured" lines say what the author ran against real data for each
+acceptance item; judge whether they answer the criterion they sit against, since a tree can be green,
+fully mutation-covered and still do nothing in production.
+Find introduced correctness, security, data integrity and explicit policy defects.
+Prove the trigger, affected path and impact from this tree. A grep hit is only a candidate.
+Do not report style preferences, issues CI already enforces, or unrelated pre-existing bugs as blockers.
+Inspect related callers for regressions but do not expand the implementation scope.
+For every finding provide stable id (file + invariant), priority P0/P1/P2/P3,
+kind defect/policy/nit/preexisting, and concrete evidence. No findings is valid; do not invent a quota.
+A finding blocks this receipt only if it carries "trigger": the command or test, runnable by the author
+in this tree, that makes the defect appear. This is mechanical, not a formality — the label you type has
+force here. A trigger is a command, never a scenario: "set this variable and wait for a poll" reads like
+one and reproduces nothing. Report what you found either way, and where you cannot name a trigger say so
+in the evidence; the author still reads it, and the next reviewer still sees it. Approve a change that
+improves the health of the code even when it is imperfect, and let a nit be a nit: a review that holds a
+correct change hostage to text no test can check is the failure mode this field exists to end."""
+
+
 def gate_first(state):
     """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
 
@@ -1039,7 +1092,10 @@ def prompt(state):
     gate_first(state)
     return f'''Review only; do not edit, commit, push, invoke review skills, or launch other reviewers.
 Read applicable AGENTS.md and CLAUDE.md constraints. Do not execute their implementation or push workflows.
-Candidate HEAD: {state['head']}; original base: {state['base']}.
+Candidate HEAD: {state['head']}.
+Your report's "base" field must be exactly {state['review_base']} — copy that value, not the campaign's
+original base ({state['base']}), which is shown only to locate the work; record rejects any other value
+with "Report scope mismatch", and on a correction round the two differ.
 Review diff: git diff {state['review_base']} {state['head']} --
 Round {state['round']}/{state.get('max_rounds', 3)}. Read surrounding code, callers, tests, and installed API contracts.
 Context and acceptance contract:
@@ -1055,19 +1111,7 @@ state in your summary, never a reason to report incomplete. Read, trace and reas
 Previous dispositions (recheck fixes; do not reopen rejected findings without new evidence):
 {json.dumps(state['previous_triage'])}
 {correction_brief(state)}
-Find introduced correctness, security, data integrity and explicit policy defects.
-Prove the trigger, affected path and impact from this tree. A grep hit is only a candidate.
-Do not report style preferences, issues CI already enforces, or unrelated pre-existing bugs as blockers.
-Inspect related callers for regressions but do not expand the implementation scope.
-For every finding provide stable id (file + invariant), priority P0/P1/P2/P3,
-kind defect/policy/nit/preexisting, and concrete evidence. No findings is valid; do not invent a quota.
-A finding blocks this receipt only if it carries "trigger": the command or test, runnable by the author
-in this tree, that makes the defect appear. This is mechanical, not a formality — the label you type has
-force here. A trigger is a command, never a scenario: "set this variable and wait for a poll" reads like
-one and reproduces nothing. Report what you found either way, and where you cannot name a trigger say so
-in the evidence; the author still reads it, and the next reviewer still sees it. Approve a change that
-improves the health of the code even when it is imperfect, and let a nit be a nit: a review that holds a
-correct change hostage to text no test can check is the failure mode this field exists to end.
+{FINDING_RULES}
 On correction rounds inspect only the delta, its effects and verification of previous fixes.
 Do not restart a whole-tree hunt or require cosmetic redesigns. A new blocker must identify a
 changed line or an affected caller with a concrete failure path. Rejected findings stay settled
@@ -1151,8 +1195,10 @@ def record(args, directory, state):
     # record, so recording it would be a second reading dressed as the missing one.
     require(args.reviewer != SUBSTITUTE or waiver_ok(state.get('codex_waiver')),
             SUBSTITUTE + ' stands in for a Codex the runtime could not run, and no valid waiver '
-            'covers this candidate. Run `review_flow.py codex` and let its probe decide; if it '
-            'completes, that report is the second review.')
+            'covers this candidate. A waiver is evidence about one candidate, so the one from the '
+            'previous round does not carry: run `review_flow.py codex` again on THIS head and let '
+            'its probe decide. If it completes, that report is the second review. Two authors hit '
+            'this on consecutive rounds, which is what an undiscoverable rule costs.')
     state['reviews'][args.reviewer] = report
     if args.reviewer == 'codex':
         # Codex reviewed after all — credits returned, or a report was obtained elsewhere.
