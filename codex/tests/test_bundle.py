@@ -67,6 +67,11 @@ class ShippedResourceTests(unittest.TestCase):
         self.assertTrue(stray.is_file())          # the case must be the case before it asserts
         self.assertEqual(self.names(module), ['demo/commands/one.md', 'demo/commands/two.md'])
 
+        # And this repository owns the rule rather than relying on pytest writing that marker:
+        # before this was added, git attributed all four cache files to .pytest_cache/.gitignore
+        # and removing it took the package from 111 resources to 113.
+        self.assertIn('.pytest_cache/', (ROOT / '.gitignore').read_text().splitlines())
+
     def test_the_index_vetoes_an_ignore_rule(self):
         """The one fact the inversion rests on, and the reason asking about ignores is safe at
         all: git check-ignore consults the index, so a TRACKED resource is never reported
@@ -149,14 +154,23 @@ class ShippedResourceTests(unittest.TestCase):
         names left the whole suite green.
         """
         module = bundler()
-        root = self.package(ignore='ignored-entirely.md')
+        root = self.package(ignore='carriage*')
         odd = root / 'plugins/demo/commands/carriage\rreturn.md'
-        odd.write_text('shipped, and never added\n')
+        odd.write_text('cruft, and never added\n')
         module.ROOT = root
-        self.assertEqual(subprocess.run(['git', '-C', str(root), 'ls-files', '--error-unmatch',
-                                         str(odd.relative_to(root))], capture_output=True).returncode,
-                         1)                       # untracked, so the ignore answer decides it
-        self.assertIn('demo/commands/carriage\rreturn.md', self.names(module))
+
+        # The name must MATCH an ignore rule, or it never enters the NUL stream at all and the
+        # parsing this case is named for is not reached. Two earlier versions asserted the
+        # outcome without that: one tracked the file, which the index vetoes before any pattern
+        # is read, and one used a rule matching nothing. Both survived the exact mangling they
+        # name, with the whole suite green. So the reachability is asserted first.
+        answer = subprocess.run(['git', '-C', str(root), 'check-ignore', '--stdin', '-z'],
+                                input=os.fsencode(str(odd.relative_to(root))), capture_output=True)
+        self.assertEqual(answer.returncode, 0)
+        self.assertIn(b'carriage\rreturn.md', answer.stdout)
+
+        # Mangled, the returned name no longer equals the candidate and the file ships.
+        self.assertNotIn('demo/commands/carriage\rreturn.md', self.names(module))
 
     def test_git_that_cannot_run_is_reported_rather_than_raised(self):
         """git is consulted for the ignore list, so its absence is an answer the bundler must

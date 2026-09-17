@@ -25,12 +25,23 @@ def own_index():
     copy unpacked inside another repository it is the enclosing one, whose patterns would apply
     to every resource here because it tracks none of them.
     """
-    answer = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--show-toplevel'],
-                            capture_output=True)
+    try:
+        answer = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--show-toplevel'],
+                                capture_output=True)
+    except OSError:          # git found on PATH but not runnable; source_files() has the message
+        return False
     if answer.returncode != 0:
         return False
-    toplevel = Path(os.fsdecode(answer.stdout.strip()))
-    return toplevel.resolve() == ROOT.resolve()
+    # samefile, not string equality. git derives its answer from getcwd(), which collapses a
+    # macOS firmlink and folds case on an insensitive volume; Path.resolve() does neither, so
+    # comparing the names calls the same directory two different places. Measured: invoked by
+    # absolute path through /System/Volumes/Data, --check reported the bundle stale because the
+    # ignore answer was skipped and a local .pytest_cache became canonical again — the defect
+    # this whole change exists to prevent, returning through the comparison meant to prevent it.
+    try:
+        return Path(os.fsdecode(answer.stdout.strip())).samefile(ROOT)
+    except OSError:          # a toplevel that no longer exists is not this tree
+        return False
 
 
 def ignored(candidates):
@@ -63,7 +74,7 @@ def ignored(candidates):
     try:
         answer = subprocess.run(['git', '-C', str(ROOT), 'check-ignore', '--stdin', '-z'],
                                 input=names, capture_output=True)
-    except OSError as error:  # kept: own_index() reports False rather than raising
+    except OSError as error:
         raise SystemExit('bundle.py asks git which resources to leave out of the package, and '
                          f'git could not be run: {error}. Install git, or run the bundler from a '
                          'checkout.')
