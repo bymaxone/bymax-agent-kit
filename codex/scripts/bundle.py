@@ -13,52 +13,73 @@ PACKAGE = ROOT / 'codex/plugins/bymax-codex'
 DESTINATION = PACKAGE / 'references/upstream'
 
 
-def shipped():
-    """Every file under plugins/ that the repository actually ships.
+BUNDLED = ('commands', 'skills', 'agents', 'templates', 'scripts', 'hooks', 'references')
 
-    Asked of git rather than of the working tree, because the working tree also holds
-    whatever a local run left behind. A .pytest_cache written by running the suite here
-    became four canonical resources and four manifest entries that no clone has, so the
-    bundle verified on the machine that produced it and was stale everywhere else.
+
+def ignored(candidates):
+    """Which of these resources git is told to ignore.
+
+    This is the whole of what git is asked. An earlier version asked git the opposite
+    question — which files the repository ships — and that answer is wrong in more ways than
+    it is right: git prints nothing when its index holds no plugins/ entry, prints one name
+    when plugins/ is tracked as a symlink, and prints a subset when the index is partial or
+    belongs to another repository. Each of those made the canonical set smaller, and a set
+    that is too small does not fail: it deletes the mirror and reports success. Measured on
+    this package while it worked that way — 111 files to 0, and 111 to 30.
+
+    Asked this way round the failure is inverted and harmless. If git answers badly here the
+    set is too LARGE, which shows up as extra files in a diff somebody reads, not as a silent
+    deletion. The disk is what the bundle mirrors, so the disk is what decides what exists.
     """
-    # Bytes, not text: -z is asked for so a name is delimited by NUL and nothing else, and
-    # universal-newline translation rewrites a CR inside a name before the split, dropping the
-    # file it belongs to without a word.
+    if not candidates:
+        return set()
+    names = b'\0'.join(os.fsencode(str(path.relative_to(ROOT))) for path in candidates)
     try:
-        listing = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', 'plugins'],
-                                 capture_output=True)
+        answer = subprocess.run(['git', '-C', str(ROOT), 'check-ignore', '--stdin', '-z'],
+                                input=names, capture_output=True)
     except OSError as error:
-        raise SystemExit('bundle.py asks git which files this repository ships, and git could '
-                         f'not be run: {error}. Install git, or run the bundler from a checkout.')
-    if listing.returncode != 0:
-        raise SystemExit('bundle.py asks git which files this repository ships, and git could '
-                         f'not answer in {ROOT}: {listing.stderr.decode(errors="replace").strip()}. '
-                         'Run it from a checkout rather than from an exported tree.')
-    names = [name for name in listing.stdout.split(b'\0') if name]
-    # An empty answer is not an empty repository. git exits 0 and prints nothing whenever the
-    # index holds no plugins/ entry while the directory is full — an unpacked copy inside
-    # another repository, a re-inited checkout before its first add, a foreign GIT_DIR. Believing it
-    # would delete every bundled resource and report success, so it stops here instead.
-    if not names:
-        raise SystemExit(f'git tracks no file under plugins/ in {ROOT}, so the canonical set '
-                         'would be empty and bundling would delete every shipped resource. Run '
-                         'the bundler from the checkout that tracks these files.')
-    return {(ROOT / os.fsdecode(name)).resolve() for name in names}
+        raise SystemExit('bundle.py asks git which resources to leave out of the package, and '
+                         f'git could not be run: {error}. Install git, or run the bundler from a '
+                         'checkout.')
+    # check-ignore exits 1 when it matched nothing, which is an answer, not a failure.
+    if answer.returncode > 1:
+        raise SystemExit('bundle.py asks git which resources to leave out of the package, and git '
+                         f'could not answer in {ROOT}: '
+                         f'{answer.stderr.decode(errors="replace").strip()}. Run the bundler from a '
+                         'checkout of this repository, with plugins/ a real directory.')
+    # Bytes throughout: -z is asked for so a name is delimited by NUL and nothing else, and
+    # universal-newline translation would rewrite a CR inside one before the split.
+    return {ROOT / os.fsdecode(name) for name in answer.stdout.split(b'\0') if name}
 
 
 def source_files():
     """Return runtime resources without registering Claude manifests or hooks."""
-    tracked = shipped()
-    for plugin in sorted((ROOT / 'plugins').iterdir()):
-        for directory in ('commands', 'skills', 'agents', 'templates', 'scripts', 'hooks', 'references'):
-            for path in sorted((plugin / directory).rglob('*')):
-                if path.is_file() and path.resolve() in tracked:
-                    yield path
+    plugins = ROOT / 'plugins'
+    if not plugins.is_dir():
+        raise SystemExit(f'{plugins} is not a directory, so there is nothing to bundle. Run the '
+                         'bundler from a checkout of this repository.')
+    candidates = [path
+                  for plugin in sorted(plugins.iterdir())
+                  for directory in BUNDLED
+                  for path in sorted((plugin / directory).rglob('*')) if path.is_file()]
+    skip = ignored(candidates)
+    return [path for path in candidates if path not in skip]
 
 
 def expected_files():
-    """Map package-relative resource paths to canonical bytes."""
+    """Map package-relative resource paths to canonical bytes.
+
+    The one refusal left guards the value that drives synchronize()'s deletions. It is the
+    only guard this mechanism needs: nothing above can make the set smaller than the disk, so
+    an empty set means the resources are not there to read — a checkout missing its
+    directories, or plugins/ that is not a directory at all.
+    """
     files = {path.relative_to(ROOT / 'plugins'): path.read_bytes() for path in source_files()}
+    if not files:
+        raise SystemExit(f'no resource was found under {ROOT / "plugins"}, so the canonical set is '
+                         'empty and bundling would delete every shipped file. A package is never '
+                         'empty: check that the resource directories are present and that plugins/ '
+                         'holds them.')
     return files
 
 

@@ -20,79 +20,138 @@ def bundler():
 
 
 class ShippedResourceTests(unittest.TestCase):
-    """The canonical set is what the repository ships, not what the disk happens to hold."""
+    """What belongs in the package, and what a wrong answer is allowed to cost.
 
-    def test_an_untracked_file_under_plugins_is_not_a_canonical_resource(self):
-        """Running the suite here writes .pytest_cache under plugins/bymax-quality/scripts.
-        Walking the working tree made those four files canonical resources and four manifest
-        entries, so the bundle verified on the machine that produced it and was stale in
-        every clone — which is exactly what CI reported. The set must come from git."""
-        module = bundler()
-        stray = ROOT / 'plugins/bymax-quality/scripts/.bundle-regression-probe/nodeids'
-        stray.parent.mkdir(parents=True, exist_ok=True)
-        stray.write_text('what a local run leaves behind\n')
-        self.addCleanup(lambda: (stray.unlink(missing_ok=True),
-                                 stray.parent.rmdir() if stray.parent.is_dir() else None))
-        self.assertTrue(stray.is_file())          # the case must be the case before it asserts
+    These cases were rewritten when the mechanism was. The bundler used to ask git which files
+    the repository ships and derive the package from that answer. Every way that answer can be
+    wrong makes the set SMALLER, and a set that is too small does not fail — it deletes the
+    mirror and reports success: measured on this package at 111 files to 0, and 111 to 30. It
+    now walks the disk, which is what the bundle mirrors, and asks git only which resources to
+    leave out. A wrong answer there makes the set too LARGE, which is a diff somebody reads.
 
-        # The behavioural assertion comes first, so this fails on what the bundler DOES
-        # rather than on a helper it does not have yet.
-        canonical = {path.resolve() for path in module.source_files()}
-        self.assertNotIn(stray.resolve(), canonical)
+    So three cases that used to demand a refusal now demand correct output instead, and each
+    says so where it stands.
+    """
 
-        # And a file the repository really does ship is still in the set.
-        tracked = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
-        self.assertIn(tracked.resolve(), canonical)
-
-
-    def fixture(self, inside_another_repo=False):
-        """A tree with one shipped resource, optionally untracked inside another repo."""
+    def package(self, ignore=None):
+        """A checkout-shaped fixture with two shipped resources under a bundled directory."""
         root = Path(tempfile.mkdtemp())
-        if inside_another_repo:
-            subprocess.run(['git', 'init', '-q', str(root)], check=True)
-            root = root / 'unpacked-copy'
         (root / 'plugins/demo/commands').mkdir(parents=True)
-        (root / 'plugins/demo/commands/thing.md').write_text('a shipped resource\n')
+        (root / 'plugins/demo/commands/one.md').write_text('shipped\n')
+        (root / 'plugins/demo/commands/two.md').write_text('also shipped\n')
+        if ignore:
+            (root / '.gitignore').write_text(ignore + '\n')
+        subprocess.run(['git', 'init', '-q', str(root)], check=True)
+        subprocess.run(['git', '-C', str(root), 'add', '-A'], check=True)
         return root
 
-    def test_git_answering_with_nothing_is_not_an_answer(self):
-        """`git ls-files plugins` exits 0 and prints nothing when the index has no plugins/
-        entry while the directory is fully populated — an unpacked copy inside another repo,
-        a re-inited checkout before the first add, a foreign GIT_DIR. Treating that as the
-        canonical set makes it empty, and a write run then deletes every bundled file and
-        reports success. Measured on the real package: 111 files under references/upstream
-        before, 0 after, rc=0, 'verified: 0 canonical resources'."""
-        module = bundler()
-        module.ROOT = self.fixture(inside_another_repo=True)
-        listing = subprocess.run(['git', '-C', str(module.ROOT), 'ls-files', '-z', 'plugins'],
-                                 capture_output=True)
-        self.assertEqual((listing.returncode, listing.stdout), (0, b''))  # the case must be the case
-        with self.assertRaises(SystemExit):
-            module.shipped()
+    def names(self, module):
+        """The package-relative resource names the bundler would ship."""
+        return sorted(str(path.relative_to(module.ROOT / 'plugins')) for path in module.source_files())
 
-    def test_git_that_cannot_run_is_reported_rather_than_raised(self):
-        """The bundler depends on git now, so the absence of git is its own answer and must
-        read as one instead of a FileNotFoundError from the middle of a helper."""
+    def test_a_resource_git_ignores_is_not_shipped(self):
+        """The defect that started this: running the suite writes .pytest_cache under
+        plugins/bymax-quality/scripts, and walking the disk made those four files canonical
+        resources and four manifest entries. The manifest then verified on the machine that
+        produced it and was stale in every clone, which is what CI reported. Ignored is the
+        property that distinguishes them, and it is the only thing git is asked."""
         module = bundler()
-        module.ROOT = self.fixture()
-        original = os.environ.get('PATH', '')
-        os.environ['PATH'] = str(Path(tempfile.mkdtemp()))
-        self.addCleanup(os.environ.__setitem__, 'PATH', original)
-        with self.assertRaises(SystemExit):
-            module.shipped()
+        module.ROOT = self.package(ignore='.pytest_cache/')
+        stray = module.ROOT / 'plugins/demo/commands/.pytest_cache/nodeids'
+        stray.parent.mkdir(parents=True)
+        stray.write_text('what a local run leaves behind\n')
+        self.assertTrue(stray.is_file())          # the case must be the case before it asserts
+        self.assertEqual(self.names(module), ['demo/commands/one.md', 'demo/commands/two.md'])
 
-    def test_a_carriage_return_in_a_tracked_name_survives_the_listing(self):
-        """-z is asked for so a name is delimited by NUL and nothing else. Reading that
-        stream with universal newlines rewrites a CR inside a name before the split, and the
-        file it belongs to vanishes from the canonical set without a word."""
+    def test_an_untracked_resource_is_still_shipped(self):
+        """Expectation moved with the mechanism, and this is the direction that matters. Under
+        the old mechanism an untracked file was absent from git's answer and silently left out
+        of the package; a new resource added before its first commit would have shipped as a
+        stale mirror. The disk decides what exists, so it ships, and only an ignore leaves it
+        out."""
         module = bundler()
-        root = self.fixture()
+        module.ROOT = self.package()
+        fresh = module.ROOT / 'plugins/demo/commands/three.md'
+        fresh.write_text('added but not yet committed\n')
+        self.assertIn('demo/commands/three.md', self.names(module))
+
+    def test_a_partial_index_does_not_truncate_the_package(self):
+        """Measured before the rewrite: a re-inited checkout with one subdirectory added took
+        the real mirror from 111 files to 30, with exit 0 and 'verified: 30 canonical
+        resources'. The index no longer decides what the package contains, so it cannot shrink
+        it. This case used to demand a refusal; demanding the right answer is stronger."""
+        module = bundler()
+        root = self.package()
+        subprocess.run(['rm', '-rf', str(root / '.git')], check=True)
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
+        module.ROOT = root
+        self.assertEqual(self.names(module), ['demo/commands/one.md', 'demo/commands/two.md'])
+
+    def test_a_copy_inside_another_repository_still_ships_what_it_holds(self):
+        """The shape that deleted the whole mirror: `git ls-files plugins` exits 0 and prints
+        nothing when the index that answers belongs to an enclosing repository. Measured at
+        111 files to 0 with 'verified: 0 canonical resources'. Nothing here reads that index
+        for the set any more, and an unpacked copy holds a complete package on disk."""
+        module = bundler()
+        outer = Path(tempfile.mkdtemp())
+        subprocess.run(['git', 'init', '-q', str(outer)], check=True)
+        inner = outer / 'unpacked-copy'
+        (inner / 'plugins/demo/commands').mkdir(parents=True)
+        (inner / 'plugins/demo/commands/one.md').write_text('shipped\n')
+        module.ROOT = inner
+        self.assertEqual(self.names(module), ['demo/commands/one.md'])
+
+    def test_a_carriage_return_in_a_name_survives(self):
+        """-z is asked for so a name is delimited by NUL and nothing else. Reading that stream
+        with universal newlines rewrites a CR inside a name before the split; under the old
+        mechanism the file then vanished from the package, and under this one it would be the
+        ignore list that lost track of a name."""
+        module = bundler()
+        root = self.package()
         odd = root / 'plugins/demo/commands/carriage\rreturn.md'
         odd.write_text('also shipped\n')
         subprocess.run(['git', '-C', str(root), 'add', '-A'], check=True)
         module.ROOT = root
-        self.assertIn(odd.resolve(), module.shipped())
+        self.assertIn('demo/commands/carriage\rreturn.md', self.names(module))
+
+    def test_git_that_cannot_run_is_reported_rather_than_raised(self):
+        """git is consulted for the ignore list, so its absence is an answer the bundler must
+        give in its own words instead of a FileNotFoundError from inside a helper."""
+        module = bundler()
+        module.ROOT = self.package()
+        original = os.environ.get('PATH', '')
+        os.environ['PATH'] = str(Path(tempfile.mkdtemp()))
+        self.addCleanup(os.environ.__setitem__, 'PATH', original)
+        with self.assertRaises(SystemExit):
+            module.source_files()
+
+    def test_plugins_that_is_not_a_directory_is_refused(self):
+        """rglob over a missing directory yields nothing rather than raising, so an incomplete
+        checkout used to produce an empty set and delete the mirror while printing verified."""
+        module = bundler()
+        root = self.package()
+        subprocess.run(['rm', '-rf', str(root / 'plugins')], check=True)
+        module.ROOT = root
+        with self.assertRaises(SystemExit):
+            module.source_files()
+
+    def test_an_empty_canonical_set_is_never_a_package(self):
+        """The one guard this mechanism still needs: nothing above can make the set smaller
+        than the disk, so an empty set means the resources are not there to read — and
+        synchronising against it would delete every file in the mirror."""
+        module = bundler()
+        root = self.package()
+        subprocess.run(['rm', '-rf', str(root / 'plugins/demo/commands')], check=True)
+        module.ROOT = root
+        with self.assertRaises(SystemExit):
+            module.expected_files()
+
+    def test_a_healthy_checkout_still_bundles(self):
+        """The guards must not refuse the case they exist to protect."""
+        module = bundler()
+        module.ROOT = self.package()
+        self.assertEqual(sorted(str(p) for p in module.expected_files()),
+                         ['demo/commands/one.md', 'demo/commands/two.md'])
 
 
 class BundleSectionTests(unittest.TestCase):
