@@ -38,13 +38,21 @@
           },
           "evidence": {
             "type": "string"
+          },
+          "trigger": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The command or test, runnable by the author in this tree, that makes the defect appear. A finding blocks the receipt only if it carries one. Send null where there is none; the finding is still recorded and still read. Null rather than absent because a strict structured-output mode requires every property to be listed in required."
           }
         },
         "required": [
           "id",
           "priority",
           "kind",
-          "evidence"
+          "evidence",
+          "trigger"
         ],
         "additionalProperties": false
       }

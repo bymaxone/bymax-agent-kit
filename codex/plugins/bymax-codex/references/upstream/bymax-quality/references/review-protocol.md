@@ -25,7 +25,9 @@ The context is a JSON object, for example:
 ```json
 {
   "intent": "Requested behavior",
-  "acceptance": ["Observable success criterion"],
+  "acceptance": ["Observable success criterion", "A second one"],
+  "measured": ["540 of 540 cached records carry the field the gate reads",
+               "not measurable offline: the counter exists only in production telemetry"],
   "constraints": ["Preserve the existing API contract"],
   "scope": "Integration base, components and exclusions",
   "stack": "Versions and applicable policy paths",
@@ -41,6 +43,17 @@ The context must contain:
 - Scope exclusions; distinguish unrelated pre-existing defects from regressions.
 - Relevant stack/dependency versions and authoritative local policy paths.
 - Required project check commands and the regression evidence expected for fixes.
+- `measured`: **one entry per acceptance item, in the same order**, saying what you ran against
+  real data and what it returned — a number, not an adjective. Where it cannot be answered
+  offline, write `not measurable offline` and why; that is an honest answer and a recorded one.
+  A tree can be self-consistently wrong and no reviewer and no gate can see it: measured
+  elsewhere, a correct gate with green tests and thirteen of thirteen mutants caught did almost
+  nothing in production because 540 of 540 cached records carry an empty timestamp the date
+  floor rejects. Two commands answered it, and nobody ran them because nothing asked. Per item
+  or it is theatre — that author had production access and used it twice in the same hour,
+  measuring what they were curious about rather than the thing the feature turned on.
+  This and required status checks are **two mitigations for one class**, not alternatives: the
+  state a machine has and no other machine does, at the tooling layer and at the data layer.
 
 ```bash
 python3 "$FLOW" status
@@ -66,7 +79,8 @@ cites a sandbox or permission denial: the same sandbox fails identically, and `r
 so. Two of the ways a run can fail are not reviews that failed but a reviewer this machine
 cannot run, and those are waived rather than retried — see
 [When Codex cannot run](#when-codex-cannot-run). The generated prompt tells both reviewers that the declared checks are the caller's to
-run and that anything they cannot execute is a limitation to state, not `incomplete`. The
+run, that they already passed on this candidate, and that anything they cannot execute is a
+limitation to state, not `incomplete`. The
 Codex sandbox is read-only by construction (`--sandbox read-only`), so no project
 configuration makes a test suite or build runnable inside it; a reviewer that reaches for
 the suite dies on the first cache write (Jest under `$TMPDIR`, for instance) and the
@@ -240,6 +254,16 @@ python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--desig
     [--widen-scope "<why>"] [--answers <path:slug>...] [--extend-delivery "<authorization>"]
 ```
 
+A correction that adds or changes a test must also show that test failing. `start` refuses one
+whose probe carries no `without_fix` entry: a string naming what was reverted and what failed as
+a result. Reverting the production change and running the case takes seconds; believing the case
+exercises the fix has been wrong every time it was checked, and it was always a reviewer who
+checked. The entry is shown to both reviewers, who can re-run it.
+
+Everything a comment, a docstring or a commit message says about the code is a claim with no gate
+behind it. Measure it before writing it, or do not write it — a sentence that describes a branch
+nobody exercised is read as fact by the next person and by the next reviewer.
+
 `--probe` is a nonempty JSON list of `{"command", "expected", "observed"}`: what the author
 ran against the correction before committing it — reproductions of the defect and of the
 fix, never the declared project gates, which `check` runs and records. The prompt shows it
@@ -265,9 +289,23 @@ campaign state. Three things follow, all enforced by `start`:
 - Each such finding still open needs a probe entry with `"covers": "<finding id>"`: the
   case it exposed is the case you show being tried. A probe of something else does not
   answer it.
-- Two consecutive triages with such findings open make the next round a design round,
-  declared with `--design-round`: the mechanism is rewritten against its full case list
-  or deleted, never patched a third time.
+- **One** such triage makes the next round a design round, declared with `--design-round`:
+  the mechanism is rewritten against its full case list or deleted, never patched again.
+  This waited for two in a row, and waiting is what the second round was spent proving.
+  Measured in an unrelated repository on the same loop: when the author finally ran a
+  mutation matrix over the whole family instead of patching the latest instance, it found
+  two cells nothing in a 3100-test suite covered — in one round, the round that should have
+  been the second. Firing on the first is safe only because a finding must carry a `trigger`
+  to be counted here at all, so an argument about a sentence in the file just corrected no
+  longer forces a redesign.
+- Run that case list as a **mutation matrix before committing**, not at round nine: disable
+  each rule in turn and confirm a named case fails. Set `PYTHONDONTWRITEBYTECODE=1` and clear
+  `__pycache__` between mutants — CPython invalidates bytecode on `(int(mtime), size)`, so two
+  mutants of the same size written inside one second serve the previous one's result, and the
+  direction that fails is "broke nothing", which manufactures a false claim that a rule is
+  uncovered. A source comparison reporting "tree restored" does not clear it. Measured: twenty
+  minutes of matrix against three rounds without it, and it found a case that passed for the
+  wrong reason and another that built the payload it then asserted on.
 
 Both reviewers are told when the previous correction produced findings, so they look
 first at whether the new one repeats the pattern.
@@ -287,9 +325,25 @@ copy: a copy outlives what it describes, and the block then has to guess whether
 holds. An empty answer means the scope is the working tree against `HEAD`, which is what
 a preview reviews.
 
-`start` refuses a correction round whose every open finding is a nit — one `finish` would
-not refuse to leave open — because correcting text no test can check is where a loop
-starts. Defer them with their reasons and finish, or batch them into a follow-up; to spend
+**A finding blocks a receipt only if it names a trigger.** `trigger` is the command or test,
+runnable by the author in this tree, that makes the defect appear; `blocks_a_receipt` requires it
+alongside the kind and the priority. Until this the runtime trusted the label a reviewer typed, so
+"this docstring contradicts the code" arrived as a P2 defect, `finish` refused to clear it and
+refused to let it be deferred, and the budget went on prose. Measured over two campaigns in two
+repositories: every finding worth a round could have named a command, and every finding that
+wasted one could not. A trigger is a command, never a scenario — "set this variable and wait for a
+poll" reads like one and reproduces nothing.
+
+A finding without a trigger is still recorded, still triaged and still shown to the next reviewer,
+and `record` names those the reviewer called blocking so the author judges them on their merits.
+It simply cannot refuse a receipt. This is the norm the package was alone in violating: a change
+that improves the health of the code is approved even when imperfect, and a nit does not force
+another iteration
+(<https://google.github.io/eng-practices/review/reviewer/standard.html>).
+
+`start` refuses a correction round whose every open finding is one `finish` would not refuse to
+leave open — a P3, or a claim with nothing to run — because correcting text no test can check is
+where a loop starts. Defer them with their reasons and finish, or batch them into a follow-up; to spend
 the round on them anyway, record why with `--nit-round "<why>"`, which both reviewers read.
 `start` also refuses to open a campaign on a branch whose earlier campaign was kept aside
 without clearing, unless `--after-archived "<who authorised it and for what scope>"`
@@ -313,10 +367,15 @@ file under a `codex/` directory is exactly what it says.
 The Claude pass on a correction delta is performed by a fresh-context subagent given only
 the generated prompt, never by the session that authored the fix.
 
-Run every required gate named in the context after the final candidate commit:
+Run every required gate named in the context **after the candidate commit and before either
+reviewer reads it** — `prompt` refuses to build the reviewer task until every declared gate has
+run and passed on this candidate, and that includes the `codex` and `claude` commands, which
+build the same text. The gates ran on the way to `finish` until this; that ordering asked two
+readers to judge a tree nobody had checked, and a round spent on a failure the suite already
+prints is a round not spent on what only a reader finds.
 
 ```bash
-python3 "$FLOW" check -- <executable> <arguments>
+python3 "$FLOW" check -- <executable> <arguments>   # before the reviewers, every round
 python3 "$FLOW" finish
 python3 "$FLOW" status
 ```
@@ -407,13 +466,50 @@ another worktree's receipt cannot authorize a different SHA. It also refuses any
 containing an option that would skip or redirect the hook (`no-verify`, `hooksPath`,
 `GIT_DIR`, `--git-dir`, `GIT_WORK_TREE`, writes under `.git/hooks`) or husky's own skip
 switch (`HUSKY=`, honoured by its dispatcher before the tracked hook runs), matched as a
-substring wherever it appears. **Every other command passes through untouched**: a push
+substring wherever it appears, in the raw command **and** in its words after quote removal —
+a token split across quotes is absent from one and present in the other. Quote removal is less
+than the shell does: `shlex` performs no parameter expansion or command substitution, so a token
+assembled by the shell from `${...}` is in neither form, and that is one spelling of the residue
+this section ends with — **but only where the command could reach a remote**, which
+means it contains `push` and names a program able to start another (`git`, a shell, `eval`,
+`env`, `xargs`, `ssh` and the like; an unparseable command counts as yes). A command that
+merely names one of these tokens — grepping for the string, `cat` or `shasum` of a hook path, the
+two piped greps this repository's own command files prescribe — is not scanned at all. Reading a
+hook **through git** is the exception and is refused: `git log -- <hook path>` names a runner, and
+the path itself spells `push`. That is a false refusal of the class this section exists to remove,
+left standing deliberately rather than closed by another rule about what a word means; it is
+recorded as a deferral of this campaign.
+
+**It does not defend the hook file, and says so rather than appearing to.** Two rounds of this
+campaign were spent trying. The first exempted "commands that only read" by listing the programs
+that qualify, and both reviewers emptied that list in one round: `rg --pre CMD`, `ack --pager=CMD`
+and `git ls-remote --upload-pack=CMD` each run a program the caller names while reading, and one
+of them deleted an installed hook end to end while the adapter returned exit 0. The second
+compared the hook against a record `start` wrote, and that was inert in four independent ways — no
+record exists on any installed copy until the next campaign, one unrefused `rm` removes it, a
+malformed one becomes a push refusal, and the recorded path can diverge from the path git runs
+hooks from.
+
+The reason is structural, and this document already stated it about deliberate evasion: a session
+that can run arbitrary shell can undo any local check that a local check could observe. What holds
+instead is what always held — `start` reinstalls and re-verifies the hook, and a candidate cannot
+clear without `start`; the hook receives the pushed SHAs from git itself, so no spelling of a push
+command evades it **once git runs it** — a spelling that stops git running it, a redirected hooks
+path the scan cannot see, does, which is exactly the residue named at the end of this section; and
+required status checks are the boundary for anything deliberate. Writes
+under `.git/hooks` stay in the token list for a command that could reach a remote, where they can still
+do something.
+
+**Every other command passes through untouched**: a push
 spelled in any other arrangement is not the adapter's to judge, and the hook decides.
 
 The adapter is not the enforcement boundary and is not described as one. The residue no
 local design closes is a hook-skipping option spelled so the adapter's substring check
 cannot see it, since git itself provides that escape; the tests document it, and CI is
-the boundary for deliberate evasion. A completed review is evidence of coverage, not a
+the boundary for deliberate evasion. A command that removes the hook is no longer refused,
+and nothing local refuses the push after it either when that push is spelled in a shape this
+adapter does not recognise. That residue is named here rather than papered over, because two
+attempts to close it locally were each bypassed in the round after they shipped. A completed review is evidence of coverage, not a
 guarantee that the code has no bugs.
 
 ## Basis and operating assumptions

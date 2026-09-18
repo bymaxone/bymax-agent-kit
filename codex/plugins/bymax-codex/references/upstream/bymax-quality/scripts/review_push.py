@@ -33,9 +33,60 @@ EXPANSIONS = '*?[]{}~^+,!'
 ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
 
 
+# Programs that could start another program, so a command carrying one could reach a remote
+# however the rest of it is spelled. Nothing here is an allowlist: this widens what the
+# disarming scan below applies to, it never exempts anything from it.
+RUNNERS = frozenset({'git', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'eval', 'exec', 'env',
+                     'xargs', 'nohup', 'timeout', 'time', 'nice', 'sudo', 'doas', 'ssh'})
+
+
+def could_push(command):
+    """Whether this command could reach a remote, however it is spelled.
+
+    The disarming scan matters where a push is at stake, and nowhere else: a hook that is not
+    about to run cannot be redirected. Scanning every command instead refused reading — `git
+    rev-parse --git-dir`, which /bymax-pr:push Step 0 prescribes, a `shasum` of a hook path, a
+    `grep` whose PATTERN held a token, and the two piped greps this repository's own command
+    files tell a model to run.
+
+    The first attempt at that exemption listed programs that only read, and both reviewers
+    broke it in one round: `rg --pre CMD`, `ack --pager=CMD` and `git ls-remote
+    --upload-pack=CMD` each run a program the caller names while reading, and one of them
+    deleted an installed hook end to end. The list of such flags across the list of such
+    programs has no closed form, so the question is not asked. This one is: a command with no
+    `push` in it cannot push, and a command that names no program able to start another cannot
+    be hiding one. Both halves are conservative — unparseable answers yes.
+    """
+    words = words_of(command)
+    if words is None:
+        return True
+    # The parsed words, never the raw text. The shell and git act on these, so a push verb
+    # spelled pu""sh or pu\sh is invisible in the raw command and fully present here — measured:
+    # a hooksPath redirection written that way was returned as no-opinion while the commit
+    # reached the remote with the hook in place and never invoked.
+    if not any('push' in word.lower() for word in words):
+        return False
+    return any(Path(word).name in RUNNERS for word in words)
+
+
 def git(cwd, *args):
     """Read repository state for the command's explicit working directory."""
     return subprocess.check_output(['git', '-C', str(cwd), *args], text=True, stderr=subprocess.DEVNULL).strip()
+
+
+def words_of(command):
+    """The command's words after quote removal, or None when it cannot be parsed.
+
+    Less than the shell does, and the difference matters: shlex performs no parameter
+    expansion, no command substitution and no ANSI-C quoting, so a token the shell would
+    assemble from `${...}` appears in neither this form nor the raw text. Reading both forms
+    strictly beats reading one, and calling it "what the shell hands on" made the gap between
+    them look closed when it is the residue this adapter has always had.
+    """
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return None
 
 
 def parse(command, cwd):
@@ -46,11 +97,19 @@ def parse(command, cwd):
     """
     # Case-insensitive: git reads config keys and most of these options that way too.
     lowered = command.lower()
-    require(not any(token.lower() in lowered for token in DISARMS),
-            'That would disable or redirect the pre-push receipt check; run a plain git push.')
-    try:
-        words = shlex.split(command)
-    except ValueError:
+    words = words_of(command)
+    pushes = could_push(command)
+    # Both forms. A token split across quotes — core.hooks""Path — is absent from the raw text
+    # and present once the shell has parsed it; a token the shell would not have produced is
+    # absent from the words and present in the text. Reading one of them was the unrepaired
+    # half of the previous round's fix, which moved the precondition to the words and left the
+    # scan a line below it on the raw command.
+    seen = lowered + '\n' + ' '.join(words).lower() if words is not None else lowered
+    require(not pushes or not any(token.lower() in seen for token in DISARMS),
+            'That would disable or redirect the pre-push receipt check; run a plain git push. '
+            'A command that only names one of these — reading a hook, grepping for the token — '
+            'is not this refusal: it applies where the command could reach a remote.')
+    if words is None:
         return None
     tail = command
     if words[:1] == ['cd'] and len(words) > 3 and words[2] == '&&':

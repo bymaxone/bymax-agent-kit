@@ -80,7 +80,15 @@ a separate design audit, report it separately from this campaign.
    versions and required gate commands in the campaign context. Give both reviewers
    the identical generated prompt. Share prior dispositions on correction rounds,
    but never the other reviewer's current findings before freezing your own report.
-2. Start `review_flow.py codex` in a background shell. It runs a fresh read-only Codex
+2. **Run the declared gates before either reviewer reads the tree.** `python3 "$FLOW" check
+   -- <command>` for every gate the context names, and fix the candidate until they pass;
+   `prompt` refuses to build the reviewer task until they have, so this is not advice. A
+   reviewer round is the scarcest thing the campaign spends, and a failing suite spends it on
+   what the suite already prints. Two rounds here went that way — a test that read the
+   developer machine's Codex, and a bundler that swept a local cache into the shipped
+   manifest — and a gate named both in seconds. Run the gates again after the correction
+   commit of every later round, for the same reason.
+   Then start `review_flow.py codex` in a background shell. It runs a fresh read-only Codex
    context with the explicit diff and task contract, and persists its completed report.
    Its probe, not your reading of the error, decides whether a failure is a reviewer this
    machine cannot run: it prints a waiver for an absent Codex or an exhausted account, and
@@ -113,12 +121,21 @@ a separate design audit, report it separately from this campaign.
    correction introduced the finding you are about to fix, do not patch the instance:
    list every case of the mechanism the finding names, one probe entry per case with
    `"covers": "<finding id>"`, and rewrite the function against the whole list. `start`
-   refuses a probe that names none of those findings, and a second such round in a row
-   is a design round. Then fix accepted blockers in one small batch, in this order, and
+   refuses a probe that names none of those findings, and **one** such round already makes
+   the next a design round — waiting for a second only buys a data point nobody needed. Run
+   that case list as a mutation matrix before you commit, with `PYTHONDONTWRITEBYTECODE=1`
+   and `__pycache__` cleared between mutants, or the matrix reports a previous mutant's
+   result and calls a covered rule uncovered. Then fix accepted blockers in one small batch, in this order, and
    do not reorder it:
-   1. **Regression first.** Turn each accepted finding's reproduction into a permanent
-      test case that fails on the current candidate, in the suite the campaign's
-      `checks` already runs. The suite is the cumulative invariant matrix: every case
+   1. **Regression first, and show it failing.** Turn each accepted finding's
+      reproduction into a permanent test case that fails on the current candidate, in
+      the suite the campaign's `checks` already runs — then **prove it fails**: revert
+      the production change, run the case, and record the failure. A case you believe
+      exercises the fix and never watched fail is not evidence; measured across two
+      campaigns, that belief was wrong every time it was checked, and always by a
+      reviewer rather than by the author. `start` refuses a correction round that
+      touches a test without a probe entry carrying `without_fix`, which is where that
+      output goes. The suite is the cumulative invariant matrix: every case
       from every round stays, so a later fix that breaks an earlier case is caught by
       the gate, not by a reviewer. Assert the invariant (what must and must not
       happen), never the fix's mechanism, and never the shell's or a parser's verdict
@@ -133,7 +150,13 @@ a separate design audit, report it separately from this campaign.
       test to both reviewers so an unjustified flip is a finding.
    4. **Probe your own fix before committing.** Spend bounded effort trying to defeat
       the correction the way a reviewer would, record each attempt as
-      `{command, expected, observed}`, and pass that file to `start --probe`. It is
+      `{command, expected, observed}`, and pass that file to `start --probe`.
+      **Every sentence you write about the code is a claim, and an unmeasured claim is
+      a defect the gates cannot see.** Before a comment, a docstring or a commit
+      message asserts what the code does, run the thing that shows it; if you cannot,
+      delete the sentence rather than soften it. The reviewer checklist already
+      requires this of a reviewer reading a finding — it applies to the author writing
+      the code, for the same reason and more often. It is
       required for every correction round and both reviewers see it. What you find
       here costs nothing; the same hole found after commit costs a round.
    5. Check affected callers, error paths and lifecycle transitions. Run the regression
@@ -154,7 +177,9 @@ a separate design audit, report it separately from this campaign.
    reset the campaign, change branches, uninstall or hide Codex, or clear a receipt to
    evade the limit, and do not archive the campaign and open another on the same finding without
    the human's explicit authorization for that campaign. A limit is a handoff, never
-   automatic approval. These limits are operational defaults, not a claim that three
+   automatic approval. A finding only counts against that limit if it carries a `trigger` —
+   the command or test that makes the defect appear — so an argument about a sentence can no
+   longer hold a receipt; report it, fix what is real, and let it be deferred. These limits are operational defaults, not a claim that three
    passes prove correctness. Findings about instruction prose are deferred and batched:
    correcting prose in a round of its own is how a loop starts, since every correction
    to text no test can check is a new surface for the next review.

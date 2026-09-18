@@ -400,5 +400,59 @@ class PushCommandBehaviourTests(unittest.TestCase):
             self.assertNotIn('No such file', error)
 
 
+class AutopilotTerminationTests(unittest.TestCase):
+    """The failure modes an unattended chain can hit must be in the document it reads.
+
+    A mode absent from that document gets improvised at three in the morning, and the
+    improvisations available to this one — extend the budget, or branch for a fresh one —
+    are precisely what the delivery ledger exists to prevent. These are prose gates: they
+    cannot check that the chain behaves, only that the contract it follows still says so,
+    which is the difference between a rule that was removed and a rule that was decided.
+    """
+
+    SKILL = ROOT / 'plugins/bymax-workflow/skills/autopilot/SKILL.md'
+
+    def setUp(self):
+        self.text = self.SKILL.read_text()
+        self.table = self.text.split('## Termination summary')[1]
+
+    def test_a_spent_review_budget_has_its_own_row(self):
+        """The nearest existing row is about project gates failing repeatedly, which is a
+        different event: a campaign that spends its candidate budget has passed its gates and
+        is holding on a finding. Without a row of its own, the chain ends on the first phase
+        whose review does not converge."""
+        rows = [line for line in self.table.splitlines() if line.startswith('|')]
+        budget = [line for line in rows if 'budget' in line.lower()]
+        self.assertTrue(budget, 'no termination row names the review candidate budget')
+        self.assertIn('park', ' '.join(budget).lower())
+
+    def test_the_chain_never_extends_the_budget_on_its_own_authority(self):
+        """Extending is a human decision by construction — check_extension accepts the flag
+        only once the budget is actually spent — so every mention here must be a prohibition.
+
+        Per clause, not per line. The first version of this asked whether "never" appeared
+        anywhere on the line, and the line carries three of them for other things: inverting
+        the prohibition to "Use --extend-delivery on the chain's own authority" left the whole
+        suite green. Found by mutating the document, not by reading the assertion.
+        """
+        mentions = 0
+        for line in self.text.splitlines():
+            for clause in re.split(r'[,.;]', line):
+                if '--extend-delivery' in clause:
+                    mentions += 1
+                    self.assertIn('never', clause.lower(), clause.strip())
+        self.assertTrue(mentions, 'the skill no longer mentions the delivery extension at all')
+
+    def test_phase_selection_reads_the_dependency_graph(self):
+        """The graph exists in roadmap.template.md and the orchestrator never read it, which
+        is the whole reason one blocked phase ended a run: the queue was sequential by
+        convention, not by dependency."""
+        step = self.text.split('### STEP 0')[1].split('###')[0]
+        self.assertIn('Dependency graph', step)
+        self.assertIn('transitive dependencies', step)
+        # And parking is bounded, or a broken plan parks every phase in turn.
+        self.assertRegex(step, r'(?i)\bthree\b.*parked|parked.*\bthree\b|Cap the parking')
+
+
 if __name__ == '__main__':
     unittest.main()

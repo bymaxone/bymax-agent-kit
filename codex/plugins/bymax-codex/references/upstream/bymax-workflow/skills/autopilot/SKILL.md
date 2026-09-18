@@ -157,10 +157,27 @@ the playbook is the how.
 
 ### STEP 0: Pick the next phase
 
-Read the roadmap's Progress Dashboard and the tasks README index. The next
-phase is the **lowest-numbered phase not ✅ Done**, respecting the dependency
-graph — but the execution track is **strictly sequential**: the plan's
-code-parallelism notes never license two implementers at once.
+Read the roadmap's Progress Dashboard and the tasks README index. Collect the
+**parked set** first: every phase already marked ⛔ Blocked. Then read the
+roadmap's `## Dependency graph` — the orchestrator has never read it, and it
+is the difference between one blocked phase and a dead run.
+
+The next phase is the **lowest-numbered phase** that is not ✅ Done, not ⛔,
+and whose **transitive dependencies contain no ⛔ phase**. The execution track
+stays **strictly sequential**: the plan's code-parallelism notes never license
+two implementers at once. If no phase qualifies, STOP and report the parked
+set with what each is waiting on.
+
+A wrong dependency graph is authored prose and can lie. It degrades safely: a
+phase built on a tree missing work it really needed fails its own gates, which
+the "3 full fix cycles" row already terminates. A graph error costs another
+parked phase, never a bad merge. When the roadmap has no dependency graph at
+all, treat every phase as depending on the one before it — which is today's
+behaviour, and therefore never worse than today.
+
+**Cap the parking.** Once **three** phases are ⛔ in this run, STOP even if a
+phase still qualifies: at that point the plan and not the chain is what needs
+attention.
 
 Then check the config's **per-phase external preconditions** (e.g. "phases
 1+ need package X resolvable on npm"). If one fails:
@@ -168,9 +185,11 @@ Then check the config's **per-phase external preconditions** (e.g. "phases
 - Mark the phase ⛔ Blocked in **both** dashboards, naming the missing
   precondition exactly.
 - Commit `docs(plan): mark P<N> blocked on <precondition>`, push.
-- Report the blockage precisely and **STOP the chain cleanly**. Do not poll
-  for external events the repo cannot influence; the operator relaunches
-  after fixing them.
+- Report the blockage precisely and **park it**: return to the top of this
+  step and pick the next qualifying phase. Do not poll for external events the
+  repo cannot influence, and do not wait — the operator relaunches after
+  fixing them, and meanwhile the phases that do not depend on this one are
+  work the chain can still do.
 
 If **all phases are ✅ Done**: verify CI is green on the default branch
 (`gh run list --branch <default> --limit 1`), report completion, fire a
@@ -350,6 +369,8 @@ chain appears stalled (open PR with no watcher running). Change nothing.
 | Event | Action |
 |---|---|
 | All phases ✅ + CI green on default branch | Report + `PushNotification`, STOP. |
-| External precondition unmet | Mark ⛔ in both dashboards, commit, report, STOP cleanly. |
+| External precondition unmet | Mark ⛔ in both dashboards, commit, report, **park the phase** and continue with the next one whose transitive dependencies hold no ⛔ phase. |
+| A phase's review campaign spends its candidate budget with a triggered blocker still open | Mark ⛔ in both dashboards naming the open finding, commit, leave its branch and PR open carrying the campaign's triage and both reports, **park the phase** and continue with the next qualifying one. Never `--extend-delivery` on the chain's own authority, never a new branch to get a fresh budget, never merge past a confirmed blocker. The budget is per branch, so parking costs nothing the next phase needs. |
+| Three phases parked, or no phase left whose dependencies are clear | Report the parked set and what each waits on, `PushNotification`, STOP. |
 | Same phase fails its gates repeatedly (3 full fix cycles without progress) | Mark 🟡/⛔ with the exact failing gate, `PushNotification`, STOP — never brute-force. |
 | Operator interrupts | Leave state consistent: dashboards reflect reality, no orphan worktrees, open PR noted. |

@@ -44,7 +44,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.base = self.git('rev-parse', 'HEAD')
         self.context = self.root / 'context.md'
         self.context.write_text(json.dumps(dict(intent='Fix requested feature', acceptance=['Preserve callers'],
-            constraints=['No unrelated changes'], scope='Candidate against base',
+            measured=['ran the fixture gate against the candidate tree: 1 file read, nonempty'], constraints=['No unrelated changes'], scope='Candidate against base',
             checks=[[sys.executable, '-c', 'from pathlib import Path; assert Path("code.txt").read_text()']])))
         self.commit('candidate')
 
@@ -120,8 +120,12 @@ class ReviewFlowTests(unittest.TestCase):
         args = ['start', '--base', self.base, '--context', str(self.context)]
         if correction:
             path = self.root / 'probe.json'
+            # The default entry carries without_fix because a correction that touches a test
+            # must show it failing; a fixture exercising another rule should not have to know
+            # that. The case that owns the rule passes its own probe, with and without it.
             path.write_text(json.dumps(probe if probe is not None else [
-                dict(command='python3 -c "print(1)"', expected='1', observed='1')]))
+                dict(command='python3 -c "print(1)"', expected='1', observed='1',
+                     without_fix='fixture: reverted the change and the case failed')]))
             args += ['--probe', str(path), '--no-regression-reason', reason]
             if nit:
                 args += ['--nit-round', nit]
@@ -137,12 +141,30 @@ class ReviewFlowTests(unittest.TestCase):
             args.append('--design-round')
         return self.flow(*args, ok=ok)
 
+    TRIGGER = 'python3 -m pytest tests/test_regression.py::test_the_invariant'
+
     def report(self, name, findings=None, resolutions=None, ok=True):
-        """Provide a completed reviewer fixture for the current endpoints."""
+        """Provide a completed reviewer fixture for the current endpoints.
+
+        A blocking finding names the command that makes the defect appear, so a fixture that
+        means "a blocker" gets one by default and a fixture exercising some other rule need
+        not know the field exists. Copies, never the caller's dicts: several cases report the
+        same finding twice and then compare it. The cases that own the trigger rule set the
+        field themselves, present or absent, and are unaffected by this.
+        """
+        items = [dict(item) for item in (findings or [])]
+        for item in items:
+            if (item.get('kind') in ('defect', 'policy') and item.get('priority') != 'P3'
+                    and 'trigger' not in item):
+                item['trigger'] = self.TRIGGER
+        # trigger=None means the reviewer never wrote the field, which is how a real report
+        # that omits it arrives; an empty string would be a reviewer claiming an empty command.
+        items = [{k: v for k, v in item.items() if not (k == 'trigger' and v is None)}
+                 for item in items]
         state = self.flow('status')
         path = self.root / (name + '.json')
         path.write_text(json.dumps(dict(status='completed', head=state['head'], base=state['review_base'], summary='Inspected fixture',
-                                       findings=findings or [], resolutions=resolutions or [])))
+                                       findings=items, resolutions=resolutions or [])))
         return self.flow('record', '--reviewer', name, '--report', str(path), ok=ok)
 
     def triage(self, items=None, ok=True):
@@ -229,15 +251,95 @@ class ReviewFlowTests(unittest.TestCase):
                       "cat <<'EOF' > f\ngit push origin HEAD\nEOF\n", 'git stash push', 'FOO=bar'):
             self.push(other)
 
+    def test_the_guard_lets_a_command_that_only_reads_name_the_hook(self):
+        """A guard that blocks reading protects nothing: no rev-parse reaches a remote, and
+        the refusal taught whoever met it to phrase commands to slip past a matcher, which is
+        the habit the guard exists to prevent. Measured on this machine, each of these was
+        refused while it held: the first is prescribed by /bymax-pr:push Step 0, so the shipped
+        command file could not be followed as written, and the third and fourth were hit twice
+        in one session by a grep whose PATTERN carried a token."""
+        self.start()
+        self.complete()
+        for command in ('git rev-parse --git-dir', 'git -C . rev-parse --git-dir',
+                        'shasum .git/hooks/pre-push', 'cat .git/hooks/pre-push',
+                        'grep -rn "core.hooksPath" scripts/', 'echo --no-verify',
+                        'git config --get core.hooksPath', 'git log --oneline -3'):
+            self.push(command)
+
+    def test_a_command_that_could_not_reach_a_remote_is_never_scanned(self):
+        """What the first attempt at this got wrong, plus the two shapes both reviewers used to
+        break it and the two this repository's own command files prescribe.
+
+        These pass and are meant to. This adapter refuses a push spelled to skip the receipt
+        check; it does not defend the hook file, and two rounds spent trying taught why: every
+        local check of the hook is undone by the same shell the check is defending against, and
+        each layer was found bypassable in the round after it. `start` reinstalls and
+        re-verifies the hook, which is when it matters, and CI is the boundary for deliberate
+        evasion — which is what the protocol always said. None can push: the
+        first three name no program able to start another, and the last two contain no `push`
+        at all. Each was refused while the scan ran on every command."""
+        self.start()
+        self.complete()
+        for command in ('git rev-parse --git-dir', 'shasum .git/hooks/pre-push', 'cat .git/hooks/pre-push',
+                        'grep -rn "core.hooksPath" scripts/', 'echo --no-verify',
+                        'git config --get core.hooksPath', 'sort -o out.txt in.txt',
+                        # One of the escapes that broke the allowlist, allowed to run: what it
+                        # does to the hook is caught by the case above, not by a matcher.
+                        # (The ls-remote escape is not here because it names git and a path
+                        # spelling "push", so the scan applies to it — incidentally, not
+                        # because the mechanism recognised what it does.)
+                        'rg --pre rm pattern .git/hooks/pre-push',
+                        # Prescribed by plugins/bymax-workflow/commands/verify.md and by
+                        # plugins/bymax-quality/commands/code-review.md; both were refused.
+                        "git diff HEAD | grep -nE '(--no-verify|--skip-checks)'",
+                        "git log --oneline | grep -E -- '--no-verify'"):
+            self.push(command)
+
+    def test_a_disarming_option_is_still_refused_wherever_it_appears(self):
+        """The scan did not get weaker: it got a precondition. Every shape that could reach a
+        remote is still read for a hook-skipping option, in any arrangement."""
+        self.start()
+        self.complete()
+        for command in ('git -c core.hooksPath=/dev/null push origin HEAD',
+                        'GIT_DIR=/other/.git git push origin HEAD',
+                        'cd . && git --git-dir=/x push origin HEAD',
+                        'sh -c "git push --no-verify origin HEAD"',
+                        'xargs git push --no-verify origin HEAD',
+                        'env HUSKY=0 git push origin HEAD',
+                        'eval git push --no-verify origin HEAD',
+                        # The precondition reads the parsed words, not the raw text: these two
+                        # spell the verb so that the raw command holds no "push" substring at
+                        # all, while the shell and git still see a push. Measured on the
+                        # previous candidate: returned as no-opinion, and the commit reached
+                        # the remote with the hook present and never invoked.
+                        'git -c core.hooksPath=/dev/null pu""sh origin HEAD',
+                        'git -c core.hooksPath=/dev/null pu\\sh origin HEAD',
+                        # And the mirror image: the verb is plain and the TOKEN is split across
+                        # quotes, so the raw command holds no `hooksPath` while the words the
+                        # shell hands git do. Reading one form and not the other was the half of
+                        # the previous round's repair I left undone, one line below the half I made.
+                        'git -c core.hooks""Path=/dev/null push origin HEAD',
+                        'git -c core.hooks\\Path=/dev/null push origin HEAD'):
+            self.push(command, ok=False)
+
     def test_adapter_refuses_what_would_disarm_the_hook(self):
-        """Options that skip hooks or redirect git are refused wherever they appear."""
+        """Options that skip hooks or redirect git are refused wherever they appear, in any
+        command that could reach a remote.
+
+        `rm` and `chmod -x` on the hook used to be on this list and are not any more: the
+        mechanism stopped classifying commands, because the list of readers that can run a
+        program of the caller's choosing has no closed form and both reviewers emptied it in one
+        round. What those refusals were standing in front of — remove the hook, then push in a
+        shape parse() does not judge — is not held by anything here, deliberately: two attempts
+        to hold it locally were each bypassed in the round after they shipped, and the protocol
+        names the residue instead of covering it.
+        """
         self.start()
         self.complete()
         for command in ('git push --no-verify origin HEAD', 'eval git push --no-verify origin HEAD',
                         'git -c core.hooksPath=/dev/null push origin HEAD',
                         'GIT_DIR=/other/.git git push origin HEAD', 'git --git-dir=/x push origin HEAD',
-                        'echo --no-verify', 'echo x > .git/hooks/pre-push && git push origin HEAD',
-                        'rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push',
+                        'echo x > .git/hooks/pre-push && git push origin HEAD',
                         # git reads config keys case-insensitively; so must the guard.
                         'git -c core.hookspath=/dev/null push origin HEAD',
                         'git -c CORE.HOOKSPATH=/x push origin HEAD', 'git push --NO-VERIFY origin HEAD',
@@ -274,6 +376,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_abandoned_codex_reservation_keeps_retry_budget(self):
         """A dead owner permits one retry without resetting the attempt count."""
         state = self.start()
+        self.checks()
         reserve = ('import sys; sys.path.insert(0, ' + repr(str(FLOW.parent)) + '); '
                    'import review_flow as flow; flow.reserve_codex(flow.location())')
         subprocess.run([sys.executable, '-c', reserve], cwd=self.repo, check=True)
@@ -328,6 +431,7 @@ class ReviewFlowTests(unittest.TestCase):
         state = self.start(correction=True, design=True)
         self.assertTrue(state['design_round'])
         self.assertEqual(state['reopened'], ['guard:spelling'])
+        self.checks()
         prompt = self.flow('prompt')
         self.assertIn('DESIGN ROUND', prompt.stdout)
 
@@ -346,18 +450,205 @@ class ReviewFlowTests(unittest.TestCase):
             self.start(ok=False, correction=True, probe=hollow)
             self.assertEqual(self.flow('status')['round'], 1, f'advanced on hollow probe {hollow!r}')
         self.start(correction=True, probe=[dict(command='eval git push', expected='blocked', observed='blocked')])
+        self.checks()
         prompt = self.flow('prompt')
         self.assertIn('eval git push', prompt.stdout)
         self.assertIn('Shallow probing is a finding', prompt.stdout)
         # A probe the reviewer's sandbox cannot run is a limitation to state, not `incomplete`.
         self.assertIn('is a limitation to state in your summary, not a reason to report incomplete', prompt.stdout)
 
+    def test_a_finding_with_nothing_to_run_cannot_hold_the_receipt(self):
+        """The runtime trusted the label the reviewer typed, so a sentence about a docstring
+        arrived as a P2 defect, finish refused to clear it and refused to let it be deferred,
+        and the budget went on prose. Measured over two campaigns in two repositories: every
+        finding worth a round could name a command and every finding that wasted one could not.
+        It is still recorded, still triaged, still shown to the next reviewer — it just cannot
+        refuse a receipt while two readers argue about a label."""
+        prose = dict(id='code.txt:docstring-contradicts-the-code', kind='defect', priority='P2',
+                     evidence='the sentence names a return arity the function no longer has',
+                     trigger=None)
+        self.start()
+        self.checks()
+        # The author is told, on stderr, rather than the report being rejected: a reviewer that
+        # omitted the field still produced a review, and a real defect is still theirs to fix.
+        path = self.root / 'claude.json'
+        state = self.flow('status')
+        path.write_text(json.dumps(dict(status='completed', head=state['head'], base=state['review_base'],
+                                        summary='Inspected fixture',
+                                        findings=[{k: v for k, v in prose.items() if v is not None}],
+                                        resolutions=[])))
+        result = subprocess.run([sys.executable, str(FLOW), 'record', '--reviewer', 'claude',
+                                 '--report', str(path)], cwd=self.repo, capture_output=True,
+                                text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('named no trigger', result.stderr)
+        self.assertIn('code.txt:docstring-contradicts-the-code', result.stderr)
+        self.report('codex', [])
+        self.triage([dict(id='claude::code.txt:docstring-contradicts-the-code', status='deferred',
+                          evidence='real, and batched into a follow-up campaign')])
+        self.assertTrue(self.flow('finish')['cleared'])
+
+    def test_a_policy_finding_that_names_a_gate_command_still_blocks(self):
+        """The rule narrows what blocks; it does not soften it. A trigger need not be a test —
+        a gate command that fails is one — and a P2 carrying one cannot be deferred away, which
+        is the behaviour that must survive the change that ended the argument about prose."""
+        violation = dict(id='code.txt:suppression-added', kind='policy', priority='P2',
+                         evidence='an eslint-disable was introduced on the changed line',
+                         trigger='npm run lint')
+        self.start()
+        self.checks()
+        self.report('claude', [violation])
+        self.report('codex', [])
+        # triage records the disposition the author chose; finish is what refuses it.
+        self.triage([dict(id='claude::code.txt:suppression-added', status='deferred',
+                          evidence='would rather not')])
+        refused = self.flow('finish', ok=False).stderr
+        self.assertIn('Confirmed blocker cannot be deferred', refused)
+
+    def test_the_prompt_names_the_one_base_a_report_may_carry(self):
+        """record rejects a report whose base is the campaign's original rather than the round's,
+        and on a correction round the two differ — so a prompt that printed both with equal
+        billing made the natural choice the wrong one, on every correction round. Two authors in
+        two repositories hit "Report scope mismatch" that way."""
+        self.start()
+        self.checks()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        self.commit('a correction')
+        state = self.start(correction=True)
+        self.checks()
+        self.assertNotEqual(state['base'], state['review_base'])
+        prompt = self.text('prompt')
+        self.assertIn('"base" field must be exactly ' + state['review_base'], prompt)
+        self.assertIn('original base (' + state['base'] + ')', prompt)
+        # And the value the prompt names is the one record accepts, which is the whole claim.
+        self.report('claude')
+
+    def test_the_context_measures_each_acceptance_item_against_real_data(self):
+        """A tree can be self-consistently wrong and no reviewer can see it from the diff.
+
+        Measured elsewhere: a correct gate, green tests, thirteen of thirteen mutants caught,
+        and a feature that did almost nothing because 540 of 540 cached records carry an empty
+        timestamp the date floor rejects. Two commands answered it and nobody ran them because
+        nothing asked. Per acceptance item, or it is theatre — that author had production
+        access and used it twice in the same hour, measuring what they were curious about
+        rather than the one thing the feature turned on, which a single free-text note would
+        have been satisfied by.
+        """
+        body = dict(intent='i', acceptance=['first criterion', 'second criterion'],
+                    constraints=['c'], scope='s', checks=[[sys.executable, '-c', 'pass']])
+        self.context.write_text(json.dumps(body))
+        refused = self.flow('start', '--base', self.base, '--context', str(self.context), ok=False).stderr
+        self.assertIn('one entry per acceptance item', refused)
+        self.assertIn('There are 2 acceptance items', refused)
+        # One note for two criteria is the shape that reads as measured and is not.
+        self.context.write_text(json.dumps(dict(body, measured=['540 of 540 records carry the field'])))
+        self.assertIn('one entry per acceptance item',
+                      self.flow('start', '--base', self.base, '--context', str(self.context), ok=False).stderr)
+        # "Not measurable offline" is an honest answer, and recording it is the point.
+        self.context.write_text(json.dumps(dict(body, measured=[
+            '540 of 540 cached records carry the field the gate reads',
+            'not measurable offline: the counter exists only in production telemetry'])))
+        self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context))['round'], 1)
+
+    def test_every_field_the_blocking_rule_reads_is_representable_in_a_report(self):
+        """Both reviewer routes constrain the report to review-report.schema.json — review_flow
+        passes it to `codex exec --output-schema` and review_claude to `claude -p --json-schema`
+        — and that schema sets additionalProperties false. So a field blocks_a_receipt reads and
+        the schema does not declare is a field no automated reviewer can ever send: every
+        finding then fails the blocking test, finish lets real blockers be deferred, and the
+        receipt authorises the push. That is what shipping the trigger rule without touching the
+        schema did, and no case saw it because every fixture writes its reports by hand.
+
+        Derived from the runtime rather than restated: the keys come out of the function itself,
+        so adding a third one to the rule and forgetting the schema fails here.
+        """
+        source = ast.parse(FLOW.read_text())
+        rule = next(n for n in ast.walk(source)
+                    if isinstance(n, ast.FunctionDef) and n.name == 'blocks_a_receipt')
+        keys = {node.args[0].value for node in ast.walk(rule)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'get' and node.args
+                and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)}
+        self.assertIn('trigger', keys, 'the blocking rule no longer reads a trigger')
+        items = json.loads((FLOW.with_name('review-report.schema.json')).read_text())[
+            'properties']['findings']['items']
+        # The strictness is what makes the omission fatal rather than merely untidy.
+        self.assertIs(items.get('additionalProperties'), False)
+        missing = keys - set(items['properties'])
+        self.assertFalse(missing, f'blocks_a_receipt reads {sorted(missing)}, which no structured '
+                                  'report can carry')
+        # And in the shape a strict structured-output mode accepts: it requires every property
+        # to appear in `required`, an optional field being a nullable union instead. This file
+        # had no optional property before trigger, so the first one is the one to get wrong, and
+        # the failure would be a Codex run that dies on an unrecognised error after merge.
+        self.assertEqual(set(items['required']), set(items['properties']))
+        self.assertIn('null', items['properties']['trigger']['type'])
+
+    def test_a_gate_refusal_does_not_spend_a_reviewer_attempt(self):
+        """Both adapters reserved the attempt before building the task, and the gate raises from
+        inside prompt(), which is only evaluated as the subprocess input. So a campaign whose
+        gates had not run spent an attempt on a refusal no reviewer ever saw, and two of them
+        exhausted the per-candidate budget with nothing read — after which execute_codex diverts
+        to an availability probe and reports a spent budget for a reason Codex was never part of.
+        The path is the old ordering, which every already-installed command file prescribes.
+        """
+        binary = self.fake_codex('#!/bin/sh\nexit 0\n')
+        self.start()
+        for _ in range(2):
+            refused = self.codex_run('codex', locations=[binary])
+            self.assertEqual(refused.returncode, 2, refused.stdout)
+            self.assertIn('have not run on this candidate', refused.stderr)
+        self.assertEqual(self.flow('status').get('codex_attempts', 0), 0)
+        # And once the gates pass, the attempt is spent on an actual run.
+        self.checks()
+        self.codex_run('codex', locations=[binary])
+        self.assertEqual(self.flow('status').get('codex_attempts', 0), 1)
+
+    def test_the_declared_gates_run_before_a_reviewer_reads_the_tree(self):
+        """A reviewer round is the scarcest thing a campaign spends, so the machine answers
+        first. Until this, the declared gates ran on the way to finish — after both readings —
+        which is how two rounds here went to a test that read the developer machine's Codex and
+        a bundler that swept a local cache into the manifest. A gate names either in seconds."""
+        self.start()
+        refused = self.flow('prompt', ok=False).stderr
+        self.assertIn('have not run on this candidate', refused)
+        # The route that launches a reviewer, not only the one that prints the task: both build
+        # the text through prompt(), which is where the refusal lives, so there is one rule.
+        launched = self.codex_run('codex', locations=[self.fake_codex('#!/bin/sh\nexit 0\n')])
+        self.assertEqual(launched.returncode, 2, launched.stdout)
+        self.assertIn('have not run on this candidate', launched.stderr)
+        self.checks()
+        self.assertIn('already ran on this candidate and passed', self.text('prompt'))
+
+    def test_a_gate_that_failed_keeps_the_candidate_from_the_reviewers(self):
+        """Having run is not having passed. A red suite handed to two readers spends both
+        rounds on what the suite already prints, and the exit code is named in the refusal so
+        the author fixes the candidate rather than re-running the gate to see why."""
+        failing = [sys.executable, '-c', 'raise SystemExit(3)']
+        self.context.write_text(json.dumps(dict(
+            intent='Fix requested feature', acceptance=['Preserve callers'],
+            measured=['ran the fixture gate against the candidate tree: 1 file read, nonempty'], constraints=['No unrelated changes'], scope='Candidate against base', checks=[failing])))
+        self.start()
+        self.flow('check', '--', *failing, ok=False)
+        refused = self.flow('prompt', ok=False).stderr
+        self.assertIn('exit 3', refused)
+        self.assertIn('gates already accept', refused)
+
     def test_prompt_keeps_sandboxed_reviewers_off_the_declared_checks(self):
         """Declared checks are the caller's to run; a reviewer that gave up on a sandbox denial is
         told the environment fix, so the retry is not spent on the same failure."""
         self.start()
+        self.checks()
         prompt = self.flow('prompt')
-        self.assertIn('executed and recorded by the caller through review_flow.py check', prompt.stdout)
+        self.assertIn('already ran on this candidate and passed', prompt.stdout)
+        # The task and the schema handed to the same CLI must agree about the one field whose
+        # representability this campaign spent a round on: it is required and nullable, so the
+        # instruction says null rather than omit.
+        self.assertIn('"trigger":"the command or test that makes it appear, or null when there '
+                      'is none"', prompt.stdout)
+        self.assertNotIn('omit when there is none', prompt.stdout)
         self.assertIn('never a reason to report incomplete', prompt.stdout)
         state = self.flow('status')
         path = self.root / 'incomplete.json'
@@ -617,7 +908,8 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('claude::code.txt:second', self.text('lessons'))
 
     def test_retriaging_a_round_keeps_one_retrospective_entry(self):
-        """Two entries for one round would read as two rounds and force a design round early."""
+        """Two entries for one round would read as two rounds, misreporting the history the
+        author reads in `lessons` and the count the budget is measured against."""
         self.start()
         self.caused_round('first')
         self.commit('fix')
@@ -628,7 +920,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(rounds, [1, 2])
         self.commit('fix again')
         named = [dict(command='c', expected='e', observed='e', covers='code.txt:second')]
-        self.assertEqual(self.start(correction=True, nit='', probe=named)['round'], 3)
+        self.assertEqual(self.start(correction=True, nit='', probe=named, design=True)['round'], 3)
 
     def test_lessons_keep_their_evidence_after_the_next_round_starts(self):
         """The reports a lesson came from are reset by start; the lesson is not."""
@@ -639,7 +931,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.caused_round('second', previous='first')
         self.commit('fix again')
         named = [dict(command='c', expected='e', observed='e', covers='code.txt:second')]
-        self.start(correction=True, nit='', probe=named)
+        self.start(correction=True, nit='', probe=named, design=True)
         self.assertIn('claude::code.txt:second: wrong', self.text('lessons'))
 
     def test_a_deferred_self_inflicted_blocker_still_needs_its_probe(self):
@@ -653,7 +945,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex', resolutions=[dict(id='claude::code.txt:first', evidence='verified fixed')])
         self.triage([dict(id='claude::code.txt:second', status='deferred', evidence='later')])
         self.commit('fix again')
-        blind = self.start(ok=False, correction=True).stderr
+        blind = self.start(ok=False, correction=True, design=True).stderr
         self.assertIn('no probe names them', blind)
 
     def test_a_rejected_finding_is_not_blamed_on_the_correction(self):
@@ -672,6 +964,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('has produced a finding yet', self.text('lessons'))
         self.commit('next')
         self.assertEqual(self.start(correction=True)['round'], 3)
+        self.checks()
         self.assertNotIn('the correction produced the finding', self.text('prompt'))
 
     def test_a_finding_elsewhere_is_not_blamed_on_the_correction(self):
@@ -695,32 +988,63 @@ class ReviewFlowTests(unittest.TestCase):
         self.start(correction=True, nit='')
         self.caused_round('second', previous='first')
         self.commit('fix again')
-        blind = self.start(ok=False, correction=True, nit='').stderr
+        # The round is a design round from here: the correction produced the finding it was
+        # reviewed for, and that is declared before anything else about the round is judged.
+        blind = self.start(ok=False, correction=True, nit='', design=True).stderr
         self.assertIn('no probe names them', blind)
         self.assertIn('claude::code.txt:second', blind)
         named = [dict(command='c', expected='e', observed='e', covers='code.txt:second')]
-        self.start(correction=True, nit='', probe=named)
+        self.start(correction=True, nit='', probe=named, design=True)
 
-    def test_two_self_inflicted_rounds_in_a_row_force_a_design_round(self):
-        """A third patch of a mechanism that produced two findings is what the rule stops."""
-        self.start(autonomous=True)  # a fourth round exists only inside a delivery's budget
+    def test_one_self_inflicted_round_already_forces_a_design_round(self):
+        """The second patch of a mechanism that produced a finding is what the rule stops.
+
+        This waited for two such rounds in a row, and waiting is what the second round was
+        spent proving. Measured in an unrelated repository on the same loop: when the author
+        finally ran a mutation matrix over the whole family instead of patching the latest
+        instance, it found two cells nothing in a 3100-test suite covered, in one round — the
+        round that should have been the second. Firing on the first is safe only because a
+        finding must name a trigger to be counted here, so an argument about a sentence in the
+        file just corrected no longer forces a redesign.
+        """
+        self.start(autonomous=True)
         self.caused_round('first')
-        for number in (2, 3):
-            self.commit('fix ' + str(number))
-            named = [dict(command='c', expected='e', observed='e', covers=f'code.txt:round{number - 1}')]
-            self.start(correction=True, nit='', probe=named)
-            self.caused_round(f'round{number}', previous='first' if number == 2 else 'round2')
-        self.commit('a third patch')
-        named = [dict(command='c', expected='e', observed='e', covers='code.txt:round3')]
+        # Round 1 has no correction to blame, so the first attributable round is round 2: this
+        # correction produces the finding round 2 is then reviewed for.
+        self.commit('a first patch')
+        self.start(correction=True, nit='',
+                   probe=[dict(command='c', expected='e', observed='e', covers='code.txt:first')])
+        self.caused_round('second', previous='first')
+        self.commit('a second patch')
+        named = [dict(command='c', expected='e', observed='e', covers='code.txt:second')]
         refused = self.start(ok=False, correction=True, nit='', probe=named).stderr
-        self.assertIn('Two corrections in a row introduced the finding', refused)
+        self.assertIn('The last correction introduced the finding it was then reviewed for', refused)
         self.assertIn('lessons', refused)
         state = self.start(correction=True, nit='', probe=named, design=True)
         self.assertTrue(state['design_round'])
+        self.checks()
         prompt = self.text('prompt')
         self.assertIn('the correction produced the finding', prompt)
-        self.assertIn('DESIGN ROUND: two corrections in a row introduced', prompt)
+        self.assertIn('DESIGN ROUND: the last correction introduced', prompt)
         self.assertNotIn('reopened after a claimed fix: .', prompt)
+
+    def test_the_lessons_checklist_names_the_stale_bytecode_hazard(self):
+        """The checklist the author reads before the next correction asks for a mutation matrix,
+        so it must also name the way a matrix lies. CPython invalidates bytecode on (mtime
+        seconds, size), so two mutants of the same size written inside one second serve the
+        previous mutant's result — and the direction that fails is "broke nothing", which
+        manufactures a false claim that a rule is uncovered. One row of a real matrix did
+        exactly this. Restoring the tree does not clear it: a source comparison says restored."""
+        self.start(autonomous=True)
+        self.caused_round('first')
+        self.commit('a first patch')
+        self.start(correction=True, nit='',
+                   probe=[dict(command='c', expected='e', observed='e', covers='code.txt:first')])
+        self.caused_round('second', previous='first')
+        advice = self.text('lessons')
+        self.assertIn('PYTHONDONTWRITEBYTECODE=1', advice)
+        self.assertIn('__pycache__', advice)
+        self.assertIn('mutation matrix before committing', advice)
 
     def test_a_correction_may_not_touch_what_no_finding_named(self):
         """This is where every bad round of this branch went bad: a fix arrived with a mechanism.
@@ -744,6 +1068,7 @@ class ReviewFlowTests(unittest.TestCase):
 
         widened = self.start(correction=True, widen='Max asked for it in the session')
         self.assertEqual(widened['widen_scope'], 'Max asked for it in the session')
+        self.checks()
         self.assertIn('touches files no open finding named', self.text('prompt'))
 
     def test_a_round_is_spent_on_a_defect_not_on_nits(self):
@@ -760,11 +1085,12 @@ class ReviewFlowTests(unittest.TestCase):
         self.triage([dict(id='claude::docs:wording', status='open', evidence='Confirmed')])
         self.commit('correct the wording')
         refused = self.start(ok=False, correction=True, nit='').stderr
-        self.assertIn('Every open finding is P3', refused)
+        self.assertIn('No open finding is one a round is for', refused)
         self.assertIn('--nit-round', refused)
         # Recorded, the round proceeds and both reviewers are told why.
         state = self.start(correction=True, nit='the wording misleads a reader of the protocol')
         self.assertEqual(state['round'], 2)
+        self.checks()
         self.assertIn('spent on P3 findings', self.flow('prompt').stdout)
         # A blocking finding needs no such reason; the nit is deferred, not carried open.
         keep = [dict(id='claude::docs:wording', evidence='reworded in this delta')]
@@ -783,7 +1109,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.triage([dict(id='claude::docs:wording', status='open', evidence='Confirmed')])
         self.commit('reword')
         refused = self.start(ok=False, correction=True, nit='').stderr
-        self.assertIn('Every open finding is P3', refused)
+        self.assertIn('No open finding is one a round is for', refused)
 
     def test_a_campaign_kept_aside_is_found_however_it_was_renamed(self):
         """The runtime's own recovery messages name a rename; each spelling must be seen."""
@@ -854,6 +1180,7 @@ class ReviewFlowTests(unittest.TestCase):
                                  'Max authorised a fresh campaign for the hook probe only'],
                                 cwd=self.repo, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.checks()
         self.assertIn('authorised to start over', self.flow('prompt').stdout)
 
     def test_the_command_the_notice_names_writes_both_files_it_checks(self):
@@ -913,6 +1240,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.git('commit', '-qm', 'rename and extend')
         state = self.start(correction=True, reason='')
         self.assertEqual(state['regression_tests'], ['tests/test_new.py'])
+        self.checks()
         self.assertIn('tests/test_new.py', self.flow('prompt').stdout)
 
     def test_correction_without_tests_needs_a_recorded_reason(self):
@@ -933,6 +1261,7 @@ class ReviewFlowTests(unittest.TestCase):
         state = self.start(correction=True, reason='')
         self.assertEqual(state['round'], 2)
         self.assertEqual(state['regression_tests'], ['tests/test_fix.py'])
+        self.checks()
         self.assertIn('Tests changed in this delta: tests/test_fix.py', self.flow('prompt').stdout)
         self.report('claude')
         self.report('codex')
@@ -947,6 +1276,7 @@ class ReviewFlowTests(unittest.TestCase):
         state = self.start(correction=True, reason='removed a flaky test on purpose')
         self.assertEqual(state['round'], 3)
         self.assertEqual(state['removed_tests'], ['tests/test_fix.py'])
+        self.checks()
         prompt = self.flow('prompt').stdout
         self.assertIn('removed a flaky test on purpose', prompt)
         self.assertIn('Tests removed in this delta: tests/test_fix.py', prompt)
@@ -1038,6 +1368,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_codex_child_keeps_lock_after_launcher_is_killed(self):
         """An orphaned child excludes retries until it exits, then recovery is bounded."""
         self.start()
+        self.checks()
         ready, release, done = [self.root / name for name in ('ready', 'release', 'done')]
         binary = self.fake_codex(f"#!{sys.executable}\nimport time,pathlib\n"
             f"pathlib.Path({str(ready)!r}).touch()\n"
@@ -1079,6 +1410,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_codex_wait_does_not_lock_out_claude_report(self):
         """Concurrent model completion preserves both reports without blocking the writer."""
         state = self.start()
+        self.checks()
         ready, release = self.root / 'ready', self.root / 'release'
         report = dict(status='completed', head=state['head'], base=state['review_base'],
                       summary='Fixture review', findings=[], resolutions=[])
@@ -1116,7 +1448,14 @@ class ReviewFlowTests(unittest.TestCase):
 
     def waive(self, script=None):
         """Run the probe against the Codex this test installed, and keep that machine for the
-        rest of the campaign."""
+        rest of the campaign.
+
+        The declared gates run first because the adapters check them before reserving an
+        attempt, which is the order a real campaign follows; a fixture that skipped them would
+        be modelling a sequence the runtime refuses.
+        """
+        if not self.flow('status')['checks']:
+            self.checks()
         self.locations = [self.fake_codex(script)] if script else []
         result = self.flow('codex')
         return result['codex_waiver'], self.locations
@@ -1141,6 +1480,7 @@ class ReviewFlowTests(unittest.TestCase):
         """A Codex that runs and reports an exhausted account is a reviewer this machine
         cannot run, and the waiver names the binary it was measured against."""
         self.start()
+        self.checks()
         waiver, locations = self.waive(script=self.QUOTA)
         self.assertEqual(waiver['reason'], 'quota')
         # Not .resolve(): the waiver records the stable name, so an upgrade that repoints
@@ -1159,6 +1499,7 @@ class ReviewFlowTests(unittest.TestCase):
         deleting a credentials file enough to clear any candidate."""
         self.locations = [self.fake_codex(self.AUTH)]
         self.start()
+        self.checks()
         result = self.flow('codex', ok=False)
         self.assertIn('codex-setup', result.stderr)
         self.assertNotIn('codex_waiver', self.flow('status'))
@@ -1173,6 +1514,7 @@ class ReviewFlowTests(unittest.TestCase):
                   'echo "ERROR: transport closed"\nexit 1\n')
         self.locations = [self.fake_codex(echoed)]
         self.start()
+        self.checks()
         result = self.flow('codex', ok=False)
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn('Codex failed', result.stderr)
@@ -1189,9 +1531,15 @@ class ReviewFlowTests(unittest.TestCase):
     ALIVE = '#!/bin/sh\necho OK\nexit 0\n'
 
     def exhaust(self):
-        """Spend both review attempts the way a round that hit the wall already did."""
+        """Spend both review attempts the way a round that hit the wall already did.
+
+        The gates run first, because an attempt is only reserved once they have passed: a
+        fixture that burned attempts without them would be spending a budget the runtime
+        never lets a real campaign spend.
+        """
         self.locations = [self.fake_codex(self.UNRECOGNISED)]
         self.start()
+        self.checks()
         for _ in range(2):
             self.flow('codex', ok=False)
         state = self.flow('status')
@@ -1241,6 +1589,7 @@ class ReviewFlowTests(unittest.TestCase):
         its attempt count says: the guard is the report, not the ordering."""
         self.locations = [self.fake_codex(self.UNRECOGNISED)]
         self.start()
+        self.checks()
         self.flow('codex', ok=False)
         self.report('codex')
         self.assertIn('Reuse the completed Codex review', self.flow('codex', ok=False).stderr)
@@ -1289,6 +1638,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.locations = [binary]
         self.bind_escalated()
         self.start()
+        self.checks()
         self.flow('codex', ok=False)
         self.assertNotIn('-p', eval(argv.read_text()))
 
@@ -1344,6 +1694,35 @@ class ReviewFlowTests(unittest.TestCase):
                          if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                          and node.end_lineno - node.lineno + 1 > 50})
         self.assertFalse(over, f'functions over 50 lines: {over}')
+
+    def test_a_correction_that_changes_a_test_must_show_it_failing(self):
+        """A case the author believes exercises the fix is not evidence that it does.
+
+        Measured across two campaigns on two repositories: every such belief that was
+        checked turned out wrong, and a reviewer checked it every time, by reverting the
+        change and watching the case stay green. Reverting costs seconds, so the round asks
+        for that output instead of the belief.
+        """
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        # Deliberately not finished: a cleared candidate makes the next start a first round
+        # with no correction contract at all, so the rule under test is never reached. An
+        # earlier version of this case did exactly that and the runtime answered 0, not 2.
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests' / 'test_thing.py').write_text('def test_thing():\n    assert True\n')
+        self.commit('correction that changes a test')
+
+        believed = [dict(command='python3 -m pytest tests/test_thing.py', expected='passes',
+                         observed='passes')]
+        refused = self.start(ok=False, correction=True, probe=believed).stderr
+        self.assertIn('without_fix', refused)
+        self.assertIn('never watched fail', refused)
+
+        shown = [dict(believed[0], without_fix='reverted the guard; the case failed with '
+                                               'AssertionError on the invariant it names')]
+        self.assertEqual(self.start(correction=True, probe=shown)['round'], 2)
 
     def test_the_substitute_is_refused_without_a_waiver_the_runtime_granted(self):
         """claude-b is the stand-in for a Codex the probe could not run. With Codex available
