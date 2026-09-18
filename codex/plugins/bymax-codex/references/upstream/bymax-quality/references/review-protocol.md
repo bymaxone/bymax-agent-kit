@@ -466,28 +466,30 @@ another worktree's receipt cannot authorize a different SHA. It also refuses any
 containing an option that would skip or redirect the hook (`no-verify`, `hooksPath`,
 `GIT_DIR`, `--git-dir`, `GIT_WORK_TREE`, writes under `.git/hooks`) or husky's own skip
 switch (`HUSKY=`, honoured by its dispatcher before the tracked hook runs), matched as a
-substring wherever it appears — **but only where the command could reach a remote**, which
+substring wherever it appears, in the raw command **and** in the words the shell would hand on —
+a token split across quotes is absent from one and present in the other — **but only where the command could reach a remote**, which
 means it contains `push` and names a program able to start another (`git`, a shell, `eval`,
 `env`, `xargs`, `ssh` and the like; an unparseable command counts as yes). A command that
 merely names one of these tokens — reading a hook, grepping for the string, the two piped
 greps this repository's own command files prescribe — is not scanned at all.
 
-**And, for a push whose shape the parser does not recognise, the hook must still be installed.**
-`hook_intact` asks the filesystem: with a campaign directory present, the hooks path must hold a
-`pre-push` that exists, is non-empty and is executable, or the command is refused. For the
-literal shape this adds nothing, because `approved()` performs its own receipt lookup and never
-consults the hook; the gap it closes is the other one, where the adapter has no opinion and the
-hook is all that remains. Removing the hook therefore does not clear a candidate — it only stops
-the next push until `start` reinstalls it.
+**It does not defend the hook file, and says so rather than appearing to.** Two rounds of this
+campaign were spent trying. The first exempted "commands that only read" by listing the programs
+that qualify, and both reviewers emptied that list in one round: `rg --pre CMD`, `ack --pager=CMD`
+and `git ls-remote --upload-pack=CMD` each run a program the caller names while reading, and one
+of them deleted an installed hook end to end while the adapter returned exit 0. The second
+compared the hook against a record `start` wrote, and that was inert in four independent ways — no
+record exists on any installed copy until the next campaign, one unrefused `rm` removes it, a
+malformed one becomes a push refusal, and the recorded path can diverge from the path git runs
+hooks from.
 
-That pairing replaced an earlier attempt to exempt "commands that only read" by listing the
-programs that qualify, and the reason it was replaced is worth keeping. Both reviewers broke
-that list in a single round: `rg --pre CMD`, `ack --pager=CMD` and `git ls-remote
---upload-pack=CMD` each run a program the caller names while reading, and one of them deleted an
-installed hook end to end with the adapter returning exit 0. The set of such flags across the set
-of such programs has no closed form, so the question "which command could damage the hook" is not
-asked any more. Whether the hook is there is asked instead, and that answer does not depend on how
-it left.
+The reason is structural, and this document already stated it about deliberate evasion: a session
+that can run arbitrary shell can undo any local check that a local check could observe. What holds
+instead is what always held — `start` reinstalls and re-verifies the hook, and a candidate cannot
+clear without `start`; the hook receives the pushed SHAs from git itself, so no spelling of a push
+command evades it; and required status checks are the boundary for anything deliberate. Writes
+under `.git/hooks` stay in the token list for a command that could reach a remote, where they can still
+do something.
 
 **Every other command passes through untouched**: a push
 spelled in any other arrangement is not the adapter's to judge, and the hook decides.
@@ -495,8 +497,10 @@ spelled in any other arrangement is not the adapter's to judge, and the hook dec
 The adapter is not the enforcement boundary and is not described as one. The residue no
 local design closes is a hook-skipping option spelled so the adapter's substring check
 cannot see it, since git itself provides that escape; the tests document it, and CI is
-the boundary for deliberate evasion. A command that removes the hook is no longer refused —
-it is allowed to run, and the push after it is what stops. A completed review is evidence of coverage, not a
+the boundary for deliberate evasion. A command that removes the hook is no longer refused,
+and nothing local refuses the push after it either when that push is spelled in a shape this
+adapter does not recognise. That residue is named here rather than papered over, because two
+attempts to close it locally were each bypassed in the round after they shipped. A completed review is evidence of coverage, not a
 guarantee that the code has no bugs.
 
 ## Basis and operating assumptions

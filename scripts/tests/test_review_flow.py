@@ -266,77 +266,16 @@ class ReviewFlowTests(unittest.TestCase):
                         'git config --get core.hooksPath', 'git log --oneline -3'):
             self.push(command)
 
-    def test_a_push_the_adapter_cannot_judge_needs_the_hook_to_still_be_there(self):
-        """The invariant the tampering refusals were standing in front of, held directly.
-
-        Both reviewers broke the allowlist of reading programs in one round: `rg --pre CMD`,
-        `ack --pager=CMD` and `git ls-remote --upload-pack=CMD` each run a program the caller
-        names while reading, and one of them deleted an installed hook end to end with the
-        adapter returning exit 0. The list of such flags across the list of such programs has
-        no closed form, so the mechanism stopped asking which command is dangerous and asks the
-        filesystem whether the hook is there — an answer that does not depend on how it left.
-
-        The two-step bypass is what mattered: remove the hook, then push in a shape parse()
-        does not recognise, where approved() never runs. That is refused now however the first
-        step was spelled, and it was NOT refused before, because the first step only had to use
-        a program the list had not thought of.
-        """
-        self.start()
-        self.complete()
-        hook = self.repo / '.git/hooks/pre-push'
-        self.assertTrue(hook.is_file())
-        # Intact: an unrecognised push shape is the adapter's business only through the hook,
-        # and the hook is there, so the command is left alone.
-        self.push('eval git push origin HEAD')
-        self.push('git stash push')
-        for damage in ('unlink', 'empty', 'unexecutable', 'replaced'):
-            with self.subTest(damage=damage):
-                mode = hook.stat().st_mode
-                body = hook.read_bytes()
-                if damage == 'unlink':
-                    hook.unlink()
-                elif damage == 'empty':
-                    hook.write_bytes(b'')
-                elif damage == 'unexecutable':
-                    hook.chmod(0o644)
-                else:
-                    # Replaced rather than removed: it exists, is non-empty and is executable,
-                    # and it checks nothing. Both reviewers measured an unreviewed commit
-                    # reaching a remote behind exactly this, which is why the question the
-                    # adapter asks is whether the file is the one the campaign accepted.
-                    hook.write_text('#!/bin/sh\nexit 0\n')
-                    hook.chmod(0o755)
-                for shape in ('eval git push origin HEAD', 'git stash push'):
-                    refused = self.push(shape, ok=False)
-                    self.assertIn('nothing would check a receipt', refused.stderr)
-                hook.write_bytes(body)
-                hook.chmod(mode)
-        self.push('eval git push origin HEAD')
-        self.push('git stash push')
-
-    def test_a_directory_that_is_not_a_repository_is_not_an_error(self):
-        """This adapter is a global PreToolUse hook: it sees every Bash command in every
-        directory, including ones with no repository. Asking git there raised, cli() turned the
-        exception into BLOCKED, and the refusal carried an instruction to run a review campaign
-        and retry a push — for something that was not a push, in a directory with no campaign.
-        That is the class this branch exists to close, introduced by this branch."""
-        outside = self.root / 'not-a-repo'
-        outside.mkdir()
-        for command in ('sh -c "npm run push"', 'eval git push origin HEAD', 'xargs git push'):
-            self.push(command, cwd=outside)
-
-    def test_a_repository_with_no_campaign_has_no_hook_of_ours_to_require(self):
-        """The hook requirement is about a check this package installed. Where no campaign has
-        run there is none, and demanding one would refuse pushes in every repository that never
-        asked for this."""
-        other = self.root / 'unenrolled'
-        other.mkdir()
-        subprocess.run(['git', 'init', '-q', str(other)], check=True)
-        self.push('eval git push origin HEAD', cwd=other)
-
     def test_a_command_that_could_not_reach_a_remote_is_never_scanned(self):
         """What the first attempt at this got wrong, plus the two shapes both reviewers used to
-        break it and the two this repository's own command files prescribe. None can push: the
+        break it and the two this repository's own command files prescribe.
+
+        These pass and are meant to. This adapter refuses a push spelled to skip the receipt
+        check; it does not defend the hook file, and two rounds spent trying taught why: every
+        local check of the hook is undone by the same shell the check is defending against, and
+        each layer was found bypassable in the round after it. `start` reinstalls and
+        re-verifies the hook, which is when it matters, and CI is the boundary for deliberate
+        evasion — which is what the protocol always said. None can push: the
         first three name no program able to start another, and the last two contain no `push`
         at all. Each was refused while the scan ran on every command."""
         self.start()
@@ -374,7 +313,13 @@ class ReviewFlowTests(unittest.TestCase):
                         # previous candidate: returned as no-opinion, and the commit reached
                         # the remote with the hook present and never invoked.
                         'git -c core.hooksPath=/dev/null pu""sh origin HEAD',
-                        'git -c core.hooksPath=/dev/null pu\\sh origin HEAD'):
+                        'git -c core.hooksPath=/dev/null pu\\sh origin HEAD',
+                        # And the mirror image: the verb is plain and the TOKEN is split across
+                        # quotes, so the raw command holds no `hooksPath` while the words the
+                        # shell hands git do. Reading one form and not the other was the half of
+                        # the previous round's repair I left undone, one line below the half I made.
+                        'git -c core.hooks""Path=/dev/null push origin HEAD',
+                        'git -c core.hooks\\Path=/dev/null push origin HEAD'):
             self.push(command, ok=False)
 
     def test_adapter_refuses_what_would_disarm_the_hook(self):

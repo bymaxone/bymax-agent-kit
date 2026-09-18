@@ -10,7 +10,6 @@ would disable or redirect that hook. Every other command passes through untouche
 A push deliberately spelled so that neither check sees it is outside what a local guard
 can prevent; review-protocol.md names CI as the boundary for that.
 """
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -58,9 +57,8 @@ def could_push(command):
     `push` in it cannot push, and a command that names no program able to start another cannot
     be hiding one. Both halves are conservative — unparseable answers yes.
     """
-    try:
-        words = shlex.split(command)
-    except ValueError:
+    words = words_of(command)
+    if words is None:
         return True
     # The parsed words, never the raw text. The shell and git act on these, so a push verb
     # spelled pu""sh or pu\sh is invisible in the raw command and fully present here — measured:
@@ -71,45 +69,17 @@ def could_push(command):
     return any(Path(word).name in RUNNERS for word in words)
 
 
-def hook_intact(cwd):
-    """Require the receipt check to still be installed, for a push this adapter cannot judge.
-
-    Observed, never inferred from the command. Whatever removed the hook — `rm`, a reader's
-    escape hatch, a program nobody has catalogued — the file is either there or it is not, and
-    that question has an answer where "which commands are dangerous" does not.
-
-    Only for a push whose shape parse() does not recognise. For the literal shape approved()
-    performs its own receipt lookup and never consults the hook, so the hook's absence changes
-    nothing there; the gap this closes is the other one, where the adapter has no opinion and
-    the hook is all that remains. Where this repository has no campaign there is no hook of
-    ours to protect, and nothing is required.
-    """
-    try:
-        common = (Path(cwd) / Path(git(cwd, 'rev-parse', '--git-common-dir'))).resolve()
-    except subprocess.SubprocessError:
-        return          # not a repository at all, so there is no hook of ours here either
-    record = common / 'bymax-review' / 'hook.json'
-    if not record.is_file():
-        return          # no campaign has installed or verified a hook in this repository
-    accepted = json.loads(record.read_text())
-    path = Path(accepted['path'])
-    # Integrity, not presence. A hook replaced by a no-op exists, is non-empty and is
-    # executable — measured, with an unreviewed commit reaching the remote behind it — so what
-    # is compared is the file start() accepted, by content. Executability is checked too,
-    # because chmod -x leaves the content identical and git then runs nothing.
-    intact = (path.is_file() and os.access(path, os.X_OK)
-              and hashlib.sha256(path.read_bytes()).hexdigest() == accepted['sha256'])
-    require(intact,
-            'This command could push, this adapter does not recognise its shape, and the '
-            'pre-push receipt check at ' + str(path) + ' is missing, altered or not executable '
-            'since the campaign accepted it — so nothing would check a receipt. Run '
-            '`python3 "$FLOW" start` to reinstall and re-verify it, then retry. Changing the '
-            'hook does not clear a candidate; it only stops this push.')
-
-
 def git(cwd, *args):
     """Read repository state for the command's explicit working directory."""
     return subprocess.check_output(['git', '-C', str(cwd), *args], text=True, stderr=subprocess.DEVNULL).strip()
+
+
+def words_of(command):
+    """The command as the shell would hand it on, or None when it cannot be parsed."""
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return None
 
 
 def parse(command, cwd):
@@ -120,14 +90,19 @@ def parse(command, cwd):
     """
     # Case-insensitive: git reads config keys and most of these options that way too.
     lowered = command.lower()
+    words = words_of(command)
     pushes = could_push(command)
-    require(not pushes or not any(token.lower() in lowered for token in DISARMS),
+    # Both forms. A token split across quotes — core.hooks""Path — is absent from the raw text
+    # and present once the shell has parsed it; a token the shell would not have produced is
+    # absent from the words and present in the text. Reading one of them was the unrepaired
+    # half of the previous round's fix, which moved the precondition to the words and left the
+    # scan a line below it on the raw command.
+    seen = lowered + '\n' + ' '.join(words).lower() if words is not None else lowered
+    require(not pushes or not any(token.lower() in seen for token in DISARMS),
             'That would disable or redirect the pre-push receipt check; run a plain git push. '
             'A command that only names one of these — reading a hook, grepping for the token — '
             'is not this refusal: it applies where the command could reach a remote.')
-    try:
-        words = shlex.split(command)
-    except ValueError:
+    if words is None:
         return None
     tail = command
     if words[:1] == ['cd'] and len(words) > 3 and words[2] == '&&':
@@ -136,15 +111,11 @@ def parse(command, cwd):
     while words and ASSIGNMENT.match(words[0]):
         words = words[1:]
     if not words or Path(words[0]).name != 'git':
-        if pushes:
-            hook_intact(cwd)     # a push this adapter cannot judge; the hook is what is left
         return None
     words = words[1:]
     if words[:1] == ['-C'] and len(words) > 1:
         cwd, words = (Path(cwd) / words[1]).resolve(), words[2:]
     if words[:1] != ['push']:
-        if pushes:
-            hook_intact(cwd)     # `git stash push` reaches here too, and passes: the hook is there
         return None
     # The shape matched, so from here the command is a push and must be exactly one.
     require(not any(c in tail for c in '$`;|&<>\n'), 'Use a literal git push in its own command.')

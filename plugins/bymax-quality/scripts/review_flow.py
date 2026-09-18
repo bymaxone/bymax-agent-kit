@@ -148,22 +148,6 @@ SUPERSEDED = frozenset({'c02a58c70dddeba812740dd2f83a5be43c14ad8e6cd2e35cbba6235
                         'cd0a2f7f5b49b3557b1362a707347604f24cc136a3a96a3cb3fe7b956f52f7db'})
 
 
-def record_hook(path):
-    """Write down the hook this campaign accepted, so the Bash adapter can tell it apart later.
-
-    install_hook accepts a hook three ways: the bundled file, one a human merged the check
-    into while keeping its marker, and — for a custom hooks directory or a husky stub — one
-    that passed the probe pushes. None of those is a fixed shape, and re-running the probe on
-    every Bash command is not affordable, so what was accepted is recorded and compared
-    instead. Presence alone was not enough: a hook replaced by a no-op exists, is non-empty
-    and is executable, and checks nothing.
-    """
-    directory = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / 'hook.json').write_text(json.dumps(
-        dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest()), indent=2))
-
-
 def install_hook():
     """Place the pre-push receipt check in this repository, refusing to displace another.
 
@@ -184,7 +168,6 @@ def install_hook():
                 'there (or in the tracked hook a generated stub delegates to) that invokes '
                 + str(source) + ', and start again.')
         usable_hook(reconciled)
-        record_hook(reconciled)
         return
     target = Path(git('rev-parse', '--git-common-dir')).resolve() / 'hooks' / 'pre-push'
     if target.exists() or target.is_symlink():
@@ -202,17 +185,14 @@ def install_hook():
             target.write_bytes(source.read_bytes())
             target.chmod(0o755)
             usable_hook(target)
-            record_hook(target)
             return
         # Carries the check at the current policy but is not the bundled file: merged or
         # edited by hand, so it is kept; the probe pushes decide whether it still enforces.
         usable_hook(target)
-        record_hook(target)
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(source.read_bytes())
     target.chmod(0o755)
-    record_hook(target)
 
 
 HOOK_SECONDS = 60
