@@ -630,42 +630,30 @@ class ProseReferenceTests(unittest.TestCase):
         # The two documents whose purpose is naming test modules must be among the sources, or
         # the gate is blind where its subject is most written about — which it was.
         read = {str(path.relative_to(ROOT)) for path in self.sources()}
-        # What must be read is stated without consulting the derivation, and at the granularity
-        # a shrink happens at. Two earlier versions failed on one of those: a floor of 100
-        # against 130 sources let a whole plugin leave the gate while passing, and the
-        # replacement that compared top-level directories asked foreign() for the expected side
-        # — so the mutant moved both — and would have kept passing anyway, since eight other
-        # plugins hold `plugins` in the set. Each shipped plugin is named by the index and must
-        # contribute — every one that tracks a document or a script at any depth, since a
-        # pathspec reaching only the plugin's own directory would let a plugin whose markdown
-        # lives a level down leave without failing anything.
-        listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '--',
-                                 'plugins/*.md', 'plugins/*.py'], capture_output=True)
-        shipped = {name.split('/')[1] for name in os.fsdecode(listed.stdout).split('\0') if name}
-        # Not the assertion — the assertion is below. This is the same question the two lines
-        # above ask of their own inputs: did the pathspec return anything at all, or is the
-        # loop iterating over nothing and passing for that reason.
-        self.assertGreater(len(shipped), 5, 'no plugins were listed; the pathspec broke and the '
-                                            'check below would pass over an empty set')
-        missing = [plugin for plugin in sorted(shipped)
-                   if not any(path.startswith('plugins/' + plugin + '/') for path in read)]
-        self.assertFalse(missing, 'a plugin this repository authors is no longer read by the '
-                                  'gate: ' + str(missing))
-        for named in ('TESTING.md', 'REVIEW.md', 'AGENTS.md', 'README.md', 'vendor/README.md'):
-            if (ROOT / named).is_file():
-                self.assertIn(named, read)
-        # And nothing from the directories this repository tracks but did not write. Named
-        # here and not read from the derivation, so an assertion cannot move with the thing it
-        # guards — the shape that let a shrunken exclusion list pass once already.
-        for foreign in ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/bymax-codex/'):
-            self.assertFalse([path for path in read if path.startswith(foreign)],
-                             foreign + ' is tracked but not authored here, and is being read')
-        # And nothing the repository does not track: rglob read pytest's caches and this
-        # machine's local audit evidence, which are not claims this repository makes.
-        tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z'], capture_output=True)
-        index = {name for name in os.fsdecode(tracked.stdout).split('\0') if name}
-        self.assertFalse([path for path in read if path not in index],
-                         'the gate is reading files git does not track')
+        # One statement, exact, and stated without consulting the derivation it checks. What
+        # this repository authors is every tracked .md and .py except the three trees it does
+        # not, and those three are written here as literals — the derivation's job is to arrive
+        # at the same answer from markers, which its own case proves separately.
+        #
+        # Four partial rules stood here before and each let something through. A floor of 100
+        # against 130 sources passed at 129, so a whole plugin could leave. Comparing top-level
+        # directories asked foreign() for the expected side, so the mutant moved both, and
+        # `plugins` survives while eight of nine plugins remain. Requiring each plugin to
+        # contribute one file missed every shrink that is not plugin-shaped — all of scripts/,
+        # or every plugins/*/skills/ — and misread a future plugins/README.md as a plugin. And
+        # a floor beside any of them only catches a shrink large enough to cross it. Equality
+        # catches all of them, in both directions, and needs no floor: a gate reading nothing
+        # is a gate reading the wrong set.
+        listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '--', '*.md', '*.py'],
+                                capture_output=True)
+        every = {name for name in os.fsdecode(listed.stdout).split('\0') if name}
+        VENDORED = ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/bymax-codex/')
+        expected = {name for name in every
+                    if not any(name.startswith(part) for part in VENDORED)}
+        self.assertEqual(expected, read,
+                         'the gate no longer reads exactly what this repository authors. Not '
+                         'read: ' + str(sorted(expected - read)[:8]) + '; read but not ours or '
+                         'not tracked: ' + str(sorted(read - expected)[:8]))
         dangling = {}
         for path in self.sources():
             for name in self.NAME.findall(self.prose(path)):

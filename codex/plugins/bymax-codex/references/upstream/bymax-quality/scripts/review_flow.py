@@ -398,7 +398,7 @@ def hook_remedy(path, checker):
 
     What this answers is one question: given THIS path, is deleting the hook a remedy or a way
     to end up with no check at all. Which refusals ask it is not stated here, and that is
-    deliberate. Six attempts to summarise that boundary in a sentence were each found false by
+    deliberate. Every attempt to summarise that boundary in a sentence has been found false by
     a reviewer — the last claimed the helper answers a hook that is present and runnable, while
     a directory sitting at the hook path, a hook that outran its probe and one that could not be
     executed all ask it. The enumeration is not a rule; it is a list the code decides case by
