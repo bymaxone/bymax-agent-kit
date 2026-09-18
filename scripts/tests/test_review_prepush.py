@@ -367,40 +367,54 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
     def test_the_refusals_that_want_a_different_remedy_are_named(self):
-        """The sentence about which refusals route through hook_remedy kept being written as a
-        count, and every count of it drifted, because nothing checked either the count or the
-        rule behind it.
+        """The list this test holds is the one the runtime docstring stopped trying to state.
 
-        What is stable is the rule: the helper answers a hook that is present, runnable and
-        does not enforce. A refusal about a hook that is not runnable wants a mode; one about a
-        directory holding no pre-push wants a file, since there is nothing to fix; one about a
-        hook this campaign never installed wants a hand merge, because it is not ours to
-        displace. Those are asserted here by what they are about, not by how many there are —
-        counting them in the gate written because counts drift would be the same mistake with
-        a test around it. A new exception, or a renamed one, fails here.
+        Seven attempts at a sentence summarising which refusals route through hook_remedy were
+        each found false: three were counts, which drifted; the rest were rules whose scope
+        excluded refusals that do ask the helper, or included ones that do not. The sixth said it
+        answers a hook that is present and runnable — but a hook can be in two of these states
+        at once (non-executable and on the wrong policy, say), and then the answer is whichever
+        refusal the code reaches first, which no sentence about hook states can predict. So
+        there is no summary, here or anywhere: this is a list, and the code decides membership
+        case by case.
+
+        What the list is keyed by matters, though. Not a count — counting them in the gate
+        written because counts drift would be the same mistake with a test around it. Not words
+        in the message either: that let a new refusal in by naming a known subject in passing.
+        Each entry is the expression that triggers it, which no other refusal can borrow, so a
+        new exception fails here and the prose pointing at this list is corrected with it.
         """
         source = (ROOT / 'plugins/bymax-quality/scripts/review_flow.py').read_text()
         tree = ast.parse(source)
-        other = []
+        other, raised = [], []
         for node in ast.walk(tree):
             if not (isinstance(node, ast.FunctionDef)
                     and node.name in ('usable_hook', 'upholds', 'run_hook', 'install_hook')):
                 continue
             for call in ast.walk(node):
-                if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) \
-                        and call.func.id in ('require', 'ValueError') \
-                        and 'hook_remedy' not in (ast.get_source_segment(source, call) or ''):
-                    other.append(ast.get_source_segment(source, call) or '')
-        subjects = ' '.join(other)
-        expected = ('not executable', 'holds no pre-push', 'not managed by this campaign')
-        for marks in expected:
-            self.assertIn(marks, subjects, 'an exception changed what it is about: ' + marks)
-        # And nothing beyond them: an exception whose subject is not one of these is a refusal
-        # that declined the shared remedy without the prose ever saying why.
-        unexplained = [o[:70] for o in other
-                       if not any(marks in o for marks in expected)]
-        self.assertFalse(unexplained, 'a refusal wants a different remedy for a reason the rule '
-                                      'does not state: ' + str(unexplained))
+                if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                        and call.func.id in ('require', 'ValueError')
+                        and 'hook_remedy' not in (ast.get_source_segment(source, call) or '')):
+                    continue
+                (other if call.func.id == 'require' else raised).append(call)
+        # Keyed by the CONDITION, not by words in the message. Matching the message let a new
+        # exception through by naming a known subject in passing — measured: a refusal reading
+        # 'Unlike a hook that is not executable, ...' was accepted by the previous version of
+        # this check, which is the mention-versus-membership hole it was written to close and
+        # did not. What a refusal is about is the expression that triggers it, and no other
+        # refusal can borrow that.
+        conditions = {' '.join((ast.get_source_segment(source, call.args[0]) or '').split())
+                      for call in other}
+        self.assertEqual(conditions, {'reconciled.exists()', 'HOOK_MARKER in text',
+                                      'os.access(path, os.X_OK)'},
+                         'the set of refusals wanting a different remedy moved; correct the '
+                         'prose that points here with it: ' + str(sorted(conditions)))
+        # A raise has no condition to key on, so one that declines the shared remedy cannot be
+        # checked this way and must not pass unnoticed. Today every raise here asks the helper.
+        self.assertFalse([' '.join((ast.get_source_segment(source, c) or '').split())[:80]
+                          for c in raised],
+                         'a raised refusal declines the shared remedy; give it a condition or '
+                         'state here why this answer is wrong for it')
 
     def test_every_hook_refusal_asks_the_shared_remedy(self):
         """Every refusal in upholds ends with hook_remedy, and none anywhere spells one by hand.

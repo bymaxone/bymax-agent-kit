@@ -533,8 +533,12 @@ class ProseReferenceTests(unittest.TestCase):
         listed = subprocess.run(['git', '-C', str(root), 'ls-files', '-z',
                                  '--', ':(glob)**/ATTRIBUTION.md'], capture_output=True)
         names = [n for n in os.fsdecode(listed.stdout).split('\0') if n]
+        # The LICENSE is read from the index too: an untracked one, dropped in by anything at
+        # all, must not be able to authorise an exclusion.
+        everything = subprocess.run(['git', '-C', str(root), 'ls-files', '-z'], capture_output=True)
+        tracked = {n for n in os.fsdecode(everything.stdout).split('\0') if n}
         roots = {str(Path(name).parent) + '/' for name in names
-                 if (root / Path(name).parent / 'LICENSE').is_file()}
+                 if str(Path(name).parent / 'LICENSE') in tracked}
         bundler = root / 'codex/scripts/bundle.py'
         if bundler.is_file():
             named = re.search(r"PACKAGE = ROOT / '([^']+)'", bundler.read_text())
@@ -603,11 +607,18 @@ class ProseReferenceTests(unittest.TestCase):
         (scratch / 'docs/LICENSE').write_text('ours\n')
         (scratch / 'notes').mkdir()
         (scratch / 'notes/ATTRIBUTION.md').write_text('no licence beside this one\n')
+        # And one whose LICENSE is on disk but was never added. Without this shape the case
+        # cannot tell the index from the filesystem at all — everything above is staged, so
+        # both readings agree and a mutation from one to the other changes no answer.
+        (scratch / 'dropped').mkdir()
+        (scratch / 'dropped/ATTRIBUTION.md').write_text('claims to be vendored\n')
         subprocess.run(['git', '-C', str(scratch), 'add', '-A'], check=True)
+        (scratch / 'dropped/LICENSE').write_text('untracked, and so not this repository saying so\n')
         derived = self.foreign(scratch)
         self.assertNotIn('third-party/ours/', derived)
         self.assertNotIn('docs/', derived)
         self.assertNotIn('notes/', derived)
+        self.assertNotIn('dropped/', derived)
 
     def test_no_prose_names_a_case_that_does_not_exist(self):
         """The gate itself. A deleted case leaves its name behind in whatever pointed at it,
@@ -619,11 +630,27 @@ class ProseReferenceTests(unittest.TestCase):
         # The two documents whose purpose is naming test modules must be among the sources, or
         # the gate is blind where its subject is most written about — which it was.
         read = {str(path.relative_to(ROOT)) for path in self.sources()}
-        # A floor under the source set. The derivation below decides what leaves it, and a
-        # derivation that quietly excludes half the repository would otherwise make this gate
-        # pass by having nothing left to check.
-        self.assertGreater(len(read), 100, 'the gate is reading far less than this repository '
-                                           'authors; an exclusion has grown teeth')
+        # What must be read is stated without consulting the derivation, and at the granularity
+        # a shrink happens at. Two earlier versions failed on one of those: a floor of 100
+        # against 130 sources let a whole plugin leave the gate while passing, and the
+        # replacement that compared top-level directories asked foreign() for the expected side
+        # — so the mutant moved both — and would have kept passing anyway, since eight other
+        # plugins hold `plugins` in the set. Each shipped plugin is named by the index and must
+        # contribute — every one that tracks a document or a script at any depth, since a
+        # pathspec reaching only the plugin's own directory would let a plugin whose markdown
+        # lives a level down leave without failing anything.
+        listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '--',
+                                 'plugins/*.md', 'plugins/*.py'], capture_output=True)
+        shipped = {name.split('/')[1] for name in os.fsdecode(listed.stdout).split('\0') if name}
+        # Not the assertion — the assertion is below. This is the same question the two lines
+        # above ask of their own inputs: did the pathspec return anything at all, or is the
+        # loop iterating over nothing and passing for that reason.
+        self.assertGreater(len(shipped), 5, 'no plugins were listed; the pathspec broke and the '
+                                            'check below would pass over an empty set')
+        missing = [plugin for plugin in sorted(shipped)
+                   if not any(path.startswith('plugins/' + plugin + '/') for path in read)]
+        self.assertFalse(missing, 'a plugin this repository authors is no longer read by the '
+                                  'gate: ' + str(missing))
         for named in ('TESTING.md', 'REVIEW.md', 'AGENTS.md', 'README.md', 'vendor/README.md'):
             if (ROOT / named).is_file():
                 self.assertIn(named, read)

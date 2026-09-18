@@ -396,12 +396,14 @@ def hook_remedy(path, checker):
     pre-push. The sentence was true for the default path and wrong for the other, and nothing
     asked which one it was about — so the question is asked once, here.
 
-    This answer is for a hook that is present, runnable, and does not enforce: point it at the
-    checker, or delete it where start would write one back. A refusal about a hook that is not
-    runnable, not present, or not this campaign's to displace asks for something else — a mode,
-    a file, a hand merge — and says so itself. That boundary is held by
-    test_the_refusals_that_want_a_different_remedy_are_named, which asserts what those refusals
-    are about; this docstring states the rule and leaves the enumerating to it.
+    What this answers is one question: given THIS path, is deleting the hook a remedy or a way
+    to end up with no check at all. Which refusals ask it is not stated here, and that is
+    deliberate. Six attempts to summarise that boundary in a sentence were each found false by
+    a reviewer — the last claimed the helper answers a hook that is present and runnable, while
+    a directory sitting at the hook path, a hook that outran its probe and one that could not be
+    executed all ask it. The enumeration is not a rule; it is a list the code decides case by
+    case, and a list belongs in a test. test_the_refusals_that_want_a_different_remedy_are_named
+    holds it, and a refusal that stops asking for this answer fails there.
     """
     if managed_hook(path):
         return (f'Delete it so start reinstalls the bundled hook, or point it at {checker}, '
