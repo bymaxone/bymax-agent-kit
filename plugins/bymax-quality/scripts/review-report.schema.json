@@ -38,6 +38,10 @@
           },
           "evidence": {
             "type": "string"
+          },
+          "trigger": {
+            "type": "string",
+            "description": "The command or test, runnable by the author in this tree, that makes the defect appear. A finding blocks the receipt only if it carries one. Omit it where there is none; the finding is still recorded and still read."
           }
         },
         "required": [

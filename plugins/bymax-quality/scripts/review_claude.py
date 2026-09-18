@@ -35,7 +35,13 @@ def command(schema):
 
 
 def execute(directory, owner_fd, flow, reviewer):
-    """Supply the frozen diff and record only a completed matching structured report."""
+    """Supply the frozen diff and record only a completed matching structured report.
+
+    The declared gates are checked before the attempt is reserved: flow.prompt() raises when
+    they have not passed, and reserving first spent an attempt on a refusal no reviewer ever
+    saw. Same defect, same shape, in the other adapter of the pair.
+    """
+    flow.gate_first(flow.read_state(directory))
     state, attempts = reserve(directory, flow, reviewer)
     target = directory / f"{reviewer}-{state['round']}-{state[attempts]}.json"
     log = target.with_suffix('.log')

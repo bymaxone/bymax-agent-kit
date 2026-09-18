@@ -1062,6 +1062,12 @@ correct change hostage to text no test can check is the failure mode this field 
 def gate_first(state):
     """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
 
+    Both adapters call this BEFORE reserving their attempt. It raises from inside prompt(),
+    which they evaluate only as the subprocess input, so reserving first spent an attempt on a
+    refusal that never reached a reviewer — two of them exhausted the per-candidate budget with
+    nothing read, after which execute_codex diverts to an availability probe and reports a
+    spent budget for a reason Codex was never part of.
+
     A reviewer round is the scarcest thing a campaign spends, and a failing suite spends it
     on what the suite already reports. Measured here: rounds were lost to a test that read
     the developer machine's Codex and to a bundler that swept a local cache into the
@@ -1567,6 +1573,7 @@ def execute_codex(directory, owner_fd):
     already spent there is no review left to run, and the question that remains — whether
     this machine has a reviewer at all — is answered by an availability probe instead.
     """
+    gate_first(read_state(directory))   # before the attempt is reserved, never after
     exhausted = spent(directory)
     if exhausted is not None:
         return availability(directory, exhausted, owner_fd)

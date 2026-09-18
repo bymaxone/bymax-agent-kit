@@ -275,7 +275,15 @@ class ReviewFlowTests(unittest.TestCase):
         for command in ('rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push',
                         'git config core.hooksPath /dev/null',
                         'mv .git/hooks/pre-push /tmp/x', 'truncate -s 0 .git/hooks/pre-push',
-                        'sed -i s/x/y/ .git/hooks/pre-push', 'GIT_DIR=/other/.git git status'):
+                        'sed -i s/x/y/ .git/hooks/pre-push', 'GIT_DIR=/other/.git git status',
+                        # Both reviewers found these admitted by the first allowlist. None needs
+                        # a shell metacharacter, and each writes a file the caller names:
+                        # `sort -o` truncates the hook outright, POSIX makes uniq's second
+                        # operand its output, --output is a diff option every diff-producing
+                        # subcommand accepts, and awk's language can run another program at all.
+                        'sort -o .git/hooks/pre-push /dev/null', 'uniq /dev/null .git/hooks/pre-push',
+                        'git diff --output=.git/hooks/pre-push HEAD', 'git show --output=.git/hooks/pre-push HEAD',
+                        'awk BEGIN{system(\"rm .git/hooks/pre-push\")}'):
             self.push(command, ok=False)
 
     def test_adapter_refuses_what_would_disarm_the_hook(self):
@@ -498,6 +506,54 @@ class ReviewFlowTests(unittest.TestCase):
             '540 of 540 cached records carry the field the gate reads',
             'not measurable offline: the counter exists only in production telemetry'])))
         self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context))['round'], 1)
+
+    def test_every_field_the_blocking_rule_reads_is_representable_in_a_report(self):
+        """Both reviewer routes constrain the report to review-report.schema.json — review_flow
+        passes it to `codex exec --output-schema` and review_claude to `claude -p --json-schema`
+        — and that schema sets additionalProperties false. So a field blocks_a_receipt reads and
+        the schema does not declare is a field no automated reviewer can ever send: every
+        finding then fails the blocking test, finish lets real blockers be deferred, and the
+        receipt authorises the push. That is what shipping the trigger rule without touching the
+        schema did, and no case saw it because every fixture writes its reports by hand.
+
+        Derived from the runtime rather than restated: the keys come out of the function itself,
+        so adding a third one to the rule and forgetting the schema fails here.
+        """
+        source = ast.parse(FLOW.read_text())
+        rule = next(n for n in ast.walk(source)
+                    if isinstance(n, ast.FunctionDef) and n.name == 'blocks_a_receipt')
+        keys = {node.args[0].value for node in ast.walk(rule)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'get' and node.args
+                and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)}
+        self.assertIn('trigger', keys, 'the blocking rule no longer reads a trigger')
+        items = json.loads((FLOW.with_name('review-report.schema.json')).read_text())[
+            'properties']['findings']['items']
+        # The strictness is what makes the omission fatal rather than merely untidy.
+        self.assertIs(items.get('additionalProperties'), False)
+        missing = keys - set(items['properties'])
+        self.assertFalse(missing, f'blocks_a_receipt reads {sorted(missing)}, which no structured '
+                                  'report can carry')
+
+    def test_a_gate_refusal_does_not_spend_a_reviewer_attempt(self):
+        """Both adapters reserved the attempt before building the task, and the gate raises from
+        inside prompt(), which is only evaluated as the subprocess input. So a campaign whose
+        gates had not run spent an attempt on a refusal no reviewer ever saw, and two of them
+        exhausted the per-candidate budget with nothing read — after which execute_codex diverts
+        to an availability probe and reports a spent budget for a reason Codex was never part of.
+        The path is the old ordering, which every already-installed command file prescribes.
+        """
+        binary = self.fake_codex('#!/bin/sh\nexit 0\n')
+        self.start()
+        for _ in range(2):
+            refused = self.codex_run('codex', locations=[binary])
+            self.assertEqual(refused.returncode, 2, refused.stdout)
+            self.assertIn('have not run on this candidate', refused.stderr)
+        self.assertEqual(self.flow('status').get('codex_attempts', 0), 0)
+        # And once the gates pass, the attempt is spent on an actual run.
+        self.checks()
+        self.codex_run('codex', locations=[binary])
+        self.assertEqual(self.flow('status').get('codex_attempts', 0), 1)
 
     def test_the_declared_gates_run_before_a_reviewer_reads_the_tree(self):
         """A reviewer round is the scarcest thing a campaign spends, so the machine answers
@@ -1335,7 +1391,14 @@ class ReviewFlowTests(unittest.TestCase):
 
     def waive(self, script=None):
         """Run the probe against the Codex this test installed, and keep that machine for the
-        rest of the campaign."""
+        rest of the campaign.
+
+        The declared gates run first because the adapters check them before reserving an
+        attempt, which is the order a real campaign follows; a fixture that skipped them would
+        be modelling a sequence the runtime refuses.
+        """
+        if not self.flow('status')['checks']:
+            self.checks()
         self.locations = [self.fake_codex(script)] if script else []
         result = self.flow('codex')
         return result['codex_waiver'], self.locations
@@ -1411,9 +1474,15 @@ class ReviewFlowTests(unittest.TestCase):
     ALIVE = '#!/bin/sh\necho OK\nexit 0\n'
 
     def exhaust(self):
-        """Spend both review attempts the way a round that hit the wall already did."""
+        """Spend both review attempts the way a round that hit the wall already did.
+
+        The gates run first, because an attempt is only reserved once they have passed: a
+        fixture that burned attempts without them would be spending a budget the runtime
+        never lets a real campaign spend.
+        """
         self.locations = [self.fake_codex(self.UNRECOGNISED)]
         self.start()
+        self.checks()
         for _ in range(2):
             self.flow('codex', ok=False)
         state = self.flow('status')
@@ -1463,6 +1532,7 @@ class ReviewFlowTests(unittest.TestCase):
         its attempt count says: the guard is the report, not the ordering."""
         self.locations = [self.fake_codex(self.UNRECOGNISED)]
         self.start()
+        self.checks()
         self.flow('codex', ok=False)
         self.report('codex')
         self.assertIn('Reuse the completed Codex review', self.flow('codex', ok=False).stderr)

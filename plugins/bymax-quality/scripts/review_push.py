@@ -44,10 +44,16 @@ ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
 # exactly as before. `rm` and `chmod -x` on the hook file are not on this list and are still
 # refused, which is why the question asked here is "does this only read" and not "is this a
 # push" — a command that deletes the hook never mentions pushing.
+# Every program here must be one that cannot write a file the caller names and cannot run
+# another program. Both reviewers found the first version admitting writers: `sort -o FILE`,
+# `uniq INPUT OUTPUT` (POSIX makes the second operand the output), and `awk 'BEGIN{system(...)}'`,
+# none of which needs a shell metacharacter. `sort -o .git/hooks/pre-push /dev/null` truncates
+# the installed hook, and this predicate short-circuits the only scan that would have refused
+# it. awk decides the shape of the rule: a program whose language can execute commands is not a
+# read-only shape however it is invoked, so the test is the program and never its arguments.
 READS = frozenset({'grep', 'rg', 'ack', 'cat', 'head', 'tail', 'wc', 'ls', 'stat', 'shasum',
-                   'sha256sum', 'md5sum', 'file', 'diff', 'echo', 'printf', 'basename',
-                   'dirname', 'realpath', 'readlink', 'true', 'test', 'awk', 'cut', 'sort',
-                   'uniq', 'column', 'jq'})
+                   'sha256sum', 'md5sum', 'file', 'echo', 'printf', 'basename',
+                   'dirname', 'realpath', 'readlink', 'true', 'test', 'cut', 'column'})
 GIT_READS = frozenset({'rev-parse', 'status', 'log', 'show', 'diff', 'ls-files', 'describe',
                        'merge-base', 'symbolic-ref', 'for-each-ref', 'rev-list', 'cat-file',
                        'check-ignore', 'blame', 'shortlog', 'ls-remote', 'ls-tree'})
@@ -57,10 +63,12 @@ CONFIG_READS = ('--get', '--get-all', '--get-regexp', '--list', '-l')
 def reads_only(command):
     """Whether this command is a recognised read-only shape, so a token in it disarms nothing.
 
-    Fail-closed in every direction: a shell metacharacter, an environment assignment (which is
-    how the directory variable is redirected), a `git -c` (which is how the hook path is
-    injected), an unparseable line, or an unrecognised program all answer no and are scanned
-    exactly as before.
+    Unrecognised means refused: a shell metacharacter, an environment assignment (which is how
+    the directory variable is redirected), a `git -c` (which is how the hook path is injected),
+    an unparseable line, or a program not on the lists all answer no and are scanned exactly as
+    before. The lists are the whole of the claim, and they are deliberately small — the first
+    version of this said "fail-closed in every direction" while admitting four writers, which
+    is the sentence being a defect rather than describing one.
     """
     if any(c in command for c in '$`;|&<>\n'):
         return False
@@ -72,6 +80,11 @@ def reads_only(command):
         return False
     if Path(words[0]).name != 'git':
         return Path(words[0]).name in READS
+    # --output=FILE is a diff option, so `git diff`, `git show` and `git log` all accept it and
+    # all write wherever it points. It is refused wherever it appears rather than only in the
+    # leading options, because a diff option is accepted after the subcommand too.
+    if any(word.startswith('--output') for word in words):
+        return False
     rest = words[1:]
     while rest and rest[0].startswith('-'):
         if rest[0].startswith(('-c', '--git-dir', '--work-tree')):
