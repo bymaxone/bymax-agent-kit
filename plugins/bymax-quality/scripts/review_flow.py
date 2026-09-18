@@ -474,8 +474,7 @@ def upholds(path, checker, unreceipted, held, orphaned, legacy, partial, waived,
             f'{path} accepted a push named by a receipt whose Codex waiver is past the window (exit '
             '0), or honours a longer window than this runtime. A waiver is evidence about a machine '
             'at a moment, and the two sides must agree when it stops being evidence, or a receipt '
-            f'means one thing here and another at the hook. Point it at the current {checker}, '
-            'keeping any check you merged in.')
+            f'means one thing here and another at the hook. ' + hook_remedy(path, checker))
     require(all(status != 0 for status in partial),
             f'{path} accepted a push of three refs one of whose commits holds no receipt (exit 0). git '
             'hands a hook one record per pushed ref and every record must be checked; a hook that leaves '
@@ -773,6 +772,28 @@ def gone_without(directory, after_archived):
             'both reviewers are told, and the budget still counts.')
 
 
+def reuse_candidate(old, context, directory, autonomous, base, head):
+    """Hand back the frozen candidate, storing a measurement corrected since it froze.
+
+    The scope guard accepts a corrected `measured` on the candidate in hand, so this has to
+    store it: prompt() interpolates state['context'] verbatim into the task both reviewers
+    read, and returning `old` unchanged handed them the previous reading while telling the
+    author it had been accepted. Refusing was wrong; accepting and discarding is worse,
+    because it is silent.
+
+    The ledger is not rewritten here. It records the reading of the candidate it froze, and
+    this candidate is already frozen; rewriting it would break the one invariant the ledger
+    has, that it changes once and only when a candidate freezes.
+    """
+    changed = old['context'] != context
+    old['context'] = context
+    if autonomous:
+        old.update(review_delivery.reserve(directory, head, base, context, old))
+    if autonomous or changed:
+        save(directory, old)
+    return old
+
+
 def start(args, directory):
     """Freeze a full baseline or advance a campaign to a correction delta."""
     review_rules_notice()
@@ -794,10 +815,7 @@ def start(args, directory):
     if old and old['head'] == head:
         require(old['base'] == base and scope(old['context']) == scope(context),
                 'Same candidate has different scope/context.')
-        if autonomous:
-            old.update(review_delivery.reserve(directory, head, base, context, old))
-            save(directory, old)
-        return old
+        return reuse_candidate(old, context, directory, autonomous, base, head)
     if old and old.get('cleared'):
         (directory / ('completed-' + old['head'] + '.json')).write_text(json.dumps(old, indent=2))
         if not autonomous:

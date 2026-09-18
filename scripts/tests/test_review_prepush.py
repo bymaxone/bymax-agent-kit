@@ -366,33 +366,56 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
-    def test_no_hook_refusal_carries_its_own_remedy(self):
-        """Every refusal about a hook ends with hook_remedy, and none spells a remedy itself.
+    def test_every_hook_refusal_asks_the_shared_remedy(self):
+        """Every refusal in upholds ends with hook_remedy, and none anywhere spells one by hand.
 
-        Driving each message needs a probe shape that reaches it, and the first refusal
-        short-circuits the rest — which is how the sibling case came to cover one message while
-        claiming five. The property is structural, so it is asserted structurally: over the
-        source of the functions that refuse, where reattaching a remedy by hand is visible
-        whether or not any fixture reaches that line.
+        The first version of this gate blacklisted four delete-flavoured phrases, line by line,
+        while its name asserted the positive property. Both halves leaked. A refusal that
+        copied hook_remedy's own clause — 'keeping any check you merged in' — sat inside a
+        scanned function and passed, because the phrase was not on the list. And the per-line
+        exemption skipped any line containing `hook_remedy`, which is the last line of every
+        refusal that calls it, and therefore exactly where a reattached remedy would land.
+
+        So the property is asserted as stated: over statements, by AST, positively for the
+        function whose every refusal is about a hook that exists and failed, and negatively for
+        the rest by the phrases the helper itself owns.
         """
         source = (ROOT / 'plugins/bymax-quality/scripts/review_flow.py').read_text()
         tree = ast.parse(source)
-        lines = source.splitlines()
+
+        def refusals(name):
+            """Each require()/raise ValueError() statement in the named function, as source."""
+            node = next(n for n in ast.walk(tree)
+                        if isinstance(n, ast.FunctionDef) and n.name == name)
+            for call in ast.walk(node):
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) \
+                        and call.func.id in ('require', 'ValueError'):
+                    yield ast.get_source_segment(source, call) or ''
+
+        # upholds exists to refuse a hook that is present and does not enforce; every one of its
+        # refusals is therefore about a file the reader has, and every one must say how to fix it.
+        silent = [r[:70] for r in refusals('upholds') if 'hook_remedy' not in r]
+        self.assertFalse(silent, 'a refusal in upholds does not offer the shared remedy: ' + str(silent))
+        self.assertGreaterEqual(sum(1 for _ in refusals('upholds')), 5, 'upholds stopped refusing')
+
+        # And nowhere may a refusal spell a remedy the helper owns. The phrases come from
+        # hook_remedy itself, so adding wording there extends this check rather than escaping it.
+        helper = next(n for n in ast.walk(tree)
+                      if isinstance(n, ast.FunctionDef) and n.name == 'hook_remedy')
+        owned = [value.value for value in ast.walk(helper)
+                 if isinstance(value, ast.Constant) and isinstance(value.value, str)
+                 and len(value.value) > 12]
+        self.assertGreaterEqual(len(owned), 2, 'hook_remedy stopped owning any wording')
         offenders = []
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.FunctionDef)
-                    and node.name in ('usable_hook', 'upholds', 'run_hook', 'install_hook')):
-                continue
-            body = '\n'.join(lines[node.lineno - 1:node.end_lineno])
-            for phrase in ('delete it', 'Delete it', 'reinstalls the bundled hook',
-                           'reinstall the bundled hook'):
-                for line in body.splitlines():
-                    if phrase in line and 'hook_remedy' not in line and not line.strip().startswith('#'):
-                        offenders.append(f'{node.name}: {line.strip()[:80]}')
-        self.assertFalse(offenders, 'a hook refusal spells its own remedy instead of asking '
-                                    'hook_remedy which case the path is in: ' + '; '.join(offenders))
-        # And the helper is actually reached from those functions, or the check above is vacuous.
-        self.assertGreaterEqual(source.count('hook_remedy(path'), 5)
+        for name in ('usable_hook', 'upholds', 'run_hook', 'install_hook'):
+            for refusal in refusals(name):
+                if 'hook_remedy' in refusal:
+                    continue                      # it asks the helper; the helper owns the words
+                for phrase in owned:
+                    if phrase.strip()[:24] in refusal:
+                        offenders.append(f'{name}: {refusal[:60]}')
+        self.assertFalse(offenders, 'a refusal spells wording hook_remedy owns instead of calling '
+                                    'it: ' + '; '.join(offenders))
 
     def test_a_custom_hooks_directory_is_never_told_to_delete_its_hook(self):
         """Five refusals told the reader to delete the hook and let start reinstall it. That is
@@ -404,7 +427,7 @@ class PrePushInvariantTests(unittest.TestCase):
         probe, so upholds raises before the others are built — and an earlier version of this
         docstring claimed it covered all five. It did not, and reattaching the wording by hand
         to any of the other four left it green. The claim now lives where it can be true:
-        test_no_hook_refusal_carries_its_own_remedy asserts it over the source.
+        test_every_hook_refusal_asks_the_shared_remedy asserts it over the source.
         """
         custom = self.root / 'custom-hooks'
         custom.mkdir()

@@ -525,6 +525,21 @@ class ReviewFlowTests(unittest.TestCase):
         # And the value the prompt names is the one record accepts, which is the whole claim.
         self.report('claude')
 
+    def test_a_re_measurement_on_the_same_candidate_reaches_the_reviewers(self):
+        """A reading corrected on the candidate in hand is what the reviewers must read.
+
+        The guard that used to refuse this was loosened so the field could move; the branch
+        behind it kept returning the stored state, so start accepted the correction and handed
+        both reviewers the previous reading. prompt() interpolates state['context'] verbatim,
+        so the divergence is invisible at exactly the moment it decides what is reviewed.
+        """
+        body = json.loads(self.context.read_text())
+        self.start(autonomous=True)
+        self.checks()
+        self.context.write_text(json.dumps(dict(body, measured=['the corrected reading'])))
+        self.start(autonomous=True)                      # same head, corrected measurement
+        self.assertIn('the corrected reading', self.text('prompt'))
+
     def test_a_re_measurement_is_not_a_scope_change(self):
         """`measured` records what the author ran against real data for the candidate in hand,
         so it changes when the candidate does — that is the field's purpose. Three guards
@@ -552,10 +567,10 @@ class ReviewFlowTests(unittest.TestCase):
         without = {k: v for k, v in body.items() if k != 'measured'}
         self.start(autonomous=True)
         directory = Path(self.flow('status')['directory'])
-        ledger = directory.parent / 'delivery' / (directory.name + '.json')
-        if not ledger.exists():
-            ledger = next(directory.parent.rglob('*.json'), None)
-        # Age the ledger the way a real one written before the field looks.
+        # Age every ledger under the campaign root the way one written before the field looks;
+        # which file holds it is the runtime's business, and naming a path here would be a
+        # second guess at it. An earlier version computed one, found nothing, and ignored both.
+
         for path in directory.parent.rglob('*.json'):
             data = json.loads(path.read_text())
             if isinstance(data, dict) and 'context' in data and 'heads' in data:

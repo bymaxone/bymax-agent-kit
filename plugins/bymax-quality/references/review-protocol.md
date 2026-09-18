@@ -64,7 +64,10 @@ python3 "$FLOW" codex
 
 A missing `status` is expected only before the first campaign. `start` is idempotent for
 the same HEAD/base/context: reuse recorded reviewers instead of rerunning them. When a
-campaign is unfinished, keep its original base and context. After a batch of committed
+campaign is unfinished, keep its original base and contract — intent, acceptance, constraints,
+scope and checks. `measured` is the exception and must move: it records what was run against
+real data for the candidate in hand, so a correction that changes the candidate changes it. The
+scope guards compare everything but that field. After a batch of committed
 corrections, `start` advances the round and sets `review_base` to the preceding candidate.
 Both reviewers see the delta plus prior dispositions and inspect impacted callers.
 

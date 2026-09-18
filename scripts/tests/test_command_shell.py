@@ -510,22 +510,25 @@ class ProseReferenceTests(unittest.TestCase):
                   if tok.type == tokenize.COMMENT]
         return '\n'.join(parts)
 
-    # Directories whose contents this repository does not author: the generated Codex mirror,
-    # third-party skills it does not redistribute, and anything a tool writes.
-    FOREIGN = ('codex/plugins/', 'vendor/', 'node_modules/', '.git/', '__pycache__/')
+    # The one directory git tracks whose contents this repository does not author.
+    FOREIGN = ('codex/plugins/',)
 
     def sources(self):
-        """Every document and script this repository authors, and now actually all of them.
+        """Every document and script this repository authors: what git tracks, minus the mirror.
 
-        The first version listed six globs and claimed to be everything, and a reviewer counted
-        23 authored files outside them — including TESTING.md and REVIEW.md, whose whole purpose
-        is naming this repository's test modules. A gate blind exactly where its subject is most
-        written about is worse than none, because the blindness is invisible.
+        Two wrong answers preceded this one. Six explicit globs claimed to be everything and
+        missed 23 authored files, TESTING.md and REVIEW.md among them — the two whose purpose
+        is naming this repository's test modules. Replacing them with rglob over the tree then
+        read seven files git does not track: two pytest caches and five local audit artefacts
+        the .gitignore calls local evidence. Authorship is a property of the index, not of the
+        disk, so the index is what is asked.
         """
-        paths = [p for p in list(ROOT.rglob('*.md')) + list(ROOT.rglob('*.py'))
-                 if p.is_file() and not any(part in str(p.relative_to(ROOT)) + '/'
-                                            for part in self.FOREIGN)]
-        return sorted(paths)
+        listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '*.md', '*.py'],
+                                capture_output=True)
+        names = [n for n in os.fsdecode(listed.stdout).split('\0') if n]
+        return sorted(ROOT / name for name in names
+                      if not any(name.startswith(part) for part in self.FOREIGN)
+                      and (ROOT / name).is_file())
 
     def test_no_prose_names_a_case_that_does_not_exist(self):
         """The gate itself. A deleted case leaves its name behind in whatever pointed at it,
@@ -541,6 +544,12 @@ class ProseReferenceTests(unittest.TestCase):
             if (ROOT / named).is_file():
                 self.assertIn(named, read)
         self.assertFalse([path for path in read if path.startswith('codex/plugins/')])
+        # And nothing the repository does not track: rglob read pytest's caches and this
+        # machine's local audit evidence, which are not claims this repository makes.
+        tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files'], capture_output=True, text=True)
+        index = set(tracked.stdout.split())
+        self.assertFalse([path for path in read if path not in index],
+                         'the gate is reading files git does not track')
         dangling = {}
         for path in self.sources():
             for name in self.NAME.findall(self.prose(path)):

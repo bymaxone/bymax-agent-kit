@@ -24,8 +24,9 @@ was moved aside is not continued from the ledger: nothing is rebuilt from it. `s
 refuses until the state directory is restored, or `--after-archived` records the decision
 to review the next candidate in full from the original base as a first round; the budget
 counts it like any other.
-Keep the same original base and context throughout the feature branch/PR, even after
-pushing. A new feature belongs on a new branch; never create one to evade this budget.
+Keep the same original base and contract throughout the feature branch/PR, even after
+pushing; `measured` is the one field that moves with the candidate, and the scope guards
+exclude it for that reason. A new feature belongs on a new branch; never create one to evade this budget.
 Standalone reviews retain their ordinary three-candidate default until enrolled.
 
 The first candidate receives a full review. Subsequent candidates receive a delta review,
