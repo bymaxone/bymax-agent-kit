@@ -792,7 +792,11 @@ def reuse_candidate(old, context, directory, autonomous, base, head):
     So a correction arriving after the first report is refused and named, rather than applied
     to a candidate whose reading is over.
     """
-    changed = old['context'] != context
+    # Semantically, the way the guard two lines above this call already asks: re-serialising
+    # the same contract with different indentation or key order is not a correction, and
+    # refusing it would block the documented idempotent restart on every campaign that writes
+    # its context file again.
+    changed = review_delivery.contents_of(old['context']) != review_delivery.contents_of(context)
     require(not changed or not old.get('reviews'),
             'A reviewer has already read this candidate, so its task is what they read. Record '
             'the corrected measurement on the next candidate: changing it now would give the '

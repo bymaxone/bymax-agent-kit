@@ -402,8 +402,8 @@ class PrePushInvariantTests(unittest.TestCase):
         # exemption at all: the helper's contribution to a statement is a call, and a call
         # carries no string literals, so scanning only what the refusal spells for itself
         # separates the two exactly. The previous two versions exempted first by line and then
-        # by statement, and the second was the wider hole — eleven of twelve refusal sites call
-        # the helper, so skipping them left the negative half examining almost nothing.
+        # by statement, and the second was the wider hole — nearly every refusal site calls the
+        # helper, so skipping them left the negative half examining almost nothing.
         owned = [value.value for value in ast.walk(
                      next(n for n in ast.walk(tree)
                           if isinstance(n, ast.FunctionDef) and n.name == 'hook_remedy'))
@@ -427,8 +427,10 @@ class PrePushInvariantTests(unittest.TestCase):
                 hits += [phrase for phrase in owned if phrase.strip()[:18] in spelled]
                 if hits:
                     offenders.append(f'{name}: {sorted(set(hits))} in {spelled[:60]!r}')
-        self.assertFalse(offenders, 'a refusal spells a remedy instead of asking hook_remedy '
-                                    'for one: ' + '; '.join(offenders))
+        self.assertFalse(offenders, 'a refusal spells deletion wording, or a phrase hook_remedy '
+                                    'owns, instead of asking it: ' + '; '.join(offenders)
+                                    + '. This detects that vocabulary and the helper\'s own '
+                                      'phrasings, not every conceivable remedy.')
 
     def test_a_custom_hooks_directory_is_never_told_to_delete_its_hook(self):
         """Five refusals told the reader to delete the hook and let start reinstall it. That is

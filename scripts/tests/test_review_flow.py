@@ -538,6 +538,24 @@ class ReviewFlowTests(unittest.TestCase):
         self.start()
         self.assertIn('a standalone correction', self.text('prompt'))
 
+    def test_a_regenerated_context_is_not_a_correction(self):
+        """Formatting is not content, and both questions about a context must ask the same way.
+
+        The freeze compared the file byte for byte while the guard two lines above it compares
+        semantically, so a context re-serialised with different indentation or key order read
+        as a correction and blocked the documented idempotent restart — on every campaign that
+        writes its context file again. It fails as somebody unable to work, not as a red case,
+        which is why it is asserted here.
+        """
+        body = json.loads(self.context.read_text())
+        self.start()
+        self.checks()
+        self.report('claude')
+        # Same document, written the way a different orchestrator would write it.
+        self.context.write_text(json.dumps(body, indent=2, sort_keys=True))
+        self.start()
+        self.assertEqual(self.flow('status')['round'], 1)
+
     def test_a_reading_cannot_change_once_a_reviewer_has_read_it(self):
         """The window closes at the first report. Afterwards the task is what that reviewer
         read: changing it would hand the second a different context from the first, and a

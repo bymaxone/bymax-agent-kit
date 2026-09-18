@@ -67,6 +67,27 @@ def write(directory, ledger):
     temporary.replace(path)
 
 
+def normalised(context, drop=()):
+    """A context as a document rather than as bytes, optionally without some fields.
+
+    Indentation and key order are how a file was written, not what it says. Two guards ask
+    about a context and they must ask the same way: comparing one semantically and the other
+    byte for byte is how re-serialising the same contract came to read as a change.
+    """
+    try:
+        data = json.loads(context)
+    except (TypeError, ValueError):
+        return context                      # not JSON: compare it exactly as before
+    if not isinstance(data, dict):
+        return context
+    return json.dumps({k: v for k, v in data.items() if k not in drop}, sort_keys=True)
+
+
+def contents_of(context):
+    """Everything a context says, formatting aside: is this the same document?"""
+    return normalised(context)
+
+
 def scope_of(context):
     """The part of a campaign context the scope guards compare.
 
@@ -81,13 +102,7 @@ def scope_of(context):
     tell them apart stops the author from recording what the reading found — which is the one
     thing nobody else can supply later.
     """
-    try:
-        data = json.loads(context)
-    except (TypeError, ValueError):
-        return context                      # not JSON: compare it exactly as before
-    if not isinstance(data, dict):
-        return context
-    return json.dumps({k: v for k, v in data.items() if k != 'measured'}, sort_keys=True)
+    return normalised(context, drop=('measured',))
 
 
 def reserve(directory, head, base, context, old=None, extension=''):

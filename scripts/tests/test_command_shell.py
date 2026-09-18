@@ -511,10 +511,12 @@ class ProseReferenceTests(unittest.TestCase):
         return '\n'.join(parts)
 
     # Tracked directories whose contents this repository does not author: the generated Codex
-    # mirror, and vendor/, which its own README calls third-party skills bundled with their
-    # licences. Narrowing this list while swapping the disk walk for the index was how vendor/
-    # came to be read — the fix for one finding reopening another in the same hunk.
-    FOREIGN = ('codex/plugins/', 'vendor/')
+    # mirror, and the third-party skill trees under vendor/. The subtrees and not vendor/
+    # itself: vendor/README.md is this repository explaining in its own voice why the folder
+    # exists, and excluding the parent to keep the children out took that with it. This list
+    # has now moved twice and lost something each time, which is the argument for naming the
+    # trees rather than their parent.
+    FOREIGN = ('codex/plugins/', 'vendor/ecc-skills/', 'vendor/ui-ux-pro-max/')
 
     def sources(self):
         """Every document and script this repository authors: what git tracks, minus the mirror.
@@ -543,16 +545,15 @@ class ProseReferenceTests(unittest.TestCase):
         # The two documents whose purpose is naming test modules must be among the sources, or
         # the gate is blind where its subject is most written about — which it was.
         read = {str(path.relative_to(ROOT)) for path in self.sources()}
-        for named in ('TESTING.md', 'REVIEW.md', 'AGENTS.md', 'README.md'):
+        for named in ('TESTING.md', 'REVIEW.md', 'AGENTS.md', 'README.md', 'vendor/README.md'):
             if (ROOT / named).is_file():
                 self.assertIn(named, read)
         # And nothing from the directories this repository tracks but did not write. Named here
         # rather than read from FOREIGN: an assertion that consults the constant it guards moves
         # with it, and shrinking the list would leave this passing — which it did.
-        for foreign in ('vendor/', 'codex/plugins/'):
+        for foreign in ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/'):
             self.assertFalse([path for path in read if path.startswith(foreign)],
                              foreign + ' is tracked but not authored here, and is being read')
-        self.assertFalse([path for path in read if path.startswith('codex/plugins/')])
         # And nothing the repository does not track: rglob read pytest's caches and this
         # machine's local audit evidence, which are not claims this repository makes.
         tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z'], capture_output=True)
