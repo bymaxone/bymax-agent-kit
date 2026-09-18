@@ -642,11 +642,23 @@ class ProseReferenceTests(unittest.TestCase):
         # contribute one file missed every shrink that is not plugin-shaped — all of scripts/,
         # or every plugins/*/skills/ — and misread a future plugins/README.md as a plugin. And
         # a floor beside any of them only catches a shrink large enough to cross it. Equality
-        # catches all of them, in both directions, and needs no floor: a gate reading nothing
-        # is a gate reading the wrong set.
+        # catches all of them, in both directions, and needs no floor over what is read.
+        #
+        # It does need its own side to exist. Both sides of this comparison end up asking git,
+        # so anything that makes git answer nothing — no repository, a broken pathspec, a
+        # non-zero exit nobody read — empties them together and the equality holds over two
+        # empty sets. Measured: with .git removed the gate passed having read 0 of 130 files,
+        # and the sentence that stood here claimed the opposite. The guard is not a count; it
+        # is that the question was answered at all.
         listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '--', '*.md', '*.py'],
                                 capture_output=True)
         every = {name for name in os.fsdecode(listed.stdout).split('\0') if name}
+        # One assertion, not two: a non-zero exit and a pathspec that matches nothing arrive
+        # here as the same empty set, and writing the rule twice is how one copy drifts. The
+        # exit status goes in the message, where it tells the reader which of the two happened.
+        self.assertTrue(every, 'git listed no documents or scripts, so the expected side of '
+                               'this gate is empty and an empty gate would match it. git exit '
+                               '%d: %s' % (listed.returncode, listed.stderr.decode()[:200]))
         VENDORED = ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/bymax-codex/')
         expected = {name for name in every
                     if not any(name.startswith(part) for part in VENDORED)}

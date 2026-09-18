@@ -400,8 +400,9 @@ def hook_remedy(path, checker):
     to end up with no check at all. Which refusals ask it is not stated here, and that is
     deliberate. Every attempt to summarise that boundary in a sentence has been found false by
     a reviewer — the last claimed the helper answers a hook that is present and runnable, while
-    a directory sitting at the hook path, a hook that outran its probe and one that could not be
-    executed all ask it. The enumeration is not a rule; it is a list the code decides case by
+    a directory sitting at the hook path, a hook that outran its probe and one whose interpreter
+    line could not be run all ask it — while a hook that is merely missing the executable bit is
+    one of the refusals that does not, which is how close together these live. The enumeration is not a rule; it is a list the code decides case by
     case, and a list belongs in a test. test_the_refusals_that_want_a_different_remedy_are_named
     holds it, and a refusal that stops asking for this answer fails there.
     """
