@@ -67,6 +67,44 @@ def write(directory, ledger):
     temporary.replace(path)
 
 
+def normalised(context, drop=()):
+    """A context as a document rather than as bytes, optionally without some fields.
+
+    Indentation and key order are how a file was written, not what it says. Two guards ask
+    about a context and they must ask the same way: comparing one semantically and the other
+    byte for byte is how re-serialising the same contract came to read as a change.
+    """
+    try:
+        data = json.loads(context)
+    except (TypeError, ValueError):
+        return context                      # not JSON: compare it exactly as before
+    if not isinstance(data, dict):
+        return context
+    return json.dumps({k: v for k, v in data.items() if k not in drop}, sort_keys=True)
+
+
+def contents_of(context):
+    """Everything a context says, formatting aside: is this the same document?"""
+    return normalised(context)
+
+
+def scope_of(context):
+    """The part of a campaign context the scope guards compare.
+
+    `measured` is what the author ran against real data for the candidate in hand, so it
+    changes as the candidate does — that is the field's whole purpose. Comparing it as scope
+    made it write-once, and worse: a delivery whose ledger predates the field could not acquire
+    it at all, because `context_contract` demanded the edit while the round guard and this
+    ledger forbade it. Three guards closing a ring on a campaign that had done nothing wrong.
+
+    Intent, acceptance, constraints, scope and checks are the contract a campaign is measured
+    against. A reading taken under that contract is not the contract, and a guard that cannot
+    tell them apart stops the author from recording what the reading found — which is the one
+    thing nobody else can supply later.
+    """
+    return normalised(context, drop=('measured',))
+
+
 def reserve(directory, head, base, context, old=None, extension=''):
     """Count a frozen candidate once, retaining the budget across cleared campaigns.
 
@@ -77,7 +115,7 @@ def reserve(directory, head, base, context, old=None, extension=''):
     authorises, so the ledger changes once and only when a candidate freezes.
     """
     ledger = load(directory) or dict(base=base, context=context, heads=[], used=0)
-    if ledger['base'] != base or ledger['context'] != context:
+    if ledger['base'] != base or scope_of(ledger['context']) != scope_of(context):
         raise ValueError('Delivery scope changed. Keep its base/context for PR corrections; new work needs a new branch.')
     if head not in ledger['heads']:
         used = max(ledger['used'], (old or {}).get('round', 0))
@@ -94,6 +132,10 @@ def reserve(directory, head, base, context, old=None, extension=''):
                              'it with --extend-delivery "<who authorised it, and why>"; both reviewers are told.')
         ledger['heads'].append(head)
         ledger['used'] = used + 1
+        # The scope is unchanged by the check above, so what differs is the measurement, and the
+        # ledger carries the current one: written here, in the same write as the head it belongs
+        # to, so the ledger still changes once and only when a candidate freezes.
+        ledger['context'] = context
         write(directory, ledger)
     return dict(autonomous=True, max_rounds=MAX_CANDIDATES * (1 + len(ledger.get('extensions', []))),
                 delivery_used=ledger['used'], delivery_extensions=ledger.get('extensions', []))

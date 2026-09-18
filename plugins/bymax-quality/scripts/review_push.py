@@ -99,9 +99,11 @@ def parse(command, cwd):
     lowered = command.lower()
     words = words_of(command)
     pushes = could_push(command)
-    # Both forms. A token split across quotes — core.hooks""Path — is absent from the raw text
-    # and present once the shell has parsed it; a token the shell would not have produced is
-    # absent from the words and present in the text. Reading one of them was the unrepaired
+    # Both forms, for one reachable reason: a token split across quotes — core.hooks""Path — is
+    # absent from the raw text and present once the shell has parsed it. The converse cannot
+    # happen, because quote removal only deletes characters and so never breaks a token the raw
+    # text already spells contiguously; the raw scan is kept because it costs nothing and reads
+    # the command as the user wrote it. Reading only the raw form was the unrepaired
     # half of the previous round's fix, which moved the precondition to the words and left the
     # scan a line below it on the raw command.
     seen = lowered + '\n' + ' '.join(words).lower() if words is not None else lowered

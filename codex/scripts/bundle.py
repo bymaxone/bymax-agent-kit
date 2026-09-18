@@ -28,7 +28,7 @@ def own_index():
     try:
         answer = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--show-toplevel'],
                                 capture_output=True)
-    except OSError:          # git found on PATH but not runnable; source_files() has the message
+    except OSError:          # findable but not runnable: no ignore answer, so nothing is left out
         return False
     if answer.returncode != 0:
         return False

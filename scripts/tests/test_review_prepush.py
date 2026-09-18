@@ -1,10 +1,15 @@
-"""Invariant layer: no spelling of a push reaches a remote without a receipt.
+"""Invariant layer: no spelling of a push reaches a remote without a receipt, once git runs the hook.
+
+The qualification is the whole of it, and this file carries its own counterexample sixty lines
+down: `git push --no-verify` is git's own escape and no local design closes it. What these
+cases hold is that a spelling which does reach the hook cannot get past it.
 
 Every case here runs a REAL push against a bare remote through bash, exactly as the
 Bash tool would, and then inspects the remote. The assertion is about what landed,
 not about what any parser thought of the text, so a new spelling that defeats the
 Bash adapter still has to get past the pre-push hook that git invokes with the SHA.
 """
+import ast
 import hashlib
 import json
 import os
@@ -149,6 +154,43 @@ class PrePushInvariantTests(unittest.TestCase):
             flow.install_hook()
         finally:
             os.chdir(cwd)
+
+    def test_a_probe_receipt_outlasts_the_hook_that_reads_it(self):
+        """A slow hook must not be reported as a disagreeing one.
+
+        The probe dates a temporary receipt just inside the waiver window and hands it to the
+        kept hook, whose run is bounded by HOOK_SECONDS. With the margin equal to that bound, a
+        hook that used its whole budget would watch the waiver expire while it read the receipt
+        and refuse it — and the runtime would answer "shorter waiver window", which is a claim
+        about the hook's policy for what was a timeout. Two constants that must not be equal is
+        the kind of thing a reader checks once and a case checks always.
+        """
+        flow = self.modules()['review_flow']
+        self.assertGreater(flow.PROBE_MARGIN, flow.HOOK_SECONDS,
+                           'a probe receipt must stay valid for longer than the hook may take')
+        fresh = flow.waived_shape()[1]
+        stale = flow.waived_shape(stale=True)[1]
+        now = int(time.time())
+        # Fresh is inside the window by the margin; stale is outside it by the margin.
+        self.assertGreater(now - fresh['at'], 0)
+        self.assertLess(now - fresh['at'], flow.WAIVER_TTL)
+        self.assertGreater(now - stale['at'], flow.WAIVER_TTL)
+        self.assertAlmostEqual(flow.WAIVER_TTL - (now - fresh['at']), flow.PROBE_MARGIN, delta=5)
+        self.assertAlmostEqual((now - stale['at']) - flow.WAIVER_TTL, flow.PROBE_MARGIN, delta=5)
+        # The arithmetic above is not what makes the invariant hold: the dated receipt has to be
+        # the one the probe hands the hook. Asserted at the call site, which is where an edit
+        # would break it without touching either constant.
+        source = (ROOT / 'plugins/bymax-quality/scripts/review_flow.py').read_text()
+        # By AST, not by text: probe_receipt's own docstring names waived_shape(), so a textual
+        # search is satisfied by the prose and passes with the call removed. Measured — the
+        # first version of this assertion did exactly that.
+        probe = next(n for n in ast.walk(ast.parse(source))
+                     if isinstance(n, ast.FunctionDef) and n.name == 'probe_receipt')
+        called = {c.func.id for c in ast.walk(probe)
+                  if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+        self.assertIn('waived_shape', called,
+                      'the receipt no longer carries what waived_shape dates, so the margin '
+                      'above is arithmetic nothing reads')
 
     def test_hook_policy_matches_the_campaign_runtime(self):
         """The self-contained hook must recognise receipts written by the current runtime."""
@@ -323,6 +365,108 @@ class PrePushInvariantTests(unittest.TestCase):
         refused = self.attempt('git push origin HEAD:feature')
         self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
+
+    def test_every_hook_refusal_asks_the_shared_remedy(self):
+        """Every refusal in upholds ends with hook_remedy, and none anywhere spells one by hand.
+
+        The first version of this gate blacklisted four delete-flavoured phrases, line by line,
+        while its name asserted the positive property. Both halves leaked. A refusal that
+        copied hook_remedy's own clause — 'keeping any check you merged in' — sat inside a
+        scanned function and passed, because the phrase was not on the list. And the per-line
+        exemption skipped any line containing `hook_remedy`, which is the last line of every
+        refusal that calls it, and therefore exactly where a reattached remedy would land.
+
+        So the property is asserted as stated: over statements, by AST, positively for the
+        function whose every refusal is about a hook that exists and failed, and negatively for
+        the rest by the phrases the helper itself owns.
+        """
+        source = (ROOT / 'plugins/bymax-quality/scripts/review_flow.py').read_text()
+        tree = ast.parse(source)
+
+        def refusals(name):
+            """Each require()/raise ValueError() statement in the named function, as source."""
+            node = next(n for n in ast.walk(tree)
+                        if isinstance(n, ast.FunctionDef) and n.name == name)
+            for call in ast.walk(node):
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) \
+                        and call.func.id in ('require', 'ValueError'):
+                    yield ast.get_source_segment(source, call) or ''
+
+        # upholds exists to refuse a hook that is present and does not enforce; every one of its
+        # refusals is therefore about a file the reader has, and every one must say how to fix it.
+        silent = [r[:70] for r in refusals('upholds') if 'hook_remedy' not in r]
+        self.assertFalse(silent, 'a refusal in upholds does not offer the shared remedy: ' + str(silent))
+        self.assertGreaterEqual(sum(1 for _ in refusals('upholds')), 5, 'upholds stopped refusing')
+
+        # And nowhere may a refusal SPELL a remedy, whether or not it also asks for one. No
+        # exemption at all: the helper's contribution to a statement is a call, and a call
+        # carries no string literals, so scanning only what the refusal spells for itself
+        # separates the two exactly. The previous two versions exempted first by line and then
+        # by statement, and the second was the wider hole — nearly every refusal site calls the
+        # helper, so skipping them left the negative half examining almost nothing.
+        owned = [value.value for value in ast.walk(
+                     next(n for n in ast.walk(tree)
+                          if isinstance(n, ast.FunctionDef) and n.name == 'hook_remedy'))
+                 if isinstance(value, ast.Constant) and isinstance(value.value, str)
+                 and len(value.value) > 12]
+        self.assertGreaterEqual(len(owned), 2, 'hook_remedy stopped owning any wording')
+        # A floor that does not depend on the helper's current phrasing, so rewording the
+        # helper cannot silently shrink what counts as spelling a remedy.
+        FLOOR = ('delete it', 'delete the hook', 'reinstall', 'reinstalls', 'remove it')
+        offenders = []
+        for name in ('usable_hook', 'upholds', 'run_hook', 'install_hook'):
+            node = next(n for n in ast.walk(tree)
+                        if isinstance(n, ast.FunctionDef) and n.name == name)
+            for call in ast.walk(node):
+                if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                        and call.func.id in ('require', 'ValueError')):
+                    continue
+                spelled = ' '.join(c.value for c in ast.walk(call)
+                                   if isinstance(c, ast.Constant) and isinstance(c.value, str))
+                hits = [w for w in FLOOR if w in spelled.lower()]
+                hits += [phrase for phrase in owned if phrase.strip()[:18] in spelled]
+                if hits:
+                    offenders.append(f'{name}: {sorted(set(hits))} in {spelled[:60]!r}')
+        self.assertFalse(offenders, 'a refusal spells deletion wording, or a phrase hook_remedy '
+                                    'owns, instead of asking it: ' + '; '.join(offenders)
+                                    + '. This detects that vocabulary and the helper\'s own '
+                                      'phrasings, not every conceivable remedy.')
+
+    def test_a_custom_hooks_directory_is_never_told_to_delete_its_hook(self):
+        """Five refusals told the reader to delete the hook and let start reinstall it. That is
+        a remedy for the repository's own hooks directory and the opposite of one for a custom
+        core.hooksPath: start never writes there, so deleting leaves the repository with no
+        check at all and the next start can only report an empty directory.
+
+        This case observes ONE of those refusals — the fixture's hook exits 0 on the first
+        probe, so upholds raises before the others are built — and an earlier version of this
+        docstring claimed it covered all five. It did not, and reattaching the wording by hand
+        to any of the other four left it green. The claim now lives where it can be true:
+        test_every_hook_refusal_asks_the_shared_remedy asserts it over the source.
+        """
+        custom = self.root / 'custom-hooks'
+        custom.mkdir()
+        hook = custom / 'pre-push'
+        # Marked and executable, so it gets past the shape checks and reaches the probes, and
+        # enforcing nothing, so a probe refuses it and a remedy is printed.
+        hook.write_text('#!/bin/sh\n# ' + 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.' + '\nexit 0\n')
+        hook.chmod(0o755)
+        self.git('config', 'core.hooksPath', str(custom))
+        refused = self.start_refused()
+        self.assertIn('does not enforce', refused)
+        self.assertIn('Do not delete it', refused)
+        self.assertIn('start never writes into one', refused)
+        self.assertNotIn('Delete it so start reinstalls', refused)
+
+        # And the repository's own hooks directory still gets the remedy that is true there.
+        self.git('config', '--unset', 'core.hooksPath')
+        own = Path(self.git('rev-parse', '--git-common-dir'))
+        own = (Path(self.repo) / own).resolve() / 'hooks' / 'pre-push'
+        own.write_text('#!/bin/sh\n# ' + 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.' + '\nexit 0\n')
+        own.chmod(0o755)
+        refused = self.start_refused()
+        self.assertIn('Delete it so start reinstalls', refused)
+        self.assertNotIn('Do not delete it', refused)
 
     def start_refused(self):
         """Run start expecting a refusal; return its message."""

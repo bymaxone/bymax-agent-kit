@@ -15,6 +15,7 @@ import tempfile
 import time
 
 import review_delivery
+from review_delivery import scope_of as scope
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
@@ -172,8 +173,8 @@ def install_hook():
     target = Path(git('rev-parse', '--git-common-dir')).resolve() / 'hooks' / 'pre-push'
     if target.exists() or target.is_symlink():
         require(not target.is_dir(),
-                str(target) + ' is a directory, so git cannot run it as the pre-push hook; replace it '
-                'with a hook file (or delete it to have the bundled hook installed) before starting.')
+                str(target) + ' is a directory, so git cannot run it as the pre-push hook. '
+                + hook_remedy(target, source))
         text = target.read_text(errors='replace') if target.exists() else ''
         require(HOOK_MARKER in text,
                 'A pre-push hook not managed by this campaign exists at ' + str(target)
@@ -196,6 +197,13 @@ def install_hook():
 
 
 HOOK_SECONDS = 60
+# How far inside (or outside) the waiver window a probe receipt is dated. It must exceed the
+# time the hook reading it may take, or a hook that is merely slow is reported as a hook that
+# disagrees: at a margin equal to HOOK_SECONDS, one that used its whole budget would watch a
+# fresh waiver expire mid-run and refuse it, and the runtime would answer "shorter waiver
+# window" for what was a timeout. Tied to the bound rather than repeated as a literal, so
+# raising one raises the other.
+PROBE_MARGIN = HOOK_SECONDS + 60
 
 
 def run_hook(path, remote, line):
@@ -208,9 +216,10 @@ def run_hook(path, remote, line):
                                text=True, timeout=HOOK_SECONDS, cwd=git('rev-parse', '--show-toplevel'))
     except subprocess.TimeoutExpired:
         raise ValueError(f'{path} did not finish within {HOOK_SECONDS} s when probed with a push of '
-                         f'{refs} ref(s); fix or delete it.')
+                         f'{refs} ref(s). ' + hook_remedy(path, Path(__file__).with_name('review_prepush.py')))
     except OSError as error:
-        raise ValueError(f'{path} could not be run ({error.strerror}); fix its interpreter line or delete it.')
+        raise ValueError(f'{path} could not be run ({error.strerror}); fix its interpreter line. '
+                         + hook_remedy(path, Path(__file__).with_name('review_prepush.py')))
     return probe.returncode
 
 
@@ -298,14 +307,14 @@ def waived_shape(stale=False):
     where it is not, an absent one. Nothing here runs the hook — every bounded execution
     inside a probe's window counts against the bound that lets a sibling sweep it.
 
-    Both datings sit one minute either side of the window's far edge, which is what pins a
+    Both datings sit PROBE_MARGIN either side of the window's far edge, which is what pins a
     kept hook's window to this runtime's rather than merely bounding it from above. A hook
     with a shorter window refuses the current receipt; one with a longer window accepts the
     stale receipt; either way it disagrees about what a cleared receipt means, and the
     probes see it rather than the user's next push.
     """
     binary = resolve_codex()
-    at = int(time.time()) - WAIVER_TTL + (-60 if stale else 60)
+    at = int(time.time()) - WAIVER_TTL + (-PROBE_MARGIN if stale else PROBE_MARGIN)
     waiver = dict(reason='quota' if binary else 'absent', at=at, binary=binary or '')
     return {'claude': {}, 'claude-b': {}}, waiver
 
@@ -363,6 +372,39 @@ def probe_commit(head, nonce):
                           capture_output=True, text=True, check=True, env=env).stdout.strip()
 
 
+def managed_hook(path):
+    """Whether `start` would write the bundled checker here if this hook were missing.
+
+    It writes only into the repository's own hooks directory, and only where core.hooksPath is
+    unset: a custom hooks directory belongs to whoever configured it and is never written into.
+    """
+    custom = subprocess.run(['git', 'config', '--get', 'core.hooksPath'], capture_output=True, text=True)
+    if custom.returncode == 0:
+        return False
+    try:
+        return Path(path) == Path(git('rev-parse', '--git-common-dir')).resolve() / 'hooks' / 'pre-push'
+    except subprocess.SubprocessError:
+        return False
+
+
+def hook_remedy(path, checker):
+    """How to fix a hook that does not enforce, in the words that are true for THIS path.
+
+    Five refusals told the reader to delete the hook and let start reinstall it. Where
+    core.hooksPath is set that is not a remedy: start never writes there, so deleting leaves
+    the repository with no check at all, and the next start can only say the directory holds no
+    pre-push. The sentence was true for the default path and wrong for the other, and nothing
+    asked which one it was about — so the question is asked once, here, and the five messages
+    end with the answer.
+    """
+    if managed_hook(path):
+        return (f'Delete it so start reinstalls the bundled hook, or point it at {checker}, '
+                'keeping any check you merged in.')
+    return (f'Point it at {checker}, keeping any check you merged in. Do not delete it: '
+            'core.hooksPath names this directory, start never writes into one, and deleting it '
+            'would leave this repository with no check at all.')
+
+
 def usable_hook(path):
     """Refuse a marked hook git would skip, one for another policy, or one that ignores receipts.
 
@@ -375,8 +417,7 @@ def usable_hook(path):
     declared = re.search(r'^POLICY = (\d+)$', text, re.MULTILINE)
     require(declared is None or int(declared.group(1)) == POLICY,
             f'{path} carries the receipt check for policy {declared.group(1) if declared else "?"}, the '
-            f'runtime is policy {POLICY}. Delete it to reinstall the bundled hook, or merge the current '
-            f'{checker} into it by hand.')
+            f'runtime is policy {POLICY}. ' + hook_remedy(path, checker))
     require(os.access(path, os.X_OK),
             f'{path} is not executable, so git would skip it: chmod +x it before starting.')
     # The marker is a claim; the pushes below are the check. The push is shaped like a real
@@ -407,8 +448,7 @@ def usable_hook(path):
             f'{resolve_codex() or "none"}. A waiver names the binary it was measured against and '
             'this hook re-resolves that name before honouring it, so every waived push would be '
             f'refused for a disagreement no message explains. Make it resolve Codex as {checker} '
-            'does — delegating to that file is the surest way — or, where this campaign installed '
-            'the hook, delete it and let start reinstall the bundle.')
+            'does — delegating to that file is the surest way. ' + hook_remedy(path, checker))
     upholds(path, checker, *push_probes(path))
 
 
@@ -416,33 +456,31 @@ def upholds(path, checker, unreceipted, held, orphaned, legacy, partial, waived,
     """What each probe push must have returned, and what its exit status means if not."""
     require(unreceipted != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
-            f'receipts. Make it invoke {checker}, or delete it.')
+            f'receipts. ' + hook_remedy(path, checker))
     require(held == 0,
             f'{path} refused a push of a commit that holds a completed receipt (exit {held}), so it '
-            f'is not consulting receipts. Make it invoke {checker}, or delete it.')
+            f'is not consulting receipts. ' + hook_remedy(path, checker))
     require(orphaned != 0 and legacy != 0,
             f'{path} accepted a push named only by an orphaned probe receipt (exit 0): it reads receipts '
-            'without checking their holder: a probe receipt nobody holds is void. Delete it so start '
-            f'reinstalls the bundled hook, or point it at the current {checker}, keeping any check you '
-            'merged into it.')
+            'without checking their holder: a probe receipt nobody holds is void. '
+            + hook_remedy(path, checker))
     require(waived == 0,
             f'{path} refused a push of a commit whose receipt carries an independent second Claude '
             'review in place of a Codex this machine cannot run (exit ' + str(waived) + '). Either '
             'it predates that receipt shape, or it honours a shorter waiver window than this '
-            'runtime; either way it would block every waived push in silence. Point it at the '
-            f'current {checker}, or, where this campaign installed the hook, delete it and let '
-            'start reinstall the bundle.')
+            'runtime; either way it would block every waived push in silence. '
+            + hook_remedy(path, checker))
     require(stale != 0,
             f'{path} accepted a push named by a receipt whose Codex waiver is past the window (exit '
             '0), or honours a longer window than this runtime. A waiver is evidence about a machine '
             'at a moment, and the two sides must agree when it stops being evidence, or a receipt '
-            f'means one thing here and another at the hook. Point it at the current {checker}, '
-            'keeping any check you merged in.')
+            f'means one thing here and another at the hook. ' + hook_remedy(path, checker))
     require(all(status != 0 for status in partial),
             f'{path} accepted a push of three refs one of whose commits holds no receipt (exit 0). git '
             'hands a hook one record per pushed ref and every record must be checked; a hook that leaves '
             'one of them unchecked, whether by reading a fixed few or by filtering, misses the '
-            f'unreceipted commit here. Make it check every record, as {checker} does, or delete it.')
+            f'unreceipted commit here. Make it check every record, as {checker} does. '
+            + hook_remedy(path, checker))
 
 
 def push_records(branch, head, refs, dangling, other):
@@ -673,7 +711,8 @@ def first_round(directory, after_archived):
 
 def next_round(args, old, head, directory, base, context):
     """What advancing a campaign to a correction delta requires; returns its contract."""
-    require(old['base'] == base and old['context'] == context, 'Scope changed. Stop and agree on a separate campaign.')
+    require(old['base'] == base and scope(old['context']) == scope(context),
+            'Scope changed. Stop and agree on a separate campaign.')
     # The refusal names its remedy: a delivery's limit is an alarm a human may answer with a
     # recorded decision, while a standalone campaign's limit hands the scope decision over.
     require(old['round'] < old.get('max_rounds', 3),
@@ -733,6 +772,44 @@ def gone_without(directory, after_archived):
             'both reviewers are told, and the budget still counts.')
 
 
+def reuse_candidate(old, context, directory, autonomous, base, head):
+    """Hand back the frozen candidate, storing a measurement corrected since it froze.
+
+    The scope guard accepts a corrected `measured` on the candidate in hand, so this has to
+    store it: prompt() interpolates state['context'] verbatim into the task both reviewers
+    read, and returning `old` unchanged handed them the previous reading while telling the
+    author it had been accepted. Refusing was wrong; accepting and discarding is worse,
+    because it is silent.
+
+    The ledger is not rewritten here. It records the reading of the candidate it froze, and
+    this candidate is already frozen; rewriting it would break the one invariant the ledger
+    has, that it changes once and only when a candidate freezes.
+
+    And the window closes when the first reviewer reads. Until then the task is still being
+    assembled and a corrected reading belongs in it; afterwards the task is what that reviewer
+    read, and changing it would hand the second a different context from the first — or, once
+    the candidate has cleared, edit the evidence behind a receipt the hook already honours.
+    So a correction arriving after the first report is refused and named, rather than applied
+    to a candidate whose reading is over.
+    """
+    # Semantically, the way the guard two lines above this call already asks: re-serialising
+    # the same contract with different indentation or key order is not a correction, and
+    # refusing it would block the documented idempotent restart on every campaign that writes
+    # its context file again.
+    changed = review_delivery.contents_of(old['context']) != review_delivery.contents_of(context)
+    require(not changed or not old.get('reviews'),
+            'A reviewer has already read this candidate, so its task is what they read. Record '
+            'the corrected measurement on the next candidate: changing it now would give the '
+            'second reviewer a different context from the first, and a cleared candidate would '
+            'have the evidence behind its receipt edited after the fact.')
+    old['context'] = context
+    if autonomous:
+        old.update(review_delivery.reserve(directory, head, base, context, old))
+    if autonomous or changed:
+        save(directory, old)
+    return old
+
+
 def start(args, directory):
     """Freeze a full baseline or advance a campaign to a correction delta."""
     review_rules_notice()
@@ -752,11 +829,9 @@ def start(args, directory):
         old.update(autonomous=True,
                    max_rounds=review_delivery.cap(directory, pending=bool(args.extend_delivery)))
     if old and old['head'] == head:
-        require(old['base'] == base and old['context'] == context, 'Same candidate has different scope/context.')
-        if autonomous:
-            old.update(review_delivery.reserve(directory, head, base, context, old))
-            save(directory, old)
-        return old
+        require(old['base'] == base and scope(old['context']) == scope(context),
+                'Same candidate has different scope/context.')
+        return reuse_candidate(old, context, directory, autonomous, base, head)
     if old and old.get('cleared'):
         (directory / ('completed-' + old['head'] + '.json')).write_text(json.dumps(old, indent=2))
         if not autonomous:
@@ -1149,6 +1224,26 @@ def sandbox_advice(report):
             'not execute as a limitation. Re-run codex only after that instruction reaches it.')
 
 
+def substitute_allowed(state, reviewer):
+    """Refuse the substitute unless the runtime's own probe waived Codex for THIS candidate.
+
+    The substitute exists only where that probe found no Codex to run. The probe is the
+    authority, never the caller: without a waiver on the record, recording claude-b would be a
+    second reading dressed as the missing one.
+
+    Asked in two places — by the CLI adapter before it reserves a bounded attempt, and again
+    when the report is recorded — so it is written once. Asking only at record time spent an
+    attempt on a refusal no reviewer ever saw; answering it twice in two places would be worse,
+    because the copy that drifts is the one nobody reads.
+    """
+    require(reviewer != SUBSTITUTE or waiver_ok(state.get('codex_waiver')),
+            SUBSTITUTE + ' stands in for a Codex the runtime could not run, and no valid waiver '
+            'covers this candidate. A waiver is evidence about one candidate, so the one from the '
+            'previous round does not carry: run `review_flow.py codex` again on THIS head and let '
+            'its probe decide. If it completes, that report is the second review. Two authors hit '
+            'this on consecutive rounds, which is what an undiscoverable rule costs.')
+
+
 def untriggered_notice(reviewer, report):
     """Tell the author which findings called themselves blocking and named nothing to run.
 
@@ -1197,15 +1292,7 @@ def record(args, directory, state):
                 if isinstance(i.get('id'), str) and isinstance(i.get('evidence'), str) and i['evidence'].strip()}
     require(unresolved <= resolved, 'Recheck every previous open finding, with evidence, including any still open.')
     require(args.reviewer not in state['reviews'], 'Reviewer already recorded for this candidate; reuse it.')
-    # The substitute exists only where the runtime's own probe found no Codex to run. The
-    # probe is the authority on that, never the caller: without a waiver it stands on the
-    # record, so recording it would be a second reading dressed as the missing one.
-    require(args.reviewer != SUBSTITUTE or waiver_ok(state.get('codex_waiver')),
-            SUBSTITUTE + ' stands in for a Codex the runtime could not run, and no valid waiver '
-            'covers this candidate. A waiver is evidence about one candidate, so the one from the '
-            'previous round does not carry: run `review_flow.py codex` again on THIS head and let '
-            'its probe decide. If it completes, that report is the second review. Two authors hit '
-            'this on consecutive rounds, which is what an undiscoverable rule costs.')
+    substitute_allowed(state, args.reviewer)
     state['reviews'][args.reviewer] = report
     if args.reviewer == 'codex':
         # Codex reviewed after all — credits returned, or a report was obtained elsewhere.

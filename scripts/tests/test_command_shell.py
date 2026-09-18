@@ -6,10 +6,13 @@ decide. Each rule here exists because its absence produced a defect: a block tha
 variable an earlier fence assigned resolved the wrong base, and a block that asked the
 reader to paste a ref into shell source would execute a ref name containing `$( )`.
 """
+import ast
+import io
 import json
 import os
 from pathlib import Path
 import re
+import tokenize
 import shutil
 import subprocess
 import sys
@@ -452,6 +455,142 @@ class AutopilotTerminationTests(unittest.TestCase):
         self.assertIn('transitive dependencies', step)
         # And parking is bounded, or a broken plan parks every phase in turn.
         self.assertRegex(step, r'(?i)\bthree\b.*parked|parked.*\bthree\b|Cap the parking')
+
+
+class ProseReferenceTests(unittest.TestCase):
+    """A case name written in prose must name a case that exists.
+
+    Two findings of the campaign that shipped the trigger rule were this: a docstring pointing
+    at a case deleted in the same delta, and a sentence surviving in a third file after being
+    corrected in two. Both were found by a reader, both were mechanical, and nothing checked
+    them. A name is the one part of prose a machine can resolve, so it is the part that gets a
+    gate — not because dangling names are the worst kind of wrong sentence, but because they
+    are the kind a test can settle.
+
+    Prose means docstrings, comments and markdown OUTSIDE fenced code blocks. Two exclusions,
+    both of them measured rather than guessed. A string literal is data the author hands to
+    something — a probe entry's example pytest invocation names a case in an imagined project —
+    and is not a claim about this repository. A fenced block is an example for the reader, and
+    the protocol's triage sample cites a case in somebody else's tree; that one was a false
+    positive this gate reported on the real package before it was narrowed.
+
+    The gate then reported a third, and the third was this docstring: naming an example is
+    indistinguishable, to a matcher, from claiming it. So the examples above are described and
+    not spelled, and the two cases below demonstrate the exclusions with synthetic names where
+    the gate cannot see them. A gate that has to be exempted from itself has a blind spot
+    exactly where its author writes.
+    """
+
+    NAME = re.compile(r'\btest_[a-z0-9_]{6,}\b')
+    FENCED = re.compile(r'```.*?```', re.S)
+
+    @classmethod
+    def known(cls):
+        """Every case name this repository defines, plus the stems of its test modules."""
+        files = sorted(set(list(ROOT.glob('scripts/tests/test_*.py'))
+                           + list(ROOT.glob('codex/tests/test_*.py'))))
+        names = {f.stem for f in files}
+        for f in files:
+            names |= set(re.findall(r'def (test_[A-Za-z0-9_]+)', f.read_text()))
+        return names, files
+
+    @classmethod
+    def prose(cls, path):
+        """What the file asserts in words: markdown minus its examples, or docs and comments."""
+        if path.suffix == '.md':
+            return cls.FENCED.sub(' ', path.read_text())
+        source = path.read_text()
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return ''
+        parts = [ast.get_docstring(node) or '' for node in ast.walk(tree)
+                 if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))]
+        parts += [tok.string for tok in tokenize.generate_tokens(io.StringIO(source).readline)
+                  if tok.type == tokenize.COMMENT]
+        return '\n'.join(parts)
+
+    # Tracked directories whose contents this repository does not author: the generated Codex
+    # mirror, and the third-party skill trees under vendor/. The subtrees and not vendor/
+    # itself: vendor/README.md is this repository explaining in its own voice why the folder
+    # exists, and excluding the parent to keep the children out took that with it. This list
+    # has now moved twice and lost something each time, which is the argument for naming the
+    # trees rather than their parent.
+    FOREIGN = ('codex/plugins/', 'vendor/ecc-skills/', 'vendor/ui-ux-pro-max/')
+
+    def sources(self):
+        """Every document and script this repository authors: what git tracks, minus the mirror.
+
+        Two wrong answers preceded this one. Six explicit globs claimed to be everything and
+        missed 23 authored files, TESTING.md and REVIEW.md among them — the two whose purpose
+        is naming this repository's test modules. Replacing them with rglob over the tree then
+        read seven files git does not track: two pytest caches and five local audit artefacts
+        the .gitignore calls local evidence. Authorship is a property of the index, not of the
+        disk, so the index is what is asked.
+        """
+        listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '*.md', '*.py'],
+                                capture_output=True)
+        names = [n for n in os.fsdecode(listed.stdout).split('\0') if n]
+        return sorted(ROOT / name for name in names
+                      if not any(name.startswith(part) for part in self.FOREIGN)
+                      and (ROOT / name).is_file())
+
+    def test_no_prose_names_a_case_that_does_not_exist(self):
+        """The gate itself. A deleted case leaves its name behind in whatever pointed at it,
+        and the pointer reads as coverage that is no longer there — which is worse than no
+        sentence at all, because the next reader stops looking."""
+        known, files = self.known()
+        self.assertGreater(len(files), 5, 'the test modules moved; this gate is reading nothing')
+        self.assertGreater(len(known), 100, 'no case names were collected; the pattern broke')
+        # The two documents whose purpose is naming test modules must be among the sources, or
+        # the gate is blind where its subject is most written about — which it was.
+        read = {str(path.relative_to(ROOT)) for path in self.sources()}
+        for named in ('TESTING.md', 'REVIEW.md', 'AGENTS.md', 'README.md', 'vendor/README.md'):
+            if (ROOT / named).is_file():
+                self.assertIn(named, read)
+        # And nothing from the directories this repository tracks but did not write. Named here
+        # rather than read from FOREIGN: an assertion that consults the constant it guards moves
+        # with it, and shrinking the list would leave this passing — which it did.
+        for foreign in ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/'):
+            self.assertFalse([path for path in read if path.startswith(foreign)],
+                             foreign + ' is tracked but not authored here, and is being read')
+        # And nothing the repository does not track: rglob read pytest's caches and this
+        # machine's local audit evidence, which are not claims this repository makes.
+        tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z'], capture_output=True)
+        index = {name for name in os.fsdecode(tracked.stdout).split('\0') if name}
+        self.assertFalse([path for path in read if path not in index],
+                         'the gate is reading files git does not track')
+        dangling = {}
+        for path in self.sources():
+            for name in self.NAME.findall(self.prose(path)):
+                if name not in known:
+                    dangling.setdefault(name, set()).add(str(path.relative_to(ROOT)))
+        self.assertFalse(dangling, 'prose names cases that do not exist: '
+                         + '; '.join('%s in %s' % (n, ', '.join(sorted(w)))
+                                     for n, w in sorted(dangling.items())))
+
+    def test_the_gate_reads_prose_and_not_fixture_data(self):
+        """Both exclusions, asserted rather than trusted: a name inside a plain string literal
+        is data the author passes to something, and a name inside a fenced block is an example
+        about somebody else's repository. Measured before this gate was written — the fenced
+        one was a false positive it reported on the real tree."""
+        scratch = Path(tempfile.mkdtemp())
+        code = scratch / 'sample.py'
+        code.write_text('"""A docstring naming test_a_real_case_name.\n\n'
+                        'And a comment below."""\n'
+                        '# see test_a_commented_case_name\n'
+                        'PROBE = "pytest tests/x.py::test_a_literal_case_name"\n')
+        seen = self.prose(code)
+        self.assertIn('test_a_real_case_name', seen)
+        self.assertIn('test_a_commented_case_name', seen)
+        self.assertNotIn('test_a_literal_case_name', seen)
+
+        document = scratch / 'sample.md'
+        document.write_text('Prose naming test_a_documented_case_name.\n\n'
+                            '```json\n{"evidence": "reproduced with test_a_fenced_case_name"}\n```\n')
+        seen = self.prose(document)
+        self.assertIn('test_a_documented_case_name', seen)
+        self.assertNotIn('test_a_fenced_case_name', seen)
 
 
 if __name__ == '__main__':

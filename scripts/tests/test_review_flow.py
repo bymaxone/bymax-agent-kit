@@ -525,6 +525,144 @@ class ReviewFlowTests(unittest.TestCase):
         # And the value the prompt names is the one record accepts, which is the whole claim.
         self.report('claude')
 
+    def test_a_standalone_campaign_stores_a_corrected_measurement_too(self):
+        """The non-autonomous branch is the live default, not a corner: a campaign is autonomous
+        only once enrolled, and main() does not write state after start. Without the `changed`
+        write the correction lives in memory, is returned, and the next prompt re-reads the file
+        and interpolates the previous reading — the defect this round was opened for, in the
+        path every standalone review takes. Every other re-measurement case here enrols first."""
+        body = json.loads(self.context.read_text())
+        self.start()
+        self.checks()
+        self.context.write_text(json.dumps(dict(body, measured=['a standalone correction'])))
+        self.start()
+        self.assertIn('a standalone correction', self.text('prompt'))
+
+    def test_a_regenerated_context_is_not_a_correction(self):
+        """Formatting is not content, and both questions about a context must ask the same way.
+
+        The freeze compared the file byte for byte while the guard two lines above it compares
+        semantically, so a context re-serialised with different indentation or key order read
+        as a correction and blocked the documented idempotent restart — on every campaign that
+        writes its context file again. It fails as somebody unable to work, not as a red case,
+        which is why it is asserted here.
+        """
+        body = json.loads(self.context.read_text())
+        self.start()
+        self.checks()
+        self.report('claude')
+        # Same document, written the way a different orchestrator would write it.
+        self.context.write_text(json.dumps(body, indent=2, sort_keys=True))
+        self.start()
+        self.assertEqual(self.flow('status')['round'], 1)
+
+    def test_a_reading_cannot_change_once_a_reviewer_has_read_it(self):
+        """The window closes at the first report. Afterwards the task is what that reviewer
+        read: changing it would hand the second a different context from the first, and a
+        cleared candidate would have the evidence behind its receipt edited after the fact —
+        the reviews, the triage and the cleared flag all stay, and only the text they were
+        judged against would move."""
+        body = json.loads(self.context.read_text())
+        self.start()
+        self.checks()
+        self.report('claude')
+        self.context.write_text(json.dumps(dict(body, measured=['too late for this candidate'])))
+        refused = self.start(ok=False).stderr
+        self.assertIn('already read this candidate', refused)
+        # Unchanged is still idempotent: start is called repeatedly through a campaign.
+        self.context.write_text(json.dumps(body))
+        self.assertEqual(self.flow('status')['round'], 1)
+        self.start()
+
+    def test_a_re_measurement_on_the_same_candidate_reaches_the_reviewers(self):
+        """A reading corrected on the candidate in hand is what the reviewers must read.
+
+        The guard that used to refuse this was loosened so the field could move; the branch
+        behind it kept returning the stored state, so start accepted the correction and handed
+        both reviewers the previous reading. prompt() interpolates state['context'] verbatim,
+        so the divergence is invisible at exactly the moment it decides what is reviewed.
+        """
+        body = json.loads(self.context.read_text())
+        self.start(autonomous=True)
+        self.checks()
+        self.context.write_text(json.dumps(dict(body, measured=['the corrected reading'])))
+        self.start(autonomous=True)                      # same head, corrected measurement
+        self.assertIn('the corrected reading', self.text('prompt'))
+
+    def test_a_re_measurement_is_not_a_scope_change(self):
+        """`measured` records what the author ran against real data for the candidate in hand,
+        so it changes when the candidate does — that is the field's purpose. Three guards
+        compared it as scope, which made it write-once: round 2 was refused for carrying a new
+        reading of the same contract.
+
+        Reported from another repository as something worse, and it was the same defect: a
+        delivery whose ledger predated the field could not acquire it at all, because
+        context_contract demanded the edit while these guards forbade it. Three guards closing
+        a ring on a campaign that had done nothing wrong.
+        """
+        body = json.loads(self.context.read_text())
+        self.start(autonomous=True)
+        self.complete()
+        self.commit('a correction')
+        self.context.write_text(json.dumps(dict(body, measured=['re-measured for this candidate'])))
+        state = self.start(correction=True, answers=['code.txt:external'], autonomous=True)
+        self.assertEqual(state['round'], 2)
+
+    def test_a_delivery_predating_the_field_can_acquire_it(self):
+        """The reported shape, end to end: a ledger written before `measured` existed, and a
+        context that must gain the field to satisfy the contract. Adding it continues the
+        delivery on its own branch and budget instead of being refused as new work."""
+        body = json.loads(self.context.read_text())
+        without = {k: v for k, v in body.items() if k != 'measured'}
+        self.start(autonomous=True)
+        directory = Path(self.flow('status')['directory'])
+        # Age every ledger under the campaign root the way one written before the field looks;
+        # which file holds it is the runtime's business, and naming a path here would be a
+        # second guess at it. An earlier version computed one, found nothing, and ignored both.
+        aged = 0
+        for path in directory.parent.rglob('*.json'):
+            data = json.loads(path.read_text())
+            if isinstance(data, dict) and 'context' in data and 'heads' in data:
+                data['context'] = json.dumps(without)
+                path.write_text(json.dumps(data, indent=2))
+                aged += 1
+        # Or the case proves nothing: with no ledger aged, the start below simply succeeds the
+        # way it always would, and the ring it is named for was never set up.
+        self.assertEqual(aged, 1, 'no ledger was aged, so this case tests nothing')
+        self.complete()
+        self.commit('a correction')
+        state = self.start(correction=True, answers=['code.txt:external'], autonomous=True)
+        self.assertEqual(state['round'], 2)
+        self.assertEqual(state['delivery_used'], 2)
+
+    def test_a_real_scope_change_is_still_refused(self):
+        """The guards keep their meaning: the contract is what the campaign is measured
+        against, and changing it mid-delivery is what they exist to stop. Only the reading
+        taken under it may move."""
+        body = json.loads(self.context.read_text())
+        self.start(autonomous=True)
+        self.complete()
+        self.commit('a correction')
+        self.context.write_text(json.dumps(dict(body, intent='something else entirely')))
+        refused = self.start(ok=False, correction=True, answers=['code.txt:external'], autonomous=True)
+        self.assertIn('Scope changed', refused.stderr)
+
+    def test_the_ledger_keeps_the_measurement_of_the_candidate_it_froze(self):
+        """Scope is unchanged by the guard above, so what differs is the reading — and the
+        ledger carries the current one, written with the head it belongs to, so it still
+        changes once and only when a candidate freezes."""
+        body = json.loads(self.context.read_text())
+        self.start(autonomous=True)
+        self.complete()
+        self.commit('a correction')
+        self.context.write_text(json.dumps(dict(body, measured=['the second reading'])))
+        self.start(correction=True, answers=['code.txt:external'], autonomous=True)
+        directory = Path(self.flow('status')['directory'])
+        stored = [json.loads(path.read_text()) for path in directory.parent.rglob('*.json')]
+        ledgers = [d for d in stored if isinstance(d, dict) and 'heads' in d and 'context' in d]
+        self.assertTrue(ledgers)
+        self.assertIn('the second reading', ledgers[0]['context'])
+
     def test_the_context_measures_each_acceptance_item_against_real_data(self):
         """A tree can be self-consistently wrong and no reviewer can see it from the diff.
 
