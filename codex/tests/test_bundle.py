@@ -19,6 +19,30 @@ def bundler():
     return module
 
 
+def alias_of(directory):
+    """A second name for the same directory that `resolve()` does not collapse, or None.
+
+    This is what the whole samefile question turns on, and it cannot be manufactured
+    portably: a symlink is collapsed by resolve(), so it does not discriminate, and a second
+    mount needs privileges a test does not have. Two real aliases do discriminate, and both
+    are ordinary on the machines this package is developed on — a case-insensitive volume
+    (the macOS default) and a macOS firmlink. Where neither exists the case says so and skips,
+    rather than passing for the wrong reason.
+    """
+    text = str(directory)
+    flipped = Path(text.upper() if text != text.upper() else text.lower())
+    firm = Path('/System/Volumes/Data') / text.lstrip('/')
+    for candidate, why in ((flipped, 'a case-insensitive volume'), (firm, 'a macOS firmlink')):
+        if candidate == directory or not candidate.is_dir():
+            continue
+        try:
+            if candidate.samefile(directory) and candidate.resolve() != directory.resolve():
+                return candidate, why
+        except OSError:
+            continue
+    return None, None
+
+
 class ShippedResourceTests(unittest.TestCase):
     """What belongs in the package, and what a wrong answer is allowed to cost.
 
@@ -48,6 +72,33 @@ class ShippedResourceTests(unittest.TestCase):
     def names(self, module):
         """The package-relative resource names the bundler would ship."""
         return sorted(str(path.relative_to(module.ROOT / 'plugins')) for path in module.source_files())
+
+    def test_the_same_directory_under_another_name_is_still_this_tree(self):
+        """The founding defect of this mechanism, and until now the fix for it had no gate.
+
+        `git rev-parse --show-toplevel` answers from getcwd(), which collapses a firmlink and
+        folds case; `Path.resolve()` does neither. So comparing the two names as strings calls
+        one directory two places, own_index() answers False, the ignore question is skipped and
+        an ignored file becomes a canonical resource — measured on the real package, which
+        reported itself stale because a local .pytest_cache came back.
+
+        Asserted through the output rather than through own_index(), so the case fails for the
+        reason it is named after: with the comparison wrong, the ignored file ships.
+        """
+        module = bundler()
+        root = self.package(ignore='ignored.md')
+        (root / 'plugins/demo/commands/ignored.md').write_text('must not ship\n')
+        other, why = alias_of(root)
+        if other is None:
+            self.skipTest('no filesystem alias here: this needs a case-insensitive volume or a '
+                          'macOS firmlink, and a symlink cannot stand in because resolve() '
+                          'collapses it. The property is unobservable on this machine.')
+        # The alias is a real alias and a real second name, or the case proves nothing.
+        self.assertTrue(other.samefile(root))
+        self.assertNotEqual(other.resolve(), root.resolve())
+        module.ROOT = other
+        self.assertEqual(self.names(module), ['demo/commands/one.md', 'demo/commands/two.md'],
+                         'the ignore answer was skipped, so an ignored file became canonical')
 
     def test_a_resource_git_ignores_is_not_shipped(self):
         """The defect that started this: running the suite writes .pytest_cache under

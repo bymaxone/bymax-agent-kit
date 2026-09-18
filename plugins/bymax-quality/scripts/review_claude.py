@@ -37,11 +37,14 @@ def command(schema):
 def execute(directory, owner_fd, flow, reviewer):
     """Supply the frozen diff and record only a completed matching structured report.
 
-    The declared gates are checked before the attempt is reserved: flow.prompt() raises when
-    they have not passed, and reserving first spent an attempt on a refusal no reviewer ever
-    saw. Same defect, same shape, in the other adapter of the pair.
+    Two things are checked before the attempt is reserved, for the same reason: flow.prompt()
+    raises when the declared gates have not passed, and record refuses the substitute without a
+    waiver the runtime's own probe wrote. Reserving first spent an attempt on a refusal no
+    reviewer ever saw. Both predicates are the runtime's, called here rather than copied.
     """
-    flow.gate_first(flow.read_state(directory))
+    opening = flow.read_state(directory)
+    flow.gate_first(opening)
+    flow.substitute_allowed(opening, reviewer)
     state, attempts = reserve(directory, flow, reviewer)
     target = directory / f"{reviewer}-{state['round']}-{state[attempts]}.json"
     log = target.with_suffix('.log')

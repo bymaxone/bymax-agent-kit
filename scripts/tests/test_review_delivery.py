@@ -284,6 +284,34 @@ class DeliveryTests(unittest.TestCase):
         env.pop('CLAUDECODE', None)
         return env, capture
 
+    def test_the_substitute_is_refused_before_its_attempt_is_reserved(self):
+        """claude-b stands in for a Codex the runtime's own probe could not run, and record
+        refuses it without a waiver. Asking only at record time meant the adapter had already
+        reserved a bounded attempt on a refusal no reviewer ever saw — two of them exhaust the
+        per-pass budget with nothing read, in exactly the Codex-orchestrated delivery where the
+        substitute is the second reviewer.
+
+        The predicate is the runtime's, called here and at record time, never copied: a second
+        copy that drifts is worse than a wasted attempt, which is why this was deferred until
+        the shared function existed.
+        """
+        c = self.case
+        self.enroll()
+        c.checks()
+        env, _ = self.fake_claude(dict(structured_output={}, is_error=False))
+        run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude', '--as', 'claude-b'],
+                             cwd=c.repo, env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(run.returncode, 2, run.stdout)
+        self.assertIn('no valid waiver', run.stderr)
+        state = c.flow('status')
+        self.assertEqual(state.get('claude_b_attempts', 0), 0)
+        self.assertNotIn('claude-b', state['reviews'])
+        # The first pass is unaffected: only the substitute needs a waiver behind it.
+        run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
+                             env=env, capture_output=True, text=True, timeout=30)
+        self.assertNotIn('no valid waiver', run.stderr)
+        self.assertEqual(c.flow('status').get('claude_attempts', 0), 1)
+
     def test_the_claude_adapter_checks_the_gates_before_reserving_its_attempt(self):
         """The codex adapter's gate line is pinned by a case; this one's was not.
 

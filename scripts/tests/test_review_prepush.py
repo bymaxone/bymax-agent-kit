@@ -1,4 +1,8 @@
-"""Invariant layer: no spelling of a push reaches a remote without a receipt.
+"""Invariant layer: no spelling of a push reaches a remote without a receipt, once git runs the hook.
+
+The qualification is the whole of it, and this file carries its own counterexample sixty lines
+down: `git push --no-verify` is git's own escape and no local design closes it. What these
+cases hold is that a spelling which does reach the hook cannot get past it.
 
 Every case here runs a REAL push against a bare remote through bash, exactly as the
 Bash tool would, and then inspects the remote. The assertion is about what landed,
@@ -149,6 +153,29 @@ class PrePushInvariantTests(unittest.TestCase):
             flow.install_hook()
         finally:
             os.chdir(cwd)
+
+    def test_a_probe_receipt_outlasts_the_hook_that_reads_it(self):
+        """A slow hook must not be reported as a disagreeing one.
+
+        The probe dates a temporary receipt just inside the waiver window and hands it to the
+        kept hook, whose run is bounded by HOOK_SECONDS. With the margin equal to that bound, a
+        hook that used its whole budget would watch the waiver expire while it read the receipt
+        and refuse it — and the runtime would answer "shorter waiver window", which is a claim
+        about the hook's policy for what was a timeout. Two constants that must not be equal is
+        the kind of thing a reader checks once and a case checks always.
+        """
+        flow = self.modules()['review_flow']
+        self.assertGreater(flow.PROBE_MARGIN, flow.HOOK_SECONDS,
+                           'a probe receipt must stay valid for longer than the hook may take')
+        fresh = flow.waived_shape()[1]
+        stale = flow.waived_shape(stale=True)[1]
+        now = int(time.time())
+        # Fresh is inside the window by the margin; stale is outside it by the margin.
+        self.assertGreater(now - fresh['at'], 0)
+        self.assertLess(now - fresh['at'], flow.WAIVER_TTL)
+        self.assertGreater(now - stale['at'], flow.WAIVER_TTL)
+        self.assertAlmostEqual(flow.WAIVER_TTL - (now - fresh['at']), flow.PROBE_MARGIN, delta=5)
+        self.assertAlmostEqual((now - stale['at']) - flow.WAIVER_TTL, flow.PROBE_MARGIN, delta=5)
 
     def test_hook_policy_matches_the_campaign_runtime(self):
         """The self-contained hook must recognise receipts written by the current runtime."""
@@ -323,6 +350,39 @@ class PrePushInvariantTests(unittest.TestCase):
         refused = self.attempt('git push origin HEAD:feature')
         self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
+
+    def test_a_custom_hooks_directory_is_never_told_to_delete_its_hook(self):
+        """Five refusals told the reader to delete the hook and let start reinstall it. That is
+        a remedy for the repository's own hooks directory and the opposite of one for a custom
+        core.hooksPath: start never writes there, so deleting leaves the repository with no
+        check at all and the next start can only report an empty directory.
+
+        Driven through a real refusal rather than the helper, so it fails if the wording is
+        reattached to any of the five messages by hand.
+        """
+        custom = self.root / 'custom-hooks'
+        custom.mkdir()
+        hook = custom / 'pre-push'
+        # Marked and executable, so it gets past the shape checks and reaches the probes, and
+        # enforcing nothing, so a probe refuses it and a remedy is printed.
+        hook.write_text('#!/bin/sh\n# ' + 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.' + '\nexit 0\n')
+        hook.chmod(0o755)
+        self.git('config', 'core.hooksPath', str(custom))
+        refused = self.start_refused()
+        self.assertIn('does not enforce', refused)
+        self.assertIn('Do not delete it', refused)
+        self.assertIn('start never writes into one', refused)
+        self.assertNotIn('Delete it so start reinstalls', refused)
+
+        # And the repository's own hooks directory still gets the remedy that is true there.
+        self.git('config', '--unset', 'core.hooksPath')
+        own = Path(self.git('rev-parse', '--git-common-dir'))
+        own = (Path(self.repo) / own).resolve() / 'hooks' / 'pre-push'
+        own.write_text('#!/bin/sh\n# ' + 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.' + '\nexit 0\n')
+        own.chmod(0o755)
+        refused = self.start_refused()
+        self.assertIn('Delete it so start reinstalls', refused)
+        self.assertNotIn('Do not delete it', refused)
 
     def start_refused(self):
         """Run start expecting a refusal; return its message."""
