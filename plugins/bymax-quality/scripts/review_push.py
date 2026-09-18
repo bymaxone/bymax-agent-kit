@@ -10,6 +10,7 @@ would disable or redirect that hook. Every other command passes through untouche
 A push deliberately spelled so that neither check sees it is outside what a local guard
 can prevent; review-protocol.md names CI as the boundary for that.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -57,12 +58,16 @@ def could_push(command):
     `push` in it cannot push, and a command that names no program able to start another cannot
     be hiding one. Both halves are conservative — unparseable answers yes.
     """
-    if 'push' not in command.lower():
-        return False
     try:
         words = shlex.split(command)
     except ValueError:
         return True
+    # The parsed words, never the raw text. The shell and git act on these, so a push verb
+    # spelled pu""sh or pu\sh is invisible in the raw command and fully present here — measured:
+    # a hooksPath redirection written that way was returned as no-opinion while the commit
+    # reached the remote with the hook in place and never invoked.
+    if not any('push' in word.lower() for word in words):
+        return False
     return any(Path(word).name in RUNNERS for word in words)
 
 
@@ -79,16 +84,27 @@ def hook_intact(cwd):
     the hook is all that remains. Where this repository has no campaign there is no hook of
     ours to protect, and nothing is required.
     """
-    common = (Path(cwd) / Path(git(cwd, 'rev-parse', '--git-common-dir'))).resolve()
-    if not (common / 'bymax-review').is_dir():
-        return
-    hooks = (Path(cwd) / Path(git(cwd, 'rev-parse', '--git-path', 'hooks'))).resolve()
-    path = hooks / 'pre-push'
-    require(path.is_file() and path.stat().st_size > 0 and os.access(path, os.X_OK),
+    try:
+        common = (Path(cwd) / Path(git(cwd, 'rev-parse', '--git-common-dir'))).resolve()
+    except subprocess.SubprocessError:
+        return          # not a repository at all, so there is no hook of ours here either
+    record = common / 'bymax-review' / 'hook.json'
+    if not record.is_file():
+        return          # no campaign has installed or verified a hook in this repository
+    accepted = json.loads(record.read_text())
+    path = Path(accepted['path'])
+    # Integrity, not presence. A hook replaced by a no-op exists, is non-empty and is
+    # executable — measured, with an unreviewed commit reaching the remote behind it — so what
+    # is compared is the file start() accepted, by content. Executability is checked too,
+    # because chmod -x leaves the content identical and git then runs nothing.
+    intact = (path.is_file() and os.access(path, os.X_OK)
+              and hashlib.sha256(path.read_bytes()).hexdigest() == accepted['sha256'])
+    require(intact,
             'This command could push, this adapter does not recognise its shape, and the '
-            'pre-push receipt check at ' + str(path) + ' is missing, empty or not executable — '
-            'so nothing would check a receipt. Run `python3 "$FLOW" start` to reinstall it, then '
-            'retry. Removing the hook does not clear a candidate; it only stops this push.')
+            'pre-push receipt check at ' + str(path) + ' is missing, altered or not executable '
+            'since the campaign accepted it — so nothing would check a receipt. Run '
+            '`python3 "$FLOW" start` to reinstall and re-verify it, then retry. Changing the '
+            'hook does not clear a candidate; it only stops this push.')
 
 
 def git(cwd, *args):

@@ -289,7 +289,7 @@ class ReviewFlowTests(unittest.TestCase):
         # and the hook is there, so the command is left alone.
         self.push('eval git push origin HEAD')
         self.push('git stash push')
-        for damage in ('unlink', 'empty', 'unexecutable'):
+        for damage in ('unlink', 'empty', 'unexecutable', 'replaced'):
             with self.subTest(damage=damage):
                 mode = hook.stat().st_mode
                 body = hook.read_bytes()
@@ -297,13 +297,33 @@ class ReviewFlowTests(unittest.TestCase):
                     hook.unlink()
                 elif damage == 'empty':
                     hook.write_bytes(b'')
-                else:
+                elif damage == 'unexecutable':
                     hook.chmod(0o644)
-                refused = self.push('eval git push origin HEAD', ok=False)
-                self.assertIn('nothing would check a receipt', refused.stderr)
+                else:
+                    # Replaced rather than removed: it exists, is non-empty and is executable,
+                    # and it checks nothing. Both reviewers measured an unreviewed commit
+                    # reaching a remote behind exactly this, which is why the question the
+                    # adapter asks is whether the file is the one the campaign accepted.
+                    hook.write_text('#!/bin/sh\nexit 0\n')
+                    hook.chmod(0o755)
+                for shape in ('eval git push origin HEAD', 'git stash push'):
+                    refused = self.push(shape, ok=False)
+                    self.assertIn('nothing would check a receipt', refused.stderr)
                 hook.write_bytes(body)
                 hook.chmod(mode)
         self.push('eval git push origin HEAD')
+        self.push('git stash push')
+
+    def test_a_directory_that_is_not_a_repository_is_not_an_error(self):
+        """This adapter is a global PreToolUse hook: it sees every Bash command in every
+        directory, including ones with no repository. Asking git there raised, cli() turned the
+        exception into BLOCKED, and the refusal carried an instruction to run a review campaign
+        and retry a push — for something that was not a push, in a directory with no campaign.
+        That is the class this branch exists to close, introduced by this branch."""
+        outside = self.root / 'not-a-repo'
+        outside.mkdir()
+        for command in ('sh -c "npm run push"', 'eval git push origin HEAD', 'xargs git push'):
+            self.push(command, cwd=outside)
 
     def test_a_repository_with_no_campaign_has_no_hook_of_ours_to_require(self):
         """The hook requirement is about a check this package installed. Where no campaign has
@@ -347,7 +367,14 @@ class ReviewFlowTests(unittest.TestCase):
                         'sh -c "git push --no-verify origin HEAD"',
                         'xargs git push --no-verify origin HEAD',
                         'env HUSKY=0 git push origin HEAD',
-                        'eval git push --no-verify origin HEAD'):
+                        'eval git push --no-verify origin HEAD',
+                        # The precondition reads the parsed words, not the raw text: these two
+                        # spell the verb so that the raw command holds no "push" substring at
+                        # all, while the shell and git still see a push. Measured on the
+                        # previous candidate: returned as no-opinion, and the commit reached
+                        # the remote with the hook present and never invoked.
+                        'git -c core.hooksPath=/dev/null pu""sh origin HEAD',
+                        'git -c core.hooksPath=/dev/null pu\\sh origin HEAD'):
             self.push(command, ok=False)
 
     def test_adapter_refuses_what_would_disarm_the_hook(self):
@@ -671,6 +698,12 @@ class ReviewFlowTests(unittest.TestCase):
         self.checks()
         prompt = self.flow('prompt')
         self.assertIn('already ran on this candidate and passed', prompt.stdout)
+        # The task and the schema handed to the same CLI must agree about the one field whose
+        # representability this campaign spent a round on: it is required and nullable, so the
+        # instruction says null rather than omit.
+        self.assertIn('"trigger":"the command or test that makes it appear, or null when there '
+                      'is none"', prompt.stdout)
+        self.assertNotIn('omit when there is none', prompt.stdout)
         self.assertIn('never a reason to report incomplete', prompt.stdout)
         state = self.flow('status')
         path = self.root / 'incomplete.json'
