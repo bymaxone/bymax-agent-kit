@@ -394,14 +394,14 @@ def hook_remedy(path, checker):
     core.hooksPath is set that is not a remedy: start never writes there, so deleting leaves
     the repository with no check at all, and the next start can only say the directory holds no
     pre-push. The sentence was true for the default path and wrong for the other, and nothing
-    asked which one it was about — so the question is asked once, here, and every refusal about
-    a hook that exists and does not enforce ends with the answer.
+    asked which one it was about — so the question is asked once, here.
 
-    Not every refusal about a hook: three offer a different remedy because this one would be
-    wrong for them — a hook that is not executable wants chmod, a custom directory holding no
-    pre-push wants one added there, and a hook this campaign did not install is never displaced.
-    That distinction is why a count belongs nowhere near this docstring; it has been written
-    wrongly five times, and the rule is what is stable.
+    This answer is for a hook that is present, runnable, and does not enforce: point it at the
+    checker, or delete it where start would write one back. A refusal about a hook that is not
+    runnable, not present, or not this campaign's to displace asks for something else — a mode,
+    a file, a hand merge — and says so itself. That boundary is held by
+    test_the_refusals_that_want_a_different_remedy_are_named, which asserts what those refusals
+    are about; this docstring states the rule and leaves the enumerating to it.
     """
     if managed_hook(path):
         return (f'Delete it so start reinstalls the bundled hook, or point it at {checker}, '

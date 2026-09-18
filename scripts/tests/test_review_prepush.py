@@ -366,18 +366,18 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
-    def test_the_refusals_that_want_a_different_remedy_are_the_three_named(self):
-        """The sentence about which refusals route through hook_remedy has been written wrongly
-        five times — three unchecked counts, then a universal, then a universal with the wrong
-        scope. Nothing checked it, which is the whole reason it kept drifting.
+    def test_the_refusals_that_want_a_different_remedy_are_named(self):
+        """The sentence about which refusals route through hook_remedy kept being written as a
+        count, and every count of it drifted, because nothing checked either the count or the
+        rule behind it.
 
-        What is stable is the rule: a refusal about a hook that exists and does not enforce asks
-        the helper; three want a different answer, because this one would be wrong for them. A
-        hook that is merely not executable wants chmod. A custom hooks directory holding no
-        pre-push wants one added there — there is no file to fix. A hook this campaign did not
-        install is never displaced, so it wants a hand merge. Those three are asserted by what
-        they are about, so adding a fourth exception fails here and the prose gets corrected
-        with the code instead of five rounds later.
+        What is stable is the rule: the helper answers a hook that is present, runnable and
+        does not enforce. A refusal about a hook that is not runnable wants a mode; one about a
+        directory holding no pre-push wants a file, since there is nothing to fix; one about a
+        hook this campaign never installed wants a hand merge, because it is not ours to
+        displace. Those are asserted here by what they are about, not by how many there are —
+        counting them in the gate written because counts drift would be the same mistake with
+        a test around it. A new exception, or a renamed one, fails here.
         """
         source = (ROOT / 'plugins/bymax-quality/scripts/review_flow.py').read_text()
         tree = ast.parse(source)
@@ -391,12 +391,16 @@ class PrePushInvariantTests(unittest.TestCase):
                         and call.func.id in ('require', 'ValueError') \
                         and 'hook_remedy' not in (ast.get_source_segment(source, call) or ''):
                     other.append(ast.get_source_segment(source, call) or '')
-        self.assertEqual(len(other), 3, 'the set of refusals wanting a different remedy moved; '
-                                        'correct the rule in hook_remedy and the changelog with '
-                                        'it: ' + str([o[:60] for o in other]))
         subjects = ' '.join(other)
-        for marks in ('not executable', 'holds no pre-push', 'not managed by this campaign'):
-            self.assertIn(marks, subjects, 'an exception changed what it is about')
+        expected = ('not executable', 'holds no pre-push', 'not managed by this campaign')
+        for marks in expected:
+            self.assertIn(marks, subjects, 'an exception changed what it is about: ' + marks)
+        # And nothing beyond them: an exception whose subject is not one of these is a refusal
+        # that declined the shared remedy without the prose ever saying why.
+        unexplained = [o[:70] for o in other
+                       if not any(marks in o for marks in expected)]
+        self.assertFalse(unexplained, 'a refusal wants a different remedy for a reason the rule '
+                                      'does not state: ' + str(unexplained))
 
     def test_every_hook_refusal_asks_the_shared_remedy(self):
         """Every refusal in upholds ends with hook_remedy, and none anywhere spells one by hand.

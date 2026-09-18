@@ -524,10 +524,17 @@ class ProseReferenceTests(unittest.TestCase):
         vendor/README.md with them — a document this repository wrote about why the folder
         exists. A list has to be remembered; a marker is already there.
         """
-        listed = subprocess.run(['git', '-C', str(root), 'ls-files', '-z', '*ATTRIBUTION.md'],
-                                capture_output=True)
+        # :(glob) or the pathspec is fnmatch: `*` would cross a separator and the start of a
+        # basename, so a repository-authored docs/THIRD-PARTY-ATTRIBUTION.md would take its
+        # whole directory out of the gate. And one marker is not proof: the vendoring
+        # convention puts a LICENSE beside it, so both are required. A derivation that can
+        # shrink this gate silently is worse than the list it replaced, because no one has to
+        # edit anything for it to happen.
+        listed = subprocess.run(['git', '-C', str(root), 'ls-files', '-z',
+                                 '--', ':(glob)**/ATTRIBUTION.md'], capture_output=True)
         names = [n for n in os.fsdecode(listed.stdout).split('\0') if n]
-        roots = {str(Path(name).parent) + '/' for name in names}
+        roots = {str(Path(name).parent) + '/' for name in names
+                 if (root / Path(name).parent / 'LICENSE').is_file()}
         bundler = root / 'codex/scripts/bundle.py'
         if bundler.is_file():
             named = re.search(r"PACKAGE = ROOT / '([^']+)'", bundler.read_text())
@@ -563,9 +570,11 @@ class ProseReferenceTests(unittest.TestCase):
         tree so the rule is tested rather than this repository's current contents.
         """
         scratch = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, scratch, True)
         subprocess.run(['git', 'init', '-q', str(scratch)], check=True)
         (scratch / 'third-party/newcomer').mkdir(parents=True)
         (scratch / 'third-party/newcomer/ATTRIBUTION.md').write_text('taken from elsewhere\n')
+        (scratch / 'third-party/newcomer/LICENSE').write_text('theirs\n')
         (scratch / 'third-party/README.md').write_text('why this folder exists\n')
         (scratch / 'codex/scripts').mkdir(parents=True)
         (scratch / 'codex/scripts/bundle.py').write_text(
@@ -581,8 +590,24 @@ class ProseReferenceTests(unittest.TestCase):
         # And a tree with no marker is not foreign, however it is named.
         (scratch / 'third-party/ours').mkdir()
         (scratch / 'third-party/ours/notes.md').write_text('written here\n')
+        # Nor is one this repository wrote that merely mentions attribution in a filename: the
+        # pathspec matches the marker and not a name ending in it, and a LICENSE must sit
+        # beside it. Either alone would let an authored directory out of the gate.
+        # This one carries a LICENSE too, so only the pathspec keeps it in: with an fnmatch
+        # pathspec its name ends in the marker and the whole directory would leave the gate.
+        # Each condition needs a shape where it is the only thing standing, or a mutation of
+        # one is masked by the other — which is how the first version of this case passed
+        # against a loosened pathspec.
+        (scratch / 'docs').mkdir()
+        (scratch / 'docs/THIRD-PARTY-ATTRIBUTION.md').write_text('who we credit\n')
+        (scratch / 'docs/LICENSE').write_text('ours\n')
+        (scratch / 'notes').mkdir()
+        (scratch / 'notes/ATTRIBUTION.md').write_text('no licence beside this one\n')
         subprocess.run(['git', '-C', str(scratch), 'add', '-A'], check=True)
-        self.assertNotIn('third-party/ours/', self.foreign(scratch))
+        derived = self.foreign(scratch)
+        self.assertNotIn('third-party/ours/', derived)
+        self.assertNotIn('docs/', derived)
+        self.assertNotIn('notes/', derived)
 
     def test_no_prose_names_a_case_that_does_not_exist(self):
         """The gate itself. A deleted case leaves its name behind in whatever pointed at it,
@@ -594,14 +619,17 @@ class ProseReferenceTests(unittest.TestCase):
         # The two documents whose purpose is naming test modules must be among the sources, or
         # the gate is blind where its subject is most written about — which it was.
         read = {str(path.relative_to(ROOT)) for path in self.sources()}
+        # A floor under the source set. The derivation below decides what leaves it, and a
+        # derivation that quietly excludes half the repository would otherwise make this gate
+        # pass by having nothing left to check.
+        self.assertGreater(len(read), 100, 'the gate is reading far less than this repository '
+                                           'authors; an exclusion has grown teeth')
         for named in ('TESTING.md', 'REVIEW.md', 'AGENTS.md', 'README.md', 'vendor/README.md'):
             if (ROOT / named).is_file():
                 self.assertIn(named, read)
-        # And nothing from the directories this repository tracks but did not write. Named here
-        # rather than read from FOREIGN: an assertion that consults the constant it guards moves
-        # with it, and shrinking the list would leave this passing — which it did.
-        # Named here and not read from the derivation, so an assertion cannot move with the
-        # thing it guards — the shape that let a shrunken exclusion list pass once already.
+        # And nothing from the directories this repository tracks but did not write. Named
+        # here and not read from the derivation, so an assertion cannot move with the thing it
+        # guards — the shape that let a shrunken exclusion list pass once already.
         for foreign in ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/bymax-codex/'):
             self.assertFalse([path for path in read if path.startswith(foreign)],
                              foreign + ' is tracked but not authored here, and is being read')
