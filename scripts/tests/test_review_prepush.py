@@ -398,24 +398,37 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertFalse(silent, 'a refusal in upholds does not offer the shared remedy: ' + str(silent))
         self.assertGreaterEqual(sum(1 for _ in refusals('upholds')), 5, 'upholds stopped refusing')
 
-        # And nowhere may a refusal spell a remedy the helper owns. The phrases come from
-        # hook_remedy itself, so adding wording there extends this check rather than escaping it.
-        helper = next(n for n in ast.walk(tree)
-                      if isinstance(n, ast.FunctionDef) and n.name == 'hook_remedy')
-        owned = [value.value for value in ast.walk(helper)
+        # And nowhere may a refusal SPELL a remedy, whether or not it also asks for one. No
+        # exemption at all: the helper's contribution to a statement is a call, and a call
+        # carries no string literals, so scanning only what the refusal spells for itself
+        # separates the two exactly. The previous two versions exempted first by line and then
+        # by statement, and the second was the wider hole — eleven of twelve refusal sites call
+        # the helper, so skipping them left the negative half examining almost nothing.
+        owned = [value.value for value in ast.walk(
+                     next(n for n in ast.walk(tree)
+                          if isinstance(n, ast.FunctionDef) and n.name == 'hook_remedy'))
                  if isinstance(value, ast.Constant) and isinstance(value.value, str)
                  and len(value.value) > 12]
         self.assertGreaterEqual(len(owned), 2, 'hook_remedy stopped owning any wording')
+        # A floor that does not depend on the helper's current phrasing, so rewording the
+        # helper cannot silently shrink what counts as spelling a remedy.
+        FLOOR = ('delete it', 'delete the hook', 'reinstall', 'reinstalls', 'remove it')
         offenders = []
         for name in ('usable_hook', 'upholds', 'run_hook', 'install_hook'):
-            for refusal in refusals(name):
-                if 'hook_remedy' in refusal:
-                    continue                      # it asks the helper; the helper owns the words
-                for phrase in owned:
-                    if phrase.strip()[:24] in refusal:
-                        offenders.append(f'{name}: {refusal[:60]}')
-        self.assertFalse(offenders, 'a refusal spells wording hook_remedy owns instead of calling '
-                                    'it: ' + '; '.join(offenders))
+            node = next(n for n in ast.walk(tree)
+                        if isinstance(n, ast.FunctionDef) and n.name == name)
+            for call in ast.walk(node):
+                if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                        and call.func.id in ('require', 'ValueError')):
+                    continue
+                spelled = ' '.join(c.value for c in ast.walk(call)
+                                   if isinstance(c, ast.Constant) and isinstance(c.value, str))
+                hits = [w for w in FLOOR if w in spelled.lower()]
+                hits += [phrase for phrase in owned if phrase.strip()[:18] in spelled]
+                if hits:
+                    offenders.append(f'{name}: {sorted(set(hits))} in {spelled[:60]!r}')
+        self.assertFalse(offenders, 'a refusal spells a remedy instead of asking hook_remedy '
+                                    'for one: ' + '; '.join(offenders))
 
     def test_a_custom_hooks_directory_is_never_told_to_delete_its_hook(self):
         """Five refusals told the reader to delete the hook and let start reinstall it. That is

@@ -525,6 +525,37 @@ class ReviewFlowTests(unittest.TestCase):
         # And the value the prompt names is the one record accepts, which is the whole claim.
         self.report('claude')
 
+    def test_a_standalone_campaign_stores_a_corrected_measurement_too(self):
+        """The non-autonomous branch is the live default, not a corner: a campaign is autonomous
+        only once enrolled, and main() does not write state after start. Without the `changed`
+        write the correction lives in memory, is returned, and the next prompt re-reads the file
+        and interpolates the previous reading — the defect this round was opened for, in the
+        path every standalone review takes. Every other re-measurement case here enrols first."""
+        body = json.loads(self.context.read_text())
+        self.start()
+        self.checks()
+        self.context.write_text(json.dumps(dict(body, measured=['a standalone correction'])))
+        self.start()
+        self.assertIn('a standalone correction', self.text('prompt'))
+
+    def test_a_reading_cannot_change_once_a_reviewer_has_read_it(self):
+        """The window closes at the first report. Afterwards the task is what that reviewer
+        read: changing it would hand the second a different context from the first, and a
+        cleared candidate would have the evidence behind its receipt edited after the fact —
+        the reviews, the triage and the cleared flag all stay, and only the text they were
+        judged against would move."""
+        body = json.loads(self.context.read_text())
+        self.start()
+        self.checks()
+        self.report('claude')
+        self.context.write_text(json.dumps(dict(body, measured=['too late for this candidate'])))
+        refused = self.start(ok=False).stderr
+        self.assertIn('already read this candidate', refused)
+        # Unchanged is still idempotent: start is called repeatedly through a campaign.
+        self.context.write_text(json.dumps(body))
+        self.assertEqual(self.flow('status')['round'], 1)
+        self.start()
+
     def test_a_re_measurement_on_the_same_candidate_reaches_the_reviewers(self):
         """A reading corrected on the candidate in hand is what the reviewers must read.
 
@@ -570,12 +601,16 @@ class ReviewFlowTests(unittest.TestCase):
         # Age every ledger under the campaign root the way one written before the field looks;
         # which file holds it is the runtime's business, and naming a path here would be a
         # second guess at it. An earlier version computed one, found nothing, and ignored both.
-
+        aged = 0
         for path in directory.parent.rglob('*.json'):
             data = json.loads(path.read_text())
             if isinstance(data, dict) and 'context' in data and 'heads' in data:
                 data['context'] = json.dumps(without)
                 path.write_text(json.dumps(data, indent=2))
+                aged += 1
+        # Or the case proves nothing: with no ledger aged, the start below simply succeeds the
+        # way it always would, and the ring it is named for was never set up.
+        self.assertEqual(aged, 1, 'no ledger was aged, so this case tests nothing')
         self.complete()
         self.commit('a correction')
         state = self.start(correction=True, answers=['code.txt:external'], autonomous=True)

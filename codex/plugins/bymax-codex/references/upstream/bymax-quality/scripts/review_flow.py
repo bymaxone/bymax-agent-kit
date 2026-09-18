@@ -784,8 +784,20 @@ def reuse_candidate(old, context, directory, autonomous, base, head):
     The ledger is not rewritten here. It records the reading of the candidate it froze, and
     this candidate is already frozen; rewriting it would break the one invariant the ledger
     has, that it changes once and only when a candidate freezes.
+
+    And the window closes when the first reviewer reads. Until then the task is still being
+    assembled and a corrected reading belongs in it; afterwards the task is what that reviewer
+    read, and changing it would hand the second a different context from the first — or, once
+    the candidate has cleared, edit the evidence behind a receipt the hook already honours.
+    So a correction arriving after the first report is refused and named, rather than applied
+    to a candidate whose reading is over.
     """
     changed = old['context'] != context
+    require(not changed or not old.get('reviews'),
+            'A reviewer has already read this candidate, so its task is what they read. Record '
+            'the corrected measurement on the next candidate: changing it now would give the '
+            'second reviewer a different context from the first, and a cleared candidate would '
+            'have the evidence behind its receipt edited after the fact.')
     old['context'] = context
     if autonomous:
         old.update(review_delivery.reserve(directory, head, base, context, old))

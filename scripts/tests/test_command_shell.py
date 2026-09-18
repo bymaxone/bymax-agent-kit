@@ -510,8 +510,11 @@ class ProseReferenceTests(unittest.TestCase):
                   if tok.type == tokenize.COMMENT]
         return '\n'.join(parts)
 
-    # The one directory git tracks whose contents this repository does not author.
-    FOREIGN = ('codex/plugins/',)
+    # Tracked directories whose contents this repository does not author: the generated Codex
+    # mirror, and vendor/, which its own README calls third-party skills bundled with their
+    # licences. Narrowing this list while swapping the disk walk for the index was how vendor/
+    # came to be read — the fix for one finding reopening another in the same hunk.
+    FOREIGN = ('codex/plugins/', 'vendor/')
 
     def sources(self):
         """Every document and script this repository authors: what git tracks, minus the mirror.
@@ -543,11 +546,17 @@ class ProseReferenceTests(unittest.TestCase):
         for named in ('TESTING.md', 'REVIEW.md', 'AGENTS.md', 'README.md'):
             if (ROOT / named).is_file():
                 self.assertIn(named, read)
+        # And nothing from the directories this repository tracks but did not write. Named here
+        # rather than read from FOREIGN: an assertion that consults the constant it guards moves
+        # with it, and shrinking the list would leave this passing — which it did.
+        for foreign in ('vendor/', 'codex/plugins/'):
+            self.assertFalse([path for path in read if path.startswith(foreign)],
+                             foreign + ' is tracked but not authored here, and is being read')
         self.assertFalse([path for path in read if path.startswith('codex/plugins/')])
         # And nothing the repository does not track: rglob read pytest's caches and this
         # machine's local audit evidence, which are not claims this repository makes.
-        tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files'], capture_output=True, text=True)
-        index = set(tracked.stdout.split())
+        tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z'], capture_output=True)
+        index = {name for name in os.fsdecode(tracked.stdout).split('\0') if name}
         self.assertFalse([path for path in read if path not in index],
                          'the gate is reading files git does not track')
         dangling = {}
