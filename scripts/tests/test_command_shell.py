@@ -510,13 +510,41 @@ class ProseReferenceTests(unittest.TestCase):
                   if tok.type == tokenize.COMMENT]
         return '\n'.join(parts)
 
-    # Tracked directories whose contents this repository does not author: the generated Codex
-    # mirror, and the third-party skill trees under vendor/. The subtrees and not vendor/
-    # itself: vendor/README.md is this repository explaining in its own voice why the folder
-    # exists, and excluding the parent to keep the children out took that with it. This list
-    # has now moved twice and lost something each time, which is the argument for naming the
-    # trees rather than their parent.
-    FOREIGN = ('codex/plugins/', 'vendor/ecc-skills/', 'vendor/ui-ux-pro-max/')
+    @staticmethod
+    def foreign(root=ROOT):
+        """Tracked directories whose contents this repository did not write — derived, not listed.
+
+        Two kinds, each with a marker the repository already maintains for its own reasons. A
+        vendored tree carries ATTRIBUTION.md beside its LICENSE, which is how its origin is
+        recorded. The Codex mirror is written by codex/scripts/bundle.py, which names its own
+        destination in a constant.
+
+        Derived because the hand-kept tuple moved twice and lost something each time: first it
+        let the vendored trees be read, then, excluding their parent to keep them out, it took
+        vendor/README.md with them — a document this repository wrote about why the folder
+        exists. A list has to be remembered; a marker is already there.
+        """
+        # :(glob) or the pathspec is fnmatch: `*` would cross a separator and the start of a
+        # basename, so a repository-authored docs/THIRD-PARTY-ATTRIBUTION.md would take its
+        # whole directory out of the gate. And one marker is not proof: the vendoring
+        # convention puts a LICENSE beside it, so both are required. A derivation that can
+        # shrink this gate silently is worse than the list it replaced, because no one has to
+        # edit anything for it to happen.
+        listed = subprocess.run(['git', '-C', str(root), 'ls-files', '-z',
+                                 '--', ':(glob)**/ATTRIBUTION.md'], capture_output=True)
+        names = [n for n in os.fsdecode(listed.stdout).split('\0') if n]
+        # The LICENSE is read from the index too: an untracked one, dropped in by anything at
+        # all, must not be able to authorise an exclusion.
+        everything = subprocess.run(['git', '-C', str(root), 'ls-files', '-z'], capture_output=True)
+        tracked = {n for n in os.fsdecode(everything.stdout).split('\0') if n}
+        roots = {str(Path(name).parent) + '/' for name in names
+                 if str(Path(name).parent / 'LICENSE') in tracked}
+        bundler = root / 'codex/scripts/bundle.py'
+        if bundler.is_file():
+            named = re.search(r"PACKAGE = ROOT / '([^']+)'", bundler.read_text())
+            if named:
+                roots.add(named.group(1) + '/')
+        return sorted(roots)
 
     def sources(self):
         """Every document and script this repository authors: what git tracks, minus the mirror.
@@ -531,9 +559,66 @@ class ProseReferenceTests(unittest.TestCase):
         listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '*.md', '*.py'],
                                 capture_output=True)
         names = [n for n in os.fsdecode(listed.stdout).split('\0') if n]
+        skip = self.foreign()
         return sorted(ROOT / name for name in names
-                      if not any(name.startswith(part) for part in self.FOREIGN)
+                      if not any(name.startswith(part) for part in skip)
                       and (ROOT / name).is_file())
+
+    def test_what_is_foreign_is_derived_from_markers_the_repository_keeps(self):
+        """A third vendored tree added tomorrow is excluded without anyone remembering to say so.
+
+        The exclusion list was hand-kept and moved twice, losing something each time. It is
+        derived now from two markers that exist for their own reasons: ATTRIBUTION.md, written
+        beside a vendored tree's LICENSE to record where it came from, and the bundler's own
+        PACKAGE constant, which names the mirror it generates. Asserted against a synthetic
+        tree so the rule is tested rather than this repository's current contents.
+        """
+        scratch = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, scratch, True)
+        subprocess.run(['git', 'init', '-q', str(scratch)], check=True)
+        (scratch / 'third-party/newcomer').mkdir(parents=True)
+        (scratch / 'third-party/newcomer/ATTRIBUTION.md').write_text('taken from elsewhere\n')
+        (scratch / 'third-party/newcomer/LICENSE').write_text('theirs\n')
+        (scratch / 'third-party/README.md').write_text('why this folder exists\n')
+        (scratch / 'codex/scripts').mkdir(parents=True)
+        (scratch / 'codex/scripts/bundle.py').write_text(
+            "ROOT = 1\nPACKAGE = ROOT / 'codex/plugins/somewhere'\n")
+        subprocess.run(['git', '-C', str(scratch), 'add', '-A'], check=True)
+
+        derived = self.foreign(scratch)
+        self.assertIn('third-party/newcomer/', derived)
+        self.assertIn('codex/plugins/somewhere/', derived)
+        # The parent is not excluded, so a document the repository wrote about the folder stays
+        # readable — which is what excluding the parent cost the last time this list moved.
+        self.assertNotIn('third-party/', derived)
+        # And a tree with no marker is not foreign, however it is named.
+        (scratch / 'third-party/ours').mkdir()
+        (scratch / 'third-party/ours/notes.md').write_text('written here\n')
+        # Nor is one this repository wrote that merely mentions attribution in a filename: the
+        # pathspec matches the marker and not a name ending in it, and a LICENSE must sit
+        # beside it. Either alone would let an authored directory out of the gate.
+        # This one carries a LICENSE too, so only the pathspec keeps it in: with an fnmatch
+        # pathspec its name ends in the marker and the whole directory would leave the gate.
+        # Each condition needs a shape where it is the only thing standing, or a mutation of
+        # one is masked by the other — which is how the first version of this case passed
+        # against a loosened pathspec.
+        (scratch / 'docs').mkdir()
+        (scratch / 'docs/THIRD-PARTY-ATTRIBUTION.md').write_text('who we credit\n')
+        (scratch / 'docs/LICENSE').write_text('ours\n')
+        (scratch / 'notes').mkdir()
+        (scratch / 'notes/ATTRIBUTION.md').write_text('no licence beside this one\n')
+        # And one whose LICENSE is on disk but was never added. Without this shape the case
+        # cannot tell the index from the filesystem at all — everything above is staged, so
+        # both readings agree and a mutation from one to the other changes no answer.
+        (scratch / 'dropped').mkdir()
+        (scratch / 'dropped/ATTRIBUTION.md').write_text('claims to be vendored\n')
+        subprocess.run(['git', '-C', str(scratch), 'add', '-A'], check=True)
+        (scratch / 'dropped/LICENSE').write_text('untracked, and so not this repository saying so\n')
+        derived = self.foreign(scratch)
+        self.assertNotIn('third-party/ours/', derived)
+        self.assertNotIn('docs/', derived)
+        self.assertNotIn('notes/', derived)
+        self.assertNotIn('dropped/', derived)
 
     def test_no_prose_names_a_case_that_does_not_exist(self):
         """The gate itself. A deleted case leaves its name behind in whatever pointed at it,
@@ -545,21 +630,42 @@ class ProseReferenceTests(unittest.TestCase):
         # The two documents whose purpose is naming test modules must be among the sources, or
         # the gate is blind where its subject is most written about — which it was.
         read = {str(path.relative_to(ROOT)) for path in self.sources()}
-        for named in ('TESTING.md', 'REVIEW.md', 'AGENTS.md', 'README.md', 'vendor/README.md'):
-            if (ROOT / named).is_file():
-                self.assertIn(named, read)
-        # And nothing from the directories this repository tracks but did not write. Named here
-        # rather than read from FOREIGN: an assertion that consults the constant it guards moves
-        # with it, and shrinking the list would leave this passing — which it did.
-        for foreign in ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/'):
-            self.assertFalse([path for path in read if path.startswith(foreign)],
-                             foreign + ' is tracked but not authored here, and is being read')
-        # And nothing the repository does not track: rglob read pytest's caches and this
-        # machine's local audit evidence, which are not claims this repository makes.
-        tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z'], capture_output=True)
-        index = {name for name in os.fsdecode(tracked.stdout).split('\0') if name}
-        self.assertFalse([path for path in read if path not in index],
-                         'the gate is reading files git does not track')
+        # One statement, exact, and stated without consulting the derivation it checks. What
+        # this repository authors is every tracked .md and .py except the three trees it does
+        # not, and those three are written here as literals — the derivation's job is to arrive
+        # at the same answer from markers, which its own case proves separately.
+        #
+        # Four partial rules stood here before and each let something through. A floor of 100
+        # against 130 sources passed at 129, so a whole plugin could leave. Comparing top-level
+        # directories asked foreign() for the expected side, so the mutant moved both, and
+        # `plugins` survives while eight of nine plugins remain. Requiring each plugin to
+        # contribute one file missed every shrink that is not plugin-shaped — all of scripts/,
+        # or every plugins/*/skills/ — and misread a future plugins/README.md as a plugin. And
+        # a floor beside any of them only catches a shrink large enough to cross it. Equality
+        # catches all of them, in both directions, and needs no floor over what is read.
+        #
+        # It does need its own side to exist. Both sides of this comparison end up asking git,
+        # so anything that makes git answer nothing — no repository, a broken pathspec, a
+        # non-zero exit nobody read — empties them together and the equality holds over two
+        # empty sets. Measured: with .git removed the gate passed having read 0 of 130 files,
+        # and the sentence that stood here claimed the opposite. The guard is not a count; it
+        # is that the question was answered at all.
+        listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '--', '*.md', '*.py'],
+                                capture_output=True)
+        every = {name for name in os.fsdecode(listed.stdout).split('\0') if name}
+        # One assertion, not two: a non-zero exit and a pathspec that matches nothing arrive
+        # here as the same empty set, and writing the rule twice is how one copy drifts. The
+        # exit status goes in the message, where it tells the reader which of the two happened.
+        self.assertTrue(every, 'git listed no documents or scripts, so the expected side of '
+                               'this gate is empty and an empty gate would match it. git exit '
+                               '%d: %s' % (listed.returncode, listed.stderr.decode()[:200]))
+        VENDORED = ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/bymax-codex/')
+        expected = {name for name in every
+                    if not any(name.startswith(part) for part in VENDORED)}
+        self.assertEqual(expected, read,
+                         'the gate no longer reads exactly what this repository authors. Not '
+                         'read: ' + str(sorted(expected - read)[:8]) + '; read but not ours or '
+                         'not tracked: ' + str(sorted(read - expected)[:8]))
         dangling = {}
         for path in self.sources():
             for name in self.NAME.findall(self.prose(path)):

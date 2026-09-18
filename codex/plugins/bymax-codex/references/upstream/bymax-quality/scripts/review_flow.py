@@ -390,12 +390,21 @@ def managed_hook(path):
 def hook_remedy(path, checker):
     """How to fix a hook that does not enforce, in the words that are true for THIS path.
 
-    Five refusals told the reader to delete the hook and let start reinstall it. Where
+    Refusals used to tell the reader to delete the hook and let start reinstall it. Where
     core.hooksPath is set that is not a remedy: start never writes there, so deleting leaves
     the repository with no check at all, and the next start can only say the directory holds no
     pre-push. The sentence was true for the default path and wrong for the other, and nothing
-    asked which one it was about — so the question is asked once, here, and the five messages
-    end with the answer.
+    asked which one it was about — so the question is asked once, here.
+
+    What this answers is one question: given THIS path, is deleting the hook a remedy or a way
+    to end up with no check at all. Which refusals ask it is not stated here, and that is
+    deliberate. Every attempt to summarise that boundary in a sentence has been found false by
+    a reviewer — the last claimed the helper answers a hook that is present and runnable, while
+    a directory sitting at the hook path, a hook that outran its probe and one whose interpreter
+    line could not be run all ask it — while a hook that is merely missing the executable bit is
+    one of the refusals that does not, which is how close together these live. The enumeration is not a rule; it is a list the code decides case by
+    case, and a list belongs in a test. test_the_refusals_that_want_a_different_remedy_are_named
+    holds it, and a refusal that stops asking for this answer fails there.
     """
     if managed_hook(path):
         return (f'Delete it so start reinstalls the bundled hook, or point it at {checker}, '
