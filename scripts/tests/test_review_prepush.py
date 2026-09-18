@@ -9,6 +9,7 @@ Bash tool would, and then inspects the remote. The assertion is about what lande
 not about what any parser thought of the text, so a new spelling that defeats the
 Bash adapter still has to get past the pre-push hook that git invokes with the SHA.
 """
+import ast
 import hashlib
 import json
 import os
@@ -176,6 +177,20 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertGreater(now - stale['at'], flow.WAIVER_TTL)
         self.assertAlmostEqual(flow.WAIVER_TTL - (now - fresh['at']), flow.PROBE_MARGIN, delta=5)
         self.assertAlmostEqual((now - stale['at']) - flow.WAIVER_TTL, flow.PROBE_MARGIN, delta=5)
+        # The arithmetic above is not what makes the invariant hold: the dated receipt has to be
+        # the one the probe hands the hook. Asserted at the call site, which is where an edit
+        # would break it without touching either constant.
+        source = (ROOT / 'plugins/bymax-quality/scripts/review_flow.py').read_text()
+        # By AST, not by text: probe_receipt's own docstring names waived_shape(), so a textual
+        # search is satisfied by the prose and passes with the call removed. Measured — the
+        # first version of this assertion did exactly that.
+        probe = next(n for n in ast.walk(ast.parse(source))
+                     if isinstance(n, ast.FunctionDef) and n.name == 'probe_receipt')
+        called = {c.func.id for c in ast.walk(probe)
+                  if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+        self.assertIn('waived_shape', called,
+                      'the receipt no longer carries what waived_shape dates, so the margin '
+                      'above is arithmetic nothing reads')
 
     def test_hook_policy_matches_the_campaign_runtime(self):
         """The self-contained hook must recognise receipts written by the current runtime."""
@@ -351,14 +366,45 @@ class PrePushInvariantTests(unittest.TestCase):
         self.assertIn('cannot be pushed: no completed review', refused.stderr)
         self.assertFalse(self.remote_has(self.git('rev-parse', 'HEAD')))
 
+    def test_no_hook_refusal_carries_its_own_remedy(self):
+        """Every refusal about a hook ends with hook_remedy, and none spells a remedy itself.
+
+        Driving each message needs a probe shape that reaches it, and the first refusal
+        short-circuits the rest — which is how the sibling case came to cover one message while
+        claiming five. The property is structural, so it is asserted structurally: over the
+        source of the functions that refuse, where reattaching a remedy by hand is visible
+        whether or not any fixture reaches that line.
+        """
+        source = (ROOT / 'plugins/bymax-quality/scripts/review_flow.py').read_text()
+        tree = ast.parse(source)
+        lines = source.splitlines()
+        offenders = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.FunctionDef)
+                    and node.name in ('usable_hook', 'upholds', 'run_hook', 'install_hook')):
+                continue
+            body = '\n'.join(lines[node.lineno - 1:node.end_lineno])
+            for phrase in ('delete it', 'Delete it', 'reinstalls the bundled hook',
+                           'reinstall the bundled hook'):
+                for line in body.splitlines():
+                    if phrase in line and 'hook_remedy' not in line and not line.strip().startswith('#'):
+                        offenders.append(f'{node.name}: {line.strip()[:80]}')
+        self.assertFalse(offenders, 'a hook refusal spells its own remedy instead of asking '
+                                    'hook_remedy which case the path is in: ' + '; '.join(offenders))
+        # And the helper is actually reached from those functions, or the check above is vacuous.
+        self.assertGreaterEqual(source.count('hook_remedy(path'), 5)
+
     def test_a_custom_hooks_directory_is_never_told_to_delete_its_hook(self):
         """Five refusals told the reader to delete the hook and let start reinstall it. That is
         a remedy for the repository's own hooks directory and the opposite of one for a custom
         core.hooksPath: start never writes there, so deleting leaves the repository with no
         check at all and the next start can only report an empty directory.
 
-        Driven through a real refusal rather than the helper, so it fails if the wording is
-        reattached to any of the five messages by hand.
+        This case observes ONE of those refusals — the fixture's hook exits 0 on the first
+        probe, so upholds raises before the others are built — and an earlier version of this
+        docstring claimed it covered all five. It did not, and reattaching the wording by hand
+        to any of the other four left it green. The claim now lives where it can be true:
+        test_no_hook_refusal_carries_its_own_remedy asserts it over the source.
         """
         custom = self.root / 'custom-hooks'
         custom.mkdir()

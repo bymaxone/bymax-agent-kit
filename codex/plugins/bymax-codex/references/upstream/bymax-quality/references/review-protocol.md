@@ -439,8 +439,10 @@ which the runtime is free to change:
 - **with that receipt unheld**, the shape an interrupted probe leaves, and **with one naming
   a pid and nothing to hold** — the hook must refuse both, since a probe receipt nobody
   holds is void whatever pid is reused later. A hook that accepts either honours such a
-  receipt, as a copy of an earlier checker does; it is refused until deleted (the bundled
-  hook is then reinstalled) or pointed at the current checker;
+  receipt, as a copy of an earlier checker does; it is refused, and the remedy named depends
+  on the path: deleting it has `start` reinstall the bundled hook only where `start` writes,
+  which is never a custom `core.hooksPath` directory — there the refusal says to point it at
+  the current checker and not to delete it;
 - **three pushes of three refs**, as git does for a push of three refs, each record with
   its own remote ref and the first fast-forwarding the branch: the unreceipted commit takes
   each of the three positions in turn while the receipted one fills the others. The hook

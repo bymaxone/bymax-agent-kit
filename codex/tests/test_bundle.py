@@ -24,10 +24,16 @@ def alias_of(directory):
 
     This is what the whole samefile question turns on, and it cannot be manufactured
     portably: a symlink is collapsed by resolve(), so it does not discriminate, and a second
-    mount needs privileges a test does not have. Two real aliases do discriminate, and both
-    are ordinary on the machines this package is developed on — a case-insensitive volume
-    (the macOS default) and a macOS firmlink. Where neither exists the case says so and skips,
-    rather than passing for the wrong reason.
+    mount or a case-insensitive loopback needs privileges a test does not have. Two real
+    aliases do discriminate, and both are ordinary on the machines this package is developed
+    on — a case-insensitive volume (the macOS default) and a macOS firmlink. Where neither
+    exists the case says so and skips, rather than passing for the wrong reason.
+
+    So the reach of this gate is a developer's machine, not the pipeline: CI runs on Linux,
+    where neither alias exists and the case skips. Reverting own_index() to compare resolved
+    names would be green in CI and caught here. That is a real limit and it is written down
+    rather than left for the next reader to discover — the alternative was no gate at all,
+    which is what this replaced.
     """
     text = str(directory)
     flipped = Path(text.upper() if text != text.upper() else text.lower())

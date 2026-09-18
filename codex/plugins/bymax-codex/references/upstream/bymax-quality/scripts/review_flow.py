@@ -172,8 +172,8 @@ def install_hook():
     target = Path(git('rev-parse', '--git-common-dir')).resolve() / 'hooks' / 'pre-push'
     if target.exists() or target.is_symlink():
         require(not target.is_dir(),
-                str(target) + ' is a directory, so git cannot run it as the pre-push hook; replace it '
-                'with a hook file (or delete it to have the bundled hook installed) before starting.')
+                str(target) + ' is a directory, so git cannot run it as the pre-push hook. '
+                + hook_remedy(target, source))
         text = target.read_text(errors='replace') if target.exists() else ''
         require(HOOK_MARKER in text,
                 'A pre-push hook not managed by this campaign exists at ' + str(target)
@@ -215,9 +215,10 @@ def run_hook(path, remote, line):
                                text=True, timeout=HOOK_SECONDS, cwd=git('rev-parse', '--show-toplevel'))
     except subprocess.TimeoutExpired:
         raise ValueError(f'{path} did not finish within {HOOK_SECONDS} s when probed with a push of '
-                         f'{refs} ref(s); fix or delete it.')
+                         f'{refs} ref(s). ' + hook_remedy(path, Path(__file__).with_name('review_prepush.py')))
     except OSError as error:
-        raise ValueError(f'{path} could not be run ({error.strerror}); fix its interpreter line or delete it.')
+        raise ValueError(f'{path} could not be run ({error.strerror}); fix its interpreter line. '
+                         + hook_remedy(path, Path(__file__).with_name('review_prepush.py')))
     return probe.returncode
 
 
@@ -446,8 +447,7 @@ def usable_hook(path):
             f'{resolve_codex() or "none"}. A waiver names the binary it was measured against and '
             'this hook re-resolves that name before honouring it, so every waived push would be '
             f'refused for a disagreement no message explains. Make it resolve Codex as {checker} '
-            'does — delegating to that file is the surest way — or, where this campaign installed '
-            'the hook, delete it and let start reinstall the bundle.')
+            'does — delegating to that file is the surest way. ' + hook_remedy(path, checker))
     upholds(path, checker, *push_probes(path))
 
 
@@ -467,9 +467,8 @@ def upholds(path, checker, unreceipted, held, orphaned, legacy, partial, waived,
             f'{path} refused a push of a commit whose receipt carries an independent second Claude '
             'review in place of a Codex this machine cannot run (exit ' + str(waived) + '). Either '
             'it predates that receipt shape, or it honours a shorter waiver window than this '
-            'runtime; either way it would block every waived push in silence. Point it at the '
-            f'current {checker}, or, where this campaign installed the hook, delete it and let '
-            'start reinstall the bundle.')
+            'runtime; either way it would block every waived push in silence. '
+            + hook_remedy(path, checker))
     require(stale != 0,
             f'{path} accepted a push named by a receipt whose Codex waiver is past the window (exit '
             '0), or honours a longer window than this runtime. A waiver is evidence about a machine '

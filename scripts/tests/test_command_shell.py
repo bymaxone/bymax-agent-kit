@@ -510,12 +510,22 @@ class ProseReferenceTests(unittest.TestCase):
                   if tok.type == tokenize.COMMENT]
         return '\n'.join(parts)
 
+    # Directories whose contents this repository does not author: the generated Codex mirror,
+    # third-party skills it does not redistribute, and anything a tool writes.
+    FOREIGN = ('codex/plugins/', 'vendor/', 'node_modules/', '.git/', '__pycache__/')
+
     def sources(self):
-        """Everything this repository authors, excluding the generated Codex mirror."""
-        paths = (list(ROOT.glob('plugins/**/*.md')) + list(ROOT.glob('plugins/**/*.py'))
-                 + list(ROOT.glob('scripts/tests/*.py')) + list(ROOT.glob('codex/tests/*.py'))
-                 + list(ROOT.glob('codex/scripts/*.py')) + [ROOT / 'CHANGELOG.md'])
-        return [p for p in paths if 'codex/plugins' not in str(p) and p.is_file()]
+        """Every document and script this repository authors, and now actually all of them.
+
+        The first version listed six globs and claimed to be everything, and a reviewer counted
+        23 authored files outside them — including TESTING.md and REVIEW.md, whose whole purpose
+        is naming this repository's test modules. A gate blind exactly where its subject is most
+        written about is worse than none, because the blindness is invisible.
+        """
+        paths = [p for p in list(ROOT.rglob('*.md')) + list(ROOT.rglob('*.py'))
+                 if p.is_file() and not any(part in str(p.relative_to(ROOT)) + '/'
+                                            for part in self.FOREIGN)]
+        return sorted(paths)
 
     def test_no_prose_names_a_case_that_does_not_exist(self):
         """The gate itself. A deleted case leaves its name behind in whatever pointed at it,
@@ -524,6 +534,13 @@ class ProseReferenceTests(unittest.TestCase):
         known, files = self.known()
         self.assertGreater(len(files), 5, 'the test modules moved; this gate is reading nothing')
         self.assertGreater(len(known), 100, 'no case names were collected; the pattern broke')
+        # The two documents whose purpose is naming test modules must be among the sources, or
+        # the gate is blind where its subject is most written about — which it was.
+        read = {str(path.relative_to(ROOT)) for path in self.sources()}
+        for named in ('TESTING.md', 'REVIEW.md', 'AGENTS.md', 'README.md'):
+            if (ROOT / named).is_file():
+                self.assertIn(named, read)
+        self.assertFalse([path for path in read if path.startswith('codex/plugins/')])
         dangling = {}
         for path in self.sources():
             for name in self.NAME.findall(self.prose(path)):
