@@ -390,12 +390,18 @@ def managed_hook(path):
 def hook_remedy(path, checker):
     """How to fix a hook that does not enforce, in the words that are true for THIS path.
 
-    Five refusals told the reader to delete the hook and let start reinstall it. Where
+    Refusals used to tell the reader to delete the hook and let start reinstall it. Where
     core.hooksPath is set that is not a remedy: start never writes there, so deleting leaves
     the repository with no check at all, and the next start can only say the directory holds no
     pre-push. The sentence was true for the default path and wrong for the other, and nothing
-    asked which one it was about — so the question is asked once, here, and the five messages
-    end with the answer.
+    asked which one it was about — so the question is asked once, here, and every refusal about
+    a hook that exists and does not enforce ends with the answer.
+
+    Not every refusal about a hook: three offer a different remedy because this one would be
+    wrong for them — a hook that is not executable wants chmod, a custom directory holding no
+    pre-push wants one added there, and a hook this campaign did not install is never displaced.
+    That distinction is why a count belongs nowhere near this docstring; it has been written
+    wrongly five times, and the rule is what is stable.
     """
     if managed_hook(path):
         return (f'Delete it so start reinstalls the bundled hook, or point it at {checker}, '

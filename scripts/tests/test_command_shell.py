@@ -510,13 +510,30 @@ class ProseReferenceTests(unittest.TestCase):
                   if tok.type == tokenize.COMMENT]
         return '\n'.join(parts)
 
-    # Tracked directories whose contents this repository does not author: the generated Codex
-    # mirror, and the third-party skill trees under vendor/. The subtrees and not vendor/
-    # itself: vendor/README.md is this repository explaining in its own voice why the folder
-    # exists, and excluding the parent to keep the children out took that with it. This list
-    # has now moved twice and lost something each time, which is the argument for naming the
-    # trees rather than their parent.
-    FOREIGN = ('codex/plugins/', 'vendor/ecc-skills/', 'vendor/ui-ux-pro-max/')
+    @staticmethod
+    def foreign(root=ROOT):
+        """Tracked directories whose contents this repository did not write — derived, not listed.
+
+        Two kinds, each with a marker the repository already maintains for its own reasons. A
+        vendored tree carries ATTRIBUTION.md beside its LICENSE, which is how its origin is
+        recorded. The Codex mirror is written by codex/scripts/bundle.py, which names its own
+        destination in a constant.
+
+        Derived because the hand-kept tuple moved twice and lost something each time: first it
+        let the vendored trees be read, then, excluding their parent to keep them out, it took
+        vendor/README.md with them — a document this repository wrote about why the folder
+        exists. A list has to be remembered; a marker is already there.
+        """
+        listed = subprocess.run(['git', '-C', str(root), 'ls-files', '-z', '*ATTRIBUTION.md'],
+                                capture_output=True)
+        names = [n for n in os.fsdecode(listed.stdout).split('\0') if n]
+        roots = {str(Path(name).parent) + '/' for name in names}
+        bundler = root / 'codex/scripts/bundle.py'
+        if bundler.is_file():
+            named = re.search(r"PACKAGE = ROOT / '([^']+)'", bundler.read_text())
+            if named:
+                roots.add(named.group(1) + '/')
+        return sorted(roots)
 
     def sources(self):
         """Every document and script this repository authors: what git tracks, minus the mirror.
@@ -531,9 +548,41 @@ class ProseReferenceTests(unittest.TestCase):
         listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '*.md', '*.py'],
                                 capture_output=True)
         names = [n for n in os.fsdecode(listed.stdout).split('\0') if n]
+        skip = self.foreign()
         return sorted(ROOT / name for name in names
-                      if not any(name.startswith(part) for part in self.FOREIGN)
+                      if not any(name.startswith(part) for part in skip)
                       and (ROOT / name).is_file())
+
+    def test_what_is_foreign_is_derived_from_markers_the_repository_keeps(self):
+        """A third vendored tree added tomorrow is excluded without anyone remembering to say so.
+
+        The exclusion list was hand-kept and moved twice, losing something each time. It is
+        derived now from two markers that exist for their own reasons: ATTRIBUTION.md, written
+        beside a vendored tree's LICENSE to record where it came from, and the bundler's own
+        PACKAGE constant, which names the mirror it generates. Asserted against a synthetic
+        tree so the rule is tested rather than this repository's current contents.
+        """
+        scratch = Path(tempfile.mkdtemp())
+        subprocess.run(['git', 'init', '-q', str(scratch)], check=True)
+        (scratch / 'third-party/newcomer').mkdir(parents=True)
+        (scratch / 'third-party/newcomer/ATTRIBUTION.md').write_text('taken from elsewhere\n')
+        (scratch / 'third-party/README.md').write_text('why this folder exists\n')
+        (scratch / 'codex/scripts').mkdir(parents=True)
+        (scratch / 'codex/scripts/bundle.py').write_text(
+            "ROOT = 1\nPACKAGE = ROOT / 'codex/plugins/somewhere'\n")
+        subprocess.run(['git', '-C', str(scratch), 'add', '-A'], check=True)
+
+        derived = self.foreign(scratch)
+        self.assertIn('third-party/newcomer/', derived)
+        self.assertIn('codex/plugins/somewhere/', derived)
+        # The parent is not excluded, so a document the repository wrote about the folder stays
+        # readable — which is what excluding the parent cost the last time this list moved.
+        self.assertNotIn('third-party/', derived)
+        # And a tree with no marker is not foreign, however it is named.
+        (scratch / 'third-party/ours').mkdir()
+        (scratch / 'third-party/ours/notes.md').write_text('written here\n')
+        subprocess.run(['git', '-C', str(scratch), 'add', '-A'], check=True)
+        self.assertNotIn('third-party/ours/', self.foreign(scratch))
 
     def test_no_prose_names_a_case_that_does_not_exist(self):
         """The gate itself. A deleted case leaves its name behind in whatever pointed at it,
@@ -551,7 +600,9 @@ class ProseReferenceTests(unittest.TestCase):
         # And nothing from the directories this repository tracks but did not write. Named here
         # rather than read from FOREIGN: an assertion that consults the constant it guards moves
         # with it, and shrinking the list would leave this passing — which it did.
-        for foreign in ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/'):
+        # Named here and not read from the derivation, so an assertion cannot move with the
+        # thing it guards — the shape that let a shrunken exclusion list pass once already.
+        for foreign in ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/bymax-codex/'):
             self.assertFalse([path for path in read if path.startswith(foreign)],
                              foreign + ' is tracked but not authored here, and is being read')
         # And nothing the repository does not track: rglob read pytest's caches and this
