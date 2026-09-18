@@ -110,6 +110,24 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
+    def matrix(self, path, cases):
+        """Run a real mutation matrix in the fixture repo, because nothing here fakes one.
+
+        A correction that changes a test must carry a measured matrix, and a fixture that
+        wrote the record by hand would make the gate satisfiable by typing — which is the
+        defect the gate exists to remove. `cases` is (anchor, case) per function the file
+        defines, so the enumeration command and the mutant count agree by construction.
+        """
+        spec = self.root / 'matrix.json'
+        spec.write_text(json.dumps([{
+            'rule': 'fixture: one mutant per case the file defines',
+            'enumeration': 'grep -c "def test_" %s' % path,
+            'mutants': [{'file': path, 'anchor': anchor,
+                         'becomes': 'raise AssertionError("mutant")', 'case': case}
+                        for anchor, case in cases]}]))
+        return self.flow('matrix', '--spec', str(spec), path)
+
+
     def start(self, ok=True, correction=False, design=False, probe=None, reason='fixture: no test needed',
               nit='fixture: no blocking finding in play', widen='', answers=(), extend='', autonomous=False):
         """Start or reuse a candidate; a correction round carries its probe and test evidence.
@@ -1376,6 +1394,8 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'tests/test_new.py').write_text('def test_a(): pass\ndef test_b(): pass\n')
         self.git('add', '-A')
         self.git('commit', '-qm', 'rename and extend')
+        self.matrix('tests/test_new.py', [('def test_a(): pass', 'test_a'),
+                                          ('def test_b(): pass', 'test_b')])
         state = self.start(correction=True, reason='')
         self.assertEqual(state['regression_tests'], ['tests/test_new.py'])
         self.checks()
@@ -1396,6 +1416,7 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'tests/test_fix.py').write_text('def test_fix(): pass\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add regression')
+        self.matrix('tests/test_fix.py', [('pass', 'test_fix')])
         state = self.start(correction=True, reason='')
         self.assertEqual(state['round'], 2)
         self.assertEqual(state['regression_tests'], ['tests/test_fix.py'])
@@ -1851,6 +1872,7 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests' / 'test_thing.py').write_text('def test_thing():\n    assert True\n')
         self.commit('correction that changes a test')
+        self.matrix('tests/test_thing.py', [('assert True', 'test_thing')])
 
         believed = [dict(command='python3 -m pytest tests/test_thing.py', expected='passes',
                          observed='passes')]

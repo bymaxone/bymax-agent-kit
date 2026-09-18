@@ -136,6 +136,19 @@ def overlays(targets, home, backup_dir):
         print('Local source overlay installed:', path)
 
 
+def payload(root=None):
+    """Every file the runtime needs beside review_flow.py, read from the package.
+
+    Derived rather than listed. A hand-kept tuple decided this until now, and a runtime
+    script nobody copies is a gate that does not exist — silently, because the flow imports
+    it only when the case it guards occurs. `.sh` is excluded deliberately: codex-review.sh
+    is a repository entrypoint, not part of the runtime planted in $HOME.
+    """
+    where = (root or ROOT) / 'plugins/bymax-quality/scripts'
+    return sorted(path for path in where.iterdir()
+                  if path.suffix in ('.py', '.json') and path.is_file())
+
+
 def install(home, overlay):
     """Apply a prevalidated policy/settings merge with recoverable file backups."""
     home = home.resolve()
@@ -157,9 +170,8 @@ def install(home, overlay):
     runtime.mkdir(parents=True, exist_ok=True)
     # review_flow.start installs review_prepush.py from beside itself, so the hook
     # source must travel with the runtime or no repository ever gets the hook.
-    for name in ('review_flow.py', 'review_push.py', 'review_prepush.py', 'review_delivery.py',
-                 'review_claude.py', 'review-report.schema.json'):
-        shutil.copy2(ROOT / 'plugins/bymax-quality/scripts' / name, runtime / name)
+    for source in payload():
+        shutil.copy2(source, runtime / source.name)
     settings_path.write_text(json.dumps(updated_settings, indent=2) + '\n')
     policy_path.write_text(updated_policy)
     legacy = home / 'hooks/code-review-clear.sh'

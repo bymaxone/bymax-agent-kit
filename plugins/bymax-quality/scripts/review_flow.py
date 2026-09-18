@@ -16,6 +16,7 @@ import time
 
 import review_delivery
 from review_delivery import scope_of as scope
+import review_claims
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
@@ -860,10 +861,146 @@ def start(args, directory):
                  retrospectives=old.get('retrospectives', []) if old else [],
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
+    claims_settled(state['review_base'], head)
+    matrix_first(state, directory)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
     save(directory, state)
     return state
+
+
+def regression_note(state):
+    """What the delta did to tests, and what the reviewer should do about it."""
+    if state.get('regression_tests'):
+        return ('Tests changed in this delta: ' + ', '.join(state['regression_tests'])
+                + '. A test whose expectation was flipped rather than added must be justified '
+                'in the triage evidence; report an unjustified flip.')
+    return ('No test changed in this delta. Recorded reason: '
+            + state.get('no_regression_reason', '') + '. Judge whether that is justified.')
+
+
+def matrix_run(args, directory, state):
+    """Run the declared matrix through the runtime and keep what happened, not what was said.
+
+    An author's `observed: the mutant fails the case` is a sentence. This is the measurement,
+    taken here so the record is the runtime's and is bound to the candidate it was taken on.
+    """
+    import review_matrix
+    # Recorded under the HEAD it measured, not under the campaign's current candidate: this
+    # runs between committing a correction and opening the round that reviews it, so the
+    # state in hand still describes the round before.
+    head = clean_head()
+    where = directory / ('matrix-' + head + '.json')
+    return review_matrix.record(git('rev-parse', '--show-toplevel'), args.spec,
+                                list(args.paths), out=str(where))
+
+
+def code_touched(base, head):
+    """Added lines of this delta, counted as code and as prose.
+
+    A correction that writes only prose is a round spent on text, and the prose it writes is
+    the next round's findings — so the two are counted apart and the difference is stated.
+    """
+    split = review_claims.split_delta(base, head)
+    return {kind: len(rows) for kind, rows in split.items()}
+
+
+def matrix_first(state, directory):
+    """A correction that changes a test must carry a measured matrix, not a claim of one.
+
+    Only the runtime can establish that a mutant applied, that its case passed clean first,
+    and that it then failed — which is why `--probe` alone never could.
+    """
+    if state['round'] == 1 or not state.get('regression_tests'):
+        return
+    # Scoped to a correction that changes a TEST, because that is what the matrix proves: a
+    # gate discriminates. Every vacuous gate measured on this loop lived in a test file and
+    # passed its own suite. A correction that changes no test has no gate to mutate, and
+    # demanding one there would buy a slower suite and no evidence.
+    where = directory / ('matrix-' + state['head'] + '.json')
+    require(where.exists(),
+            'This correction changes %s and no measured mutation matrix exists for %s. Run '
+            '`review_flow.py matrix --spec <file> <test paths>` first: a mutant that survives is '
+            'the finding, and a matrix reported rather than run is the one step of this protocol '
+            'that has only ever been the author\'s word.'
+            % (', '.join(state['regression_tests']), state['head'][:12]))
+    kept = json.loads(where.read_text())
+    require(kept.get('head') == state['head'], 'The recorded matrix names head %s, not this '
+            'candidate. A record bound to another head measured another tree.'
+            % str(kept.get('head'))[:12])
+    require(kept.get('mutants'), 'The recorded matrix measured no mutants. A matrix that mutates '
+            'nothing answers nothing.')
+    require(not kept.get('survivors'), 'The recorded matrix has survivors: '
+            + ', '.join(kept['survivors']) + '. A gate nothing can break is decoration.')
+
+
+def code_view(state):
+    """The delta with its prose hunks elided: what a logic reviewer is asked to review.
+
+    Not a blindfold — the tree is theirs to read, and a logic defect noticed BECAUSE a
+    docstring disagrees with the code is still a logic defect and still wanted. What changes
+    is the scope of the report: a finding whose fix is a sentence belongs to the prose pass
+    that ran before this candidate froze.
+    """
+    split = review_claims.split_delta(state['review_base'], state['head'])
+    if not split['code']:
+        return ('This delta changed no code — %d prose line(s) only. A prose-only correction is '
+                'a round spent on text; judge whether it earned one.' % len(split['prose']))
+    shown = ['Code changed in this delta, prose elided (%d code line(s), %d prose). Review THIS. '
+             'The prose was corrected before the freeze by a pass that reads it against the code, '
+             'so a finding whose fix is a sentence is out of your scope and cannot block a '
+             'receipt. A finding whose fix is CODE is yours, however you noticed it — including '
+             'by a comment disagreeing with what the code does.'
+             % (len(split['code']), len(split['prose']))]
+    for name, at, text in split['code'][:120]:
+        shown.append('  %s:%d %s' % (name, at, text.rstrip()[:100]))
+    if len(split['code']) > 120:
+        shown.append('  ... and %d more; the full diff is yours to read.' % (len(split['code']) - 120))
+    return '\n'.join(shown)
+
+
+def claims_coverage(state):
+    """What the claims checker settled, and — the part that matters — what it did not.
+
+    The inventory is a count and a command rather than the lines themselves: a delta adds a
+    hundred assertions and pasting them would cost every reviewer the context they need for
+    the code. What must not be cheap is the statement that nothing checked them, because a
+    silent checker reads as "the prose is true" when it means "two exact checks found nothing".
+    """
+    base, head = state['review_base'], state['head']
+    rest = review_claims.unchecked(base, head)
+    said = ['Prose in this delta: two exact checks ran and passed — no name it asserts was '
+            'removed by this delta, and no claimed removal left its subject in the tree.']
+    counts = code_touched(base, head)
+    if counts['prose'] or counts['code']:
+        said.append('This delta added %d line(s) of code and %d of prose. Prose is unverified '
+                    'surface and it is where a measured 26%% of this loop\'s findings came from, '
+                    'while 91%% of what its corrections wrote was prose: judge whether the '
+                    'explanation earns its size.' % (counts['code'], counts['prose']))
+    said.append('%d assertion(s) added that NO command settles — docstrings, comments, changelog '
+                'and the commit message. They are unverified, not verified; treat each as a claim '
+                'to check against the code, which is where four rounds of this campaign went. '
+                'List them with `review_claims.py %s %s`.' % (len(rest), base, head))
+    return ' '.join(said)
+
+
+def claims_settled(base, head):
+    """Refuse a candidate whose own prose asserts something a command already disproves.
+
+    The suite runs against code; the mutation matrix runs against rules; nothing ran against
+    sentences, and sentences are where this package's correction rounds went. Each refusal
+    here was measured on a real delta, and each was found by a reviewer a round later, at
+    the cost of a candidate.
+    """
+    gone = review_claims.retired(base, head)
+    require(not gone, 'Prose asserts a name this delta removed from the code: '
+            + '; '.join('%s says %s' % (where, name) for where, name in gone)
+            + '. Correct the sentence or restore the name before a reviewer spends a round on it.')
+    broken = review_claims.unkept(base, head)
+    require(not broken, 'Prose claims a removal that did not happen: '
+            + '; '.join('%s says `%s` is gone, and it is in %s' % item for item in broken)
+            + '. A claim of correction that is false is worse than no claim: it is the record '
+              'that says the work was done.')
 
 
 def review_range(directory):
@@ -1065,13 +1202,9 @@ def correction_brief(state):
                  '(a project gate, a browser, a network) is a limitation to state in your summary, not '
                  'a reason to report incomplete: the caller runs and records the declared gates.\n'
                  + json.dumps(state.get('probe', []), indent=1))
-    if state.get('regression_tests'):
-        lines.append('Tests changed in this delta: ' + ', '.join(state['regression_tests'])
-                     + '. A test whose expectation was flipped rather than added must be justified '
-                     'in the triage evidence; report an unjustified flip.')
-    else:
-        lines.append('No test changed in this delta. Recorded reason: '
-                     + state.get('no_regression_reason', '') + '. Judge whether that is justified.')
+    lines.append(code_view(state))
+    lines.append(claims_coverage(state))
+    lines.append(regression_note(state))
     if state.get('removed_tests'):
         lines.append('Tests removed in this delta: ' + ', '.join(state['removed_tests'])
                      + '. A removed test is not regression evidence; judge whether its removal is justified.')
@@ -1762,6 +1895,9 @@ def parser():
     tri.add_argument('--report', required=True)
     gate = sub.add_parser('check')
     gate.add_argument('command', nargs=argparse.REMAINDER)
+    mut = sub.add_parser('matrix')
+    mut.add_argument('--spec', required=True, help='the matrix: rules, their enumeration, their mutants')
+    mut.add_argument('paths', nargs='+', help='test paths the cases live in')
     return cli
 
 
@@ -1793,6 +1929,9 @@ def main():
                 return
             if args.action == 'lessons':
                 print(lessons(state))
+                return
+            if args.action == 'matrix':
+                print(json.dumps(matrix_run(args, directory, state), indent=2))
                 return
             if args.action in ('record', 'triage', 'check'):
                 globals()[args.action](args, directory, state)
