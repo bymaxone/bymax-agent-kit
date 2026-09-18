@@ -33,68 +33,62 @@ EXPANSIONS = '*?[]{}~^+,!'
 ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
 
 
-# Shapes that only read. The disarming scan below is a substring match over the raw command,
-# which is right where a push is at stake and wrong everywhere else: it refused `git rev-parse
-# --git-dir`, which /bymax-pr:push Step 0 prescribes, a `shasum` of a hook path, a `grep` whose
-# PATTERN held one of the tokens, and an `echo` of the same text. A guard that blocks reading
-# protects nothing — no `rev-parse` reaches a remote — and it teaches whoever meets it to phrase
-# commands to slip past a matcher, which is the habit the guard exists to prevent.
-#
-# An allowlist, so the default stays refusal: anything not recognised as read-only is scanned
-# exactly as before. `rm` and `chmod -x` on the hook file are not on this list and are still
-# refused, which is why the question asked here is "does this only read" and not "is this a
-# push" — a command that deletes the hook never mentions pushing.
-# Every program here must be one that cannot write a file the caller names and cannot run
-# another program. Both reviewers found the first version admitting writers: `sort -o FILE`,
-# `uniq INPUT OUTPUT` (POSIX makes the second operand the output), and `awk 'BEGIN{system(...)}'`,
-# none of which needs a shell metacharacter. `sort -o .git/hooks/pre-push /dev/null` truncates
-# the installed hook, and this predicate short-circuits the only scan that would have refused
-# it. awk decides the shape of the rule: a program whose language can execute commands is not a
-# read-only shape however it is invoked, so the test is the program and never its arguments.
-READS = frozenset({'grep', 'rg', 'ack', 'cat', 'head', 'tail', 'wc', 'ls', 'stat', 'shasum',
-                   'sha256sum', 'md5sum', 'file', 'echo', 'printf', 'basename',
-                   'dirname', 'realpath', 'readlink', 'true', 'test', 'cut', 'column'})
-GIT_READS = frozenset({'rev-parse', 'status', 'log', 'show', 'diff', 'ls-files', 'describe',
-                       'merge-base', 'symbolic-ref', 'for-each-ref', 'rev-list', 'cat-file',
-                       'check-ignore', 'blame', 'shortlog', 'ls-remote', 'ls-tree'})
-CONFIG_READS = ('--get', '--get-all', '--get-regexp', '--list', '-l')
+# Programs that could start another program, so a command carrying one could reach a remote
+# however the rest of it is spelled. Nothing here is an allowlist: this widens what the
+# disarming scan below applies to, it never exempts anything from it.
+RUNNERS = frozenset({'git', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'eval', 'exec', 'env',
+                     'xargs', 'nohup', 'timeout', 'time', 'nice', 'sudo', 'doas', 'ssh'})
 
 
-def reads_only(command):
-    """Whether this command is a recognised read-only shape, so a token in it disarms nothing.
+def could_push(command):
+    """Whether this command could reach a remote, however it is spelled.
 
-    Unrecognised means refused: a shell metacharacter, an environment assignment (which is how
-    the directory variable is redirected), a `git -c` (which is how the hook path is injected),
-    an unparseable line, or a program not on the lists all answer no and are scanned exactly as
-    before. The lists are the whole of the claim, and they are deliberately small — the first
-    version of this said "fail-closed in every direction" while admitting four writers, which
-    is the sentence being a defect rather than describing one.
+    The disarming scan matters where a push is at stake, and nowhere else: a hook that is not
+    about to run cannot be redirected. Scanning every command instead refused reading — `git
+    rev-parse --git-dir`, which /bymax-pr:push Step 0 prescribes, a `shasum` of a hook path, a
+    `grep` whose PATTERN held a token, and the two piped greps this repository's own command
+    files tell a model to run.
+
+    The first attempt at that exemption listed programs that only read, and both reviewers
+    broke it in one round: `rg --pre CMD`, `ack --pager=CMD` and `git ls-remote
+    --upload-pack=CMD` each run a program the caller names while reading, and one of them
+    deleted an installed hook end to end. The list of such flags across the list of such
+    programs has no closed form, so the question is not asked. This one is: a command with no
+    `push` in it cannot push, and a command that names no program able to start another cannot
+    be hiding one. Both halves are conservative — unparseable answers yes.
     """
-    if any(c in command for c in '$`;|&<>\n'):
+    if 'push' not in command.lower():
         return False
     try:
         words = shlex.split(command)
     except ValueError:
-        return False
-    if not words or ASSIGNMENT.match(words[0]):
-        return False
-    if Path(words[0]).name != 'git':
-        return Path(words[0]).name in READS
-    # --output=FILE is a diff option, so `git diff`, `git show` and `git log` all accept it and
-    # all write wherever it points. It is refused wherever it appears rather than only in the
-    # leading options, because a diff option is accepted after the subcommand too.
-    if any(word.startswith('--output') for word in words):
-        return False
-    rest = words[1:]
-    while rest and rest[0].startswith('-'):
-        if rest[0].startswith(('-c', '--git-dir', '--work-tree')):
-            return False
-        rest = rest[2:] if rest[0] == '-C' and len(rest) > 1 else rest[1:]
-    if rest[:1] == ['config']:
-        # Only the reading forms: writing the hook-path key is the redirection this guard
-        # exists to catch, and it differs from a read by one argument.
-        return any(flag in rest for flag in CONFIG_READS)
-    return bool(rest) and rest[0] in GIT_READS
+        return True
+    return any(Path(word).name in RUNNERS for word in words)
+
+
+def hook_intact(cwd):
+    """Require the receipt check to still be installed, for a push this adapter cannot judge.
+
+    Observed, never inferred from the command. Whatever removed the hook — `rm`, a reader's
+    escape hatch, a program nobody has catalogued — the file is either there or it is not, and
+    that question has an answer where "which commands are dangerous" does not.
+
+    Only for a push whose shape parse() does not recognise. For the literal shape approved()
+    performs its own receipt lookup and never consults the hook, so the hook's absence changes
+    nothing there; the gap this closes is the other one, where the adapter has no opinion and
+    the hook is all that remains. Where this repository has no campaign there is no hook of
+    ours to protect, and nothing is required.
+    """
+    common = (Path(cwd) / Path(git(cwd, 'rev-parse', '--git-common-dir'))).resolve()
+    if not (common / 'bymax-review').is_dir():
+        return
+    hooks = (Path(cwd) / Path(git(cwd, 'rev-parse', '--git-path', 'hooks'))).resolve()
+    path = hooks / 'pre-push'
+    require(path.is_file() and path.stat().st_size > 0 and os.access(path, os.X_OK),
+            'This command could push, this adapter does not recognise its shape, and the '
+            'pre-push receipt check at ' + str(path) + ' is missing, empty or not executable — '
+            'so nothing would check a receipt. Run `python3 "$FLOW" start` to reinstall it, then '
+            'retry. Removing the hook does not clear a candidate; it only stops this push.')
 
 
 def git(cwd, *args):
@@ -110,10 +104,11 @@ def parse(command, cwd):
     """
     # Case-insensitive: git reads config keys and most of these options that way too.
     lowered = command.lower()
-    require(reads_only(command) or not any(token.lower() in lowered for token in DISARMS),
+    pushes = could_push(command)
+    require(not pushes or not any(token.lower() in lowered for token in DISARMS),
             'That would disable or redirect the pre-push receipt check; run a plain git push. '
-            'Reading one of these names is fine; this refusal is for a command that could act on '
-            'them, and yours was not recognised as one that only reads.')
+            'A command that only names one of these — reading a hook, grepping for the token — '
+            'is not this refusal: it applies where the command could reach a remote.')
     try:
         words = shlex.split(command)
     except ValueError:
@@ -125,11 +120,15 @@ def parse(command, cwd):
     while words and ASSIGNMENT.match(words[0]):
         words = words[1:]
     if not words or Path(words[0]).name != 'git':
+        if pushes:
+            hook_intact(cwd)     # a push this adapter cannot judge; the hook is what is left
         return None
     words = words[1:]
     if words[:1] == ['-C'] and len(words) > 1:
         cwd, words = (Path(cwd) / words[1]).resolve(), words[2:]
     if words[:1] != ['push']:
+        if pushes:
+            hook_intact(cwd)     # `git stash push` reaches here too, and passes: the hook is there
         return None
     # The shape matched, so from here the command is a push and must be exactly one.
     require(not any(c in tail for c in '$`;|&<>\n'), 'Use a literal git push in its own command.')

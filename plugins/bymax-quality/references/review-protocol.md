@@ -466,24 +466,37 @@ another worktree's receipt cannot authorize a different SHA. It also refuses any
 containing an option that would skip or redirect the hook (`no-verify`, `hooksPath`,
 `GIT_DIR`, `--git-dir`, `GIT_WORK_TREE`, writes under `.git/hooks`) or husky's own skip
 switch (`HUSKY=`, honoured by its dispatcher before the tracked hook runs), matched as a
-substring wherever it appears — **unless the command is a recognised read-only shape**.
+substring wherever it appears — **but only where the command could reach a remote**, which
+means it contains `push` and names a program able to start another (`git`, a shell, `eval`,
+`env`, `xargs`, `ssh` and the like; an unparseable command counts as yes). A command that
+merely names one of these tokens — reading a hook, grepping for the string, the two piped
+greps this repository's own command files prescribe — is not scanned at all.
 
-That exception is an allowlist, so the default stays refusal, and the question it asks is
-whether a command only reads rather than whether it pushes: `rm` and `chmod -x` on the hook
-file are neither pushes nor reads, and are still refused, as is any program the list does not
-name, any environment assignment, any `git -c`, any shell metacharacter and anything
-`shlex` cannot parse. What it stops refusing is reading: `git rev-parse --git-dir` — which
-`/bymax-pr:push` Step 0 prescribes, so the shipped command file could not be followed as
-written — a `shasum` or `cat` of a hook path, a `grep` whose *pattern* carries one of the
-tokens, and an `echo` of the same text. A guard that blocks reading protects nothing, since
-no `rev-parse` reaches a remote, and it teaches whoever meets it to phrase commands to slip
-past a matcher, which is the habit the guard exists to prevent. **Every other command passes through untouched**: a push
+**And, for a push whose shape the parser does not recognise, the hook must still be installed.**
+`hook_intact` asks the filesystem: with a campaign directory present, the hooks path must hold a
+`pre-push` that exists, is non-empty and is executable, or the command is refused. For the
+literal shape this adds nothing, because `approved()` performs its own receipt lookup and never
+consults the hook; the gap it closes is the other one, where the adapter has no opinion and the
+hook is all that remains. Removing the hook therefore does not clear a candidate — it only stops
+the next push until `start` reinstalls it.
+
+That pairing replaced an earlier attempt to exempt "commands that only read" by listing the
+programs that qualify, and the reason it was replaced is worth keeping. Both reviewers broke
+that list in a single round: `rg --pre CMD`, `ack --pager=CMD` and `git ls-remote
+--upload-pack=CMD` each run a program the caller names while reading, and one of them deleted an
+installed hook end to end with the adapter returning exit 0. The set of such flags across the set
+of such programs has no closed form, so the question "which command could damage the hook" is not
+asked any more. Whether the hook is there is asked instead, and that answer does not depend on how
+it left.
+
+**Every other command passes through untouched**: a push
 spelled in any other arrangement is not the adapter's to judge, and the hook decides.
 
 The adapter is not the enforcement boundary and is not described as one. The residue no
 local design closes is a hook-skipping option spelled so the adapter's substring check
 cannot see it, since git itself provides that escape; the tests document it, and CI is
-the boundary for deliberate evasion. A completed review is evidence of coverage, not a
+the boundary for deliberate evasion. A command that removes the hook is no longer refused —
+it is allowed to run, and the push after it is what stops. A completed review is evidence of coverage, not a
 guarantee that the code has no bugs.
 
 ## Basis and operating assumptions

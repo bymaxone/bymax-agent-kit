@@ -266,35 +266,108 @@ class ReviewFlowTests(unittest.TestCase):
                         'git config --get core.hooksPath', 'git log --oneline -3'):
             self.push(command)
 
-    def test_a_shape_that_is_not_recognised_as_reading_is_still_scanned(self):
-        """The allowlist is the whole of the relaxation, so the default stays refusal. None of
-        these is a push and every one could act on the hook or its path — which is why the
-        question the guard asks is whether a command only reads, not whether it pushes."""
+    def test_a_push_the_adapter_cannot_judge_needs_the_hook_to_still_be_there(self):
+        """The invariant the tampering refusals were standing in front of, held directly.
+
+        Both reviewers broke the allowlist of reading programs in one round: `rg --pre CMD`,
+        `ack --pager=CMD` and `git ls-remote --upload-pack=CMD` each run a program the caller
+        names while reading, and one of them deleted an installed hook end to end with the
+        adapter returning exit 0. The list of such flags across the list of such programs has
+        no closed form, so the mechanism stopped asking which command is dangerous and asks the
+        filesystem whether the hook is there — an answer that does not depend on how it left.
+
+        The two-step bypass is what mattered: remove the hook, then push in a shape parse()
+        does not recognise, where approved() never runs. That is refused now however the first
+        step was spelled, and it was NOT refused before, because the first step only had to use
+        a program the list had not thought of.
+        """
         self.start()
         self.complete()
-        for command in ('rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push',
-                        'git config core.hooksPath /dev/null',
-                        'mv .git/hooks/pre-push /tmp/x', 'truncate -s 0 .git/hooks/pre-push',
-                        'sed -i s/x/y/ .git/hooks/pre-push', 'GIT_DIR=/other/.git git status',
-                        # Both reviewers found these admitted by the first allowlist. None needs
-                        # a shell metacharacter, and each writes a file the caller names:
-                        # `sort -o` truncates the hook outright, POSIX makes uniq's second
-                        # operand its output, --output is a diff option every diff-producing
-                        # subcommand accepts, and awk's language can run another program at all.
-                        'sort -o .git/hooks/pre-push /dev/null', 'uniq /dev/null .git/hooks/pre-push',
-                        'git diff --output=.git/hooks/pre-push HEAD', 'git show --output=.git/hooks/pre-push HEAD',
-                        'awk BEGIN{system(\"rm .git/hooks/pre-push\")}'):
+        hook = self.repo / '.git/hooks/pre-push'
+        self.assertTrue(hook.is_file())
+        # Intact: an unrecognised push shape is the adapter's business only through the hook,
+        # and the hook is there, so the command is left alone.
+        self.push('eval git push origin HEAD')
+        self.push('git stash push')
+        for damage in ('unlink', 'empty', 'unexecutable'):
+            with self.subTest(damage=damage):
+                mode = hook.stat().st_mode
+                body = hook.read_bytes()
+                if damage == 'unlink':
+                    hook.unlink()
+                elif damage == 'empty':
+                    hook.write_bytes(b'')
+                else:
+                    hook.chmod(0o644)
+                refused = self.push('eval git push origin HEAD', ok=False)
+                self.assertIn('nothing would check a receipt', refused.stderr)
+                hook.write_bytes(body)
+                hook.chmod(mode)
+        self.push('eval git push origin HEAD')
+
+    def test_a_repository_with_no_campaign_has_no_hook_of_ours_to_require(self):
+        """The hook requirement is about a check this package installed. Where no campaign has
+        run there is none, and demanding one would refuse pushes in every repository that never
+        asked for this."""
+        other = self.root / 'unenrolled'
+        other.mkdir()
+        subprocess.run(['git', 'init', '-q', str(other)], check=True)
+        self.push('eval git push origin HEAD', cwd=other)
+
+    def test_a_command_that_could_not_reach_a_remote_is_never_scanned(self):
+        """What the first attempt at this got wrong, plus the two shapes both reviewers used to
+        break it and the two this repository's own command files prescribe. None can push: the
+        first three name no program able to start another, and the last two contain no `push`
+        at all. Each was refused while the scan ran on every command."""
+        self.start()
+        self.complete()
+        for command in ('git rev-parse --git-dir', 'shasum .git/hooks/pre-push', 'cat .git/hooks/pre-push',
+                        'grep -rn "core.hooksPath" scripts/', 'echo --no-verify',
+                        'git config --get core.hooksPath', 'sort -o out.txt in.txt',
+                        # One of the escapes that broke the allowlist, allowed to run: what it
+                        # does to the hook is caught by the case above, not by a matcher.
+                        # (The ls-remote escape is not here because it names git and a path
+                        # spelling "push", so the scan applies to it — incidentally, not
+                        # because the mechanism recognised what it does.)
+                        'rg --pre rm pattern .git/hooks/pre-push',
+                        # Prescribed by plugins/bymax-workflow/commands/verify.md and by
+                        # plugins/bymax-quality/commands/code-review.md; both were refused.
+                        "git diff HEAD | grep -nE '(--no-verify|--skip-checks)'",
+                        "git log --oneline | grep -E -- '--no-verify'"):
+            self.push(command)
+
+    def test_a_disarming_option_is_still_refused_wherever_it_appears(self):
+        """The scan did not get weaker: it got a precondition. Every shape that could reach a
+        remote is still read for a hook-skipping option, in any arrangement."""
+        self.start()
+        self.complete()
+        for command in ('git -c core.hooksPath=/dev/null push origin HEAD',
+                        'GIT_DIR=/other/.git git push origin HEAD',
+                        'cd . && git --git-dir=/x push origin HEAD',
+                        'sh -c "git push --no-verify origin HEAD"',
+                        'xargs git push --no-verify origin HEAD',
+                        'env HUSKY=0 git push origin HEAD',
+                        'eval git push --no-verify origin HEAD'):
             self.push(command, ok=False)
 
     def test_adapter_refuses_what_would_disarm_the_hook(self):
-        """Options that skip hooks or redirect git are refused wherever they appear."""
+        """Options that skip hooks or redirect git are refused wherever they appear, in any
+        command that could reach a remote.
+
+        `rm` and `chmod -x` on the hook used to be on this list and are not any more: the
+        mechanism stopped classifying commands, because the list of readers that can run a
+        program of the caller's choosing has no closed form and both reviewers emptied it in one
+        round. What those refusals were standing in front of — remove the hook, then push in a
+        shape parse() does not judge — is held directly by
+        test_a_push_the_adapter_cannot_judge_needs_the_hook_to_still_be_there, which the old
+        design did not actually hold.
+        """
         self.start()
         self.complete()
         for command in ('git push --no-verify origin HEAD', 'eval git push --no-verify origin HEAD',
                         'git -c core.hooksPath=/dev/null push origin HEAD',
                         'GIT_DIR=/other/.git git push origin HEAD', 'git --git-dir=/x push origin HEAD',
                         'echo x > .git/hooks/pre-push && git push origin HEAD',
-                        'rm .git/hooks/pre-push', 'chmod -x .git/hooks/pre-push',
                         # git reads config keys case-insensitively; so must the guard.
                         'git -c core.hookspath=/dev/null push origin HEAD',
                         'git -c CORE.HOOKSPATH=/x push origin HEAD', 'git push --NO-VERIFY origin HEAD',
@@ -534,6 +607,12 @@ class ReviewFlowTests(unittest.TestCase):
         missing = keys - set(items['properties'])
         self.assertFalse(missing, f'blocks_a_receipt reads {sorted(missing)}, which no structured '
                                   'report can carry')
+        # And in the shape a strict structured-output mode accepts: it requires every property
+        # to appear in `required`, an optional field being a nullable union instead. This file
+        # had no optional property before trigger, so the first one is the one to get wrong, and
+        # the failure would be a Codex run that dies on an unrecognised error after merge.
+        self.assertEqual(set(items['required']), set(items['properties']))
+        self.assertIn('null', items['properties']['trigger']['type'])
 
     def test_a_gate_refusal_does_not_spend_a_reviewer_attempt(self):
         """Both adapters reserved the attempt before building the task, and the gate raises from

@@ -284,6 +284,27 @@ class DeliveryTests(unittest.TestCase):
         env.pop('CLAUDECODE', None)
         return env, capture
 
+    def test_the_claude_adapter_checks_the_gates_before_reserving_its_attempt(self):
+        """The codex adapter's gate line is pinned by a case; this one's was not.
+
+        Both reviewers said so and both were right: my probe for that correction mutated the
+        two adapters together, so the one failing case could not tell which line it pinned, and
+        deleting the claude adapter's line alone left the whole suite green. Nothing in either
+        suite reached that module except through a path that had already run the gates.
+
+        The attempt must survive the refusal, because spending it is the defect: two refusals
+        would exhaust the per-candidate budget with nothing read.
+        """
+        c = self.case
+        self.enroll()
+        env, _ = self.fake_claude(dict(structured_output={}, is_error=False))
+        run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
+                             env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(run.returncode, 2, run.stdout)
+        self.assertIn('have not run on this candidate', run.stderr)
+        self.assertEqual(c.flow('status').get('claude_attempts', 0), 0)
+        self.assertNotIn('claude', c.flow('status')['reviews'])
+
     def test_codex_host_can_record_real_cli_shaped_claude_output(self):
         """Only the structured matching report from a read-only CLI invocation is recorded."""
         c = self.case
