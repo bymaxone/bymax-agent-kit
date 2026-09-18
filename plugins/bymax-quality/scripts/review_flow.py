@@ -15,6 +15,7 @@ import tempfile
 import time
 
 import review_delivery
+from review_delivery import scope_of as scope
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
@@ -711,7 +712,8 @@ def first_round(directory, after_archived):
 
 def next_round(args, old, head, directory, base, context):
     """What advancing a campaign to a correction delta requires; returns its contract."""
-    require(old['base'] == base and old['context'] == context, 'Scope changed. Stop and agree on a separate campaign.')
+    require(old['base'] == base and scope(old['context']) == scope(context),
+            'Scope changed. Stop and agree on a separate campaign.')
     # The refusal names its remedy: a delivery's limit is an alarm a human may answer with a
     # recorded decision, while a standalone campaign's limit hands the scope decision over.
     require(old['round'] < old.get('max_rounds', 3),
@@ -790,7 +792,8 @@ def start(args, directory):
         old.update(autonomous=True,
                    max_rounds=review_delivery.cap(directory, pending=bool(args.extend_delivery)))
     if old and old['head'] == head:
-        require(old['base'] == base and old['context'] == context, 'Same candidate has different scope/context.')
+        require(old['base'] == base and scope(old['context']) == scope(context),
+                'Same candidate has different scope/context.')
         if autonomous:
             old.update(review_delivery.reserve(directory, head, base, context, old))
             save(directory, old)

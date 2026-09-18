@@ -525,6 +525,76 @@ class ReviewFlowTests(unittest.TestCase):
         # And the value the prompt names is the one record accepts, which is the whole claim.
         self.report('claude')
 
+    def test_a_re_measurement_is_not_a_scope_change(self):
+        """`measured` records what the author ran against real data for the candidate in hand,
+        so it changes when the candidate does — that is the field's purpose. Three guards
+        compared it as scope, which made it write-once: round 2 was refused for carrying a new
+        reading of the same contract.
+
+        Reported from another repository as something worse, and it was the same defect: a
+        delivery whose ledger predated the field could not acquire it at all, because
+        context_contract demanded the edit while these guards forbade it. Three guards closing
+        a ring on a campaign that had done nothing wrong.
+        """
+        body = json.loads(self.context.read_text())
+        self.start(autonomous=True)
+        self.complete()
+        self.commit('a correction')
+        self.context.write_text(json.dumps(dict(body, measured=['re-measured for this candidate'])))
+        state = self.start(correction=True, answers=['code.txt:external'], autonomous=True)
+        self.assertEqual(state['round'], 2)
+
+    def test_a_delivery_predating_the_field_can_acquire_it(self):
+        """The reported shape, end to end: a ledger written before `measured` existed, and a
+        context that must gain the field to satisfy the contract. Adding it continues the
+        delivery on its own branch and budget instead of being refused as new work."""
+        body = json.loads(self.context.read_text())
+        without = {k: v for k, v in body.items() if k != 'measured'}
+        self.start(autonomous=True)
+        directory = Path(self.flow('status')['directory'])
+        ledger = directory.parent / 'delivery' / (directory.name + '.json')
+        if not ledger.exists():
+            ledger = next(directory.parent.rglob('*.json'), None)
+        # Age the ledger the way a real one written before the field looks.
+        for path in directory.parent.rglob('*.json'):
+            data = json.loads(path.read_text())
+            if isinstance(data, dict) and 'context' in data and 'heads' in data:
+                data['context'] = json.dumps(without)
+                path.write_text(json.dumps(data, indent=2))
+        self.complete()
+        self.commit('a correction')
+        state = self.start(correction=True, answers=['code.txt:external'], autonomous=True)
+        self.assertEqual(state['round'], 2)
+        self.assertEqual(state['delivery_used'], 2)
+
+    def test_a_real_scope_change_is_still_refused(self):
+        """The guards keep their meaning: the contract is what the campaign is measured
+        against, and changing it mid-delivery is what they exist to stop. Only the reading
+        taken under it may move."""
+        body = json.loads(self.context.read_text())
+        self.start(autonomous=True)
+        self.complete()
+        self.commit('a correction')
+        self.context.write_text(json.dumps(dict(body, intent='something else entirely')))
+        refused = self.start(ok=False, correction=True, answers=['code.txt:external'], autonomous=True)
+        self.assertIn('Scope changed', refused.stderr)
+
+    def test_the_ledger_keeps_the_measurement_of_the_candidate_it_froze(self):
+        """Scope is unchanged by the guard above, so what differs is the reading — and the
+        ledger carries the current one, written with the head it belongs to, so it still
+        changes once and only when a candidate freezes."""
+        body = json.loads(self.context.read_text())
+        self.start(autonomous=True)
+        self.complete()
+        self.commit('a correction')
+        self.context.write_text(json.dumps(dict(body, measured=['the second reading'])))
+        self.start(correction=True, answers=['code.txt:external'], autonomous=True)
+        directory = Path(self.flow('status')['directory'])
+        stored = [json.loads(path.read_text()) for path in directory.parent.rglob('*.json')]
+        ledgers = [d for d in stored if isinstance(d, dict) and 'heads' in d and 'context' in d]
+        self.assertTrue(ledgers)
+        self.assertIn('the second reading', ledgers[0]['context'])
+
     def test_the_context_measures_each_acceptance_item_against_real_data(self):
         """A tree can be self-consistently wrong and no reviewer can see it from the diff.
 
