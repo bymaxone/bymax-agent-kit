@@ -75,7 +75,14 @@ def git(cwd, *args):
 
 
 def words_of(command):
-    """The command as the shell would hand it on, or None when it cannot be parsed."""
+    """The command's words after quote removal, or None when it cannot be parsed.
+
+    Less than the shell does, and the difference matters: shlex performs no parameter
+    expansion, no command substitution and no ANSI-C quoting, so a token the shell would
+    assemble from `${...}` appears in neither this form nor the raw text. Reading both forms
+    strictly beats reading one, and calling it "what the shell hands on" made the gap between
+    them look closed when it is the residue this adapter has always had.
+    """
     try:
         return shlex.split(command)
     except ValueError:

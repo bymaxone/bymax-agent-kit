@@ -466,12 +466,19 @@ another worktree's receipt cannot authorize a different SHA. It also refuses any
 containing an option that would skip or redirect the hook (`no-verify`, `hooksPath`,
 `GIT_DIR`, `--git-dir`, `GIT_WORK_TREE`, writes under `.git/hooks`) or husky's own skip
 switch (`HUSKY=`, honoured by its dispatcher before the tracked hook runs), matched as a
-substring wherever it appears, in the raw command **and** in the words the shell would hand on —
-a token split across quotes is absent from one and present in the other — **but only where the command could reach a remote**, which
+substring wherever it appears, in the raw command **and** in its words after quote removal —
+a token split across quotes is absent from one and present in the other. Quote removal is less
+than the shell does: `shlex` performs no parameter expansion or command substitution, so a token
+assembled by the shell from `${...}` is in neither form, and that is one spelling of the residue
+this section ends with — **but only where the command could reach a remote**, which
 means it contains `push` and names a program able to start another (`git`, a shell, `eval`,
 `env`, `xargs`, `ssh` and the like; an unparseable command counts as yes). A command that
-merely names one of these tokens — reading a hook, grepping for the string, the two piped
-greps this repository's own command files prescribe — is not scanned at all.
+merely names one of these tokens — grepping for the string, `cat` or `shasum` of a hook path, the
+two piped greps this repository's own command files prescribe — is not scanned at all. Reading a
+hook **through git** is the exception and is refused: `git log -- <hook path>` names a runner, and
+the path itself spells `push`. That is a false refusal of the class this section exists to remove,
+left standing deliberately rather than closed by another rule about what a word means; it is
+recorded as a deferral of this campaign.
 
 **It does not defend the hook file, and says so rather than appearing to.** Two rounds of this
 campaign were spent trying. The first exempted "commands that only read" by listing the programs
@@ -487,7 +494,9 @@ The reason is structural, and this document already stated it about deliberate e
 that can run arbitrary shell can undo any local check that a local check could observe. What holds
 instead is what always held — `start` reinstalls and re-verifies the hook, and a candidate cannot
 clear without `start`; the hook receives the pushed SHAs from git itself, so no spelling of a push
-command evades it; and required status checks are the boundary for anything deliberate. Writes
+command evades it **once git runs it** — a spelling that stops git running it, a redirected hooks
+path the scan cannot see, does, which is exactly the residue named at the end of this section; and
+required status checks are the boundary for anything deliberate. Writes
 under `.git/hooks` stay in the token list for a command that could reach a remote, where they can still
 do something.
 

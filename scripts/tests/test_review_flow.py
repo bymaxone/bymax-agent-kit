@@ -330,9 +330,9 @@ class ReviewFlowTests(unittest.TestCase):
         mechanism stopped classifying commands, because the list of readers that can run a
         program of the caller's choosing has no closed form and both reviewers emptied it in one
         round. What those refusals were standing in front of — remove the hook, then push in a
-        shape parse() does not judge — is held directly by
-        test_a_push_the_adapter_cannot_judge_needs_the_hook_to_still_be_there, which the old
-        design did not actually hold.
+        shape parse() does not judge — is not held by anything here, deliberately: two attempts
+        to hold it locally were each bypassed in the round after they shipped, and the protocol
+        names the residue instead of covering it.
         """
         self.start()
         self.complete()
