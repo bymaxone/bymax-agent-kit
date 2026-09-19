@@ -123,10 +123,10 @@ a separate design audit, report it separately from this campaign.
    `"covers": "<finding id>"`, and rewrite the function against the whole list. `start`
    refuses a probe that names none of those findings, and **one** such round already makes
    the next a design round — waiting for a second only buys a data point nobody needed. Run
-   that case list as a mutation matrix before you commit, with
-   `python3 "$FLOW" matrix --spec <file> <test paths>` — the runtime runs it and keeps the
-   record beside the campaign, and `start` REFUSES a correction round that changes a test
-   without one bound to this candidate's head. Declare each rule as
+   that case list as a mutation matrix AFTER committing the correction and BEFORE `start`,
+   with `python3 "$FLOW" matrix --spec <file> <test paths>` — the runtime refuses a dirty
+   worktree, binds the record to the committed head, and `start` REFUSES a correction round
+   that changes a test without a record bound to exactly that head. Declare each rule as
    `{rule, enumeration, why, mutants:[{file, anchor, becomes, case}]}`; the anchor must occur
    exactly once, the case must pass on the clean tree before it is mutated, and a survivor
    stops the run. Set `PYTHONDONTWRITEBYTECODE=1` and clear `__pycache__` between mutants, or

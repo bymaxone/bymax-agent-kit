@@ -301,11 +301,12 @@ campaign state. Three things follow, all enforced by `start`:
   been the second. Firing on the first is safe only because a finding must carry a `trigger`
   to be counted here at all, so an argument about a sentence in the file just corrected no
   longer forces a redesign.
-- Run that case list as a **mutation matrix before committing**, not at round nine: disable
-  each rule in turn and confirm a named case fails. The runtime runs it —
-  `review_flow.py matrix --spec <file> <test paths>` — and keeps the record; `start` refuses a
-  correction round that changes a test without one bound to that candidate's head, so this is
-  a required step and not advice. A rule is
+- Run that case list as a **mutation matrix after committing the correction and before
+  `start`**, not at round nine: disable each rule in turn and confirm a named case fails. The
+  runtime runs it — `review_flow.py matrix --spec <file> <test paths>` — refuses a dirty
+  worktree, and binds the record to the committed head; `start` refuses a correction round
+  that changes a test without a record bound to exactly that head, so this is a required step
+  and not advice, and the order is commit, `matrix`, `start`. A rule is
   `{rule, enumeration, why, mutants:[{file, anchor, becomes, case}]}`: the anchor must occur
   exactly once in its file, the case must pass on the clean tree before the mutation, and a
   survivor stops the run. Where a command derives the rule's case list, declare it and it is

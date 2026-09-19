@@ -229,16 +229,23 @@ def matrix(root, spec, files):
     return results
 
 
+def digest(root, names):
+    """One digest over these files, names and bytes, in a fixed order."""
+    total = hashlib.sha256()
+    for name in sorted(names):
+        total.update(name.encode())
+        total.update((Path(root) / name).read_bytes())
+    return total.hexdigest()
+
+
 def fingerprint(root, spec):
-    """Bind a record to the tree it was measured on, so it cannot be reused for another."""
+    """Bind a record to the tree it was measured on: the head, the files the matrix mutated,
+    and a digest of their contents that matrix_first recomputes before trusting the record.
+    The names travel with the record because a digest nobody can recompute binds nothing."""
     head = subprocess.run(['git', '-C', root, 'rev-parse', 'HEAD'],
                           capture_output=True, text=True).stdout.strip()
     names = sorted({m['file'] for rule in spec for m in (rule.get('mutants') or [])})
-    digest = hashlib.sha256()
-    for name in names:
-        digest.update(name.encode())
-        digest.update((Path(root) / name).read_bytes())
-    return head, digest.hexdigest()
+    return head, names, digest(root, names)
 
 
 def record(root, spec_path, files, out=None):
@@ -248,9 +255,10 @@ def record(root, spec_path, files, out=None):
         bail('A matrix is a non-empty list of rules.')
     results = matrix(root, spec, files)
     survivors = [r for r in results if not r['caught']]
-    head, digest = fingerprint(root, spec)
-    payload = {'head': head, 'tree': digest, 'rules': len(spec), 'mutants': len(results),
-               'survivors': [r['case'] for r in survivors], 'results': results}
+    head, names, tree = fingerprint(root, spec)
+    payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
+               'mutants': len(results), 'survivors': [r['case'] for r in survivors],
+               'results': results}
     if out:
         Path(out).write_text(json.dumps(payload, indent=2) + '\n')
     if survivors:

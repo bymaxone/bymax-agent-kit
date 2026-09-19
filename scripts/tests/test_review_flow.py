@@ -464,6 +464,19 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('prose elided', brief)
         self.assertIn('Prose in this delta', brief)
 
+    def test_the_first_round_brief_names_the_tests_the_delta_changed(self):
+        """The note read a key only a correction round sets, and the round it was first shown
+        on round one it said "No test changed in this delta. Recorded reason: ." about a
+        delta that changed four test files. It reads the diff now, on every round."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_x.py').write_text('def test_x(): assert 1 == 1\n')
+        self.commit('a candidate that adds a test')
+        self.start()
+        self.checks()
+        brief = self.flow('prompt').stdout
+        self.assertIn('Tests changed in this delta: tests/test_x.py', brief)
+        self.assertNotIn('Recorded reason: .', brief)
+
     def test_a_refused_matrix_blocks_like_every_other_refusal(self):
         """bail() refused by raising SystemExit with a message, which exits 1, while every
         other refusal in the runtime exits 2 — so a caller keying on 2 for BLOCKED read a
@@ -1461,6 +1474,12 @@ class ReviewFlowTests(unittest.TestCase):
         record.write_text(json.dumps({'head': head, 'mutants': 1, 'tree': 'x',
                                        'survivors': ['test_g']}))
         self.assertIn('has survivors', self.start(ok=False, correction=True, reason='').stderr)
+
+        # The fingerprint is recomputed, not tested for presence: a record saying `tree: x`
+        # passed here while two sentences said it was bound to the tree it measured.
+        record.write_text(json.dumps({'head': head, 'mutants': 1, 'tree': 'not-a-digest',
+                                       'survivors': [], 'files': ['tests/test_g.py']}))
+        self.assertIn('does not match', self.start(ok=False, correction=True, reason='').stderr)
 
         record.unlink()
         self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])

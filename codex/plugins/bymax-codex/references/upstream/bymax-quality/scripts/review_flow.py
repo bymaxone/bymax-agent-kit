@@ -869,14 +869,37 @@ def start(args, directory):
     return state
 
 
+def tests_changed(base, head):
+    """What a delta did to tests, read from the diff, which is the only place it can be read.
+
+    Added or modified only: deleting the test that caught a defect is not a regression.
+    Renames are not detected, so a renamed test is listed under its new path as added instead
+    of vanishing from the list both reviewers see. Deleted tests never count as evidence, but
+    reviewers must see them to judge the deletion, so they come back separately.
+    """
+    changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
+    removed = git('diff', '--name-only', '--no-renames', '--diff-filter=D', base, head).splitlines()
+    return [p for p in changed if is_test_path(p)], [p for p in removed if is_test_path(p)]
+
+
 def regression_note(state):
-    """What the delta did to tests, and what the reviewer should do about it."""
-    if state.get('regression_tests'):
-        return ('Tests changed in this delta: ' + ', '.join(state['regression_tests'])
+    """What the delta did to tests, and what the reviewer should do about it.
+
+    Read from the diff on every round. This read `regression_tests`, which only a correction
+    round sets, and the round the note was first shown on round one it told a reviewer
+    "No test changed in this delta. Recorded reason: ." about a delta that changed four test
+    files — the brief asserting what the tree does not support, committed while widening the
+    brief so that round one would stop being blind. The input has one source now.
+    """
+    tests, _ = tests_changed(state['review_base'], state['head'])
+    if tests:
+        return ('Tests changed in this delta: ' + ', '.join(tests)
                 + '. A test whose expectation was flipped rather than added must be justified '
                 'in the triage evidence; report an unjustified flip.')
-    return ('No test changed in this delta. Recorded reason: '
-            + state.get('no_regression_reason', '') + '. Judge whether that is justified.')
+    reason = state.get('no_regression_reason', '')
+    if reason:
+        return 'No test changed in this delta. Recorded reason: ' + reason + '. Judge whether that is justified.'
+    return 'No test changed in this delta. Judge whether a delta this size can carry no case.'
 
 
 def matrix_run(args, directory, state):
@@ -934,6 +957,17 @@ def matrix_first(state, directory):
             'mutated, so nothing ties it to what is here now.')
     require(not kept.get('survivors'), 'The recorded matrix has survivors: '
             + ', '.join(kept['survivors']) + '. A gate nothing can break is decoration.')
+    # Recomputed, not trusted. The field was tested for presence and never for agreement, so
+    # a record saying `tree: x` bound itself to nothing while two sentences said it did — the
+    # head alone held the binding, and only on the path that refuses a dirty worktree.
+    import review_matrix
+    names = kept.get('files')
+    require(names is not None, 'The recorded matrix does not name the files it mutated, so its '
+            'fingerprint cannot be checked against this tree. Re-run `review_flow.py matrix`.')
+    now = review_matrix.digest(git('rev-parse', '--show-toplevel'), names)
+    require(now == kept['tree'], 'The recorded matrix was measured on other contents of %s: its '
+            'fingerprint does not match what is here now. A record is bound to the tree it '
+            'measured; re-run the matrix on this one.' % ', '.join(names))
 
 
 def code_view(state):
@@ -1147,14 +1181,7 @@ def correction_contract(args, old, head):
             'The previous correction introduced these findings, and no probe names them: '
             + ', '.join(uncovered) + '. Add a probe entry per finding with "covers": "<id>", '
             'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
-    # Added or modified only: deleting the test that caught a defect is not a regression.
-    # Renames are not detected, so a renamed test is listed under its new path as added
-    # instead of vanishing from the list both reviewers see.
-    changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', old['head'], head).splitlines()
-    tests = [p for p in changed if is_test_path(p)]
-    # Deleted tests never count as evidence, but reviewers must see them to judge the deletion.
-    removed = [p for p in git('diff', '--name-only', '--no-renames', '--diff-filter=D',
-                              old['head'], head).splitlines() if is_test_path(p)]
+    tests, removed = tests_changed(old['head'], head)
     reason = (args.no_regression_reason or '').strip()
     require(tests or reason,
             'This correction touches no test. Add the failing regression first, or record why '
