@@ -10,8 +10,12 @@ disposition certifying a correction whose sentence was still in HEAD.
 
 Tiers, because precision differs and a gate nobody trusts is worse than no gate:
 
-    retired / unkept   exact       a name this delta removed, still asserted; a removal
-                                   claimed of a string still present. These refuse.
+    retired            exact       a name this delta removed that the tree still asserts,
+                                   spelled like code rather than like an English word. This
+                                   one refuses: measured at no false positive over 40 commits.
+    unkept             reported     a removal claimed of a string still present. One false
+                                   positive in those same 40 — a shell command read as the
+                                   subject of a sentence near it — so it is read, not obeyed.
     (a third tier, one subject given two counts, was built and deleted: measured on a real
      delta it produced seven false positives and no true one, because narrating history in a
      docstring states many numbers about many things. A heuristic at that precision trains a
@@ -190,13 +194,25 @@ def split_delta(base, head, cwd=None):
     # by its real changed lines — one row per file announced a 600-line TypeScript delta as
     # three lines of code, which is differently false rather than true.
     for name in opaque(base, head, cwd=cwd):
+        rows = len(out['code'])
         at = None
         for row in git('diff', '-U0', base, head, '--', name, cwd=cwd).split('\n'):
             if row.startswith('@@'):
                 at = int(row.split('+')[1].split(',')[0].split()[0])
-            elif row.startswith(('+', '-')) and not row.startswith(('+++', '---')):
+            elif row.startswith('+') and not row.startswith('+++'):
                 out['code'].append((name, at or 0, row[1:]))
-                at = (at + 1) if (at and row.startswith('+')) else at
+                at = (at + 1) if at else at
+            elif row.startswith('-') and not row.startswith('---'):
+                # Negative, like every other removal here: taking the line number from the +
+                # side for both signs printed deleted TypeScript as an addition, which made
+                # the header this same delivery added false for every file it cannot read.
+                out['code'].append((name, -(at or 0), row[1:]))
+        if len(out['code']) == rows:
+            # A binary file, a mode change or a pure rename has no text diff, and counting
+            # zero rows for it announced "this delta changed no code" about a delta that
+            # changed two files. One row says the file moved without claiming a line count
+            # nothing can read.
+            out['code'].append((name, 0, '(changed with no text diff)'))
     return out
 
 
@@ -231,6 +247,28 @@ def orphaned(base, head, cwd=None):
                              '--', '*.py', cwd=cwd).strip())
 
 
+def code_shaped(token):
+    """Whether a name could only be a code reference, never an ordinary English word.
+
+    Measured on this delivery's own candidate: deleting a module orphaned its `prepare()`, and
+    five files were accused of a dangling reference for containing the English word — a README,
+    a command, an example. The gate refused the very candidate that added it. A name is a
+    reference here when it is CONSTANT_CASE, or carries an underscore, or is written as a call;
+    a bare lowercase word is prose until it is spelled like code.
+
+    An earlier version of this idea existed as an unused regex and was deleted as dead code,
+    correctly: a rule that is defined and never applied is worse than absent, because its
+    comment claims a protection nobody has.
+    """
+    return bool(re.fullmatch(r'[A-Z][A-Z0-9_]{2,}', token) or '_' in token)
+
+
+def mentioned(text, token):
+    """Whether prose refers to the name as code: backticked, called, or dotted."""
+    return bool(re.search(r'`[^`\n]*\b%s\b[^`\n]*`|\b%s\s*\(|\.%s\b|\b%s\b'
+                          % (token, token, token, token), text))
+
+
 def retired(base, head, cwd=None):
     """Names this delta removed from code that the tree's prose still asserts.
 
@@ -245,6 +283,8 @@ def retired(base, head, cwd=None):
     """
     found = []
     for token in orphaned(base, head, cwd=cwd):
+        if not code_shaped(token):
+            continue
         listed = git('grep', '-lw', '--', token, head, '--', '*.py', '*.md', cwd=cwd)
         # Filtered here as well as in touched(): the search that finds the dangling mention is
         # a different search from the one that finds the removal, and excluding the generated
@@ -256,6 +296,42 @@ def retired(base, head, cwd=None):
                          prose(name, git('show', '%s:%s' % (head, name), cwd=cwd))):
                 found.append((name, token))
     return sorted(found)
+
+
+def claimed(line, quote):
+    """Whether this line claims THIS subject was removed, rather than merely naming it.
+
+    The verb must be in PROSE and in the run-up to the subject: outside the
+    quoted subject itself, outside every other quoted span on the line, and
+    before it. `git worktree remove` and `DROP TABLE` name things rather than
+    promise anything about them.
+    
+    Measured over the last 40 mainline commits: reading the verb anywhere on
+    the line refuses 8 of them; allowing it just after the subject refuses 5;
+    the run-up alone refuses 1. Every one of the extra refusals is a backticked
+    SHELL COMMAND — `ack --pager`, `rg --pre`, `git ls-remote --upload-pack` —
+    named in a sentence that happens to contain the word. A command is a name.
+    
+    So the run-up alone, and the verb-last form ("`X` was removed") is a STATED
+    gap rather than a hidden one: in a gate that refuses a push, a claim missed
+    costs a sentence and a candidate wrongly blocked costs the delivery. An
+    earlier disposition of mine recorded a case for the verb-last form that was
+    never written; this is what that correction should have said.
+    Not `head`: that name is the revision this function was given, and binding
+    it to a slice of text sent every later `git grep` looking inside a sentence
+    instead of at the tree. A reviewer caught the same shadowing one round ago
+    in another file, which is why it is named here rather than quietly renamed.
+    """
+    run_up, _, _ = line.partition('`' + quote + '`')
+    said = QUOTED.sub(' ', run_up)
+    hit = GONE.search(said)
+    if not hit:
+        return False
+    # "We did not remove X" is the opposite of a promise, and reading it as one refuses a
+    # sentence written to say the work was NOT done. Only the clause carrying the verb is
+    # examined: a negation earlier in a different clause is about something else.
+    clause = re.split(r'[.;:,]', said[:hit.start()])[-1]
+    return not re.search(r'\b(not|never|without|cannot|rather than)\b', clause, re.IGNORECASE)
 
 
 def unkept(base, head, cwd=None):
@@ -270,19 +346,7 @@ def unkept(base, head, cwd=None):
     for name, text in added(base, head, cwd=cwd).items():
         for line in text.split('\n'):
             for quote in QUOTED.findall(line):
-                # The removal word must be in the sentence, not inside the quoted subject,
-                # and must come before it. `git worktree remove` and `DROP TABLE` are names
-                # of things, not claims about them — measured against this repository's own
-                # mainline, an earlier version would have refused 3 of the last 8 commits,
-                # each on an instruction to the reader rather than a promise.
-                # The verb must be in PROSE, and may sit on either side of the subject.
-                # Not inside the subject, and not inside any other quoted span on the line:
-                # `claude plugin marketplace remove …` names a command and promises nothing.
-                # Two corrections were needed and each broke the other half — looking only
-                # before the quote dropped "`X` was removed", which the candidate before it
-                # reported. Blank every quoted span and read what is left.
-                said = QUOTED.sub(' ', line.replace('`' + quote + '`', ' '))
-                if not GONE.search(said):
+                if not claimed(line, quote):
                     continue
                 if len(quote.split()) < 2:
                     continue            # one word is a name, and names live on legitimately
@@ -324,7 +388,8 @@ def report(base, head, cwd=None):
     for name, token in gone:
         print('RETIRED  %s asserts %s, which this delta removed from the code' % (name, token))
     for name, quote, where in broken:
-        print('UNKEPT   %s claims removal of `%s`, still present in %s' % (name, quote, where))
+        print('UNKEPT   %s claims removal of `%s`, still present in %s — reported, not refused'
+              % (name, quote, where))
     rest = unchecked(base, head, cwd=cwd)
     print('\n%d assertion(s) added; %d exact failure(s). No command here settles the rest:'
           % (len(rest), len(gone) + len(broken)))
@@ -332,7 +397,12 @@ def report(base, head, cwd=None):
         print('   %s: %s' % (name, line))
     if len(rest) > 40:
         print('   ... and %d more' % (len(rest) - 40))
-    return 1 if gone or broken else 0
+    # Only the dangling reference refuses. Measured over 40 mainline commits: retired()
+    # reports none of them once a name must be spelled like code, while unkept() reports one —
+    # a backticked shell command read as the subject of a nearby sentence. One wrong refusal
+    # every forty commits is a delivery blocked by mistake, and this check is not worth that.
+    # It is read, not obeyed, which is the same trade `trigger` makes for a finding.
+    return 1 if gone else 0
 
 
 def main(argv):

@@ -90,7 +90,11 @@ def enumerated(root, rule):
                  'not yet understood well enough to correct.' % rule.get('rule'))
         return None
     done = subprocess.run(how, shell=True, cwd=root, capture_output=True, text=True)
-    digits = ''.join(c if c.isdigit() else ' ' for c in done.stdout).split()
+    # `grep -c` prints "path:count" per file, so every digit inside a path was being added
+    # too: a rule over mod_v2.py answered 4 for 2 real hits. The count is the last field of
+    # each line, which is what grep guarantees; max() was wrong and summing digits was worse.
+    digits = [row.rsplit(':', 1)[-1].strip() for row in done.stdout.split('\n') if row.strip()]
+    digits = [d for d in digits if d.isdigit()]
     if done.returncode != 0 or not digits:
         bail('Rule %r: its enumeration command produced no count (exit %d). A command that '
              'answers nothing is not an enumeration: %s' % (rule.get('rule'), done.returncode, how))

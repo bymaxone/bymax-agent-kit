@@ -95,6 +95,17 @@ class MeaningTests(unittest.TestCase):
                                      'becomes': 'def over(', 'case': 'over_the_limit'}]))
         self.assertIn('stopped the tree from loading', str(caught.exception))
 
+    def test_outcome_reads_a_mixed_run_as_a_crash(self):
+        """The old rule and the new differ on exactly one tail — `N failed, M errors` — and no
+        fixture produces it, which is why a reviewer found the presence rule had no
+        discriminating case. A rule that classifies text is pinned by the text: a case that
+        errored in setup never ran, and counting the failure beside it as a catch hides it.
+        """
+        self.assertEqual(matrix.outcome('1 failed, 3 errors in 0.20s'), 'error')
+        self.assertEqual(matrix.outcome('1 error in 0.04s'), 'error')
+        self.assertEqual(matrix.outcome('1 failed, 20 deselected in 0.11s'), 'failed')
+        self.assertEqual(matrix.outcome('1 passed, 20 deselected in 0.08s'), 'passed')
+
     def test_a_caught_mutant_passes_and_the_tree_is_restored(self):
         bench = Bench(self)
         payload = bench.run(rule())
@@ -127,6 +138,18 @@ class EnumerationTests(unittest.TestCase):
                            mutants=[{'file': 'thing.py', 'anchor': 'v > LIMIT', 'becomes': 'True',
                                      'case': 'over_the_limit'}]))
         self.assertIn('short by 1', str(caught.exception))
+
+    def test_a_count_is_the_last_field_of_each_line_not_every_digit(self):
+        """`grep -c` prints "path:count" per file, so a filename carrying a digit was being
+        added to the total: a rule over mod_v2.py answered 4 for 2 real hits and fired a
+        spurious short-by-N. Reading the last field is what grep guarantees."""
+        bench = Bench(self, guard=GUARDED)
+        (bench.where / 'mod_v2.py').write_text('X = 1\n')
+        subprocess.run(['git', '-C', str(bench.where), 'add', '-A'], check=True)
+        subprocess.run(['git', '-C', str(bench.where), '-c', 'user.email=a@b.invalid',
+                        '-c', 'user.name=A', 'commit', '-q', '-m', 'y'], check=True)
+        payload = bench.run(rule(enumeration="grep -c 'value > LIMIT' thing.py mod_v2.py"))
+        self.assertEqual(payload['survivors'], [])
 
     def test_not_derivable_by_command_is_allowed_only_with_a_reason(self):
         """Saying a rule cannot be enumerated mechanically is worth more than a fake command,

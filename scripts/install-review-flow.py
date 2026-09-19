@@ -166,6 +166,12 @@ def complete(carried):
                              'plugins/bymax-quality/scripts'], capture_output=True)
     tracked = {name.split('/')[-1] for name in os.fsdecode(listed.stdout).split('\0')
                if name.endswith(('.py', '.json'))}
+    # An unchecked exit made the expectation empty outside a checkout — a `git archive`
+    # export would install a payload missing review_flow.py itself and report success. An
+    # expectation nothing could answer is not an expectation.
+    if listed.returncode != 0 or not tracked:
+        raise SystemExit('Refusing to install: this package is not a git checkout, so what it '
+                         'should carry cannot be read. Install from a clone.')
     missing = tracked - {path.name for path in carried}
     if missing:
         raise SystemExit('Refusing to install: the package is missing %s, which git tracks '

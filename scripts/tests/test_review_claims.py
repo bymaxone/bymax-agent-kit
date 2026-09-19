@@ -89,6 +89,16 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': '# calls helper_one\n'})
         self.assertEqual(tree.retired(), [('a.py', 'helper_one')])
 
+    def test_an_ordinary_english_word_is_not_read_as_a_reference(self):
+        """Measured on this delivery's own candidate: deleting a module orphaned its
+        `prepare()` and five files were accused for containing the English word — a README, a
+        command, an example. The gate refused the candidate that added it. A name is a
+        reference when it is spelled like code, not when it is spelled like a word."""
+        tree = Tree(self, {'a.py': 'def prepare(x):\n    return x\n',
+                           'README.md': 'Run this to prepare the commit message.\n'},
+                    {'a.py': 'X = 1\n', 'README.md': 'Run this to prepare the commit message.\n'})
+        self.assertEqual(tree.retired(), [])
+
     def test_a_deleted_name_nobody_mentions_is_not_reported(self):
         """Deleting a constant and its every mention is the correct edit, and correct edits
         must be silent or the check trains its reader to skip it."""
@@ -224,6 +234,29 @@ class OpaqueFileTests(unittest.TestCase):
         self.assertEqual([row[2] for row in split['prose']], ['# a reason worth keeping'])
         self.assertEqual(split['code'], [])
 
+    def test_an_unreadable_file_removal_is_counted_as_a_removal(self):
+        """Taking the line number from the + side for both signs printed deleted TypeScript
+        as an addition, which made the brief's own +/- header false for every file the
+        module cannot read."""
+        tree = Tree(self, {'a.ts': 'const x = 1\nconst y = 1\n'}, {'a.ts': 'const x = 1\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertTrue(all(at < 0 for _, at, _ in split['code']), split['code'])
+
+    def test_a_change_with_no_text_diff_is_still_a_change(self):
+        """A binary file, a mode change or a pure rename produces no diff rows, and counting
+        zero of them announced "this delta changed no code" about a delta that changed two
+        files."""
+        tree = Tree(self, {'bin.dat': 'x'}, {'bin.dat': 'x'})
+        import subprocess as sp
+        sp.run(['chmod', '+x', str(tree.where / 'bin.dat')], check=True)
+        sp.run(['git', '-C', str(tree.where), 'add', '-A'], check=True)
+        sp.run(['git', '-C', str(tree.where), '-c', 'user.email=a@b.invalid',
+                '-c', 'user.name=A', 'commit', '-q', '-m', 'mode'], check=True)
+        head = sp.run(['git', '-C', str(tree.where), 'rev-parse', 'HEAD'],
+                      capture_output=True, text=True).stdout.strip()
+        split = claims.split_delta(tree.head, head, cwd=str(tree.where))
+        self.assertEqual([n for n, _, _ in split['code']], ['bin.dat'])
+
     def test_what_cannot_be_read_counts_as_code_rather_than_prose(self):
         """Unknown is not prose. Counting it as prose told both reviewers that a delta which
         changed only TypeScript had changed no code at all."""
@@ -268,6 +301,53 @@ class UnkeptPromiseTests(unittest.TestCase):
                      'NOTES.md': 'Run `git worktree remove old` before `most likely never '
                                  'joined` can be read.\n'})
         self.assertEqual(tree.unkept(), [])
+
+    def test_a_removal_claimed_after_its_subject_is_a_stated_gap(self):
+        """The verb-last form is NOT read, and that is a decision rather than an oversight.
+
+        A triage disposition of mine said a case pinned this form. None did, and writing one
+        forced the rule to read past the subject — which refused five of the last forty
+        mainline commits, every one a shell command named beside the word. In a gate a wrong
+        refusal costs a delivery and a missed claim costs a sentence, so the gap is kept and
+        written down here, where the next person to widen the rule will measure first.
+        """
+        tree = Tree(self, {'a.py': 'X = 1  # most likely never joined\n'},
+                    {'a.py': 'X = 1  # most likely never joined\n',
+                     'NOTES.md': 'The `most likely never joined` wording was removed.\n'})
+        self.assertEqual(tree.unkept(), [])
+
+    def test_a_command_named_before_a_removal_word_is_not_a_promise(self):
+        """Measured over the last 40 mainline commits: reading the verb anywhere on the line
+        refuses 8 of them and allowing it just after the subject refuses 5, every one a
+        backticked shell command named in a sentence that happens to contain the word. The
+        run-up alone refuses 1, which is why this check reports and never blocks."""
+        tree = Tree(self, {'a.py': 'X = 1  # ack --pager\n'},
+                    {'a.py': 'X = 1  # ack --pager\n',
+                     'NOTES.md': 'The allowlist that `ack --pager` defeated is gone now.\n'})
+        self.assertEqual(tree.unkept(), [])
+
+    def test_a_denied_removal_is_not_a_promise(self):
+        """Found by Codex, the first round of this campaign it was able to run.
+
+        "We did not remove `X`" is the opposite of a claim, and reading it as one refuses a
+        sentence written precisely to say the work was NOT done. Only the clause carrying the
+        verb is read: a negation in an earlier clause is about something else.
+        """
+        survives = {'a.py': 'X = 1  # most likely never joined\n'}
+        for denial in ('We did not remove `most likely never joined` from it.',
+                       'We never removed `most likely never joined` from it.',
+                       'Rather than remove `most likely never joined`, we kept it.'):
+            tree = Tree(self, survives, dict(survives, **{'NOTES.md': denial + '\n'}))
+            self.assertEqual(tree.unkept(), [], denial)
+
+    def test_a_removal_asserted_in_a_later_clause_is_still_a_promise(self):
+        """The negation rule reads one clause, not the whole run-up: a comma earlier in the
+        sentence must not buy an exemption."""
+        tree = Tree(self, {'a.py': 'X = 1  # most likely never joined\n'},
+                    {'a.py': 'X = 1  # most likely never joined\n',
+                     'NOTES.md': 'The list moved, and we removed `most likely never joined` '
+                                 'with it.\n'})
+        self.assertEqual([n for n, _, _ in tree.unkept()], ['NOTES.md'])
 
     def test_a_single_word_quote_is_not_treated_as_a_promise(self):
         """`FOREIGN` in a sentence about removing FOREIGN legitimately outlives the removal —

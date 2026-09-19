@@ -1002,11 +1002,6 @@ def claims_settled(base, head):
     require(not gone, 'Prose asserts a name this delta removed from the code: '
             + '; '.join('%s says %s' % (where, name) for where, name in gone)
             + '. Correct the sentence or restore the name before a reviewer spends a round on it.')
-    broken = review_claims.unkept(base, head)
-    require(not broken, 'Prose claims a removal that did not happen: '
-            + '; '.join('%s says `%s` is gone, and it is in %s' % item for item in broken)
-            + '. A claim of correction that is false is worse than no claim: it is the record '
-              'that says the work was done.')
 
 
 def review_range(directory):
