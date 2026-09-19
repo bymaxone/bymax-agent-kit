@@ -72,6 +72,23 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': '# reads FOREIGN\n', 'b.py': 'FOREIGN = (1,)\nY = 2\n'})
         self.assertEqual(tree.retired(), [])
 
+    def test_a_function_that_moved_to_another_module_is_not_reported(self):
+        """The existing moved-name case uses a CONSTANT, which resolves through the second
+        half of the alive pattern. The def/class half carried a \\b that git grep reads
+        literally, so every moved function read as removed and the gate refused a correct
+        refactor. One case per alternative, or one of them is never exercised."""
+        tree = Tree(self, {'a.py': 'def helper_one(x):\n    return x\n# calls helper_one\n',
+                           'b.py': 'Y = 2\n'},
+                    {'a.py': '# calls helper_one\n',
+                     'b.py': 'def helper_one(x):\n    return x\nY = 2\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_a_function_removed_outright_is_still_reported(self):
+        """The other side of the same alternative: moved is silence, gone is a finding."""
+        tree = Tree(self, {'a.py': 'def helper_one(x):\n    return x\n# calls helper_one\n'},
+                    {'a.py': '# calls helper_one\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'helper_one')])
+
     def test_a_deleted_name_nobody_mentions_is_not_reported(self):
         """Deleting a constant and its every mention is the correct edit, and correct edits
         must be silent or the check trains its reader to skip it."""
@@ -146,6 +163,76 @@ class GeneratedCopyTests(unittest.TestCase):
         self.assertEqual([name for name, _, _ in tree.unkept()], ['NOTES.md'])
 
 
+class WorkingDirectoryTests(unittest.TestCase):
+    """The answer must not depend on where the process was started.
+
+    Every pathspec and every file read resolved against the caller's cwd, so running from a
+    subdirectory answered about a subtree — measured on this repository's own history, the
+    checker reported nothing from `scripts/` for a delta it refuses from the top. Silence
+    read as cleanliness.
+    """
+
+    def test_the_same_delta_answers_the_same_from_a_subdirectory(self):
+        tree = Tree(self, {'a.py': 'FOREIGN = (1,)\n', 'sub/b.py': '# reads FOREIGN\n'},
+                    {'a.py': 'X = 1\n', 'sub/b.py': '# reads FOREIGN\n'})
+        from_top = claims.retired(tree.base, tree.head, cwd=str(tree.where))
+        from_sub = claims.retired(tree.base, tree.head, cwd=str(tree.where / 'sub'))
+        self.assertEqual(from_top, [('sub/b.py', 'FOREIGN')])
+        self.assertEqual(from_sub, from_top)
+
+
+class OpaqueFileTests(unittest.TestCase):
+    """What this module cannot read has to be said, not skipped.
+
+    Only Python and Markdown are classified. On a TypeScript, Rust or shell repository every
+    changed file is unreadable here, and a checker that stays silent about them reports a real
+    code delta as changing no code.
+    """
+
+    def opaque(self, tree):
+        return claims.opaque(tree.base, tree.head, cwd=str(tree.where))
+
+    def test_a_changed_file_of_another_language_is_named(self):
+        tree = Tree(self, {'a.ts': 'const x = 1\n'}, {'a.ts': 'const x = 2\n'})
+        self.assertEqual(self.opaque(tree), ['a.ts'])
+
+    def test_a_readable_file_is_not_named(self):
+        tree = Tree(self, {'a.py': 'X = 1\n'}, {'a.py': 'X = 2\n'})
+        self.assertEqual(self.opaque(tree), [])
+
+    def test_the_generated_mirror_is_not_named_either(self):
+        """A generated copy is not a file whose claims nobody read; it is a copy."""
+        mirror = 'codex/plugins/bymax-codex/references/upstream/vendored.ts'
+        tree = Tree(self, {mirror: 'const x = 1\n'}, {mirror: 'const x = 2\n'})
+        self.assertEqual(self.opaque(tree), [])
+
+    def test_a_deleted_line_is_counted_on_the_side_it_left(self):
+        """Counting only additions told both reviewers that a correction which removed four
+        lines of live code had changed no code at all, and made the prose:code ratio in their
+        brief wrong for the same reason."""
+        tree = Tree(self, {'a.py': '# a reason worth keeping\nX = 1\nY = 2\n'},
+                    {'a.py': '# a reason worth keeping\nX = 1\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertEqual([row[2] for row in split['code']], ['Y = 2'])
+        self.assertEqual(split['prose'], [])
+
+    def test_a_deleted_comment_is_counted_as_prose_not_code(self):
+        """The other side of the same walk: a removed comment is a removed line of prose."""
+        tree = Tree(self, {'a.py': '# a reason worth keeping\nX = 1\n'},
+                    {'a.py': 'X = 1\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertEqual([row[2] for row in split['prose']], ['# a reason worth keeping'])
+        self.assertEqual(split['code'], [])
+
+    def test_what_cannot_be_read_counts_as_code_rather_than_prose(self):
+        """Unknown is not prose. Counting it as prose told both reviewers that a delta which
+        changed only TypeScript had changed no code at all."""
+        tree = Tree(self, {'a.ts': 'const x = 1\n'}, {'a.ts': 'const x = 2\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertEqual([n for n, _, _ in split['code']], ['a.ts'])
+        self.assertEqual(split['prose'], [])
+
+
 class UnkeptPromiseTests(unittest.TestCase):
 
     def test_a_claimed_removal_whose_quote_survives_is_reported(self):
@@ -165,6 +252,19 @@ class UnkeptPromiseTests(unittest.TestCase):
                      'NOTES.md': 'We removed `most likely never joined` from the message.\n'})
         self.assertEqual(tree.unkept(), [])
 
+    def test_a_removal_word_inside_another_quote_is_not_a_promise(self):
+        """Measured against this repository's mainline: a release note reading "run `claude
+        plugin marketplace remove X`, then …" turned every other backticked phrase on the
+        line into a claimed removal. The verb has to be in prose — outside the subject and
+        outside every other quoted span — or a command that merely contains the word refuses
+        a legitimate candidate. Three of the last eight mainline commits were refused this
+        way before the rule said "in prose"."""
+        tree = Tree(self, {'a.py': 'X = 1  # most likely never joined\n'},
+                    {'a.py': 'X = 1  # most likely never joined\n',
+                     'NOTES.md': 'Run `git worktree remove old` before `most likely never '
+                                 'joined` can be read.\n'})
+        self.assertEqual(tree.unkept(), [])
+
     def test_a_single_word_quote_is_not_treated_as_a_promise(self):
         """`FOREIGN` in a sentence about removing FOREIGN legitimately outlives the removal —
         that is what the sentence is about. Only a phrase is specific enough to check, and
@@ -176,12 +276,15 @@ class UnkeptPromiseTests(unittest.TestCase):
 
 class ProseExtractionTests(unittest.TestCase):
 
-    def test_python_prose_is_comments_and_strings_and_not_code(self):
+    def test_python_prose_is_comments_and_docstrings_and_not_data(self):
         text = 'NAME = "value"\n# a comment about NAME\ndef f():\n    """A docstring."""\n'
         got = claims.prose('x.py', text)
         self.assertIn('a comment about NAME', got)
         self.assertIn('A docstring.', got)
         self.assertNotIn('def f()', got)
+        # A string literal is data the author passes to something, not an assertion. Counting
+        # it read test fixtures as claims and would have let the prose pass edit them.
+        self.assertNotIn('"value"', got)
 
     def test_markdown_prose_drops_fenced_blocks(self):
         got = claims.prose('x.md', 'Words about it.\n\n```\nCODE_HERE = 1\n```\n')

@@ -85,6 +85,16 @@ class MeaningTests(unittest.TestCase):
             bench.run(rule())
         self.assertIn('survived', str(caught.exception))
 
+    def test_a_mutant_that_only_breaks_the_import_is_refused(self):
+        """A crash is not a measurement. A mutant that stops the module loading makes every
+        case error, which reads as caught while the case never ran — measured on this file's
+        own fixtures, where two mutants recorded 'caught 1 error'."""
+        bench = Bench(self)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'def over(value):',
+                                     'becomes': 'def over(', 'case': 'over_the_limit'}]))
+        self.assertIn('stopped the tree from loading', str(caught.exception))
+
     def test_a_caught_mutant_passes_and_the_tree_is_restored(self):
         bench = Bench(self)
         payload = bench.run(rule())

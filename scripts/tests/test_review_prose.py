@@ -54,25 +54,27 @@ class EnvelopeTests(unittest.TestCase):
         touched no behaviour, so a behaviour edit inside it is a false statement to them."""
         bench = Bench(self)
         bench.write(START.replace('return value > LIMIT', 'return value >= LIMIT'))
-        found = bench.offences()
-        self.assertEqual(len(found), 1)
-        self.assertIn('is code, not prose', found[0])
-        self.assertIn('value >= LIMIT', found[0])
+        found = ' | '.join(bench.offences())
+        # Asserted by what it says, not by how many it says: an edited line is an addition
+        # AND a removal, and pinning the count made this case fail when removals started
+        # being read — which was the defect, not the fix.
+        self.assertIn('adds code, not prose', found)
+        self.assertIn('value >= LIMIT', found)
+        self.assertIn('removes code, not prose', found)
+        self.assertIn('value > LIMIT', found)
 
     def test_adding_prose_is_refused(self):
         """An improved comment is new surface nothing checks, which is the loop restarting."""
         bench = Bench(self)
         bench.write(START + '# One more thought about why this exists.\n')
-        found = bench.offences()
-        self.assertEqual(len(found), 1)
-        self.assertIn('prose grew by 1', found[0])
+        self.assertIn('prose grew by 1', ' | '.join(bench.offences()))
 
     def test_a_shorter_correction_that_also_edits_code_is_still_refused(self):
         """Both halves are checked: cutting prose does not buy a code edit."""
         bench = Bench(self)
         bench.write('LIMIT = 10\ndef over(value):\n    return value >= LIMIT\n')
         found = bench.offences()
-        self.assertTrue(any('is code, not prose' in f for f in found), found)
+        self.assertTrue(any('code, not prose' in f for f in found), found)
 
     def test_markdown_is_prose_throughout(self):
         bench = Bench(self, text='It reads the limit from LIMIT.\n', name='README.md')
@@ -86,6 +88,42 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_a_clean_tree_is_inside_the_envelope(self):
         self.assertEqual(Bench(self).offences(), [])
+
+    def test_deleting_a_line_of_code_is_refused(self):
+        """The hole the first reviewer found: reading only added lines let a deletion — of a
+        line, or of a whole source file — pass as prose only."""
+        bench = Bench(self)
+        bench.write('LIMIT = 10\n# Six attempts at this rule, and it guards the limit.\n'
+                    'def over(value):\n    """Whether value exceeds the limit."""\n')
+        self.assertIn('removes code, not prose', ' | '.join(bench.offences()))
+
+    def test_a_file_this_pass_cannot_read_is_refused(self):
+        """Only Python and Markdown are classified. A changed .ts or .sh cannot be shown to
+        be prose, and saying so is the difference between silence and a false statement."""
+        bench = Bench(self)
+        (bench.where / 'script.sh').write_text('exit 1\n')
+        self.assertIn('not a file this pass can read', ' | '.join(bench.offences()))
+
+    def test_growth_in_one_file_is_not_paid_for_by_a_cut_in_another(self):
+        """Summing across files let an added comment be bought with an unrelated deletion."""
+        bench = Bench(self)
+        bench.write(START.replace('# Six attempts at this rule, and it guards the limit.\n', ''))
+        (bench.where / 'other.py').write_text('# a\n# b\n# c\nY = 1\n')
+        self.assertTrue(any('other.py: prose grew' in f for f in bench.offences()))
+
+
+class WorkingDirectoryTests(unittest.TestCase):
+
+    def test_the_envelope_answers_the_same_from_a_subdirectory(self):
+        """An envelope whose verdict depends on where it was invoked approves a code edit by
+        being run one directory down."""
+        bench = Bench(self)
+        (bench.where / 'sub').mkdir()
+        bench.write(START.replace('return value > LIMIT', 'return value >= LIMIT'))
+        from_top = prose.offences(cwd=str(bench.where))
+        from_sub = prose.offences(cwd=str(bench.where / 'sub'))
+        self.assertTrue(any('code, not prose' in f for f in from_top), from_top)
+        self.assertEqual(from_sub, from_top)
 
 
 class PrepareTests(unittest.TestCase):

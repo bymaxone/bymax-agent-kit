@@ -170,7 +170,16 @@ def install(home, overlay):
     runtime.mkdir(parents=True, exist_ok=True)
     # review_flow.start installs review_prepush.py from beside itself, so the hook
     # source must travel with the runtime or no repository ever gets the hook.
-    for source in payload():
+    carried = payload()
+    # Derived, and still checked: a listing that silently came back short would install a
+    # runtime missing the hook source, report success, and leave every repository without a
+    # pre-push check. The names below are the ones the flow cannot start without.
+    names = {path.name for path in carried}
+    missing = {'review_flow.py', 'review_prepush.py', 'review_push.py'} - names
+    if missing:
+        raise SystemExit('Refusing to install: the package is missing %s'
+                         % ', '.join(sorted(missing)))
+    for source in carried:
         shutil.copy2(source, runtime / source.name)
     settings_path.write_text(json.dumps(updated_settings, indent=2) + '\n')
     policy_path.write_text(updated_policy)

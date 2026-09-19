@@ -33,18 +33,27 @@ import tokenize
 from pathlib import Path
 
 FENCED = re.compile(r'```.*?```', re.DOTALL)
-# A name worth resolving: CONSTANT_CASE, or snake_case with an underscore, or a call. Bare
-# lowercase words are prose, not identifiers, and treating them as identifiers is how a
-# checker like this earns its reputation for noise.
-NAME = re.compile(r'`?\b([A-Z][A-Z0-9_]{2,}|[a-z_][a-z0-9_]*_[a-z0-9_]+)\b`?(?:\(\))?')
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
 
 
+def root(cwd=None):
+    """The worktree these questions are about, not the directory the process happens to be in.
+
+    Every pathspec here (`-- '*.py'`, `-- <name>`) and every file read resolves against the
+    caller's cwd, so running from a subdirectory answered about a subtree: measured, the
+    checker reported zero changed files and missed a dangling reference it finds from the
+    top. A tool whose answer depends on where it was invoked reports silence as cleanliness.
+    """
+    done = subprocess.run(['git', 'rev-parse', '--show-toplevel'],
+                          capture_output=True, text=True, cwd=cwd)
+    return done.stdout.strip() if done.returncode == 0 else (cwd or '.')
+
+
 def git(*args, cwd=None):
     """stdout of a git command, or '' when git refuses — an absent side, never a crash."""
-    done = subprocess.run(['git', *args], capture_output=True, text=True, cwd=cwd)
+    done = subprocess.run(['git', *args], capture_output=True, text=True, cwd=root(cwd))
     return done.stdout if done.returncode == 0 else ''
 
 
@@ -114,10 +123,26 @@ def authored(name):
     return not name.startswith(GENERATED)
 
 
+READABLE = ('.md', '.py')
+
+
 def touched(base, head, cwd=None):
-    """The .md and .py files this delta changed, excluding what it generated."""
+    """Files this delta changed whose prose this module can read."""
     listed = git('diff', '--name-only', '-z', base, head, cwd=cwd)
-    return [n for n in listed.split('\0') if n.endswith(('.md', '.py')) and authored(n)]
+    return [n for n in listed.split('\0') if n.endswith(READABLE) and authored(n)]
+
+
+def opaque(base, head, cwd=None):
+    """Files this delta changed whose prose this module CANNOT read.
+
+    Only Python and Markdown are classified here. On a TypeScript, Rust or shell repository
+    every changed file lands in this list, and saying so is the difference between a checker
+    that is silent and one that lies: without it the brief told both reviewers that a real
+    code delta changed no code, and that two checks had run over files nothing had opened.
+    """
+    listed = git('diff', '--name-only', '-z', base, head, cwd=cwd)
+    return [n for n in listed.split('\0')
+            if n and not n.endswith(READABLE) and authored(n)]
 
 
 def sides(name, base, head, cwd=None):
@@ -148,13 +173,23 @@ def split_delta(base, head, cwd=None):
     out = {'code': [], 'prose': []}
     for name in touched(base, head, cwd=cwd):
         after = review_marks(name, git('show', '%s:%s' % (head, name), cwd=cwd))
-        at = None
+        before = review_marks(name, git('show', '%s:%s' % (base, name), cwd=cwd))
+        at = was = None
         for row in git('diff', '-U0', base, head, '--', name, cwd=cwd).split('\n'):
             if row.startswith('@@'):
+                was = int(row.split('-')[1].split(',')[0].split()[0])
                 at = int(row.split('+')[1].split(',')[0].split()[0])
             elif row.startswith('+') and not row.startswith('+++') and at is not None:
                 out['prose' if at in after else 'code'].append((name, at, row[1:]))
                 at += 1
+            elif row.startswith('-') and not row.startswith('---') and was is not None:
+                # A deletion is a change. Counting only additions told both reviewers that a
+                # correction which removed four lines of live code had changed no code.
+                out['prose' if was in before else 'code'].append((name, -was, row[1:]))
+                was += 1
+    # Whatever this module cannot read is code until something proves otherwise: an unknown
+    # file is not a file without claims, it is a file whose claims nothing here read.
+    out['code'] += [(name, 0, '') for name in opaque(base, head, cwd=cwd)]
     return out
 
 
@@ -181,7 +216,12 @@ def orphaned(base, head, cwd=None):
     # pattern silently matches nothing. Measured — every name read as orphaned, including the
     # ones that had simply moved to another module, which is the false positive that would
     # have made this unusable on its first real delta.
-    alive = r'^[[:space:]]*(def|class)[[:space:]]+%s\b|^[[:space:]]*%s[[:space:]]*='
+    # Neither \s nor \b: git grep runs its own engine, where both are literal. The \s half
+    # was corrected once and the \b half was left, so every function or class that merely
+    # MOVED to another module read as removed — and the case that should have caught it
+    # exercises a constant, which goes through the second alternative.
+    alive = (r'^[[:space:]]*(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
+             r'|^[[:space:]]*%s[[:space:]]*=')
     return sorted(name for name in lost
                   if not git('grep', '-lE', alive % (name, name), head,
                              '--', '*.py', cwd=cwd).strip())
@@ -225,9 +265,20 @@ def unkept(base, head, cwd=None):
     found = []
     for name, text in added(base, head, cwd=cwd).items():
         for line in text.split('\n'):
-            if not GONE.search(line):
-                continue
             for quote in QUOTED.findall(line):
+                # The removal word must be in the sentence, not inside the quoted subject,
+                # and must come before it. `git worktree remove` and `DROP TABLE` are names
+                # of things, not claims about them — measured against this repository's own
+                # mainline, an earlier version would have refused 3 of the last 8 commits,
+                # each on an instruction to the reader rather than a promise.
+                # The verb must be in PROSE: not inside the quoted subject, and not inside
+                # any other quoted span on the line. `claude plugin marketplace remove …`
+                # names a command; it does not promise that anything was removed. Measured
+                # against this repository's mainline, checking only "before the quote" still
+                # refused a release note for exactly that.
+                said = QUOTED.sub(' ', line.split('`' + quote + '`')[0])
+                if not GONE.search(said):
+                    continue
                 if len(quote.split()) < 2:
                     continue            # one word is a name, and names live on legitimately
                 before = git('grep', '-Fl', '--', quote, base, cwd=cwd).count('\n')

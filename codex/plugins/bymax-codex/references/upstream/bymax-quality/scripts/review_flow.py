@@ -930,6 +930,8 @@ def matrix_first(state, directory):
             % str(kept.get('head'))[:12])
     require(kept.get('mutants'), 'The recorded matrix measured no mutants. A matrix that mutates '
             'nothing answers nothing.')
+    require(kept.get('tree'), 'The recorded matrix carries no fingerprint of the files it '
+            'mutated, so nothing ties it to what is here now.')
     require(not kept.get('survivors'), 'The recorded matrix has survivors: '
             + ', '.join(kept['survivors']) + '. A gate nothing can break is decoration.')
 
@@ -969,18 +971,22 @@ def claims_coverage(state):
     """
     base, head = state['review_base'], state['head']
     rest = review_claims.unchecked(base, head)
+    unread = review_claims.opaque(base, head)
     said = ['Prose in this delta: two exact checks ran and passed — no name it asserts was '
             'removed by this delta, and no claimed removal left its subject in the tree.']
+    if unread:
+        said.append('They read Python and Markdown only, so they read NOTHING in %d changed '
+                    'file(s) of other kinds (%s). For those the checks are silent, which is not '
+                    'the same as clean.' % (len(unread), ', '.join(unread[:6])))
     counts = code_touched(base, head)
     if counts['prose'] or counts['code']:
-        said.append('This delta added %d line(s) of code and %d of prose. Prose is unverified '
-                    'surface and it is where a measured 26%% of this loop\'s findings came from, '
-                    'while 91%% of what its corrections wrote was prose: judge whether the '
-                    'explanation earns its size.' % (counts['code'], counts['prose']))
-    said.append('%d assertion(s) added that NO command settles — docstrings, comments, changelog '
-                'and the commit message. They are unverified, not verified; treat each as a claim '
-                'to check against the code, which is where four rounds of this campaign went. '
-                'List them with `review_claims.py %s %s`.' % (len(rest), base, head))
+        said.append('This delta changed %d line(s) of code and %d of prose. Prose is surface '
+                    'no command checks: judge whether the explanation earns its size.'
+                    % (counts['code'], counts['prose']))
+    said.append('%d assertion(s) added that NO command settles — docstrings, comments and '
+                'markdown, which is what this reads. They are unverified, not verified; treat '
+                'each as a claim to check against the code. List them with '
+                '`review_claims.py %s %s`.' % (len(rest), base, head))
     return ' '.join(said)
 
 

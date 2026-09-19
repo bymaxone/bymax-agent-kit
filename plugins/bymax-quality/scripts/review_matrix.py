@@ -28,10 +28,10 @@ understood well enough to be corrected.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 PYTEST = [sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider']
@@ -56,6 +56,21 @@ def run_case(root, selector, files):
                           env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
     tail = done.stdout.strip().splitlines()
     return done.returncode, (tail[-1] if tail else done.stderr[-160:])
+
+
+def outcome(tail):
+    """Whether a run FAILED a case or merely stopped working.
+
+    `exit != 0` cannot tell the two apart, and the difference is the whole measurement: a
+    mutant that breaks the import makes every case error, which reads as "caught" while the
+    case never ran. Measured on this file's own fixtures — replacing a `def` line with a
+    module-scope raise recorded two mutants as caught, and neither case had executed.
+    """
+    failed = re.search(r'(\d+) failed', tail)
+    errored = re.search(r'(\d+) error', tail)
+    if errored and not failed:
+        return 'error'
+    return 'failed' if failed else 'passed'
 
 
 def enumerated(root, rule):
@@ -84,6 +99,9 @@ def apply_mutant(root, mutant):
     path = Path(root) / mutant['file']
     if not path.is_file():
         bail('Mutant for %r names %s, which is not a file here.' % (mutant.get('case'), mutant['file']))
+    if not os.access(path, os.W_OK):
+        bail('Mutant for %r cannot be applied: %s is not writable, and a matrix that cannot '
+             'restore what it changed must not start.' % (mutant.get('case'), mutant['file']))
     text = path.read_text()
     hits = text.count(mutant['anchor'])
     if hits != 1:
@@ -116,7 +134,13 @@ def one(root, mutant, files, clean=None):
     finally:
         path.write_text(original)
         caches(root)
-    return {'case': mutant['case'], 'file': mutant['file'], 'caught': code != 0, 'saw': tail}
+    how = outcome(tail)
+    if how == 'error':
+        bail('Mutant for %r stopped the tree from loading rather than failing the case (%s). '
+             'That is a crash, not a measurement: the case never ran, and every case would '
+             'report the same. Mutate what the gate reads, not what the module needs to '
+             'import.' % (mutant['case'], tail))
+    return {'case': mutant['case'], 'file': mutant['file'], 'caught': how == 'failed', 'saw': tail}
 
 
 def matrix(root, spec, files):
@@ -181,6 +205,9 @@ def main(argv):
     out = None
     if '--out' in args:
         at = args.index('--out')
+        if at + 1 >= len(args):
+            print('--out needs a path', file=sys.stderr)
+            return 2
         out = args[at + 1]
         del args[at:at + 2]
     record(str(Path.cwd()), args[0], args[1:], out=out)

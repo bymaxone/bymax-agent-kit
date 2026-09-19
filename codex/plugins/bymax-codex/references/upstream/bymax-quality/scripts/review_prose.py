@@ -52,14 +52,24 @@ number. A number corrected is a number that drifts again."""
 
 
 def git(*args, cwd=None):
-    done = subprocess.run(['git', *args], capture_output=True, text=True, cwd=cwd)
+    """Answered about the worktree, not about the directory the process was started in."""
+    done = subprocess.run(['git', *args], capture_output=True, text=True,
+                          cwd=review_claims.root(cwd))
     return done.stdout if done.returncode == 0 else ''
 
 
 def changed(cwd=None):
-    """Files with uncommitted changes that could carry prose."""
-    listed = git('diff', '--name-only', '-z', 'HEAD', cwd=cwd)
-    return [n for n in listed.split('\0') if n.endswith(('.md', '.py'))]
+    """Every path the working tree has moved away from HEAD, whatever its type.
+
+    Tracked changes and untracked files both, because a pass that adds a new source file
+    leaves `git diff` silent and the envelope would report only what it could already see.
+    """
+    listed = git('status', '--porcelain', '-z', cwd=cwd)
+    names = []
+    for row in listed.split('\0'):
+        if len(row) > 3:
+            names.append(row[3:])
+    return sorted(set(names))
 
 
 def prepare(base, head, cwd=None):
@@ -77,34 +87,54 @@ def prepare(base, head, cwd=None):
 
 
 def sides(name, cwd=None):
-    """(committed text, working-tree text) for one file."""
-    root = Path(cwd or '.')
-    working = (root / name).read_text() if (root / name).is_file() else ''
+    """(committed text, working-tree text) for one file, named from the worktree root."""
+    where = Path(review_claims.root(cwd))
+    working = (where / name).read_text() if (where / name).is_file() else ''
     return git('show', 'HEAD:%s' % name, cwd=cwd), working
 
 
 def offences(cwd=None):
-    """Every way the working tree has left the envelope, named one by one."""
+    """Every way the working tree has left the envelope, named one by one.
+
+    Additions and removals both, per file. An earlier version read only added lines and
+    claimed in a comment that removals were covered by the growth total, which counted prose
+    alone — so deleting a line of live code passed as "prose only, no growth". And the total
+    was summed across files, which let an added comment in one be paid for by a deletion in
+    another.
+    """
     found = []
-    grew = 0
     for name in changed(cwd=cwd):
+        if not name.endswith(review_claims.READABLE):
+            found.append('%s is not a file this pass can read, so nothing here can show its '
+                         'change is prose' % name)
+            continue
         before, after = sides(name, cwd=cwd)
         was, now = review_claims.marks(name, before), review_claims.marks(name, after)
-        grew += len(now) - len(was)
-        at = None
-        for row in git('diff', '-U0', 'HEAD', '--', name, cwd=cwd).split('\n'):
-            if row.startswith('@@'):
-                at = int(row.split('+')[1].split(',')[0].split()[0])
-            elif row.startswith('-') and not row.startswith('---'):
-                pass                       # removals are checked by the growth total below
-            elif row.startswith('+') and not row.startswith('+++') and at is not None:
-                if at not in now:
-                    found.append('%s:%d is code, not prose: %s' % (name, at, row[1:].strip()[:70]))
-                at += 1
-    if grew > 0:
-        found.append('prose grew by %d line(s); this pass corrects and cuts, it does not expand, '
-                     'because an expanded comment is new surface nothing checks' % grew)
+        if len(now) > len(was):
+            found.append('%s: prose grew by %d line(s); this pass corrects and cuts, it does '
+                         'not expand, because an expanded comment is new surface nothing '
+                         'checks' % (name, len(now) - len(was)))
+        found += stray(name, was, now, cwd=cwd)
     return found
+
+
+def stray(name, was, now, cwd=None):
+    """Changed lines in one file that are not prose on the side they belong to."""
+    out = []
+    at = old = None
+    for row in git('diff', '-U0', 'HEAD', '--', name, cwd=cwd).split('\n'):
+        if row.startswith('@@'):
+            old = int(row.split('-')[1].split(',')[0].split()[0])
+            at = int(row.split('+')[1].split(',')[0].split()[0])
+        elif row.startswith('+') and not row.startswith('+++') and at is not None:
+            if at not in now:
+                out.append('%s:%d adds code, not prose: %s' % (name, at, row[1:].strip()[:70]))
+            at += 1
+        elif row.startswith('-') and not row.startswith('---') and old is not None:
+            if old not in was:
+                out.append('%s:%d removes code, not prose: %s' % (name, old, row[1:].strip()[:70]))
+            old += 1
+    return out
 
 
 def envelope(cwd=None):
