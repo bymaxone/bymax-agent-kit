@@ -948,14 +948,15 @@ def code_view(state):
         return ('This delta changed no code — %d prose line(s) only. A prose-only correction is '
                 'a round spent on text; judge whether it earned one.' % len(split['prose']))
     shown = ['Code changed in this delta, prose elided: %d code line(s), %d prose, marked + for '
-             'an added line and - for a removed one. Review THIS first. A finding whose fix is '
+             'an added line, - for a removed one and ? for a file that changed without any '
+             'line changing, such as a binary or a rename. Review THIS first. A finding whose fix is '
              'CODE is yours however you noticed it — including by a comment disagreeing with '
              'what the code does.' % (len(split['code']), len(split['prose']))]
     for name, at, text in split['code'][:120]:
         # A removal is rendered as one. It reached reviewers as `file:-39 <text>` through the
         # format an addition uses, with nothing saying what the minus meant.
-        shown.append('  %s %s:%d %s' % ('-' if at < 0 else '+', name, abs(at),
-                                        text.rstrip()[:100]))
+        mark = '+' if at > 0 else '-' if at < 0 else '?'
+        shown.append('  %s %s:%d %s' % (mark, name, abs(at), text.rstrip()[:100]))
     if len(split['code']) > 120:
         shown.append('  ... and %d more; the full diff is yours to read.' % (len(split['code']) - 120))
     return '\n'.join(shown)
@@ -967,16 +968,21 @@ def claims_coverage(state):
     The inventory is a count and a command rather than the lines themselves: a delta adds a
     hundred assertions and pasting them would cost every reviewer the context they need for
     the code. What must not be cheap is the statement that nothing checked them, because a
-    silent checker reads as "the prose is true" when it means "two exact checks found nothing".
+    silent checker reads as "the prose is true" when it means "the one refusing check found nothing".
     """
     base, head = state['review_base'], state['head']
     rest = review_claims.unchecked(base, head)
     unread = review_claims.opaque(base, head)
     said = ['Prose in this delta: one exact check ran and passed — no name it asserts was '
-            'removed by this delta and left dangling. A second check, for a removal claimed '
-            'of text still present, REPORTS and never refuses: measured across 40 mainline '
-            'commits it flags one, a shell command read as the subject of a nearby sentence, '
-            'and one wrong refusal in forty is a delivery blocked by mistake.']
+            'removed by this delta and left dangling.']
+    # Run here rather than described here. The brief said a second check reports, and nothing
+    # on this path called it, so its rows reached nobody — a sentence about a check is not the
+    # check. It refuses nothing: across 40 mainline commits it flags one, a shell command read
+    # as the subject of a sentence beside it, and one wrong refusal in forty is a delivery
+    # blocked by mistake.
+    for where, quote, still in review_claims.unkept(base, head):
+        said.append('REPORTED, not refusing: %s says `%s` is gone and it is in %s. Judge it; '
+                    'it cannot hold a receipt.' % (where, quote, still))
     if unread:
         said.append('They read Python and Markdown only, so they read NOTHING in %d changed '
                     'file(s) of other kinds (%s). For those the checks are silent, which is not '

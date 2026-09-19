@@ -201,7 +201,10 @@ def unreadable(base, head, out, cwd=None):
             # zero rows for it announced "this delta changed no code" about a delta that
             # changed two files. One row says the file moved without claiming a line count
             # nothing can read.
-            out['code'].append((name, -1, '(changed with no text diff)'))
+            # Coordinate 0: the file changed and no line did, so naming a line would invent
+            # one. The brief marks a row + or - by the sign, and 0 is neither, which is the
+            # honest answer for a binary, a mode change or a pure rename.
+            out['code'].append((name, 0, '(changed with no text diff)'))
 
 
 def split_delta(base, head, cwd=None):
@@ -273,8 +276,8 @@ def code_shaped(token):
     Measured on this delivery's own candidate: deleting a module orphaned its `prepare()`, and
     five files were accused of a dangling reference for containing the English word — a README,
     a command, an example. The gate refused the very candidate that added it. A name is a
-    reference here when it is CONSTANT_CASE, or carries an underscore, or is written as a call;
-    a bare lowercase word is prose until it is spelled like code. A capitalised name of four
+    reference here when it is CONSTANT_CASE, or carries an underscore, or is capitalised and
+    four characters or more; a bare lowercase word is prose until it is spelled like code. A capitalised name of four
     characters or more counts, which reaches CamelCase classes and acronym-led ones like
     HTTPServer; a capitalised English word opening a sentence could in principle reach it too,
     but only if something also DEFINED it and removed it, which is what orphaned() already
@@ -327,9 +330,9 @@ def retired(base, head, cwd=None):
 def claimed(line, quote):
     """Whether this line claims THIS subject was removed, rather than merely naming it.
 
-    Given the line and the subject; the revision is not its business, and an earlier version
-    bound a slice of text to the name `head`, which sent every later git call looking inside
-    a sentence instead of at the tree.
+    Given the line and the subject, and nothing else: an earlier version of this code lived
+    inside unkept() and bound a slice of text to `head`, the revision that function is given,
+    which sent every later git call looking inside a sentence instead of at the tree.
 
     The verb must be in PROSE and in the run-up to the subject: outside the
     quoted subject itself, outside every other quoted span on the line, and
@@ -400,7 +403,7 @@ def unchecked(base, head, cwd=None):
     """Assertions this file settles nothing about: the inventory a reviewer is owed.
 
     Not a verdict and not an accusation. Without it a clean run reads as "the prose is true",
-    when what it means is "the two exact checks found nothing". Coverage stated is the only
+    when what it means is "the one refusing check found nothing". Coverage stated is the only
     honest form of coverage.
     """
     lines = []

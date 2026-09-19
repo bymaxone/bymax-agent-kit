@@ -125,6 +125,31 @@ class RetiredNameTests(unittest.TestCase):
         self.assertTrue(tree.unkept())
         self.assertEqual(claims.report(tree.base, tree.head, cwd=str(tree.where)), 0)
 
+    def test_an_affirmative_claim_after_a_dash_is_still_a_claim(self):
+        """The em dash bounds a clause, which the disposition asserting it had only a console
+        probe behind: reverting the boundary left four suites green. This repository's prose
+        uses the dash as its dominant clause break, so without it the dominant form was read
+        as a denial and silently ignored."""
+        survives = {'a.py': 'X = 1  # most likely never joined\n'}
+        tree = Tree(self, survives, dict(survives, **{
+            'NOTES.md': 'This does not rename the helper — we removed `most likely never '
+                        'joined` from it.\n'}))
+        self.assertEqual([n for n, _, _ in tree.unkept()], ['NOTES.md'])
+
+    def test_a_change_with_no_lines_is_neither_added_nor_removed(self):
+        """A file that changed while no line did gets coordinate 0, because naming a line
+        would invent one; the brief marks it ? rather than calling it an addition."""
+        tree = Tree(self, {'bin.dat': 'x'}, {'bin.dat': 'x'})
+        import subprocess as sp
+        sp.run(['chmod', '+x', str(tree.where / 'bin.dat')], check=True)
+        sp.run(['git', '-C', str(tree.where), 'add', '-A'], check=True)
+        sp.run(['git', '-C', str(tree.where), '-c', 'user.email=a@b.invalid',
+                '-c', 'user.name=A', 'commit', '-q', '-m', 'mode'], check=True)
+        head = sp.run(['git', '-C', str(tree.where), 'rev-parse', 'HEAD'],
+                      capture_output=True, text=True).stdout.strip()
+        split = claims.split_delta(tree.head, head, cwd=str(tree.where))
+        self.assertEqual([(n, at) for n, at, _ in split['code']], [('bin.dat', 0)])
+
     def test_a_removed_line_is_numbered_where_it_was(self):
         """Found by Codex on the escalated profile. Reading only the added coordinate numbered
         a removal by where it is NOT: a line deleted from old line 2 printed as `- a.ts:1`,

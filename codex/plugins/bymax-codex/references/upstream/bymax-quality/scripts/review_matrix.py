@@ -98,8 +98,12 @@ def enumerated(root, rule):
     # suffix refused `wc -l <file>` with a message saying it had answered nothing.
     rows = [row.strip() for row in done.stdout.split('\n') if row.strip()]
     digits = [row.rsplit(':', 1)[-1].strip() for row in rows]
-    digits = [d for d in digits if d.isdigit()] or [w for row in rows for w in row.split()
-                                                    if w.isdigit()]
+    # `wc -l a b` prints a per-file count AND a "total" line, and adding that line double-
+    # counted every multi-file rule: 8 for 4. The total is dropped, so what is summed is one
+    # number per file either way.
+    digits = [d for d in digits if d.isdigit()] or [
+        row.split()[0] for row in rows
+        if row.split() and row.split()[0].isdigit() and row.split()[-1] != 'total']
     if done.returncode != 0 or not digits:
         bail('Rule %r: its enumeration command produced no count (exit %d). A command that '
              'answers nothing is not an enumeration: %s' % (rule.get('rule'), done.returncode, how))

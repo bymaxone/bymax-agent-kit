@@ -141,7 +141,7 @@ class EnumerationTests(unittest.TestCase):
 
     def test_a_count_is_the_last_field_of_each_line_not_every_digit(self):
         """`grep -c` prints "path:count" per file, so a filename carrying a digit was being
-        added to the total: a rule over mod_v2.py answered 4 for 2 real hits and fired a
+        added to the total: a rule over mod_v2.py answered 3 for 1 real hit and fired a
         spurious short-by-N. Reading the last field is what grep guarantees."""
         bench = Bench(self, guard=GUARDED)
         (bench.where / 'mod_v2.py').write_text('X = 1\n')
@@ -170,7 +170,10 @@ class EnumerationTests(unittest.TestCase):
         (bench.where / 'one.txt').write_text('a\n')
         # `wc -l <path>` prints "N path": one field, no separator, which the suffix read
         # turned into "1 one.txt" and rejected as not a number.
-        payload = bench.run(rule(enumeration='wc -l one.txt'))
+        (bench.where / 'two.txt').write_text('')
+        # Two files, so `wc -l` also prints its own "total" line: adding that double-counted
+        # every multi-file rule, answering 2 for 1.
+        payload = bench.run(rule(enumeration='wc -l one.txt two.txt'))
         self.assertEqual(payload['survivors'], [])
 
     def test_a_command_that_answers_nothing_is_not_an_enumeration(self):
