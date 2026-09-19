@@ -38,6 +38,15 @@ PYTEST = [sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider']
 
 
 def bail(message):
+    """Refuse, carrying the reason on the exception.
+
+    The status a refusal exits with is decided at the process boundary and not here: main()
+    below, and review_flow's own `matrix` dispatch, each turn this into the 2 that every other
+    refusal in the toolkit uses. It used to reach the shell as `SystemExit(message)`, which
+    exits 1 — so the matrix refused in a class of its own, a caller keying on 2 for BLOCKED
+    read a surviving mutant as a different kind of failure, and the suite's helper, which
+    asserts 2, could not drive these refusals through the CLI at all.
+    """
     raise SystemExit('BLOCKED: ' + message)
 
 
@@ -86,10 +95,11 @@ def per_row(rows):
     for 1; reading the first FIELD read nothing from `cases 4`, a count printed last, and
     refused it as no count at all.
 
-    So: the first digit token of the row. Every separator-less producer measured here prints
-    the count first. A row stating two bare numbers of which the count is not the first —
-    `wc -l 42` is the shape — is read wrong, and that is a STATED gap rather than a guarded
-    one, because nothing in the row says which number is the answer.
+    So: the last colon-separated field where that field is a number, and the first digit token
+    of the row otherwise. Every separator-less producer measured here prints the count first.
+    A row stating two bare numbers of which the count is not the first — `wc -l 42` is the
+    shape — is read wrong, and that is a STATED gap rather than a guarded one, because nothing
+    in the row says which number is the answer.
     """
     out = []
     for row in rows:
@@ -265,7 +275,11 @@ def main(argv):
             return 2
         out = args[at + 1]
         del args[at:at + 2]
-    record(str(Path.cwd()), args[0], args[1:], out=out)
+    try:
+        record(str(Path.cwd()), args[0], args[1:], out=out)
+    except SystemExit as refused:
+        print(refused.code, file=sys.stderr)
+        return 2
     return 0
 
 

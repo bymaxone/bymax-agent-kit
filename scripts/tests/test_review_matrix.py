@@ -198,6 +198,20 @@ class RecordTests(unittest.TestCase):
         self.assertNotEqual(bench.run(rule())['tree'], before)
 
 
+class RefusalStatusTests(unittest.TestCase):
+    """A refusal leaves the process with the status every other refusal in the toolkit uses."""
+
+    def test_the_standalone_script_refuses_with_two(self):
+        """bail() says why by raising SystemExit, which reaches the shell as 1. Every other
+        refusal here exits 2, and the suite's own CLI helper asserts 2 — which is why these
+        refusals could not be driven through a command line at all until now."""
+        where = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(['rm', '-rf', str(where)]))
+        spec = where / 'empty.json'
+        spec.write_text('[]')
+        self.assertEqual(matrix.main(['review_matrix.py', str(spec), str(where)]), 2)
+
+
 class EnumerationCountTests(unittest.TestCase):
     """One number per file, from output shapes that all state it differently.
 

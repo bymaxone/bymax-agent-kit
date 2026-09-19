@@ -302,7 +302,15 @@ campaign state. Three things follow, all enforced by `start`:
   to be counted here at all, so an argument about a sentence in the file just corrected no
   longer forces a redesign.
 - Run that case list as a **mutation matrix before committing**, not at round nine: disable
-  each rule in turn and confirm a named case fails. Set `PYTHONDONTWRITEBYTECODE=1` and clear
+  each rule in turn and confirm a named case fails. The runtime runs it —
+  `review_flow.py matrix --spec <file> <test paths>` — and keeps the record; `start` refuses a
+  correction round that changes a test without one bound to that candidate's head, so this is
+  a required step and not advice. A rule is
+  `{rule, enumeration, why, mutants:[{file, anchor, becomes, case}]}`: the anchor must occur
+  exactly once in its file, the case must pass on the clean tree before the mutation, and a
+  survivor stops the run. Where a command derives the rule's case list, declare it and it is
+  executed — a list shorter than its own count is refused; where none does, say
+  `not derivable by command` and say why. Set `PYTHONDONTWRITEBYTECODE=1` and clear
   `__pycache__` between mutants — CPython invalidates bytecode on `(int(mtime), size)`, so two
   mutants of the same size written inside one second serve the previous one's result, and the
   direction that fails is "broke nothing", which manufactures a false claim that a rule is

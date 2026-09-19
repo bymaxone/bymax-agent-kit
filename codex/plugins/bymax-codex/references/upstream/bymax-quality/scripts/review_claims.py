@@ -90,7 +90,12 @@ def marks(name, text):
     found = set()
     try:
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
-            if tok.type == tokenize.COMMENT:
+            # Only where the comment is the whole line. Marking a line prose because it ENDS
+            # in a comment filed `enabled = check()  # explanation` — code with a note after it,
+            # the commonest edit there is — under prose, and the code view then told a reviewer
+            # the delta changed no code while a production line had changed. The brief asserting
+            # what the tree does not support is the defect this whole delivery is about.
+            if tok.type == tokenize.COMMENT and not tok.line[:tok.start[1]].strip():
                 found.update(range(tok.start[0], tok.end[0] + 1))
         # Docstrings by AST, not every string token. A string literal is data the author
         # passes to something — a fixture, an expected message, a command — and counting it

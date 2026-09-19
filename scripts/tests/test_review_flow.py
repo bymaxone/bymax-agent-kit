@@ -452,6 +452,29 @@ class ReviewFlowTests(unittest.TestCase):
         prompt = self.flow('prompt')
         self.assertIn('DESIGN ROUND', prompt.stdout)
 
+    def test_the_first_round_brief_carries_the_code_view(self):
+        """The round that reads the WHOLE delta used to receive none of the three views: they
+        were built inside correction_brief, which returns early on round one, while the
+        changelog said every reviewer receives them. Round one is where 'these checks read
+        NOTHING in N changed files of other kinds' matters most — on a repository of languages
+        they cannot read, that sentence is what stops silence from reading as clean."""
+        self.start()
+        self.checks()
+        brief = self.flow('prompt').stdout
+        self.assertIn('prose elided', brief)
+        self.assertIn('Prose in this delta', brief)
+
+    def test_a_refused_matrix_blocks_like_every_other_refusal(self):
+        """bail() refused by raising SystemExit with a message, which exits 1, while every
+        other refusal in the runtime exits 2 — so a caller keying on 2 for BLOCKED read a
+        surviving mutant as a different class of failure. It also made these refusals
+        untestable here: this helper asserts 2, so no case could reach them through the CLI."""
+        self.start()
+        spec = self.root / 'empty-matrix.json'
+        spec.write_text('[]')
+        refused = self.flow('matrix', '--spec', str(spec), 'scripts/tests', ok=False)
+        self.assertIn('non-empty list of rules', refused.stderr)
+
     def test_correction_round_carries_the_authors_probe(self):
         """The author's own probe is required, validated, and shown to both reviewers."""
         self.start()
@@ -2027,7 +2050,7 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
                               capture_output=True, text=True).stdout.strip()
 
     def test_the_brief_shows_a_removal_claim_the_check_only_reports(self):
-        """Codex found that nothing on the flow path executed the removal check, so its rows
+        """An independent reviewer found that nothing on the flow path executed the removal check, so its rows
         reached nobody while the brief said they did. The fix was to RUN it; this is what
         fails when it stops being run — replacing the call with `[]` passes every other case.
         """

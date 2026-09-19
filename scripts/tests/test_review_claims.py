@@ -136,6 +136,18 @@ class RetiredNameTests(unittest.TestCase):
                         'joined` from it.\n'}))
         self.assertEqual([n for n, _, _ in tree.unkept()], ['NOTES.md'])
 
+    def test_a_code_line_ending_in_a_comment_is_still_code(self):
+        """The commonest edit there is. Marking the whole line prose because it ENDS in a
+        comment filed a production change under prose, and the code view then told a reviewer
+        the delta changed no code while a line of code had changed — the brief asserting what
+        the tree does not support, which is the defect this whole delivery is about."""
+        tree = Tree(self, {'a.py': 'enabled = check()\n'},
+                    {'a.py': 'enabled = later()  # explanation\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertEqual(split['prose'], [])
+        self.assertIn('enabled = later()  # explanation',
+                      [text.strip() for _, at, text in split['code'] if at > 0])
+
     def test_a_change_with_no_lines_is_neither_added_nor_removed(self):
         """A file that changed while no line did gets coordinate 0, because naming a line
         would invent one; the brief marks it ? rather than calling it an addition."""
@@ -151,7 +163,7 @@ class RetiredNameTests(unittest.TestCase):
         self.assertEqual([(n, at) for n, at, _ in split['code']], [('bin.dat', 0)])
 
     def test_a_removed_line_is_numbered_where_it_was(self):
-        """Found by Codex on the escalated profile. Reading only the added coordinate numbered
+        """Found by the independent reviewer, not the author. Reading only the added coordinate numbered
         a removal by where it is NOT: a line deleted from old line 2 printed as `- a.ts:1`,
         because the new side had already moved on. A removal is located on the side that
         lost it."""
@@ -395,7 +407,7 @@ class UnkeptPromiseTests(unittest.TestCase):
         self.assertEqual(tree.unkept(), [])
 
     def test_a_denied_removal_is_not_a_promise(self):
-        """Found by Codex, the first round of this campaign it was able to run.
+        """Found by the independent reviewer on the first round it was able to run.
 
         "We did not remove `X`" is the opposite of a claim, and reading it as one refuses a
         sentence written precisely to say the work was NOT done. Only the clause carrying the

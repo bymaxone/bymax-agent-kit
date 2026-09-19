@@ -1173,6 +1173,19 @@ def correction_contract(args, old, head):
                 regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
 
 
+def delta_view(state):
+    """The delta as a reviewer is asked to read it: code first, then what the checks settled.
+
+    Built for EVERY round. These three lived inside correction_brief, which returns early on
+    round one, so the round that reads the whole delta received none of them while the
+    changelog said every reviewer receives them. Round one is where the last of them matters
+    most: on a repository of languages these checks cannot read, "they read NOTHING in N
+    changed files" is the sentence that stops silence from reading as clean, and it was
+    absent from exactly the reading that covers the most ground.
+    """
+    return '\n'.join([code_view(state), claims_coverage(state), regression_note(state)])
+
+
 def correction_brief(state):
     """Tell both reviewers what the correction round claims, so they test the claim."""
     if state['round'] == 1:
@@ -1212,9 +1225,6 @@ def correction_brief(state):
                  '(a project gate, a browser, a network) is a limitation to state in your summary, not '
                  'a reason to report incomplete: the caller runs and records the declared gates.\n'
                  + json.dumps(state.get('probe', []), indent=1))
-    lines.append(code_view(state))
-    lines.append(claims_coverage(state))
-    lines.append(regression_note(state))
     if state.get('removed_tests'):
         lines.append('Tests removed in this delta: ' + ', '.join(state['removed_tests'])
                      + '. A removed test is not regression evidence; judge whether its removal is justified.')
@@ -1344,6 +1354,7 @@ denies $TMPDIR, where such tools write their caches. Whatever you cannot execute
 state in your summary, never a reason to report incomplete. Read, trace and reason instead.
 Previous dispositions (recheck fixes; do not reopen rejected findings without new evidence):
 {json.dumps(state['previous_triage'])}
+{delta_view(state)}
 {correction_brief(state)}
 {FINDING_RULES}
 On correction rounds inspect only the delta, its effects and verification of previous fixes.
@@ -1941,7 +1952,14 @@ def main():
                 print(lessons(state))
                 return
             if args.action == 'matrix':
-                print(json.dumps(matrix_run(args, directory, state), indent=2))
+                # A refusal from the matrix is a refusal: review_matrix says why by raising
+                # SystemExit, which the handler around this one does not catch, so this one
+                # exited 1 where every sibling exits 2. Re-raised as what that handler reads,
+                # with the prefix it adds stripped so the message carries it once.
+                try:
+                    print(json.dumps(matrix_run(args, directory, state), indent=2))
+                except SystemExit as refused:
+                    raise ValueError(str(refused.code).removeprefix('BLOCKED: ')) from None
                 return
             if args.action in ('record', 'triage', 'check'):
                 globals()[args.action](args, directory, state)
