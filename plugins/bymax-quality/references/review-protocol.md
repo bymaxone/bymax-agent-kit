@@ -55,8 +55,28 @@ The context must contain:
   This and required status checks are **two mitigations for one class**, not alternatives: the
   state a machine has and no other machine does, at the tooling layer and at the data layer.
 
+**Before `start`, the prose is read by someone who never saw the author's reasoning.** A
+false sentence used to cost a whole round — freeze, two reviewers, triage, a correction —
+and measured on the campaign that shipped the claims checks, the corrections answering prose
+findings wrote 203 lines of prose against 19 of code: the answer to a prose finding was more
+prose. So `python3 "$FLOW" prose --base <merge-base-sha>` runs on the committed, not yet
+frozen candidate. It hands the prose this delta added, with the code it describes, to a fresh
+Claude allowed to edit comments, docstrings and markdown; then `review_prose.py` reads what
+came back and reverts every edit if a Python file's behaviour — its syntax tree with every
+docstring removed — changed, or if any file's prose grew. Comparing trees rather than lines is
+what lets the pass correct the comment at the end of a line of code while refusing the edit
+that changes the code beside it. The record binds to the text the pass left, and `start`
+recomputes its digest on the candidate: a candidate that adds prose without a record bound to
+exactly that text is refused. Once a campaign is frozen, omit `--base`; the delta is what
+changed since the frozen head, and the frozen head itself is never edited. Inside a Claude
+session, which cannot start another Claude, `prose --stage prepare` prints the task for a
+fresh subagent with Edit and leaves a marker that it began on a clean tree; `prose --stage
+verify` requires that marker, so what the worktree holds is the pass's own and never the
+author's edits verified as prose.
+
 ```bash
 python3 "$FLOW" status
+python3 "$FLOW" prose --base <merge-base-sha>     # then commit what it corrected
 python3 "$FLOW" start --base <merge-base-sha> --context <context-file>
 python3 "$FLOW" prompt
 python3 "$FLOW" codex

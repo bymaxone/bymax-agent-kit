@@ -477,6 +477,144 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('Tests changed in this delta: tests/test_x.py', brief)
         self.assertNotIn('Recorded reason: .', brief)
 
+    PROSE = ('LIMIT = 10\n'
+             '# Six attempts at this rule, and it guards the limit.\n'
+             'def over(value):\n'
+             '    """Whether value exceeds the limit."""\n'
+             '    return value > LIMIT\n')
+    CORRECTED = '# Guards the limit because callers pass unbounded input.'
+
+    def fake_claude(self, edit):
+        """A stand-in `claude` on $PATH that ignores its task and applies one edit to thing.py."""
+        binary_dir = self.root / 'claude-bin'
+        binary_dir.mkdir(exist_ok=True)
+        binary = binary_dir / 'claude'
+        binary.write_text('#!/bin/sh\ncat > /dev/null\n%s - <<\'EOF\'\nfrom pathlib import Path\n'
+                          'p = Path("thing.py"); p.write_text(p.read_text().replace(%r, %r))\nEOF\n'
+                          'echo \'{"is_error": false}\'\n' % (sys.executable, *edit))
+        binary.chmod(0o755)
+        return binary_dir
+
+    def prose(self, *args, claude=None, nested=False, ok=True):
+        """Run the prose subcommand in a process whose $PATH and Claude nesting this test decides."""
+        env = {k: v for k, v in os.environ.items() if k != 'CLAUDECODE'}
+        if nested:
+            env['CLAUDECODE'] = '1'
+        if claude is not None:
+            env['PATH'] = str(claude) + os.pathsep + env.get('PATH', '')
+        env['CODEX_HOME'] = str(self.home)
+        result = subprocess.run([sys.executable, str(FLOW), 'prose', *args], cwd=self.repo,
+                                capture_output=True, text=True, timeout=60, env=env)
+        self.assertEqual(result.returncode, 0 if ok else 2, result.stderr + result.stdout)
+        return json.loads(result.stdout) if ok and result.stdout.startswith('{') else result
+
+    def add_prose(self, text=None):
+        (self.repo / 'thing.py').write_text(text or self.PROSE)
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'a candidate that adds prose')
+
+    def read_prose(self):
+        """The pass in two stages with no edits between: the record binds the candidate's prose
+        even when the reader changed nothing, which is what a fixture that adds markdown needs
+        before start will accept it."""
+        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
+        return self.prose('--base', self.base, '--stage', 'verify', nested=True)
+
+    def test_the_prose_pass_refuses_a_dirty_worktree(self):
+        """The envelope compares the worktree to HEAD, so with the author's own edits in the
+        tree the pass's edits would be indistinguishable from them."""
+        (self.repo / 'thing.py').write_text(self.PROSE)
+        self.assertIn('worktree is dirty', self.prose('--base', self.base, ok=False).stderr)
+
+    def test_a_delta_that_adds_no_prose_records_a_skipped_pass_and_needs_none(self):
+        self.commit('code only')
+        record = self.prose('--base', self.base)
+        self.assertEqual(record['outcome'], 'skipped')
+        self.start()
+        self.checks()
+        self.assertIn('added no prose, so no prose pass ran', self.flow('prompt').stdout)
+
+    def test_the_prose_pass_records_what_a_correcting_reader_left(self):
+        """The whole mechanism end to end: a fresh Claude corrects a comment, the envelope
+        holds, the record binds to the text it left, and the candidate carrying that text
+        starts with a brief telling the logic reviewers wording is not theirs."""
+        self.add_prose()
+        record = self.prose('--base', self.base, claude=self.fake_claude(
+            ('# Six attempts at this rule, and it guards the limit.', self.CORRECTED)))
+        self.assertEqual((record['outcome'], record['changed'], record['files']),
+                         ('corrected', ['thing.py'], ['thing.py']))
+        self.assertIn(self.CORRECTED, (self.repo / 'thing.py').read_text())
+        self.git('commit', '-qam', 'prose corrected before the freeze')
+        self.assertEqual(self.start()['prose']['outcome'], 'corrected')
+        self.checks()
+        brief = self.flow('prompt').stdout
+        self.assertIn('A fresh reader corrected this delta', brief)
+        self.assertIn('Wording is not yours to review', brief)
+
+    def test_a_pass_that_edits_code_is_refused_and_reverted(self):
+        """The one outcome worse than the defect: reviewers are told the pass touched no
+        behaviour. The tree was clean when the pass started, so everything it left is its
+        own and is put back; no record is written."""
+        self.add_prose()
+        refused = self.prose('--base', self.base, ok=False,
+                             claude=self.fake_claude(('value > LIMIT', 'value >= LIMIT')))
+        self.assertIn('left the envelope', refused.stderr)
+        self.assertIn('behaviour changed', refused.stderr)
+        self.assertEqual(self.git('status', '--porcelain'), '')
+        self.assertEqual(list((self.repo / '.git').glob('bymax-review/*/prose-*.json')), [])
+
+    def test_start_refuses_a_candidate_whose_prose_no_pass_read(self):
+        self.add_prose()
+        self.assertIn('no prose pass read it', self.start(ok=False).stderr)
+
+    def test_start_refuses_a_record_bound_to_other_text(self):
+        """The author edits the prose again after the pass: the record's digest no longer
+        matches the candidate, so what the reviewers would be handed was never read."""
+        self.add_prose()
+        self.prose('--base', self.base, claude=self.fake_claude(
+            ('# Six attempts at this rule, and it guards the limit.', self.CORRECTED)))
+        self.git('commit', '-qam', 'prose corrected')
+        (self.repo / 'thing.py').write_text(self.PROSE.replace('Six attempts', 'Seven attempts'))
+        self.git('commit', '-qam', 'and then edited again by hand')
+        self.assertIn('bound to other text', self.start(ok=False).stderr)
+
+    def test_inside_claude_the_pass_prepares_and_verifies_in_two_stages(self):
+        """A Claude cannot start a Claude, so inside one the runtime hands the task out and
+        checks what came back, and the record is the same either way."""
+        self.add_prose()
+        self.assertIn('Inside Claude', self.prose('--base', self.base, nested=True, ok=False).stderr)
+        task = self.prose('--base', self.base, '--stage', 'prepare', nested=True).stdout
+        self.assertIn('Keep every sentence that says WHY', task)
+        self.assertIn('--- thing.py', task)
+        (self.repo / 'thing.py').write_text(self.PROSE.replace(
+            '# Six attempts at this rule, and it guards the limit.', self.CORRECTED))
+        record = self.prose('--base', self.base, '--stage', 'verify', nested=True)
+        self.assertEqual(record['outcome'], 'corrected')
+        self.git('commit', '-qam', 'prose corrected by a subagent')
+        self.assertEqual(self.start()['round'], 1)
+
+    def test_verify_without_a_prepare_at_this_head_is_refused(self):
+        """Without the marker, verify on a dirty tree would bless the author's own edits as
+        a pass that changed only prose."""
+        self.add_prose()
+        (self.repo / 'thing.py').write_text(self.PROSE.replace('Six attempts', 'Seven attempts'))
+        self.assertIn('Nothing was prepared', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
+
+    def test_a_correction_round_reads_prose_since_the_frozen_head(self):
+        """No --base once a campaign is frozen: the delta is what changed since that head.
+        And on the frozen head itself the pass refuses, because editing what reviewers were
+        handed invalidates their reading rather than improving it."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        frozen = self.git('rev-parse', 'HEAD')
+        self.assertIn('frozen under review', self.prose(ok=False).stderr)
+        self.add_prose()
+        record = self.prose('--stage', 'prepare', nested=True)
+        self.assertIn('--- thing.py', record.stdout)
+        self.assertEqual(self.prose('--stage', 'verify', nested=True)['base'], frozen)
+
     def test_a_refused_matrix_blocks_like_every_other_refusal(self):
         """bail() refused by raising SystemExit with a message, which exits 1, while every
         other refusal in the runtime exits 2 — so a caller keying on 2 for BLOCKED read a
@@ -925,6 +1063,7 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'README.md').write_text('root readme\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add codex mirror')
+        self.read_prose()
         self.start()
         root = dict(id='README.md:x', kind='defect', priority='P1', evidence='root')
         mirror = dict(id='codex/README.md:x', kind='defect', priority='P1', evidence='mirror')
@@ -1235,7 +1374,7 @@ class ReviewFlowTests(unittest.TestCase):
         advice = self.text('lessons')
         self.assertIn('PYTHONDONTWRITEBYTECODE=1', advice)
         self.assertIn('__pycache__', advice)
-        self.assertIn('mutation matrix before committing', advice)
+        self.assertIn('mutation matrix after committing and before `start`', advice)
 
     def test_a_correction_may_not_touch_what_no_finding_named(self):
         """This is where every bad round of this branch went bad: a fix arrived with a mechanism.
@@ -1397,6 +1536,7 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'AGENTS.md').write_text('## Code Review Rules\n\nOne narrow rule.\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add the review rules')
+        self.assertEqual(self.read_prose()['outcome'], 'unchanged')
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.context)],
                                 cwd=self.repo, capture_output=True, text=True, timeout=10)
@@ -1480,6 +1620,12 @@ class ReviewFlowTests(unittest.TestCase):
         record.write_text(json.dumps({'head': head, 'mutants': 1, 'tree': 'not-a-digest',
                                        'survivors': [], 'files': ['tests/test_g.py']}))
         self.assertIn('does not match', self.start(ok=False, correction=True, reason='').stderr)
+
+        # And named, not merely listed: the digest of no files is the digest of nothing.
+        import hashlib
+        record.write_text(json.dumps({'head': head, 'mutants': 1, 'files': [], 'survivors': [],
+                                       'tree': hashlib.sha256().hexdigest()}))
+        self.assertIn('does not name the files', self.start(ok=False, correction=True, reason='').stderr)
 
         record.unlink()
         self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])

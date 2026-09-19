@@ -863,6 +863,7 @@ def start(args, directory):
                  **(correction if old else {}))
     claims_settled(state['review_base'], head)
     matrix_first(state, directory)
+    prose_first(state, directory)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
     save(directory, state)
@@ -962,7 +963,10 @@ def matrix_first(state, directory):
     # head alone held the binding, and only on the path that refuses a dirty worktree.
     import review_matrix
     names = kept.get('files')
-    require(names is not None, 'The recorded matrix does not name the files it mutated, so its '
+    # Non-empty, not merely present: digest([]) is the digest of nothing, and a record naming
+    # no file with that digest passed here while bound to nothing. A matrix with a mutant
+    # always names the file it mutated.
+    require(names, 'The recorded matrix does not name the files it mutated, so its '
             'fingerprint cannot be checked against this tree. Re-run `review_flow.py matrix`.')
     now = review_matrix.digest(git('rev-parse', '--show-toplevel'), names)
     require(now == kept['tree'], 'The recorded matrix was measured on other contents of %s: its '
@@ -1200,6 +1204,157 @@ def correction_contract(args, old, head):
                 regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
 
 
+PROSE_TOOLS = 'Read,Grep,Glob,Edit'
+
+
+def prose_command(root):
+    """A fresh Claude allowed to edit and nothing else; the envelope decides what it edited.
+
+    The same hardening as the reviewer pass — no hooks, no MCP, no slash commands, no session
+    — plus Edit under acceptEdits, because a pass that can only report is the round this
+    exists to remove. What it may edit is not a permission question: review_prose.offences
+    reads the tree afterwards and every edit outside the envelope is reverted.
+    """
+    return ['claude', '-p', '--output-format', 'json', '--tools', PROSE_TOOLS,
+            '--allowedTools', PROSE_TOOLS, '--permission-mode', 'acceptEdits', '--add-dir', root,
+            '--disable-slash-commands', '--no-session-persistence', '--max-turns', '40',
+            '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
+            '--settings', '{"disableAllHooks":true}']
+
+
+def prose_base(args, directory, head):
+    """Where the pass reads the delta from.
+
+    A campaign frozen on another head means a correction is being prepared, and the delta
+    is what changed since that head. A campaign frozen on THIS head is the case the pass
+    exists to avoid: editing what reviewers were handed invalidates their reading.
+    """
+    if (directory / 'state.json').exists():
+        old = read_state(directory)
+        require(old['head'] != head, 'This head is frozen under review. The pass runs BEFORE '
+                '`start`, on the next candidate; editing a frozen candidate invalidates its review.')
+        return old['head']
+    require(args.base, 'No campaign is frozen on this branch, so the pass needs --base <merge-base>.')
+    return git('rev-parse', '--verify', args.base + '^{commit}')
+
+
+def revert(names):
+    """Put back what the pass changed. Safe because the pass started on a clean tree, so every
+    change listed is the pass's own and nothing of the author's is under it."""
+    # git_raw, not git: a porcelain row for a modified file BEGINS with a space, and the
+    # trimmed reader turned ` M thing.py` into `M thing.py`, whose name is `hing.py`.
+    for row in git_raw('status', '--porcelain', '-z').split('\0'):
+        if len(row) > 3 and row[3:] in names:
+            if row.startswith('??'):
+                Path(git('rev-parse', '--show-toplevel'), row[3:]).unlink()
+            else:
+                git('checkout', '--', row[3:])
+
+
+def prose_run(args, directory):
+    """Run the prose pass on a committed candidate that is not yet frozen, and record what it left.
+
+    Three stages, because a Claude cannot start another Claude: `run` does everything with
+    the CLI; inside a Claude session, `prepare` prints the task for a fresh subagent with
+    Edit and leaves a marker saying it began on a clean tree, and `verify` requires that
+    marker — so everything in the worktree at verify time is the pass's own, never the
+    author's edits blessed as prose. The record binds to the text the pass left, and start()
+    recomputes its digest on the candidate.
+    """
+    import review_prose
+    directory.mkdir(parents=True, exist_ok=True)
+    if args.stage == 'verify':
+        head = git('rev-parse', 'HEAD')
+        where = directory / ('prose-' + head + '.json')
+        kept = json.loads(where.read_text()) if where.exists() else {}
+        require(kept.get('outcome') == 'prepared', 'Nothing was prepared at this head. Run `prose '
+                '--stage prepare` on a clean tree first, so that what the worktree holds now is the '
+                'pass\'s own and not the author\'s edits verified as prose.')
+        return prose_verify(kept['base'], head, directory)
+    head = clean_head()
+    base = prose_base(args, directory, head)
+    where = directory / ('prose-' + head + '.json')
+    task = review_prose.prepare(base, head)
+    if not task:
+        record = dict(base=base, head=head, files=[], digest=None, cut=0, changed=[],
+                      outcome='skipped', why='this delta added no prose')
+        where.write_text(json.dumps(record, indent=2) + '\n')
+        return record
+    if args.stage == 'prepare':
+        where.write_text(json.dumps(dict(base=base, head=head, outcome='prepared'), indent=2) + '\n')
+        print(task)
+        return None
+    require(not os.environ.get('CLAUDECODE'), 'Inside Claude, a Claude cannot be started: '
+            'run `prose --stage prepare`, hand the task to a fresh subagent with Edit, then '
+            'run `prose --stage verify`.')
+    with (directory / ('prose-' + head + '.log')).open('w') as log:
+        done = subprocess.run(prose_command(git('rev-parse', '--show-toplevel')), input=task,
+                              text=True, stdout=log, stderr=subprocess.STDOUT, timeout=900)
+    require(done.returncode == 0, 'The prose pass failed; inspect ' + str(log.name))
+    return prose_verify(base, head, directory)
+
+
+def prose_verify(base, head, directory):
+    """Check what the pass left, revert it if it left the envelope, record it if it did not."""
+    import review_matrix
+    import review_prose
+    root = git('rev-parse', '--show-toplevel')
+    broken = review_prose.offences()
+    if broken:
+        revert(review_prose.changed())
+        raise ValueError('The pass left the envelope and its edits were reverted:\n  ' + '\n  '.join(broken))
+    changed = review_prose.changed()
+    files = review_claims.touched(base, head)
+    record = dict(base=base, head=head, files=files, digest=review_matrix.digest(root, files),
+                  cut=review_prose.cut(), changed=changed,
+                  outcome='corrected' if changed else 'unchanged')
+    (directory / ('prose-' + head + '.json')).write_text(json.dumps(record, indent=2) + '\n')
+    return record
+
+
+def prose_first(state, directory):
+    """A candidate whose delta added prose carries the record of the pass that read it.
+
+    Bound by content, not by head: the record is written before the commit that carries the
+    corrections, so it cannot know the candidate's head. It names the files and their digest
+    after the pass; the candidate must digest the same, or its prose is not what was read.
+    """
+    base, head = state['review_base'], state['head']
+    if not review_claims.added(base, head):
+        return
+    import review_matrix
+    root = git('rev-parse', '--show-toplevel')
+    for path in sorted(directory.glob('prose-*.json'), key=lambda p: p.stat().st_mtime, reverse=True):
+        kept = json.loads(path.read_text())
+        if kept.get('base') != base or kept.get('outcome') == 'skipped' or not kept.get('files'):
+            continue
+        if review_matrix.digest(root, kept['files']) == kept.get('digest'):
+            state['prose'] = dict(record=path.name, files=len(kept['files']), cut=kept['cut'],
+                                  outcome=kept['outcome'])
+            return
+    require(False, 'This delta adds prose and no prose pass read it on this text. Run '
+            '`review_flow.py prose --base %s` on the committed candidate, commit what it corrected, '
+            'then start. A record bound to other text does not count: the pass binds to what it '
+            'left, and a candidate whose prose is anything else was not read.' % base[:12])
+
+
+def prose_note(state):
+    """What the logic reviewers are told about prose: that it was read, and that it is not theirs."""
+    if not review_claims.added(state['review_base'], state['head']):
+        return 'This delta added no prose, so no prose pass ran and nothing here is a wording question.'
+    kept = state.get('prose')
+    if not kept:
+        return ('This delta adds prose and carries no prose-pass record; it was frozen before the '
+                'pass existed. Read its prose as you would any claim.')
+    return ('A fresh reader corrected this delta\'s prose before the freeze: %d file(s) read, %d '
+            'line(s) of prose cut, none added, and the text you were handed is exactly what that '
+            'reader left (%s). Wording is not yours to review: a finding whose remedy is rewriting '
+            'a comment, a docstring or a paragraph is not a finding here — unless the sentence '
+            'states something FALSE about the code that a reader would act on, which is a '
+            'correctness defect; file it with the code line that contradicts it.'
+            % (kept['files'], kept['cut'], kept['record']))
+
+
 def delta_view(state):
     """The delta as a reviewer is asked to read it: code first, then what the checks settled.
 
@@ -1210,7 +1365,8 @@ def delta_view(state):
     changed files" is the sentence that stops silence from reading as clean, and it was
     absent from exactly the reading that covers the most ground.
     """
-    return '\n'.join([code_view(state), claims_coverage(state), regression_note(state)])
+    return '\n'.join([code_view(state), claims_coverage(state), regression_note(state),
+                      prose_note(state)])
 
 
 def correction_brief(state):
@@ -1568,7 +1724,7 @@ def lessons(state):
                  'one probe per case with "covers": "<finding id>", and rewrite the function against '
                  'the whole list rather than the instance. One such round makes the next a design '
                  'round; waiting for a second only buys a data point nobody needed. Run the case '
-                 'list as a mutation matrix before committing — disable each rule in turn and '
+                 'list as a mutation matrix after committing and before `start` — disable each rule in turn and '
                  'confirm one case fails — with PYTHONDONTWRITEBYTECODE=1 and __pycache__ cleared '
                  'between mutants: CPython invalidates bytecode on (mtime seconds, size), so two '
                  'mutants of the same size within one second serve stale bytecode, and the failure '
@@ -1946,6 +2102,11 @@ def parser():
     mut = sub.add_parser('matrix')
     mut.add_argument('--spec', required=True, help='the matrix: rules, their enumeration, their mutants')
     mut.add_argument('paths', nargs='+', help='test paths the cases live in')
+    pro = sub.add_parser('prose')
+    pro.add_argument('--base', default='', help='the merge-base the pass reads the delta from; '
+                     'unneeded while a correction is being prepared')
+    pro.add_argument('--stage', choices=('run', 'prepare', 'verify'), default='run',
+                     help='run: the CLI does it all; prepare/verify: a subagent does the editing')
     return cli
 
 
@@ -1969,6 +2130,11 @@ def main():
     with locked(directory):
         if args.action == 'start':
             state = start(args, directory)
+        elif args.action == 'prose':
+            record = prose_run(args, directory)
+            if record is not None:
+                print(json.dumps(record, indent=2))
+            return
         else:
             state = read_state(directory)
             if args.action == 'prompt':
