@@ -972,8 +972,11 @@ def claims_coverage(state):
     base, head = state['review_base'], state['head']
     rest = review_claims.unchecked(base, head)
     unread = review_claims.opaque(base, head)
-    said = ['Prose in this delta: two exact checks ran and passed — no name it asserts was '
-            'removed by this delta, and no claimed removal left its subject in the tree.']
+    said = ['Prose in this delta: one exact check ran and passed — no name it asserts was '
+            'removed by this delta and left dangling. A second check, for a removal claimed '
+            'of text still present, REPORTS and never refuses: measured across 40 mainline '
+            'commits it flags one, a shell command read as the subject of a nearby sentence, '
+            'and one wrong refusal in forty is a delivery blocked by mistake.']
     if unread:
         said.append('They read Python and Markdown only, so they read NOTHING in %d changed '
                     'file(s) of other kinds (%s). For those the checks are silent, which is not '

@@ -32,9 +32,15 @@ class Tree:
         run(self.where, 'config', 'user.email', 'case@example.invalid')
         run(self.where, 'config', 'user.name', 'Case')
         self.base = self.commit(before)
-        self.head = self.commit(after)
+        self.head = self.commit(after, drop=[n for n in before if n not in after])
 
-    def commit(self, files):
+    def commit(self, files, drop=()):
+        """Write these files and commit. `drop` removes one, because a name absent from the
+        second mapping is not deleted by writing the first — which made a whole-file-deletion
+        case pass over an empty list, vacuously, and let its mutant survive.
+        """
+        for name in drop:
+            (self.where / name).unlink()
         for name, text in files.items():
             path = self.where / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +104,43 @@ class RetiredNameTests(unittest.TestCase):
                            'README.md': 'Run this to prepare the commit message.\n'},
                     {'a.py': 'X = 1\n', 'README.md': 'Run this to prepare the commit message.\n'})
         self.assertEqual(tree.retired(), [])
+
+    def test_a_camel_case_class_is_a_reference(self):
+        """Requiring CONSTANT_CASE or an underscore dropped every CamelCase class and every
+        acronym-led one, so a dangling `Envelope` went unreported while `HARD_LIMIT` was
+        caught. A capitalised name of four characters or more counts; the single-word
+        lowercase function stays a stated gap, because deciding it needs the sentence."""
+        tree = Tree(self, {'a.py': 'class Envelope:\n    pass\n# builds an Envelope\n'},
+                    {'a.py': '# builds an Envelope\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'Envelope')])
+
+    def test_the_removal_check_reports_and_never_refuses(self):
+        """The tier demotion, asserted rather than described. Measured across the last 40
+        mainline commits the removal check flags one — a backticked shell command read as the
+        subject of a sentence beside it — and one wrong refusal in forty is a delivery blocked
+        by mistake, so it is read and not obeyed."""
+        tree = Tree(self, {'a.py': 'X = 1  # most likely never joined\n'},
+                    {'a.py': 'X = 1  # most likely never joined\n',
+                     'NOTES.md': 'We removed `most likely never joined` from it.\n'})
+        self.assertTrue(tree.unkept())
+        self.assertEqual(claims.report(tree.base, tree.head, cwd=str(tree.where)), 0)
+
+    def test_a_removed_line_is_numbered_where_it_was(self):
+        """Found by Codex on the escalated profile. Reading only the added coordinate numbered
+        a removal by where it is NOT: a line deleted from old line 2 printed as `- a.ts:1`,
+        because the new side had already moved on. A removal is located on the side that
+        lost it."""
+        tree = Tree(self, {'a.ts': 'const x = 1\nconst y = 2\nconst z = 3\n'},
+                    {'a.ts': 'const x = 1\nconst z = 3\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertEqual([(n, at) for n, at, _ in split['code']], [('a.ts', -2)])
+
+    def test_a_whole_file_deletion_is_marked_as_a_removal(self):
+        """A file that disappears entirely still reports its lines as removals."""
+        tree = Tree(self, {'a.ts': 'const x = 1\n', 'keep.py': 'X = 1\n'},
+                    {'keep.py': 'X = 1\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertEqual([(n, at) for n, at, _ in split['code'] if n == 'a.ts'], [('a.ts', -1)])
 
     def test_a_deleted_name_nobody_mentions_is_not_reported(self):
         """Deleting a constant and its every mention is the correct edit, and correct edits

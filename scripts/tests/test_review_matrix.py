@@ -162,6 +162,17 @@ class EnumerationTests(unittest.TestCase):
                                  why='the states are semantic, not syntactic'))
         self.assertEqual(payload['survivors'], [])
 
+    def test_a_bare_count_with_no_field_separator_is_accepted(self):
+        """A count printed with no field separator — `wc -l` and friends — was refused with a
+        message saying the command had answered nothing, because only the text after a colon
+        was read."""
+        bench = Bench(self)
+        (bench.where / 'one.txt').write_text('a\n')
+        # `wc -l <path>` prints "N path": one field, no separator, which the suffix read
+        # turned into "1 one.txt" and rejected as not a number.
+        payload = bench.run(rule(enumeration='wc -l one.txt'))
+        self.assertEqual(payload['survivors'], [])
+
     def test_a_command_that_answers_nothing_is_not_an_enumeration(self):
         bench = Bench(self)
         with self.assertRaises(SystemExit) as caught:

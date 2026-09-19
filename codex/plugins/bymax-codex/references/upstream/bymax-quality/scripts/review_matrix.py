@@ -90,11 +90,16 @@ def enumerated(root, rule):
                  'not yet understood well enough to correct.' % rule.get('rule'))
         return None
     done = subprocess.run(how, shell=True, cwd=root, capture_output=True, text=True)
-    # `grep -c` prints "path:count" per file, so every digit inside a path was being added
-    # too: a rule over mod_v2.py answered 4 for 2 real hits. The count is the last field of
-    # each line, which is what grep guarantees; max() was wrong and summing digits was worse.
-    digits = [row.rsplit(':', 1)[-1].strip() for row in done.stdout.split('\n') if row.strip()]
-    digits = [d for d in digits if d.isdigit()]
+    # Every digit in stdout was being added, including digits inside the paths `grep -c`
+    # prints: a rule over mod_v2.py answered 3 where the total is 1. max() was wrong in the
+    # other direction, under-counting a multi-file rule.
+    # The last field of each line, which is what `grep -c` prints per file — and the whole
+    # line when there is no field separator, which is what `wc -l` prints. Reading only the
+    # suffix refused `wc -l <file>` with a message saying it had answered nothing.
+    rows = [row.strip() for row in done.stdout.split('\n') if row.strip()]
+    digits = [row.rsplit(':', 1)[-1].strip() for row in rows]
+    digits = [d for d in digits if d.isdigit()] or [w for row in rows for w in row.split()
+                                                    if w.isdigit()]
     if done.returncode != 0 or not digits:
         bail('Rule %r: its enumeration command produced no count (exit %d). A command that '
              'answers nothing is not an enumeration: %s' % (rule.get('rule'), done.returncode, how))

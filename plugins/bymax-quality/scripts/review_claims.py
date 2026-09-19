@@ -165,6 +165,45 @@ def added(base, head, cwd=None):
     return out
 
 
+def unreadable(base, head, out, cwd=None):
+    """Add what this module cannot read, counted by its real changed lines.
+
+    A separate walk because it answers a different question: the readable side asks which
+    lines are prose, and this side has no way to ask, so every changed line is code until
+    something proves otherwise. Counting one row per file announced a six-hundred-line
+    TypeScript delta as three lines, which is false in a new direction rather than true.
+    """
+    for name in opaque(base, head, cwd=cwd):
+        rows = len(out['code'])
+        at = was = None
+        for row in git('diff', '-U0', base, head, '--', name, cwd=cwd).split('\n'):
+            if row.startswith('@@'):
+                # Both coordinates. Reading only the added side numbered a removed line by
+                # where it is NOT: a line deleted from old line 2 printed as `- a.ts:1`,
+                # because the new side had moved on. A removal is located where it was.
+                was = int(row.split('-')[1].split(',')[0].split()[0])
+                at = int(row.split('+')[1].split(',')[0].split()[0])
+            elif row.startswith('+') and not row.startswith('+++'):
+                out['code'].append((name, at or 0, row[1:]))
+                at = (at + 1) if at else at
+            elif row.startswith('-') and not row.startswith('---'):
+                # Negative, like every other removal here — and never -0, which is 0 and reads
+                # as an addition. A whole-file deletion has no added side, so its hunk header
+                # says +0; taking the sign from that printed a deleted file as added, which is
+                # the same defect one shape along from the one this replaced.
+                # No `or` guard: a hunk carrying a removed line always numbers the old side
+                # from 1, so the alternative could never fire and a mutant of it proved
+                # nothing. A defensive branch that cannot run is a branch nothing can cover.
+                out['code'].append((name, -was, row[1:]))
+                was += 1
+        if len(out['code']) == rows:
+            # A binary file, a mode change or a pure rename has no text diff, and counting
+            # zero rows for it announced "this delta changed no code" about a delta that
+            # changed two files. One row says the file moved without claiming a line count
+            # nothing can read.
+            out['code'].append((name, -1, '(changed with no text diff)'))
+
+
 def split_delta(base, head, cwd=None):
     """Lines this delta changed, added and removed, separated into code and prose.
 
@@ -193,26 +232,7 @@ def split_delta(base, head, cwd=None):
     # file is not a file without claims, it is a file whose claims nothing here read. Counted
     # by its real changed lines — one row per file announced a 600-line TypeScript delta as
     # three lines of code, which is differently false rather than true.
-    for name in opaque(base, head, cwd=cwd):
-        rows = len(out['code'])
-        at = None
-        for row in git('diff', '-U0', base, head, '--', name, cwd=cwd).split('\n'):
-            if row.startswith('@@'):
-                at = int(row.split('+')[1].split(',')[0].split()[0])
-            elif row.startswith('+') and not row.startswith('+++'):
-                out['code'].append((name, at or 0, row[1:]))
-                at = (at + 1) if at else at
-            elif row.startswith('-') and not row.startswith('---'):
-                # Negative, like every other removal here: taking the line number from the +
-                # side for both signs printed deleted TypeScript as an addition, which made
-                # the header this same delivery added false for every file it cannot read.
-                out['code'].append((name, -(at or 0), row[1:]))
-        if len(out['code']) == rows:
-            # A binary file, a mode change or a pure rename has no text diff, and counting
-            # zero rows for it announced "this delta changed no code" about a delta that
-            # changed two files. One row says the file moved without claiming a line count
-            # nothing can read.
-            out['code'].append((name, 0, '(changed with no text diff)'))
+    unreadable(base, head, out, cwd=cwd)
     return out
 
 
@@ -254,19 +274,25 @@ def code_shaped(token):
     five files were accused of a dangling reference for containing the English word — a README,
     a command, an example. The gate refused the very candidate that added it. A name is a
     reference here when it is CONSTANT_CASE, or carries an underscore, or is written as a call;
-    a bare lowercase word is prose until it is spelled like code.
+    a bare lowercase word is prose until it is spelled like code. A capitalised name of four
+    characters or more counts, which reaches CamelCase classes and acronym-led ones like
+    HTTPServer; a capitalised English word opening a sentence could in principle reach it too,
+    but only if something also DEFINED it and removed it, which is what orphaned() already
+    required.
+
+    A call — `outcome()` — would qualify too, and does not: deciding it needs the sentence,
+    not the name, and this function is given only the name. A single-word lowercase function
+    is therefore missed, which is a stated gap rather than a silent one. An earlier attempt at
+    that lived here as a helper nobody called, which is the dead-rule shape this file warns
+    about two functions down; it was deleted rather than left standing.
 
     An earlier version of this idea existed as an unused regex and was deleted as dead code,
     correctly: a rule that is defined and never applied is worse than absent, because its
     comment claims a protection nobody has.
     """
-    return bool(re.fullmatch(r'[A-Z][A-Z0-9_]{2,}', token) or '_' in token)
-
-
-def mentioned(text, token):
-    """Whether prose refers to the name as code: backticked, called, or dotted."""
-    return bool(re.search(r'`[^`\n]*\b%s\b[^`\n]*`|\b%s\s*\(|\.%s\b|\b%s\b'
-                          % (token, token, token, token), text))
+    return bool('_' in token
+                or re.fullmatch(r'[A-Z][A-Z0-9_]{2,}', token)      # CONSTANT_CASE
+                or re.fullmatch(r'[A-Z]\w{3,}', token) and any(c.islower() for c in token))
 
 
 def retired(base, head, cwd=None):
@@ -301,6 +327,10 @@ def retired(base, head, cwd=None):
 def claimed(line, quote):
     """Whether this line claims THIS subject was removed, rather than merely naming it.
 
+    Given the line and the subject; the revision is not its business, and an earlier version
+    bound a slice of text to the name `head`, which sent every later git call looking inside
+    a sentence instead of at the tree.
+
     The verb must be in PROSE and in the run-up to the subject: outside the
     quoted subject itself, outside every other quoted span on the line, and
     before it. `git worktree remove` and `DROP TABLE` name things rather than
@@ -330,7 +360,7 @@ def claimed(line, quote):
     # "We did not remove X" is the opposite of a promise, and reading it as one refuses a
     # sentence written to say the work was NOT done. Only the clause carrying the verb is
     # examined: a negation earlier in a different clause is about something else.
-    clause = re.split(r'[.;:,]', said[:hit.start()])[-1]
+    clause = re.split(r'[.;:,]|—|--', said[:hit.start()])[-1]
     return not re.search(r'\b(not|never|without|cannot|rather than)\b', clause, re.IGNORECASE)
 
 
@@ -391,8 +421,8 @@ def report(base, head, cwd=None):
         print('UNKEPT   %s claims removal of `%s`, still present in %s — reported, not refused'
               % (name, quote, where))
     rest = unchecked(base, head, cwd=cwd)
-    print('\n%d assertion(s) added; %d exact failure(s). No command here settles the rest:'
-          % (len(rest), len(gone) + len(broken)))
+    print('\n%d assertion(s) added; %d refusing, %d reported. No command here settles the '
+          'rest:' % (len(rest), len(gone), len(broken)))
     for name, line in rest[:40]:
         print('   %s: %s' % (name, line))
     if len(rest) > 40:

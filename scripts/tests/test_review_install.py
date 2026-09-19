@@ -42,6 +42,20 @@ class PayloadTests(unittest.TestCase):
                 module.complete(short)
             self.assertIn(absent, str(caught.exception))
 
+    def test_a_listing_that_fails_is_refused_rather_than_trusted(self):
+        """An unchecked `git ls-files` made the expectation empty outside a checkout, so a
+        `git archive` export would install a runtime missing review_flow.py itself and report
+        success — while the docstring promised refusal before the first write."""
+        module = installer()
+        original = module.ROOT
+        try:
+            module.ROOT = Path(tempfile.mkdtemp())
+            with self.assertRaises(SystemExit) as caught:
+                module.complete(original.glob('plugins/bymax-quality/scripts/*.py'))
+            self.assertIn('not a git checkout', str(caught.exception))
+        finally:
+            module.ROOT = original
+
     def test_the_payload_carries_every_tracked_script_and_no_shell(self):
         """Derived from the directory, so a new runtime module travels without being named —
         and codex-review.sh stays out, being a repository entrypoint rather than runtime."""
