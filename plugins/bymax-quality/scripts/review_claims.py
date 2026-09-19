@@ -75,10 +75,9 @@ def prose(name, text):
 def marks(name, text):
     """Line numbers a file devotes to words rather than to code.
 
-    One definition, used by everything that has to tell prose from code: the claims report,
-    the prose:code ratio the reviewers are shown, and the envelope that keeps a prose pass
-    from editing behaviour. Two classifiers would drift, and the drift would be invisible
-    until one of them let a code edit through as prose.
+    One definition, used by everything that has to tell prose from code: the claims report
+    and the code-to-prose ratio the reviewers are shown. Two classifiers would drift, and the
+    drift would be invisible until one of them read a line of code as a sentence.
     """
     if name.endswith('.md'):
         return set(range(1, len(text.split('\n')) + 2))
@@ -93,8 +92,7 @@ def marks(name, text):
         # passes to something — a fixture, an expected message, a command — and counting it
         # as prose does two wrong things at once: the claims report reads test data as
         # assertions (measured on this delta: a fixture containing "Six attempts" was read
-        # as the author asserting six of something), and the prose pass would be allowed to
-        # edit data while the envelope reported it had touched only words.
+        # as the author asserting six of something).
         tree = ast.parse(text)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
@@ -164,7 +162,7 @@ def added(base, head, cwd=None):
 
 
 def split_delta(base, head, cwd=None):
-    """Lines this delta added, separated into code and prose.
+    """Lines this delta changed, added and removed, separated into code and prose.
 
     One walker, because the count the reviewers are shown and the code-only view they are
     asked to review must agree. Two walkers would drift, and the drift would show up as a
@@ -188,8 +186,17 @@ def split_delta(base, head, cwd=None):
                 out['prose' if was in before else 'code'].append((name, -was, row[1:]))
                 was += 1
     # Whatever this module cannot read is code until something proves otherwise: an unknown
-    # file is not a file without claims, it is a file whose claims nothing here read.
-    out['code'] += [(name, 0, '') for name in opaque(base, head, cwd=cwd)]
+    # file is not a file without claims, it is a file whose claims nothing here read. Counted
+    # by its real changed lines — one row per file announced a 600-line TypeScript delta as
+    # three lines of code, which is differently false rather than true.
+    for name in opaque(base, head, cwd=cwd):
+        at = None
+        for row in git('diff', '-U0', base, head, '--', name, cwd=cwd).split('\n'):
+            if row.startswith('@@'):
+                at = int(row.split('+')[1].split(',')[0].split()[0])
+            elif row.startswith(('+', '-')) and not row.startswith(('+++', '---')):
+                out['code'].append((name, at or 0, row[1:]))
+                at = (at + 1) if (at and row.startswith('+')) else at
     return out
 
 
@@ -212,14 +219,11 @@ def orphaned(base, head, cwd=None):
         if name.endswith('.py'):
             lost |= defined(git('show', '%s:%s' % (base, name), cwd=cwd)) - \
                     defined(git('show', '%s:%s' % (head, name), cwd=cwd))
-    # POSIX classes, not \s: git grep runs its own engine, where \s is not a space and the
-    # pattern silently matches nothing. Measured — every name read as orphaned, including the
-    # ones that had simply moved to another module, which is the false positive that would
-    # have made this unusable on its first real delta.
-    # Neither \s nor \b: git grep runs its own engine, where both are literal. The \s half
-    # was corrected once and the \b half was left, so every function or class that merely
-    # MOVED to another module read as removed — and the case that should have caught it
-    # exercises a constant, which goes through the second alternative.
+    # Neither \s nor \b: git grep runs its own engine, where both are literal and a pattern
+    # using either silently matches nothing. Corrected twice — the \s half first, the \b half
+    # only after a reviewer found that every function which merely MOVED to another module
+    # read as removed. The case that should have caught it exercises a constant, which
+    # resolves through the second alternative, so there is now one case per alternative.
     alive = (r'^[[:space:]]*(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
              r'|^[[:space:]]*%s[[:space:]]*=')
     return sorted(name for name in lost
@@ -271,12 +275,13 @@ def unkept(base, head, cwd=None):
                 # of things, not claims about them — measured against this repository's own
                 # mainline, an earlier version would have refused 3 of the last 8 commits,
                 # each on an instruction to the reader rather than a promise.
-                # The verb must be in PROSE: not inside the quoted subject, and not inside
-                # any other quoted span on the line. `claude plugin marketplace remove …`
-                # names a command; it does not promise that anything was removed. Measured
-                # against this repository's mainline, checking only "before the quote" still
-                # refused a release note for exactly that.
-                said = QUOTED.sub(' ', line.split('`' + quote + '`')[0])
+                # The verb must be in PROSE, and may sit on either side of the subject.
+                # Not inside the subject, and not inside any other quoted span on the line:
+                # `claude plugin marketplace remove …` names a command and promises nothing.
+                # Two corrections were needed and each broke the other half — looking only
+                # before the quote dropped "`X` was removed", which the candidate before it
+                # reported. Blank every quoted span and read what is left.
+                said = QUOTED.sub(' ', line.replace('`' + quote + '`', ' '))
                 if not GONE.search(said):
                     continue
                 if len(quote.split()) < 2:

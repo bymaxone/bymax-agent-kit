@@ -68,7 +68,10 @@ def outcome(tail):
     """
     failed = re.search(r'(\d+) failed', tail)
     errored = re.search(r'(\d+) error', tail)
-    if errored and not failed:
+    # An error anywhere means some case did not run, whatever else the line says. Reading
+    # "1 failed, 3 errors" as a clean catch was measured: a case that errored in fixture setup
+    # was recorded caught, and the three that never ran were invisible.
+    if errored:
         return 'error'
     return 'failed' if failed else 'passed'
 
@@ -91,7 +94,11 @@ def enumerated(root, rule):
     if done.returncode != 0 or not digits:
         bail('Rule %r: its enumeration command produced no count (exit %d). A command that '
              'answers nothing is not an enumeration: %s' % (rule.get('rule'), done.returncode, how))
-    return max(int(d) for d in digits)
+    # The total, not the largest. `grep -c pattern one.py two.py` prints a count per file, and
+    # taking the maximum under-counted every multi-file rule — measured on this delta's own
+    # cwd rule, which enumerated 2 against 3 real call sites, so the short-by-N refusal never
+    # fired and the third site shipped with no mutant.
+    return sum(int(d) for d in digits)
 
 
 def apply_mutant(root, mutant):
@@ -156,11 +163,11 @@ def matrix(root, spec, files):
                  'short by %d: a case nothing mutates is a case nothing covers.'
                  % (rule.get('rule'), declared, len(mutants), declared - len(mutants)))
         for mutant in mutants:
-            outcome = one(root, mutant, files, clean)
-            outcome['rule'] = rule.get('rule')
-            results.append(outcome)
-            print('%-8s %-46s %s' % ('caught' if outcome['caught'] else 'SURVIVED',
-                                     mutant['case'], outcome['saw']))
+            result = one(root, mutant, files, clean)
+            result['rule'] = rule.get('rule')
+            results.append(result)
+            print('%-8s %-46s %s' % ('caught' if result['caught'] else 'SURVIVED',
+                                     mutant['case'], result['saw']))
     return results
 
 

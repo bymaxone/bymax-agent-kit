@@ -227,9 +227,13 @@ class OpaqueFileTests(unittest.TestCase):
     def test_what_cannot_be_read_counts_as_code_rather_than_prose(self):
         """Unknown is not prose. Counting it as prose told both reviewers that a delta which
         changed only TypeScript had changed no code at all."""
-        tree = Tree(self, {'a.ts': 'const x = 1\n'}, {'a.ts': 'const x = 2\n'})
+        tree = Tree(self, {'a.ts': 'const x = 1\nconst y = 1\n'},
+                    {'a.ts': 'const x = 2\nconst y = 2\n'})
         split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
-        self.assertEqual([n for n, _, _ in split['code']], ['a.ts'])
+        # Counted by its real changed lines, not one row per file: announcing a 600-line
+        # TypeScript delta as three lines of code is differently false, not true.
+        self.assertEqual({n for n, _, _ in split['code']}, {'a.ts'})
+        self.assertEqual(len(split['code']), 4)
         self.assertEqual(split['prose'], [])
 
 
@@ -283,7 +287,7 @@ class ProseExtractionTests(unittest.TestCase):
         self.assertIn('A docstring.', got)
         self.assertNotIn('def f()', got)
         # A string literal is data the author passes to something, not an assertion. Counting
-        # it read test fixtures as claims and would have let the prose pass edit them.
+        # it read test fixtures as claims.
         self.assertNotIn('"value"', got)
 
     def test_markdown_prose_drops_fenced_blocks(self):

@@ -896,7 +896,7 @@ def matrix_run(args, directory, state):
 
 
 def code_touched(base, head):
-    """Added lines of this delta, counted as code and as prose.
+    """Lines this delta changed, added and removed, counted as code and as prose.
 
     A correction that writes only prose is a round spent on text, and the prose it writes is
     the next round's findings — so the two are counted apart and the difference is stated.
@@ -940,22 +940,22 @@ def code_view(state):
     """The delta with its prose hunks elided: what a logic reviewer is asked to review.
 
     Not a blindfold — the tree is theirs to read, and a logic defect noticed BECAUSE a
-    docstring disagrees with the code is still a logic defect and still wanted. What changes
-    is the scope of the report: a finding whose fix is a sentence belongs to the prose pass
-    that ran before this candidate froze.
+    docstring disagrees with the code is still a logic defect and still wanted. What it does
+    is put the code where the eye lands, in a delta whose prose usually outweighs it.
     """
     split = review_claims.split_delta(state['review_base'], state['head'])
     if not split['code']:
         return ('This delta changed no code — %d prose line(s) only. A prose-only correction is '
                 'a round spent on text; judge whether it earned one.' % len(split['prose']))
-    shown = ['Code changed in this delta, prose elided (%d code line(s), %d prose). Review THIS. '
-             'The prose was corrected before the freeze by a pass that reads it against the code, '
-             'so a finding whose fix is a sentence is out of your scope and cannot block a '
-             'receipt. A finding whose fix is CODE is yours, however you noticed it — including '
-             'by a comment disagreeing with what the code does.'
-             % (len(split['code']), len(split['prose']))]
+    shown = ['Code changed in this delta, prose elided: %d code line(s), %d prose, marked + for '
+             'an added line and - for a removed one. Review THIS first. A finding whose fix is '
+             'CODE is yours however you noticed it — including by a comment disagreeing with '
+             'what the code does.' % (len(split['code']), len(split['prose']))]
     for name, at, text in split['code'][:120]:
-        shown.append('  %s:%d %s' % (name, at, text.rstrip()[:100]))
+        # A removal is rendered as one. It reached reviewers as `file:-39 <text>` through the
+        # format an addition uses, with nothing saying what the minus meant.
+        shown.append('  %s %s:%d %s' % ('-' if at < 0 else '+', name, abs(at),
+                                        text.rstrip()[:100]))
     if len(split['code']) > 120:
         shown.append('  ... and %d more; the full diff is yours to read.' % (len(split['code']) - 120))
     return '\n'.join(shown)

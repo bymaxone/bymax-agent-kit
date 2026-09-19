@@ -3,8 +3,10 @@
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
 import shlex
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -149,11 +151,33 @@ def payload(root=None):
                   if path.suffix in ('.py', '.json') and path.is_file())
 
 
+def complete(carried):
+    """Refuse a short payload BEFORE the first write, and refuse it by what git tracks.
+
+    Deriving what to copy removed the one thing the hand-kept tuple did well: failing when a
+    file was absent. An installer that reports success while planting a runtime missing a
+    module leaves every repository unguarded, silently.
+
+    The expected set is not a second hand-kept list — that was the first correction here, and
+    it named three files while review_flow imports five, so the guard passed on a payload that
+    could not be imported. It is the package's own tracked contents.
+    """
+    listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '--',
+                             'plugins/bymax-quality/scripts'], capture_output=True)
+    tracked = {name.split('/')[-1] for name in os.fsdecode(listed.stdout).split('\0')
+               if name.endswith(('.py', '.json'))}
+    missing = tracked - {path.name for path in carried}
+    if missing:
+        raise SystemExit('Refusing to install: the package is missing %s, which git tracks '
+                         'beside the runtime.' % ', '.join(sorted(missing)))
+
+
 def install(home, overlay):
     """Apply a prevalidated policy/settings merge with recoverable file backups."""
     home = home.resolve()
     settings_path, policy_path = home / 'settings.json', home / 'CLAUDE.md'
     settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+    complete(payload())
     updated_policy = policy(policy_path.read_text() if policy_path.exists() else '')
     runtime = home / 'bymax-review'
     updated_settings = hook_settings(settings, runtime / 'review_push.py', home)
@@ -170,16 +194,7 @@ def install(home, overlay):
     runtime.mkdir(parents=True, exist_ok=True)
     # review_flow.start installs review_prepush.py from beside itself, so the hook
     # source must travel with the runtime or no repository ever gets the hook.
-    carried = payload()
-    # Derived, and still checked: a listing that silently came back short would install a
-    # runtime missing the hook source, report success, and leave every repository without a
-    # pre-push check. The names below are the ones the flow cannot start without.
-    names = {path.name for path in carried}
-    missing = {'review_flow.py', 'review_prepush.py', 'review_push.py'} - names
-    if missing:
-        raise SystemExit('Refusing to install: the package is missing %s'
-                         % ', '.join(sorted(missing)))
-    for source in carried:
+    for source in payload():
         shutil.copy2(source, runtime / source.name)
     settings_path.write_text(json.dumps(updated_settings, indent=2) + '\n')
     policy_path.write_text(updated_policy)
