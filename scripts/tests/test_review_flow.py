@@ -671,6 +671,17 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('its edits were reverted', refused.stderr)
         self.assertEqual(self.git('status', '--porcelain'), '')
 
+    def test_a_staged_new_file_is_reverted(self):
+        """A staged addition is an 'A' row with nothing in HEAD to restore it from; the
+        state-by-state revert had no branch for it, and a traceback replaced the refusal.
+        The whole tree goes back to HEAD now, so no state needs a branch."""
+        self.add_prose()
+        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
+        (self.repo / 'NEW.py').write_text('X = 1\n')
+        self.git('add', 'NEW.py')
+        self.assertIn('left the envelope', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
+        self.assertEqual(self.git('status', '--porcelain'), '')
+
     def test_a_correction_round_reads_prose_since_the_frozen_head(self):
         """No --base once a campaign is frozen: the delta is what changed since that head.
         And on the frozen head itself the pass refuses, because editing what reviewers were

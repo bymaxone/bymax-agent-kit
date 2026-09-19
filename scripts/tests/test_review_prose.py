@@ -154,6 +154,14 @@ class EnvelopeTests(unittest.TestCase):
         bench.write(text.replace('python3', 'sh'), name='mod.py')
         self.assertIn('coding declaration changed', ' | '.join(bench.offences()))
 
+    def test_a_docstring_that_mentions_an_encoding_is_still_prose(self):
+        """PEP 263 reads a cookie from a comment only; matching the word anywhere refused a
+        reworded docstring, which is a refusal the envelope cannot show."""
+        text = '"""Reads a stream with a declared encoding: utf-8 is assumed."""\nX = 1\n'
+        bench = Bench(self, {'mod.py': text})
+        bench.write('"""Reads a stream with its declared character set."""\nX = 1\n', name='mod.py')
+        self.assertEqual(bench.offences(), [])
+
     def test_a_clean_tree_is_inside_the_envelope(self):
         self.assertEqual(Bench(self).offences(), [])
 

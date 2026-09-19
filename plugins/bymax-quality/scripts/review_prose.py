@@ -114,8 +114,10 @@ def header(text):
     The tree does not carry them, and a cookie changed from utf-8 to latin-1 passed as prose
     while changing what the file prints.
     """
+    # PEP 263's own anchor: a cookie is a COMMENT. Matching the word anywhere refused a
+    # docstring that merely mentioned an encoding, which is a refusal nothing can show.
     return [line for line in text.split('\n')[:2]
-            if line.startswith('#!') or re.search(r'coding[:=]', line)]
+            if line.startswith('#!') or re.match(r'[ \t\f]*#.*?coding[:=]', line)]
 
 
 def prose_size(name, text):

@@ -1256,21 +1256,18 @@ def prose_base(args, directory, head):
     return git('rev-parse', '--verify', args.base + '^{commit}')
 
 
-def revert(names):
-    """Put back what the pass changed. Safe because the pass started on a clean tree, so every
-    change listed is the pass's own and nothing of the author's is under it."""
-    # git_raw, not git: a porcelain row for a modified file BEGINS with a space, and the
-    # trimmed reader turned ` M thing.py` into `M thing.py`, whose name is `hing.py`.
-    # Every call at the root, because the names are root-relative and the process may be
-    # in a subdirectory; from HEAD, because `checkout --` restores the index and a staged
-    # edit survived it; through clean for the untracked, because a directory is one row.
+def revert():
+    """Put the whole tree back to HEAD: worktree, index, and whatever was created.
+
+    Safe because the pass began on a tree clean_head() proved clean, so everything the
+    worktree and the index hold now is the pass's own. Naming states was the wrong shape:
+    a modified file, then an untracked one, then a directory, then a staged addition each
+    needed a branch, and each branch missed was a reader's edit left behind under a message
+    saying it was reverted. Ignored files are kept, as they were never observed.
+    """
     root = git('rev-parse', '--show-toplevel')
-    for row in git_raw('-C', root, 'status', '--porcelain', '-z').split('\0'):
-        if len(row) > 3 and row[3:] in names:
-            if row.startswith('??'):
-                git('-C', root, 'clean', '-fdq', '--', row[3:])
-            else:
-                git('-C', root, 'checkout', 'HEAD', '--', row[3:])
+    git('-C', root, 'reset', '-q', '--hard', 'HEAD')
+    git('-C', root, 'clean', '-fdq')
 
 
 def prose_run(args, directory):
@@ -1279,9 +1276,9 @@ def prose_run(args, directory):
     Three stages, because a Claude cannot start another Claude: `run` does everything with
     the CLI; inside a Claude session, `prepare` prints the task for a fresh subagent with
     Edit and leaves a marker saying it began on a clean tree, and `verify` requires that
-    marker — so everything in the worktree at verify time is the pass's own, never the
-    author's edits blessed as prose. The record binds to the text the pass left, and start()
-    recomputes its digest on the candidate.
+    marker. The marker proves the tree was clean when the task was handed out; the runtime
+    does not observe who edited between the stages. The record binds to the text the pass
+    left, and start() recomputes its digest on the candidate.
     """
     import review_prose
     directory.mkdir(parents=True, exist_ok=True)
@@ -1321,10 +1318,10 @@ def read_with(task, log):
             done = subprocess.run(prose_command(git('rev-parse', '--show-toplevel')), input=task,
                                   text=True, stdout=out, stderr=subprocess.STDOUT, timeout=900)
     except subprocess.TimeoutExpired:
-        revert(review_prose.changed())
+        revert()
         raise ValueError('The prose pass timed out; its edits were reverted. Inspect ' + str(log))
     if done.returncode != 0:
-        revert(review_prose.changed())
+        revert()
     require(done.returncode == 0, 'The prose pass failed; its edits were reverted. Inspect ' + str(log))
 
 
@@ -1335,7 +1332,7 @@ def prose_verify(base, head, directory):
     root = git('rev-parse', '--show-toplevel')
     broken = review_prose.offences()
     if broken:
-        revert(review_prose.changed())
+        revert()
         raise ValueError('The pass left the envelope and its edits were reverted:\n  ' + '\n  '.join(broken))
     changed = review_prose.changed()
     files = review_claims.touched(base, head)

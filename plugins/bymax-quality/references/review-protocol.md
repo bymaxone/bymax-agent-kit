@@ -71,8 +71,8 @@ exactly that text is refused. Once a campaign is frozen, omit `--base`; the delt
 changed since the frozen head, and the frozen head itself is never edited. Inside a Claude
 session, which cannot start another Claude, `prose --stage prepare` prints the task for a
 fresh subagent with Edit and leaves a marker that it began on a clean tree; `prose --stage
-verify` requires that marker, so what the worktree holds is the pass's own and never the
-author's edits verified as prose.
+verify` requires that marker. It proves the tree was clean when the task was handed out;
+the runtime does not observe who edited between the stages.
 
 ```bash
 python3 "$FLOW" status
