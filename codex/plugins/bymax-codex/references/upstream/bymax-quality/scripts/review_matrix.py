@@ -76,6 +76,53 @@ def outcome(tail):
     return 'failed' if failed else 'passed'
 
 
+def per_row(rows):
+    """The count each row of an enumeration's stdout states, or None where it states none.
+
+    `grep -c` prints `path:N`, so the count is the last colon-separated field. `wc -l` prints
+    `N path` with no separator, so it is a digit token in the row. Reading only the suffix
+    refused `wc -l <file>` with a message saying it had answered nothing; reading EVERY digit
+    token and adding them took the digits inside the paths `grep -c` prints and answered 3
+    for 1; reading the first FIELD read nothing from `cases 4`, a count printed last, and
+    refused it as no count at all.
+
+    So: the first digit token of the row. Every separator-less producer measured here prints
+    the count first. A row stating two bare numbers of which the count is not the first —
+    `wc -l 42` is the shape — is read wrong, and that is a STATED gap rather than a guarded
+    one, because nothing in the row says which number is the answer.
+    """
+    out = []
+    for row in rows:
+        tail = row.rsplit(':', 1)[-1].strip()
+        if tail.isdigit():
+            out.append(int(tail))
+            continue
+        digits = [word for word in row.split() if word.isdigit()]
+        out.append(int(digits[0]) if digits else None)
+    return out
+
+
+def without_total(rows, got):
+    """`wc -l a b` appends an aggregate row, and adding it answered 8 for 4 on a real rule.
+
+    It is dropped by what MAKES it an aggregate — the last row of a multi-file run, labelled
+    `total`, holding the sum of the rows above it — and never by the label alone. `wc -l total`
+    is a one-row run over a file named `total`, and a version matching the label discarded its
+    real count and then refused the rule for having answered nothing: a gate refusing a command
+    that answered, which is worse than no gate.
+
+    The gap left is STATED: in a multi-file run, a file named `total` listed last whose length
+    equals the sum of all the others is read as the aggregate. That under-counts, and an
+    under-count is the direction that lets a short mutant list through.
+    """
+    if len(rows) < 2 or rows[-1].split()[-1] != 'total':
+        return got
+    above = [n for n in got[:-1] if n is not None]
+    if got[-1] is not None and len(above) == len(got) - 1 and got[-1] == sum(above):
+        return got[:-1]
+    return got
+
+
 def enumerated(root, rule):
     """How many cases the rule's own enumeration command says exist, or None when it is not
     a command — which the author must then say in words rather than leave to the default."""
@@ -90,28 +137,16 @@ def enumerated(root, rule):
                  'not yet understood well enough to correct.' % rule.get('rule'))
         return None
     done = subprocess.run(how, shell=True, cwd=root, capture_output=True, text=True)
-    # Every digit in stdout was being added, including digits inside the paths `grep -c`
-    # prints: a rule over mod_v2.py answered 3 where the total is 1. max() was wrong in the
-    # other direction, under-counting a multi-file rule.
-    # The last field of each line, which is what `grep -c` prints per file — and the whole
-    # line when there is no field separator, which is what `wc -l` prints. Reading only the
-    # suffix refused `wc -l <file>` with a message saying it had answered nothing.
     rows = [row.strip() for row in done.stdout.split('\n') if row.strip()]
-    digits = [row.rsplit(':', 1)[-1].strip() for row in rows]
-    # `wc -l a b` prints a per-file count AND a "total" line, and adding that line double-
-    # counted every multi-file rule: 8 for 4. The total is dropped, so what is summed is one
-    # number per file either way.
-    digits = [d for d in digits if d.isdigit()] or [
-        row.split()[0] for row in rows
-        if row.split() and row.split()[0].isdigit() and row.split()[-1] != 'total']
-    if done.returncode != 0 or not digits:
+    counted = [n for n in without_total(rows, per_row(rows)) if n is not None]
+    if done.returncode != 0 or not counted:
         bail('Rule %r: its enumeration command produced no count (exit %d). A command that '
              'answers nothing is not an enumeration: %s' % (rule.get('rule'), done.returncode, how))
     # The total, not the largest. `grep -c pattern one.py two.py` prints a count per file, and
     # taking the maximum under-counted every multi-file rule — measured on this delta's own
     # cwd rule, which enumerated 2 against 3 real call sites, so the short-by-N refusal never
     # fired and the third site shipped with no mutant.
-    return sum(int(d) for d in digits)
+    return sum(counted)
 
 
 def apply_mutant(root, mutant):

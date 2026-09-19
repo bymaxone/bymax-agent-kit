@@ -1992,5 +1992,65 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('but it is, at', refused.stderr)
 
 
+class BriefShowsTheDeltaTests(unittest.TestCase):
+    """What the brief RENDERS, which no case reached until now.
+
+    Both reviewers found the same hole from two directions: the matrix mutates review_claims
+    and review_matrix, so the two halves of the brief that live here were uncovered. Replacing
+    the removal check's call with `[]` and collapsing the three-state marker to a constant both
+    left the suite green, and each restores a defect a reviewer had already filed once.
+    """
+
+    def setUp(self):
+        """Enter a two-commit repository: both functions read the process cwd, not an argument."""
+        self.where = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(self.where, ignore_errors=True))
+        for command in (['init', '-q'], ['config', 'user.email', 'c@example.invalid'],
+                        ['config', 'user.name', 'C']):
+            subprocess.run(['git', '-C', str(self.where)] + command, check=True)
+        was = os.getcwd()
+        os.chdir(self.where)
+        self.addCleanup(os.chdir, was)
+        spec = importlib.util.spec_from_file_location('flow_brief', FLOW)
+        self.flow = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.flow)
+
+    def commit(self, files, drop=()):
+        for name in drop:
+            (self.where / name).unlink()
+        for name, text in files.items():
+            (self.where / name).write_text(text)
+        subprocess.run(['git', '-C', str(self.where), 'add', '-A'], check=True)
+        subprocess.run(['git', '-C', str(self.where), 'commit', '-q', '-m', 'x',
+                        '--allow-empty'], check=True)
+        return subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True).stdout.strip()
+
+    def test_the_brief_shows_a_removal_claim_the_check_only_reports(self):
+        """Codex found that nothing on the flow path executed the removal check, so its rows
+        reached nobody while the brief said they did. The fix was to RUN it; this is what
+        fails when it stops being run — replacing the call with `[]` passes every other case.
+        """
+        base = self.commit({'a.py': 'X = 1  # most likely never joined\n'})
+        head = self.commit({'a.py': 'X = 1  # most likely never joined\n',
+                            'NOTES.md': 'We removed `most likely never joined` from it.\n'})
+        said = self.flow.claims_coverage({'review_base': base, 'head': head})
+        self.assertIn('REPORTED, not refusing', said)
+        self.assertIn('most likely never joined', said)
+
+    def test_the_code_view_marks_an_addition_a_removal_and_a_change_with_no_line(self):
+        """A removal reached reviewers through the format an addition uses, and a file that
+        changed without any line changing was then announced as one too. Three states, three
+        marks: collapsing the expression to any single constant fails here.
+        """
+        base = self.commit({'a.py': 'A = 1\nB = 2\n', 'bin.dat': 'x'})
+        head = self.commit({'a.py': 'A = 1\nC = 3\n', 'bin.dat': 'x'})
+        subprocess.run(['chmod', '+x', str(self.where / 'bin.dat')], check=True)
+        head = self.commit({})
+        shown = self.flow.code_view({'review_base': base, 'head': head})
+        marks = {line.strip()[0] for line in shown.split('\n') if line.startswith('  ')}
+        self.assertEqual(marks, {'+', '-', '?'}, shown)
+
+
 if __name__ == '__main__':
     unittest.main()

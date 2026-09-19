@@ -332,7 +332,9 @@ def claimed(line, quote):
 
     Given the line and the subject, and nothing else: an earlier version of this code lived
     inside unkept() and bound a slice of text to `head`, the revision that function is given,
-    which sent every later git call looking inside a sentence instead of at the tree.
+    which sent every later git call looking inside a sentence instead of at the tree. The
+    local name is `run_up` rather than `head` because a reviewer caught that same shadowing
+    a round earlier in another file, so it is named here instead of quietly renamed.
 
     The verb must be in PROSE and in the run-up to the subject: outside the
     quoted subject itself, outside every other quoted span on the line, and
@@ -350,10 +352,6 @@ def claimed(line, quote):
     costs a sentence and a candidate wrongly blocked costs the delivery. An
     earlier disposition of mine recorded a case for the verb-last form that was
     never written; this is what that correction should have said.
-    Not `head`: that name is the revision this function was given, and binding
-    it to a slice of text sent every later `git grep` looking inside a sentence
-    instead of at the tree. A reviewer caught the same shadowing one round ago
-    in another file, which is why it is named here rather than quietly renamed.
     """
     run_up, _, _ = line.partition('`' + quote + '`')
     said = QUOTED.sub(' ', run_up)

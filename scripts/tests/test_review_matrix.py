@@ -198,5 +198,45 @@ class RecordTests(unittest.TestCase):
         self.assertNotEqual(bench.run(rule())['tree'], before)
 
 
+class EnumerationCountTests(unittest.TestCase):
+    """One number per file, from output shapes that all state it differently.
+
+    Every form here was measured on a real rule, and each fix for one broke another: reading
+    the suffix alone refused `wc -l`; reading every digit token took the digits out of the
+    paths `grep -c` prints; reading the first FIELD read nothing from a count printed last;
+    and dropping the aggregate row by its label discarded a file that is named `total`.
+    """
+
+    def count(self, out):
+        rows = [row.strip() for row in out.split('\n') if row.strip()]
+        return [n for n in matrix.without_total(rows, matrix.per_row(rows)) if n is not None]
+
+    def test_grep_prints_the_count_after_a_colon_and_digits_inside_the_path(self):
+        """`mod_v2.py:0` states 0. Adding every digit token read the 2 out of the name and
+        answered 3 where one hit exists, which let a rule ship a mutant list short by two."""
+        self.assertEqual(sum(self.count('thing.py:1\nmod_v2.py:0\n')), 1)
+
+    def test_wc_prints_the_count_first_with_no_separator(self):
+        """Reading only the colon suffix refused `wc -l <file>` with a message saying it had
+        answered nothing — a gate refusing a command that answered."""
+        self.assertEqual(sum(self.count('       3 thing.py\n')), 3)
+
+    def test_a_count_printed_last_without_a_separator_is_read(self):
+        """Narrowing to the first FIELD to drop the aggregate row also stopped reading this,
+        so `cases 4` bailed as "produced no count" while the command had answered 4."""
+        self.assertEqual(sum(self.count('cases 4\n')), 4)
+
+    def test_the_aggregate_row_of_a_multi_file_wc_is_not_counted(self):
+        """`wc -l a b` appends its own total, and adding it answered 8 for 4: every
+        multi-file rule was read as twice its size, so no short list was ever refused."""
+        self.assertEqual(sum(self.count('       1 one.txt\n       0 two.txt\n       1 total\n')), 1)
+
+    def test_a_file_named_total_keeps_its_count(self):
+        """Dropping the row by its label alone discarded a real file and then refused the
+        rule for having produced no count. The aggregate is the LAST row of a MULTI-file run
+        holding the SUM of the rows above; one row over one file is none of those."""
+        self.assertEqual(sum(self.count('       3 total\n')), 3)
+
+
 if __name__ == '__main__':
     unittest.main()
