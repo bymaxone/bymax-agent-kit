@@ -495,7 +495,7 @@ class ReviewFlowTests(unittest.TestCase):
         binary.chmod(0o755)
         return binary_dir
 
-    def prose(self, *args, claude=None, nested=False, ok=True):
+    def prose(self, *args, claude=None, nested=False, ok=True, cwd=None):
         """Run the prose subcommand in a process whose $PATH and Claude nesting this test decides."""
         env = {k: v for k, v in os.environ.items() if k != 'CLAUDECODE'}
         if nested:
@@ -503,7 +503,7 @@ class ReviewFlowTests(unittest.TestCase):
         if claude is not None:
             env['PATH'] = str(claude) + os.pathsep + env.get('PATH', '')
         env['CODEX_HOME'] = str(self.home)
-        result = subprocess.run([sys.executable, str(FLOW), 'prose', *args], cwd=self.repo,
+        result = subprocess.run([sys.executable, str(FLOW), 'prose', *args], cwd=cwd or self.repo,
                                 capture_output=True, text=True, timeout=60, env=env)
         self.assertEqual(result.returncode, 0 if ok else 2, result.stderr + result.stdout)
         return json.loads(result.stdout) if ok and result.stdout.startswith('{') else result
@@ -548,8 +548,11 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(self.start()['prose']['outcome'], 'corrected')
         self.checks()
         brief = self.flow('prompt').stdout
-        self.assertIn('A fresh reader corrected this delta', brief)
-        self.assertIn('Wording is not yours to review', brief)
+        # What the record proves, not more: the runtime never observes the reader, so the
+        # note that said 'a fresh reader corrected' claimed a reading it could not show.
+        self.assertIn('The prose pass ran before the freeze', brief)
+        self.assertIn('the record proves the text and not the reading', brief)
+        self.assertIn('Wording is still not yours to review', brief)
 
     def test_a_pass_that_edits_code_is_refused_and_reverted(self):
         """The one outcome worse than the defect: reviewers are told the pass touched no
@@ -599,6 +602,74 @@ class ReviewFlowTests(unittest.TestCase):
         self.add_prose()
         (self.repo / 'thing.py').write_text(self.PROSE.replace('Six attempts', 'Seven attempts'))
         self.assertIn('Nothing was prepared', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
+
+    def test_start_refuses_a_record_that_covers_other_files(self):
+        """Both reviewers found it independently: the record digested the files the pass saw,
+        so prose committed afterwards in a file outside that set reached the reviewers under
+        a note saying a reader had seen it. The candidate's own touched set must be the
+        record's."""
+        self.add_prose()
+        self.read_prose()
+        (self.repo / 'NOTES.md').write_text('# Notes\n\nover() never returns for negative input.\n')
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'prose in a file no reader saw')
+        self.assertIn('in these files', self.start(ok=False).stderr)
+
+    def test_after_a_cleared_campaign_the_pass_reads_from_the_given_base(self):
+        """start treats a cleared, non-autonomous campaign as no campaign and opens a first
+        round from the merge-base; the pass read from the cleared head instead, so the
+        record's base never matched and start's own remedy looped."""
+        self.start()
+        self.complete()
+        self.flow('finish')
+        self.add_prose()
+        record = self.read_prose()
+        self.assertEqual(record['base'], self.base)
+        self.assertEqual(self.start()['round'], 1)
+
+    def test_a_staged_code_edit_is_reverted(self):
+        """`git checkout --` restores the index, so a staged edit survived while the refusal
+        said it had been reverted."""
+        self.add_prose()
+        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
+        (self.repo / 'thing.py').write_text(self.PROSE.replace('value > LIMIT', 'value >= LIMIT'))
+        self.git('add', 'thing.py')
+        self.assertIn('left the envelope', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
+        self.assertEqual(self.git('status', '--porcelain'), '')
+
+    def test_the_revert_works_from_a_subdirectory(self):
+        """changed() names paths from the worktree root; the checkout resolved them against
+        the process cwd, failed, and left the code edit in place."""
+        (self.repo / 'sub').mkdir()
+        (self.repo / 'sub/k.txt').write_text('k\n')
+        self.add_prose()
+        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
+        (self.repo / 'thing.py').write_text(self.PROSE.replace('value > LIMIT', 'value >= LIMIT'))
+        refused = self.prose('--stage', 'verify', nested=True, ok=False, cwd=self.repo / 'sub')
+        self.assertIn('left the envelope', refused.stderr)
+        self.assertEqual(self.git('status', '--porcelain'), '')
+
+    def test_a_directory_the_pass_created_is_removed(self):
+        """An untracked directory is one porcelain row, and unlink() refused it with an errno
+        that reached the author instead of the envelope refusal."""
+        self.add_prose()
+        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
+        (self.repo / 'newdir').mkdir()
+        (self.repo / 'newdir/x.md').write_text('# x\n')
+        refused = self.prose('--stage', 'verify', nested=True, ok=False)
+        self.assertIn('left the envelope', refused.stderr)
+        self.assertEqual(self.git('status', '--porcelain'), '')
+
+    def test_a_reader_that_fails_leaves_no_edits(self):
+        """A reader that edited code and then exited non-zero left the edit in the tree, and
+        the next pass refused a dirty worktree it had made itself."""
+        self.add_prose()
+        binary_dir = self.fake_claude(('value > LIMIT', 'value >= LIMIT'))
+        script = (binary_dir / 'claude').read_text().replace('echo \'{"is_error": false}\'', 'exit 1')
+        (binary_dir / 'claude').write_text(script)
+        refused = self.prose('--base', self.base, ok=False, claude=binary_dir)
+        self.assertIn('its edits were reverted', refused.stderr)
+        self.assertEqual(self.git('status', '--porcelain'), '')
 
     def test_a_correction_round_reads_prose_since_the_frozen_head(self):
         """No --base once a campaign is frozen: the delta is what changed since that head.

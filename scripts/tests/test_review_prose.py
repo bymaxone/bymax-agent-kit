@@ -144,6 +144,16 @@ class EnvelopeTests(unittest.TestCase):
         bench.write(START.replace('def over(value):', 'def over(value'))
         self.assertIn('does not parse', ' | '.join(bench.offences()))
 
+    def test_a_coding_declaration_or_shebang_change_is_refused(self):
+        """The two comments Python itself reads: a cookie changed from utf-8 to latin-1 passed
+        as prose while changing what the file prints."""
+        text = '#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\nX = "e"\n'
+        bench = Bench(self, {'mod.py': text})
+        bench.write(text.replace('utf-8', 'latin-1'), name='mod.py')
+        self.assertIn('coding declaration changed', ' | '.join(bench.offences()))
+        bench.write(text.replace('python3', 'sh'), name='mod.py')
+        self.assertIn('coding declaration changed', ' | '.join(bench.offences()))
+
     def test_a_clean_tree_is_inside_the_envelope(self):
         self.assertEqual(Bench(self).offences(), [])
 

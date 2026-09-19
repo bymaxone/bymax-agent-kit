@@ -1246,7 +1246,12 @@ def prose_base(args, directory, head):
         old = read_state(directory)
         require(old['head'] != head, 'This head is frozen under review. The pass runs BEFORE '
                 '`start`, on the next candidate; editing a frozen candidate invalidates its review.')
-        return old['head']
+        # The rule start applies: a cleared campaign that is not an enrolled delivery is no
+        # campaign, and the next candidate opens a first round from the given base. Reading
+        # from the cleared head here recorded a base start would never look for, and the
+        # remedy start printed named a --base this function then ignored.
+        if not old.get('cleared') or review_delivery.active(directory, False):
+            return old['head']
     require(args.base, 'No campaign is frozen on this branch, so the pass needs --base <merge-base>.')
     return git('rev-parse', '--verify', args.base + '^{commit}')
 
@@ -1256,12 +1261,16 @@ def revert(names):
     change listed is the pass's own and nothing of the author's is under it."""
     # git_raw, not git: a porcelain row for a modified file BEGINS with a space, and the
     # trimmed reader turned ` M thing.py` into `M thing.py`, whose name is `hing.py`.
-    for row in git_raw('status', '--porcelain', '-z').split('\0'):
+    # Every call at the root, because the names are root-relative and the process may be
+    # in a subdirectory; from HEAD, because `checkout --` restores the index and a staged
+    # edit survived it; through clean for the untracked, because a directory is one row.
+    root = git('rev-parse', '--show-toplevel')
+    for row in git_raw('-C', root, 'status', '--porcelain', '-z').split('\0'):
         if len(row) > 3 and row[3:] in names:
             if row.startswith('??'):
-                Path(git('rev-parse', '--show-toplevel'), row[3:]).unlink()
+                git('-C', root, 'clean', '-fdq', '--', row[3:])
             else:
-                git('checkout', '--', row[3:])
+                git('-C', root, 'checkout', 'HEAD', '--', row[3:])
 
 
 def prose_run(args, directory):
@@ -1300,11 +1309,23 @@ def prose_run(args, directory):
     require(not os.environ.get('CLAUDECODE'), 'Inside Claude, a Claude cannot be started: '
             'run `prose --stage prepare`, hand the task to a fresh subagent with Edit, then '
             'run `prose --stage verify`.')
-    with (directory / ('prose-' + head + '.log')).open('w') as log:
-        done = subprocess.run(prose_command(git('rev-parse', '--show-toplevel')), input=task,
-                              text=True, stdout=log, stderr=subprocess.STDOUT, timeout=900)
-    require(done.returncode == 0, 'The prose pass failed; inspect ' + str(log.name))
+    read_with(task, directory / ('prose-' + head + '.log'))
     return prose_verify(base, head, directory)
+
+
+def read_with(task, log):
+    """Run the reader; whatever a reader that failed or timed out left is put back first."""
+    import review_prose
+    try:
+        with log.open('w') as out:
+            done = subprocess.run(prose_command(git('rev-parse', '--show-toplevel')), input=task,
+                                  text=True, stdout=out, stderr=subprocess.STDOUT, timeout=900)
+    except subprocess.TimeoutExpired:
+        revert(review_prose.changed())
+        raise ValueError('The prose pass timed out; its edits were reverted. Inspect ' + str(log))
+    if done.returncode != 0:
+        revert(review_prose.changed())
+    require(done.returncode == 0, 'The prose pass failed; its edits were reverted. Inspect ' + str(log))
 
 
 def prose_verify(base, head, directory):
@@ -1341,11 +1362,16 @@ def prose_first(state, directory):
         kept = json.loads(path.read_text())
         if kept.get('base') != base or kept.get('outcome') == 'skipped' or not kept.get('files'):
             continue
+        # The candidate's own set, not the pass's: a record over the files the pass saw said
+        # nothing about a file committed afterwards, and prose added there reached reviewers
+        # under a note saying a reader had seen it. Both reviewers found it, independently.
+        if set(kept['files']) != set(review_claims.touched(base, head)):
+            continue
         if review_matrix.digest(root, kept['files']) == kept.get('digest'):
             state['prose'] = dict(record=path.name, files=len(kept['files']), cut=kept['cut'],
                                   outcome=kept['outcome'])
             return
-    require(False, 'This delta adds prose and no prose pass read it on this text. Run '
+    require(False, 'This delta adds prose and no prose pass read it on this text, in these files. Run '
             '`review_flow.py prose --base %s` on the committed candidate, commit what it corrected, '
             'then start. A record bound to other text does not count: the pass binds to what it '
             'left, and a candidate whose prose is anything else was not read.' % base[:12])
@@ -1359,9 +1385,10 @@ def prose_note(state):
     if not kept:
         return ('This delta adds prose and carries no prose-pass record; it was frozen before the '
                 'pass existed. Read its prose as you would any claim.')
-    return ('A fresh reader corrected this delta\'s prose before the freeze: %d file(s) read, %d '
-            'line(s) of prose cut, none added, and the text you were handed is exactly what that '
-            'reader left (%s). Wording is not yours to review: a finding whose remedy is rewriting '
+    return ('The prose pass ran before the freeze: %d file(s) bound, %d line(s) of prose cut, '
+            'none added, and the text you were handed digests to what it left (%s). The runtime '
+            'does not observe the reader, so the record proves the text and not the reading. '
+            'Wording is still not yours to review: a finding whose remedy is rewriting '
             'a comment, a docstring or a paragraph is not a finding here — unless the sentence '
             'states something FALSE about the code that a reader would act on, which is a '
             'correctness defect; file it with the code line that contradicts it.'

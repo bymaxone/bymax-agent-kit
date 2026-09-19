@@ -38,6 +38,7 @@ the why, correct or cut the what.
 """
 import ast
 import io
+import re
 import subprocess
 import sys
 import tokenize
@@ -105,6 +106,16 @@ def behaviour(text):
         if isinstance(node, SCOPED) and ast.get_docstring(node, clean=False) is not None:
             node.body = node.body[1:]
     return ast.dump(tree, include_attributes=False)
+
+
+def header(text):
+    """The shebang and the coding declaration: comments Python itself reads, so behaviour.
+
+    The tree does not carry them, and a cookie changed from utf-8 to latin-1 passed as prose
+    while changing what the file prints.
+    """
+    return [line for line in text.split('\n')[:2]
+            if line.startswith('#!') or re.search(r'coding[:=]', line)]
 
 
 def prose_size(name, text):
@@ -180,6 +191,9 @@ def offences(cwd=None):
                 continue
             if not same:
                 found.append('%s: behaviour changed, not prose%s' % (name, first_change(name, cwd=cwd)))
+            if header(before) != header(after):
+                found.append('%s: the shebang or coding declaration changed, which Python reads '
+                             'as behaviour' % name)
         was, now = prose_size(name, before), prose_size(name, after)
         if was is not None and now is not None and now > was:
             found.append('%s: prose grew by %d; this pass corrects and cuts, it does not expand, '
