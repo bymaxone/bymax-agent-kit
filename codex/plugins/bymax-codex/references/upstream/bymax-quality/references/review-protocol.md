@@ -61,7 +61,7 @@ and measured on the campaign that shipped the claims checks, the corrections ans
 findings wrote 203 lines of prose against 19 of code: the answer to a prose finding was more
 prose. So `python3 "$FLOW" prose --base <merge-base-sha>` runs on the committed, not yet
 frozen candidate. It hands the prose this delta added, with the code it describes, to a fresh
-Claude allowed to edit comments, docstrings and markdown; then `review_prose.py` reads what
+Claude allowed to edit comments, docstrings and markdown; then the runtime reads what
 came back and reverts every edit if a Python file's behaviour — its syntax tree with every
 docstring removed — changed, or if any file's prose grew. Comparing trees rather than lines is
 what lets the pass correct the comment at the end of a line of code while refusing the edit

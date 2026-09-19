@@ -929,6 +929,20 @@ def code_touched(base, head):
     return {kind: len(rows) for kind, rows in split.items()}
 
 
+def measured_matrix(args, directory):
+    """The matrix through the runtime, refusing like every sibling.
+
+    review_matrix says why by raising SystemExit, which cli()'s handler does not catch, so
+    this exited 1 where every other refusal exits 2. Re-raised as what that handler reads,
+    with the prefix it adds stripped so the message carries it once.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        return matrix_run(args, directory, None)
+    except SystemExit as refused:
+        raise ValueError(str(refused.code).removeprefix('BLOCKED: ')) from None
+
+
 def matrix_first(state, directory):
     """A correction that changes a test must carry a measured matrix, not a claim of one.
 
@@ -2130,8 +2144,12 @@ def main():
     with locked(directory):
         if args.action == 'start':
             state = start(args, directory)
-        elif args.action == 'prose':
-            record = prose_run(args, directory)
+        elif args.action in ('prose', 'matrix'):
+            # Neither needs a campaign: both run on a committed candidate BEFORE start, and
+            # on round one there is no state to read. The matrix used to sit under the
+            # state-reading branch and refused the round-one measurement the documents ask
+            # for with "No review campaign", which is true and not what was wrong.
+            record = prose_run(args, directory) if args.action == 'prose' else measured_matrix(args, directory)
             if record is not None:
                 print(json.dumps(record, indent=2))
             return
@@ -2143,16 +2161,6 @@ def main():
                 return
             if args.action == 'lessons':
                 print(lessons(state))
-                return
-            if args.action == 'matrix':
-                # A refusal from the matrix is a refusal: review_matrix says why by raising
-                # SystemExit, which the handler around this one does not catch, so this one
-                # exited 1 where every sibling exits 2. Re-raised as what that handler reads,
-                # with the prefix it adds stripped so the message carries it once.
-                try:
-                    print(json.dumps(matrix_run(args, directory, state), indent=2))
-                except SystemExit as refused:
-                    raise ValueError(str(refused.code).removeprefix('BLOCKED: ')) from None
                 return
             if args.action in ('record', 'triage', 'check'):
                 globals()[args.action](args, directory, state)

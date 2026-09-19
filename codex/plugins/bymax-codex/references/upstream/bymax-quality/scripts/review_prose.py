@@ -23,9 +23,7 @@ What keeps this from becoming the loop it is meant to end:
                     "improved" comment is new unverified surface, which is how the loop
                     restarts.
     before freezing never on a frozen candidate: editing what reviewers were handed
-                    invalidates the review rather than improving it. The runtime binds
-                    its record to the text the pass left and refuses a candidate whose
-                    prose is anything else.
+                    invalidates the review rather than improving it.
 
 Comparing syntax trees rather than changed lines is what lets the pass correct the comment
 at the end of a line of code — the commonest edit there is — while still refusing the edit
@@ -204,7 +202,7 @@ def envelope(cwd=None):
 
 
 def prepare(base, head, cwd=None):
-    """The task a fresh reader is given: this delta's prose, and the code it describes."""
+    """The task a fresh reader is given: this delta's added prose, file by file."""
     added = review_claims.added(base, head, cwd=cwd)
     if not added:
         return ''

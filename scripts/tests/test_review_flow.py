@@ -615,6 +615,19 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('--- thing.py', record.stdout)
         self.assertEqual(self.prose('--stage', 'verify', nested=True)['base'], frozen)
 
+    def test_the_matrix_runs_before_the_first_start(self):
+        """Round one has no campaign to read, and the documents say commit, matrix, start:
+        the measurement the author takes on the first candidate must not be refused with
+        "No review campaign", which is true and not what was wrong."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_first.py').write_text('def test_first(): assert 1 == 1\n')
+        self.commit('a first candidate with a test')
+        run = self.matrix('tests/test_first.py', [('1 == 1', '1 == 2', 'test_first')])
+        self.assertIn('1 mutant(s), all caught', run.stdout)
+        head = self.git('rev-parse', 'HEAD')
+        self.assertTrue(list((self.repo / '.git').glob('bymax-review/*/matrix-%s.json' % head)))
+        self.assertEqual(self.start()['round'], 1)
+
     def test_a_refused_matrix_blocks_like_every_other_refusal(self):
         """bail() refused by raising SystemExit with a message, which exits 1, while every
         other refusal in the runtime exits 2 — so a caller keying on 2 for BLOCKED read a
