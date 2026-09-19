@@ -604,7 +604,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('Nothing was prepared', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
 
     def test_start_refuses_a_record_that_covers_other_files(self):
-        """Both reviewers found it independently: the record digested the files the pass saw,
+        """The record digested the files the pass saw,
         so prose committed afterwards in a file outside that set reached the reviewers under
         a note saying a reader had seen it. The candidate's own touched set must be the
         record's."""

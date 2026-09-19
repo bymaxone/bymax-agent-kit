@@ -85,7 +85,7 @@
   "bymax-quality/scripts/review_claims.py": "c40124ec318164585f5734a7164869c89c999720ccd181a030d397274dd69251",
   "bymax-quality/scripts/review_claude.py": "40c6172305f9a948f8118f4172a76f360c99c30387519f3ef64dc90dd7cb72b1",
   "bymax-quality/scripts/review_delivery.py": "f6643989ca0f761a7809944468b9335a0b93a2b3725940a6154c3de353ebce1a",
-  "bymax-quality/scripts/review_flow.py": "a0b8a9e0ed277a1cc9f47dd590e1a2b8eaba16367c0a6afd6f5a7ca7e460667f",
+  "bymax-quality/scripts/review_flow.py": "b8f72bfeee66978fe0b4b4135f7ad36b0d24607f1b3959e28dedb093f572ba02",
   "bymax-quality/scripts/review_matrix.py": "5876f04e68cfba34db8145c6b51b838a7170cd2683a3bb8fb845cdad880942d2",
   "bymax-quality/scripts/review_prepush.py": "75fc8870c63073d3c9446110acc81b0d45c35dfd2d8c7d4357356d61e3c3906d",
   "bymax-quality/scripts/review_prose.py": "7346b872924770ecb615b5c2f0c23148a049e367feae06d6c56baa369c4b006f",

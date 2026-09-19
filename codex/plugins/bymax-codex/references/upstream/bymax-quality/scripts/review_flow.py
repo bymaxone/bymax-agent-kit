@@ -1364,7 +1364,7 @@ def prose_first(state, directory):
             continue
         # The candidate's own set, not the pass's: a record over the files the pass saw said
         # nothing about a file committed afterwards, and prose added there reached reviewers
-        # under a note saying a reader had seen it. Both reviewers found it, independently.
+        # under a note saying a reader had seen it.
         if set(kept['files']) != set(review_claims.touched(base, head)):
             continue
         if review_matrix.digest(root, kept['files']) == kept.get('digest'):
