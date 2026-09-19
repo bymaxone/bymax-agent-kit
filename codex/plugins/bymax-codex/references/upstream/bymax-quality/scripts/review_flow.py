@@ -49,7 +49,11 @@ def require(condition, message):
 
 def clean_head():
     """Resolve a candidate only when tracked and untracked work is clean."""
-    require(not git('status', '--porcelain'), 'Commit the intended candidate first; worktree is dirty.')
+    # Every untracked file, asked for explicitly: status.showUntrackedFiles=no hides them from
+    # a plain listing, a tree with hidden files passed as clean, and the whole-tree revert
+    # that trusts this answer then deleted an author's draft nothing had ever committed.
+    require(not git('status', '--porcelain', '--untracked-files=all'),
+            'Commit the intended candidate first; worktree is dirty.')
     return git('rev-parse', 'HEAD')
 
 
@@ -1265,9 +1269,12 @@ def revert():
     needed a branch, and each branch missed was a reader's edit left behind under a message
     saying it was reverted. Ignored files are kept, as they were never observed.
     """
+    # --recurse-submodules and the second -f: git documents that reset does not enter a
+    # submodule and clean does not remove a nested repository without them, and both left
+    # a dirty tree under a message saying it was put back.
     root = git('rev-parse', '--show-toplevel')
-    git('-C', root, 'reset', '-q', '--hard', 'HEAD')
-    git('-C', root, 'clean', '-fdq')
+    git('-C', root, 'reset', '-q', '--hard', '--recurse-submodules', 'HEAD')
+    git('-C', root, 'clean', '-ffdq')
 
 
 def prose_run(args, directory):
@@ -1287,8 +1294,8 @@ def prose_run(args, directory):
         where = directory / ('prose-' + head + '.json')
         kept = json.loads(where.read_text()) if where.exists() else {}
         require(kept.get('outcome') == 'prepared', 'Nothing was prepared at this head. Run `prose '
-                '--stage prepare` on a clean tree first, so that what the worktree holds now is the '
-                'pass\'s own and not the author\'s edits verified as prose.')
+                '--stage prepare` on a clean tree first: its marker proves the tree was clean when '
+                'the task was handed out, which is what binds the record to a pass at all.')
         return prose_verify(kept['base'], head, directory)
     head = clean_head()
     base = prose_base(args, directory, head)

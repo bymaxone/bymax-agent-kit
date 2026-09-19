@@ -38,7 +38,6 @@ the why, correct or cut the what.
 """
 import ast
 import io
-import re
 import subprocess
 import sys
 import tokenize
@@ -82,7 +81,7 @@ def changed(cwd=None):
     Tracked changes and untracked files both, because a pass that adds a new source file
     leaves `git diff` silent and the envelope would report only what it could already see.
     """
-    listed = git('status', '--porcelain', '-z', cwd=cwd)
+    listed = git('status', '--porcelain', '-z', '--untracked-files=all', cwd=cwd)
     return sorted({row[3:] for row in listed.split('\0') if len(row) > 3})
 
 
@@ -109,15 +108,19 @@ def behaviour(text):
 
 
 def header(text):
-    """The shebang and the coding declaration: comments Python itself reads, so behaviour.
+    """What the interpreter reads before the tree: the shebang, and the encoding.
 
-    The tree does not carry them, and a cookie changed from utf-8 to latin-1 passed as prose
-    while changing what the file prints.
+    The encoding comes from tokenize.detect_encoding, the interpreter's own reader, rather
+    than from a pattern: a pattern matched a cookie on line two after code, which Python
+    ignores, and refused a reworded comment it could not show was behaviour. A cookie
+    changed from utf-8 to latin-1 is still refused, because the file then prints differently.
     """
-    # PEP 263's own anchor: a cookie is a COMMENT. Matching the word anywhere refused a
-    # docstring that merely mentioned an encoding, which is a refusal nothing can show.
-    return [line for line in text.split('\n')[:2]
-            if line.startswith('#!') or re.match(r'[ \t\f]*#.*?coding[:=]', line)]
+    first = text.split('\n', 1)[0]
+    try:
+        encoding = tokenize.detect_encoding(io.BytesIO(text.encode('utf-8')).readline)[0]
+    except SyntaxError:
+        encoding = None
+    return [first if first.startswith('#!') else '', encoding]
 
 
 def prose_size(name, text):

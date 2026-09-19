@@ -162,6 +162,14 @@ class EnvelopeTests(unittest.TestCase):
         bench.write('"""Reads a stream with its declared character set."""\nX = 1\n', name='mod.py')
         self.assertEqual(bench.offences(), [])
 
+    def test_a_second_line_coding_comment_after_code_is_prose(self):
+        """Python reads a cookie on line two only when line one is blank or a comment; after
+        code it is an ordinary comment, and rewording it is inside the envelope."""
+        text = 'x = 1\n# coding: old wording\n'
+        bench = Bench(self, {'mod.py': text})
+        bench.write('x = 1\n# coding: new wording\n', name='mod.py')
+        self.assertEqual(bench.offences(), [])
+
     def test_a_clean_tree_is_inside_the_envelope(self):
         self.assertEqual(Bench(self).offences(), [])
 
