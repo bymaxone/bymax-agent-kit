@@ -16,6 +16,7 @@ import time
 
 import review_delivery
 from review_delivery import scope_of as scope
+import review_claims
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
@@ -860,10 +861,190 @@ def start(args, directory):
                  retrospectives=old.get('retrospectives', []) if old else [],
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
+    claims_settled(state['review_base'], head)
+    matrix_first(state, directory)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
     save(directory, state)
     return state
+
+
+def tests_changed(base, head):
+    """What a delta did to tests, read from the diff, which is the only place it can be read.
+
+    Added or modified only: deleting the test that caught a defect is not a regression.
+    Renames are not detected, so a renamed test is listed under its new path as added instead
+    of vanishing from the list both reviewers see. Deleted tests never count as evidence, but
+    reviewers must see them to judge the deletion, so they come back separately.
+    """
+    changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
+    removed = git('diff', '--name-only', '--no-renames', '--diff-filter=D', base, head).splitlines()
+    return [p for p in changed if is_test_path(p)], [p for p in removed if is_test_path(p)]
+
+
+def regression_note(state):
+    """What the delta did to tests, and what the reviewer should do about it.
+
+    Read from the diff on every round. This read `regression_tests`, which only a correction
+    round sets, and the round the note was first shown on round one it told a reviewer
+    "No test changed in this delta. Recorded reason: ." about a delta that changed four test
+    files — the brief asserting what the tree does not support, committed while widening the
+    brief so that round one would stop being blind. The input has one source now.
+    """
+    tests, _ = tests_changed(state['review_base'], state['head'])
+    if tests:
+        return ('Tests changed in this delta: ' + ', '.join(tests)
+                + '. A test whose expectation was flipped rather than added must be justified '
+                'in the triage evidence; report an unjustified flip.')
+    reason = state.get('no_regression_reason', '')
+    if reason:
+        return 'No test changed in this delta. Recorded reason: ' + reason + '. Judge whether that is justified.'
+    return 'No test changed in this delta. Judge whether a delta this size can carry no case.'
+
+
+def matrix_run(args, directory, state):
+    """Run the declared matrix through the runtime and keep what happened, not what was said.
+
+    An author's `observed: the mutant fails the case` is a sentence. This is the measurement,
+    taken here so the record is the runtime's and is bound to the candidate it was taken on.
+    """
+    import review_matrix
+    # Recorded under the HEAD it measured, not under the campaign's current candidate: this
+    # runs between committing a correction and opening the round that reviews it, so the
+    # state in hand still describes the round before.
+    head = clean_head()
+    where = directory / ('matrix-' + head + '.json')
+    return review_matrix.record(git('rev-parse', '--show-toplevel'), args.spec,
+                                list(args.paths), out=str(where))
+
+
+def code_touched(base, head):
+    """Lines this delta changed, added and removed, counted as code and as prose.
+
+    A correction that writes only prose is a round spent on text, and the prose it writes is
+    the next round's findings — so the two are counted apart and the difference is stated.
+    """
+    split = review_claims.split_delta(base, head)
+    return {kind: len(rows) for kind, rows in split.items()}
+
+
+def matrix_first(state, directory):
+    """A correction that changes a test must carry a measured matrix, not a claim of one.
+
+    Only the runtime can establish that a mutant applied, that its case passed clean first,
+    and that it then failed — which is why `--probe` alone never could.
+    """
+    if state['round'] == 1 or not state.get('regression_tests'):
+        return
+    # Scoped to a correction that changes a TEST, because that is what the matrix proves: a
+    # gate discriminates. Every vacuous gate measured on this loop lived in a test file and
+    # passed its own suite. A correction that changes no test has no gate to mutate, and
+    # demanding one there would buy a slower suite and no evidence.
+    where = directory / ('matrix-' + state['head'] + '.json')
+    require(where.exists(),
+            'This correction changes %s and no measured mutation matrix exists for %s. Run '
+            '`review_flow.py matrix --spec <file> <test paths>` first: a mutant that survives is '
+            'the finding, and a matrix reported rather than run is the one step of this protocol '
+            'that has only ever been the author\'s word.'
+            % (', '.join(state['regression_tests']), state['head'][:12]))
+    kept = json.loads(where.read_text())
+    require(kept.get('head') == state['head'], 'The recorded matrix names head %s, not this '
+            'candidate. A record bound to another head measured another tree.'
+            % str(kept.get('head'))[:12])
+    require(kept.get('mutants'), 'The recorded matrix measured no mutants. A matrix that mutates '
+            'nothing answers nothing.')
+    require(kept.get('tree'), 'The recorded matrix carries no fingerprint of the files it '
+            'mutated, so nothing ties it to what is here now.')
+    require(not kept.get('survivors'), 'The recorded matrix has survivors: '
+            + ', '.join(kept['survivors']) + '. A gate nothing can break is decoration.')
+    # Recomputed, not trusted. The field was tested for presence and never for agreement, so
+    # a record saying `tree: x` bound itself to nothing while two sentences said it did — the
+    # head alone held the binding, and only on the path that refuses a dirty worktree.
+    import review_matrix
+    names = kept.get('files')
+    require(names is not None, 'The recorded matrix does not name the files it mutated, so its '
+            'fingerprint cannot be checked against this tree. Re-run `review_flow.py matrix`.')
+    now = review_matrix.digest(git('rev-parse', '--show-toplevel'), names)
+    require(now == kept['tree'], 'The recorded matrix was measured on other contents of %s: its '
+            'fingerprint does not match what is here now. A record is bound to the tree it '
+            'measured; re-run the matrix on this one.' % ', '.join(names))
+
+
+def code_view(state):
+    """The delta with its prose hunks elided: what a logic reviewer is asked to review.
+
+    Not a blindfold — the tree is theirs to read, and a logic defect noticed BECAUSE a
+    docstring disagrees with the code is still a logic defect and still wanted. What it does
+    is put the code where the eye lands, in a delta whose prose usually outweighs it.
+    """
+    split = review_claims.split_delta(state['review_base'], state['head'])
+    if not split['code']:
+        return ('This delta changed no code — %d prose line(s) only. A prose-only correction is '
+                'a round spent on text; judge whether it earned one.' % len(split['prose']))
+    shown = ['Code changed in this delta, prose elided: %d code line(s), %d prose, marked + for '
+             'an added line, - for a removed one and ? for a file that changed without any '
+             'line changing, such as a binary or a rename. Review THIS first. A finding whose fix is '
+             'CODE is yours however you noticed it — including by a comment disagreeing with '
+             'what the code does.' % (len(split['code']), len(split['prose']))]
+    for name, at, text in split['code'][:120]:
+        # A removal is rendered as one. It reached reviewers as `file:-39 <text>` through the
+        # format an addition uses, with nothing saying what the minus meant.
+        mark = '+' if at > 0 else '-' if at < 0 else '?'
+        shown.append('  %s %s:%d %s' % (mark, name, abs(at), text.rstrip()[:100]))
+    if len(split['code']) > 120:
+        shown.append('  ... and %d more; the full diff is yours to read.' % (len(split['code']) - 120))
+    return '\n'.join(shown)
+
+
+def claims_coverage(state):
+    """What the claims checker settled, and — the part that matters — what it did not.
+
+    The inventory is a count and a command rather than the lines themselves: a delta adds a
+    hundred assertions and pasting them would cost every reviewer the context they need for
+    the code. What must not be cheap is the statement that nothing checked them, because a
+    silent checker reads as "the prose is true" when it means "the one refusing check found nothing".
+    """
+    base, head = state['review_base'], state['head']
+    rest = review_claims.unchecked(base, head)
+    unread = review_claims.opaque(base, head)
+    said = ['Prose in this delta: one exact check ran and passed — no name it asserts was '
+            'removed by this delta and left dangling.']
+    # Run here rather than described here. The brief said a second check reports, and nothing
+    # on this path called it, so its rows reached nobody — a sentence about a check is not the
+    # check. It refuses nothing: across 40 mainline commits it flags one, a shell command read
+    # as the subject of a sentence beside it, and one wrong refusal in forty is a delivery
+    # blocked by mistake.
+    for where, quote, still in review_claims.unkept(base, head):
+        said.append('REPORTED, not refusing: %s says `%s` is gone and it is in %s. Judge it; '
+                    'it cannot hold a receipt.' % (where, quote, still))
+    if unread:
+        said.append('They read Python and Markdown only, so they read NOTHING in %d changed '
+                    'file(s) of other kinds (%s). For those the checks are silent, which is not '
+                    'the same as clean.' % (len(unread), ', '.join(unread[:6])))
+    counts = code_touched(base, head)
+    if counts['prose'] or counts['code']:
+        said.append('This delta changed %d line(s) of code and %d of prose. Prose is surface '
+                    'no command checks: judge whether the explanation earns its size.'
+                    % (counts['code'], counts['prose']))
+    said.append('%d assertion(s) added that NO command settles — docstrings, comments and '
+                'markdown, which is what this reads. They are unverified, not verified; treat '
+                'each as a claim to check against the code. List them with '
+                '`review_claims.py %s %s`.' % (len(rest), base, head))
+    return ' '.join(said)
+
+
+def claims_settled(base, head):
+    """Refuse a candidate whose own prose asserts something a command already disproves.
+
+    The suite runs against code; the mutation matrix runs against rules; nothing ran against
+    sentences, and sentences are where this package's correction rounds went. Each refusal
+    here was measured on a real delta, and each was found by a reviewer a round later, at
+    the cost of a candidate.
+    """
+    gone = review_claims.retired(base, head)
+    require(not gone, 'Prose asserts a name this delta removed from the code: '
+            + '; '.join('%s says %s' % (where, name) for where, name in gone)
+            + '. Correct the sentence or restore the name before a reviewer spends a round on it.')
 
 
 def review_range(directory):
@@ -1000,14 +1181,7 @@ def correction_contract(args, old, head):
             'The previous correction introduced these findings, and no probe names them: '
             + ', '.join(uncovered) + '. Add a probe entry per finding with "covers": "<id>", '
             'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
-    # Added or modified only: deleting the test that caught a defect is not a regression.
-    # Renames are not detected, so a renamed test is listed under its new path as added
-    # instead of vanishing from the list both reviewers see.
-    changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', old['head'], head).splitlines()
-    tests = [p for p in changed if is_test_path(p)]
-    # Deleted tests never count as evidence, but reviewers must see them to judge the deletion.
-    removed = [p for p in git('diff', '--name-only', '--no-renames', '--diff-filter=D',
-                              old['head'], head).splitlines() if is_test_path(p)]
+    tests, removed = tests_changed(old['head'], head)
     reason = (args.no_regression_reason or '').strip()
     require(tests or reason,
             'This correction touches no test. Add the failing regression first, or record why '
@@ -1024,6 +1198,19 @@ def correction_contract(args, old, head):
             'evidence that it would.')
     return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
                 regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
+
+
+def delta_view(state):
+    """The delta as a reviewer is asked to read it: code first, then what the checks settled.
+
+    Built for EVERY round. These three lived inside correction_brief, which returns early on
+    round one, so the round that reads the whole delta received none of them while the
+    changelog said every reviewer receives them. Round one is where the last of them matters
+    most: on a repository of languages these checks cannot read, "they read NOTHING in N
+    changed files" is the sentence that stops silence from reading as clean, and it was
+    absent from exactly the reading that covers the most ground.
+    """
+    return '\n'.join([code_view(state), claims_coverage(state), regression_note(state)])
 
 
 def correction_brief(state):
@@ -1065,13 +1252,6 @@ def correction_brief(state):
                  '(a project gate, a browser, a network) is a limitation to state in your summary, not '
                  'a reason to report incomplete: the caller runs and records the declared gates.\n'
                  + json.dumps(state.get('probe', []), indent=1))
-    if state.get('regression_tests'):
-        lines.append('Tests changed in this delta: ' + ', '.join(state['regression_tests'])
-                     + '. A test whose expectation was flipped rather than added must be justified '
-                     'in the triage evidence; report an unjustified flip.')
-    else:
-        lines.append('No test changed in this delta. Recorded reason: '
-                     + state.get('no_regression_reason', '') + '. Judge whether that is justified.')
     if state.get('removed_tests'):
         lines.append('Tests removed in this delta: ' + ', '.join(state['removed_tests'])
                      + '. A removed test is not regression evidence; judge whether its removal is justified.')
@@ -1201,6 +1381,7 @@ denies $TMPDIR, where such tools write their caches. Whatever you cannot execute
 state in your summary, never a reason to report incomplete. Read, trace and reason instead.
 Previous dispositions (recheck fixes; do not reopen rejected findings without new evidence):
 {json.dumps(state['previous_triage'])}
+{delta_view(state)}
 {correction_brief(state)}
 {FINDING_RULES}
 On correction rounds inspect only the delta, its effects and verification of previous fixes.
@@ -1762,6 +1943,9 @@ def parser():
     tri.add_argument('--report', required=True)
     gate = sub.add_parser('check')
     gate.add_argument('command', nargs=argparse.REMAINDER)
+    mut = sub.add_parser('matrix')
+    mut.add_argument('--spec', required=True, help='the matrix: rules, their enumeration, their mutants')
+    mut.add_argument('paths', nargs='+', help='test paths the cases live in')
     return cli
 
 
@@ -1793,6 +1977,16 @@ def main():
                 return
             if args.action == 'lessons':
                 print(lessons(state))
+                return
+            if args.action == 'matrix':
+                # A refusal from the matrix is a refusal: review_matrix says why by raising
+                # SystemExit, which the handler around this one does not catch, so this one
+                # exited 1 where every sibling exits 2. Re-raised as what that handler reads,
+                # with the prefix it adds stripped so the message carries it once.
+                try:
+                    print(json.dumps(matrix_run(args, directory, state), indent=2))
+                except SystemExit as refused:
+                    raise ValueError(str(refused.code).removeprefix('BLOCKED: ')) from None
                 return
             if args.action in ('record', 'triage', 'check'):
                 globals()[args.action](args, directory, state)

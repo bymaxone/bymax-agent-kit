@@ -1,0 +1,256 @@
+"""The matrix runner: what it refuses, and what it records."""
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
+import review_matrix as matrix                                      # noqa: E402
+
+GUARDED = 'LIMIT = 10\n\n\ndef over(value):\n    return value > LIMIT\n'
+CASE = ('import sys\nsys.path.insert(0, ".")\nfrom thing import over\n\n\n'
+        'def test_over_the_limit():\n    assert over(11)\n    assert not over(9)\n')
+
+
+class Bench:
+    """A tiny repository with one rule, one guard and one case that covers it."""
+
+    def __init__(self, case, guard=GUARDED, test=CASE):
+        self.where = Path(tempfile.mkdtemp())
+        case.addCleanup(lambda: subprocess.run(['rm', '-rf', str(self.where)]))
+        (self.where / 'thing.py').write_text(guard)
+        (self.where / 'test_thing.py').write_text(test)
+        subprocess.run(['git', 'init', '-q', str(self.where)], check=True)
+        for args in (['add', '-A'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A',
+                                     'commit', '-q', '-m', 'x']):
+            subprocess.run(['git', '-C', str(self.where), *args], check=True)
+
+    def spec(self, body):
+        path = self.where / 'matrix.json'
+        path.write_text(json.dumps(body))
+        return str(path)
+
+    def run(self, body, out=None):
+        return matrix.record(str(self.where), self.spec(body), ['test_thing.py'], out=out)
+
+
+def rule(**over):
+    body = {'rule': 'one mutant per comparison the guard makes',
+            'enumeration': 'grep -c ">" thing.py',
+            'mutants': [{'file': 'thing.py', 'anchor': 'value > LIMIT',
+                         'becomes': 'True', 'case': 'over_the_limit'}]}
+    body.update(over)
+    return [body]
+
+
+class AnchorTests(unittest.TestCase):
+
+    def test_an_anchor_that_matches_nothing_is_refused(self):
+        """A mutation that never landed is a run that proves nothing, and its output reads
+        as success. This package's memory records one that printed `69 passed` that way."""
+        bench = Bench(self)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'absent', 'becomes': 'x',
+                                     'case': 'over_the_limit'}]))
+        self.assertIn('occurs 0 times', str(caught.exception))
+
+    def test_an_anchor_that_matches_twice_is_refused(self):
+        """The enumeration count is held at one so the ambiguous anchor is the only thing
+        that can fail here; without that, the shorter-list refusal fires first and this case
+        passes for a reason it does not name."""
+        bench = Bench(self, guard='LIMIT = 10\nSPARE = LIMIT\n\n\ndef over(value):\n    return value > LIMIT\n')
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='echo 1',
+                           mutants=[{'file': 'thing.py', 'anchor': 'LIMIT', 'becomes': '1',
+                                     'case': 'over_the_limit'}]))
+        self.assertIn('occurs 3 times', str(caught.exception))
+
+
+class MeaningTests(unittest.TestCase):
+
+    def test_a_case_that_already_fails_is_refused(self):
+        """Failing with a mutant says nothing when it fails without one."""
+        bench = Bench(self, test=CASE.replace('assert over(11)', 'assert over(1)'))
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule())
+        self.assertIn('does not pass on the clean tree', str(caught.exception))
+
+    def test_a_surviving_mutant_is_the_finding(self):
+        """A guard whose case cannot tell the mutant from the original is decoration."""
+        bench = Bench(self, test='def test_over_the_limit():\n    assert True\n')
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule())
+        self.assertIn('survived', str(caught.exception))
+
+    def test_a_mutant_that_only_breaks_the_import_is_refused(self):
+        """A crash is not a measurement. A mutant that stops the module loading makes every
+        case error, which reads as caught while the case never ran — measured on this file's
+        own fixtures, where two mutants recorded 'caught 1 error'."""
+        bench = Bench(self)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'def over(value):',
+                                     'becomes': 'def over(', 'case': 'over_the_limit'}]))
+        self.assertIn('stopped the tree from loading', str(caught.exception))
+
+    def test_outcome_reads_a_mixed_run_as_a_crash(self):
+        """The old rule and the new differ on exactly one tail — `N failed, M errors` — and no
+        fixture produces it, which is why a reviewer found the presence rule had no
+        discriminating case. A rule that classifies text is pinned by the text: a case that
+        errored in setup never ran, and counting the failure beside it as a catch hides it.
+        """
+        self.assertEqual(matrix.outcome('1 failed, 3 errors in 0.20s'), 'error')
+        self.assertEqual(matrix.outcome('1 error in 0.04s'), 'error')
+        self.assertEqual(matrix.outcome('1 failed, 20 deselected in 0.11s'), 'failed')
+        self.assertEqual(matrix.outcome('1 passed, 20 deselected in 0.08s'), 'passed')
+
+    def test_a_caught_mutant_passes_and_the_tree_is_restored(self):
+        bench = Bench(self)
+        payload = bench.run(rule())
+        self.assertEqual(payload['survivors'], [])
+        self.assertEqual(payload['mutants'], 1)
+        self.assertEqual((bench.where / 'thing.py').read_text(), GUARDED)
+
+    def test_the_tree_is_restored_even_when_the_run_refuses(self):
+        """A runner that leaves a mutant behind poisons every measurement after it."""
+        bench = Bench(self, test='def test_over_the_limit():\n    assert True\n')
+        with self.assertRaises(SystemExit):
+            bench.run(rule())
+        self.assertEqual((bench.where / 'thing.py').read_text(), GUARDED)
+
+
+class EnumerationTests(unittest.TestCase):
+
+    def test_a_rule_that_declares_no_enumeration_is_refused(self):
+        bench = Bench(self)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration=''))
+        self.assertIn('declares no enumeration', str(caught.exception))
+
+    def test_a_list_shorter_than_its_own_command_says_is_refused(self):
+        """The check the whole thing exists for: a list shorter than the rule's own command
+        enumerates is a case nothing covers, and it used to be the silent default."""
+        bench = Bench(self, guard='LIMIT = 10\n\n\ndef over(v):\n    return v > LIMIT or v > 99\n')
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
+                           mutants=[{'file': 'thing.py', 'anchor': 'v > LIMIT', 'becomes': 'True',
+                                     'case': 'over_the_limit'}]))
+        self.assertIn('short by 1', str(caught.exception))
+
+    def test_a_count_is_the_last_field_of_each_line_not_every_digit(self):
+        """`grep -c` prints "path:count" per file, so a filename carrying a digit was being
+        added to the total: a rule over mod_v2.py answered 3 for 1 real hit and fired a
+        spurious short-by-N. Reading the last field is what grep guarantees."""
+        bench = Bench(self, guard=GUARDED)
+        (bench.where / 'mod_v2.py').write_text('X = 1\n')
+        subprocess.run(['git', '-C', str(bench.where), 'add', '-A'], check=True)
+        subprocess.run(['git', '-C', str(bench.where), '-c', 'user.email=a@b.invalid',
+                        '-c', 'user.name=A', 'commit', '-q', '-m', 'y'], check=True)
+        payload = bench.run(rule(enumeration="grep -c 'value > LIMIT' thing.py mod_v2.py"))
+        self.assertEqual(payload['survivors'], [])
+
+    def test_not_derivable_by_command_is_allowed_only_with_a_reason(self):
+        """Saying a rule cannot be enumerated mechanically is worth more than a fake command,
+        so it is permitted — and it must say why, because that is the whole content."""
+        bench = Bench(self)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='not derivable by command'))
+        self.assertIn('does not say why', str(caught.exception))
+        payload = bench.run(rule(enumeration='not derivable by command',
+                                 why='the states are semantic, not syntactic'))
+        self.assertEqual(payload['survivors'], [])
+
+    def test_a_bare_count_with_no_field_separator_is_accepted(self):
+        """A count printed with no field separator — `wc -l` and friends — was refused with a
+        message saying the command had answered nothing, because only the text after a colon
+        was read."""
+        bench = Bench(self)
+        (bench.where / 'one.txt').write_text('a\n')
+        # `wc -l <path>` prints "N path": one field, no separator, which the suffix read
+        # turned into "1 one.txt" and rejected as not a number.
+        (bench.where / 'two.txt').write_text('')
+        # Two files, so `wc -l` also prints its own "total" line: adding that double-counted
+        # every multi-file rule, answering 2 for 1.
+        payload = bench.run(rule(enumeration='wc -l one.txt two.txt'))
+        self.assertEqual(payload['survivors'], [])
+
+    def test_a_command_that_answers_nothing_is_not_an_enumeration(self):
+        bench = Bench(self)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='true'))
+        self.assertIn('produced no count', str(caught.exception))
+
+
+class RecordTests(unittest.TestCase):
+
+    def test_the_record_binds_to_the_head_and_the_mutated_files(self):
+        """A record that does not name the tree it measured can be reused for another one."""
+        bench = Bench(self)
+        out = bench.where / 'rec.json'
+        payload = bench.run(rule(), out=str(out))
+        stored = json.loads(out.read_text())
+        self.assertEqual(stored['head'], payload['head'])
+        self.assertTrue(stored['head'])
+        before = stored['tree']
+        (bench.where / 'thing.py').write_text(GUARDED + '\nEXTRA = 1\n')
+        self.assertNotEqual(bench.run(rule())['tree'], before)
+
+
+class RefusalStatusTests(unittest.TestCase):
+    """A refusal leaves the process with the status every other refusal in the toolkit uses."""
+
+    def test_the_standalone_script_refuses_with_two(self):
+        """bail() says why by raising SystemExit, which reaches the shell as 1. Every other
+        refusal here exits 2, and the suite's own CLI helper asserts 2 — which is why these
+        refusals could not be driven through a command line at all until now."""
+        where = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(['rm', '-rf', str(where)]))
+        spec = where / 'empty.json'
+        spec.write_text('[]')
+        self.assertEqual(matrix.main(['review_matrix.py', str(spec), str(where)]), 2)
+
+
+class EnumerationCountTests(unittest.TestCase):
+    """One number per file, from output shapes that all state it differently.
+
+    Every form here was measured on a real rule, and each fix for one broke another: reading
+    the suffix alone refused `wc -l`; reading every digit token took the digits out of the
+    paths `grep -c` prints; reading the first FIELD read nothing from a count printed last;
+    and dropping the aggregate row by its label discarded a file that is named `total`.
+    """
+
+    def count(self, out):
+        rows = [row.strip() for row in out.split('\n') if row.strip()]
+        return [n for n in matrix.without_total(rows, matrix.per_row(rows)) if n is not None]
+
+    def test_grep_prints_the_count_after_a_colon_and_digits_inside_the_path(self):
+        """`mod_v2.py:0` states 0. Adding every digit token read the 2 out of the name and
+        answered 3 where one hit exists, which let a rule ship a mutant list short by two."""
+        self.assertEqual(sum(self.count('thing.py:1\nmod_v2.py:0\n')), 1)
+
+    def test_wc_prints_the_count_first_with_no_separator(self):
+        """Reading only the colon suffix refused `wc -l <file>` with a message saying it had
+        answered nothing — a gate refusing a command that answered."""
+        self.assertEqual(sum(self.count('       3 thing.py\n')), 3)
+
+    def test_a_count_printed_last_without_a_separator_is_read(self):
+        """Narrowing to the first FIELD to drop the aggregate row also stopped reading this,
+        so `cases 4` bailed as "produced no count" while the command had answered 4."""
+        self.assertEqual(sum(self.count('cases 4\n')), 4)
+
+    def test_the_aggregate_row_of_a_multi_file_wc_is_not_counted(self):
+        """`wc -l a b` appends its own total, and adding it answered 8 for 4: every
+        multi-file rule was read as twice its size, so no short list was ever refused."""
+        self.assertEqual(sum(self.count('       1 one.txt\n       0 two.txt\n       1 total\n')), 1)
+
+    def test_a_file_named_total_keeps_its_count(self):
+        """Dropping the row by its label alone discarded a real file and then refused the
+        rule for having produced no count. The aggregate is the LAST row of a MULTI-file run
+        holding the SUM of the rows above; one row over one file is none of those."""
+        self.assertEqual(sum(self.count('       3 total\n')), 3)
+
+
+if __name__ == '__main__':
+    unittest.main()

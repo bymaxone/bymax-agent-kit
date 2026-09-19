@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "bymax-agent-kit",
   "description": "A complete, production-ready toolkit for BOTH Claude Code and Codex, from one canonical source. Bounded dual review (one Claude pass and one Codex pass over a pinned scope, verified findings, a candidate budget and a Git pre-push receipt), a phased planning workflow (spec \u2192 roadmap \u2192 phase-tasks \u2192 task), a loop-engineering autopilot that drives an approved roadmap to done one merge-gated PR per phase, a whole-system QA and security audit with an independent verifier, quality gates (TDD, 5-gate verify, credential-blocking hooks) for TypeScript and Rust, ten specialist agents, an engineering PM for multi-agent development, real-browser verification, mobile simulators, and project bootstrap with strict ESLint/Prettier/TypeScript. Stack templates for Next.js, Expo / React Native, Vite + React and Node backends. The Codex package installs separately from ./codex; see CODEX.md.",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "owner": {
     "name": "Bymax One",
     "email": "support@bymax.one",

@@ -10,6 +10,61 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def installer():
+    """The installer as a module, so its refusals can be reached without planting anything."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        'install_review_flow', ROOT / 'scripts/install-review-flow.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class PayloadTests(unittest.TestCase):
+    """What the installer copies is derived, and a short derivation must refuse.
+
+    Deriving it removed the one thing the hand-kept tuple did well — failing when a file was
+    absent — and the first correction replaced that with a second hand-kept list of three
+    names while review_flow imports more, so the guard passed on a payload that could not be
+    imported. Both halves are pinned here, because neither had a case and a reviewer found
+    that replacing the refusal with `missing = set()` left this file green.
+    """
+
+    def test_the_real_package_is_complete(self):
+        module = installer()
+        module.complete(module.payload())
+
+    def test_a_payload_missing_a_tracked_module_is_refused(self):
+        module = installer()
+        for absent in ('review_claims.py', 'review_delivery.py', 'review_prepush.py'):
+            short = [path for path in module.payload() if path.name != absent]
+            with self.assertRaises(SystemExit) as caught:
+                module.complete(short)
+            self.assertIn(absent, str(caught.exception))
+
+    def test_a_listing_that_fails_is_refused_rather_than_trusted(self):
+        """An unchecked `git ls-files` made the expectation empty outside a checkout, so a
+        `git archive` export would install a runtime missing review_flow.py itself and report
+        success — while the docstring promised refusal before the first write."""
+        module = installer()
+        original = module.ROOT
+        try:
+            module.ROOT = Path(tempfile.mkdtemp())
+            with self.assertRaises(SystemExit) as caught:
+                module.complete(original.glob('plugins/bymax-quality/scripts/*.py'))
+            self.assertIn('not a git checkout', str(caught.exception))
+        finally:
+            module.ROOT = original
+
+    def test_the_payload_carries_every_tracked_script_and_no_shell(self):
+        """Derived from the directory, so a new runtime module travels without being named —
+        and codex-review.sh stays out, being a repository entrypoint rather than runtime."""
+        names = {path.name for path in installer().payload()}
+        self.assertIn('review_flow.py', names)
+        self.assertIn('review-report.schema.json', names)
+        self.assertFalse([n for n in names if n.endswith('.sh')])
+
+
 class InstallTests(unittest.TestCase):
     """Exercise repeated installation against a synthetic Claude profile."""
 

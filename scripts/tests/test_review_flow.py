@@ -110,6 +110,23 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
+    def matrix(self, path, cases):   # cases: (anchor, becomes, case)
+        """Run a real mutation matrix in the fixture repo, because nothing here fakes one.
+
+        A correction that changes a test must carry a measured matrix, and a fixture that
+        wrote the record by hand would make the gate satisfiable by typing — which is the
+        defect the gate exists to remove. `cases` is (anchor, case) per function the file
+        defines, so the enumeration command and the mutant count agree by construction.
+        """
+        spec = self.root / 'matrix.json'
+        spec.write_text(json.dumps([{
+            'rule': 'fixture: one mutant per case the file defines',
+            'enumeration': 'grep -c "def test_" %s' % path,
+            'mutants': [{'file': path, 'anchor': anchor, 'becomes': becomes, 'case': case}
+                        for anchor, becomes, case in cases]}]))
+        return self.flow('matrix', '--spec', str(spec), path)
+
+
     def start(self, ok=True, correction=False, design=False, probe=None, reason='fixture: no test needed',
               nit='fixture: no blocking finding in play', widen='', answers=(), extend='', autonomous=False):
         """Start or reuse a candidate; a correction round carries its probe and test evidence.
@@ -434,6 +451,42 @@ class ReviewFlowTests(unittest.TestCase):
         self.checks()
         prompt = self.flow('prompt')
         self.assertIn('DESIGN ROUND', prompt.stdout)
+
+    def test_the_first_round_brief_carries_the_code_view(self):
+        """The round that reads the WHOLE delta used to receive none of the three views: they
+        were built inside correction_brief, which returns early on round one, while the
+        changelog said every reviewer receives them. Round one is where 'these checks read
+        NOTHING in N changed files of other kinds' matters most — on a repository of languages
+        they cannot read, that sentence is what stops silence from reading as clean."""
+        self.start()
+        self.checks()
+        brief = self.flow('prompt').stdout
+        self.assertIn('prose elided', brief)
+        self.assertIn('Prose in this delta', brief)
+
+    def test_the_first_round_brief_names_the_tests_the_delta_changed(self):
+        """The note read a key only a correction round sets, and the round it was first shown
+        on round one it said "No test changed in this delta. Recorded reason: ." about a
+        delta that changed four test files. It reads the diff now, on every round."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_x.py').write_text('def test_x(): assert 1 == 1\n')
+        self.commit('a candidate that adds a test')
+        self.start()
+        self.checks()
+        brief = self.flow('prompt').stdout
+        self.assertIn('Tests changed in this delta: tests/test_x.py', brief)
+        self.assertNotIn('Recorded reason: .', brief)
+
+    def test_a_refused_matrix_blocks_like_every_other_refusal(self):
+        """bail() refused by raising SystemExit with a message, which exits 1, while every
+        other refusal in the runtime exits 2 — so a caller keying on 2 for BLOCKED read a
+        surviving mutant as a different class of failure. It also made these refusals
+        untestable here: this helper asserts 2, so no case could reach them through the CLI."""
+        self.start()
+        spec = self.root / 'empty-matrix.json'
+        spec.write_text('[]')
+        refused = self.flow('matrix', '--spec', str(spec), 'scripts/tests', ok=False)
+        self.assertIn('non-empty list of rules', refused.stderr)
 
     def test_correction_round_carries_the_authors_probe(self):
         """The author's own probe is required, validated, and shown to both reviewers."""
@@ -1365,7 +1418,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_renamed_test_counts_under_its_new_path(self):
         """A renamed and extended test is regression evidence, listed where it now lives."""
         (self.repo / 'tests').mkdir()
-        (self.repo / 'tests/test_old.py').write_text('def test_a(): pass\n')
+        (self.repo / 'tests/test_old.py').write_text('def test_a(): assert 1 == 1\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'existing test')
         self.start()
@@ -1373,13 +1426,74 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex')
         self.triage()
         (self.repo / 'tests/test_old.py').rename(self.repo / 'tests/test_new.py')
-        (self.repo / 'tests/test_new.py').write_text('def test_a(): pass\ndef test_b(): pass\n')
+        (self.repo / 'tests/test_new.py').write_text(
+            'def test_a(): assert 1 == 1\ndef test_b(): assert 2 == 2\n')
         self.git('add', '-A')
         self.git('commit', '-qm', 'rename and extend')
+        # Each mutant changes a case's BODY. Replacing a signature makes the module stop
+        # importing, which the runner refuses as a crash rather than a measurement — and two
+        # of these fixtures did exactly that, recording "caught" for cases that never ran.
+        self.matrix('tests/test_new.py', [('1 == 1', '1 == 2', 'test_a'),
+                                          ('2 == 2', '2 == 3', 'test_b')])
         state = self.start(correction=True, reason='')
         self.assertEqual(state['regression_tests'], ['tests/test_new.py'])
         self.checks()
         self.assertIn('tests/test_new.py', self.flow('prompt').stdout)
+
+    def test_a_correction_that_changes_a_test_needs_a_measured_matrix(self):
+        """Every refusal of matrix_first, because a gate nobody tries is decoration.
+
+        Reported by a reviewer: replacing this function's body with `return` left the suite
+        green, so four refusals guarded nothing anyone had checked.
+        """
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        self.commit('a correction that changes a test')
+
+        missing = self.start(ok=False, correction=True, reason='').stderr
+        self.assertIn('no measured mutation matrix exists', missing)
+
+        directory = Path(self.flow('status')['directory'])
+        head = self.git('rev-parse', 'HEAD')
+        record = directory / ('matrix-' + head + '.json')
+
+        record.write_text(json.dumps({'head': 'another', 'mutants': 1, 'tree': 'x',
+                                       'survivors': []}))
+        self.assertIn('names head another', self.start(ok=False, correction=True, reason='').stderr)
+
+        record.write_text(json.dumps({'head': head, 'mutants': 0, 'tree': 'x', 'survivors': []}))
+        self.assertIn('measured no mutants', self.start(ok=False, correction=True, reason='').stderr)
+
+        record.write_text(json.dumps({'head': head, 'mutants': 1, 'tree': '', 'survivors': []}))
+        self.assertIn('no fingerprint', self.start(ok=False, correction=True, reason='').stderr)
+
+        record.write_text(json.dumps({'head': head, 'mutants': 1, 'tree': 'x',
+                                       'survivors': ['test_g']}))
+        self.assertIn('has survivors', self.start(ok=False, correction=True, reason='').stderr)
+
+        # The fingerprint is recomputed, not tested for presence: a record saying `tree: x`
+        # passed here while two sentences said it was bound to the tree it measured.
+        record.write_text(json.dumps({'head': head, 'mutants': 1, 'tree': 'not-a-digest',
+                                       'survivors': [], 'files': ['tests/test_g.py']}))
+        self.assertIn('does not match', self.start(ok=False, correction=True, reason='').stderr)
+
+        record.unlink()
+        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_correction_that_changes_no_test_needs_no_matrix(self):
+        """The scope, asserted: a correction with no gate to mutate is exempt, and saying so
+        here keeps the exemption from widening unnoticed."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        self.commit('a correction that changes no test')
+        self.assertEqual(self.start(correction=True)['round'], 2)
 
     def test_correction_without_tests_needs_a_recorded_reason(self):
         """A correction that touches no test must say why, and the reason reaches reviewers."""
@@ -1393,9 +1507,10 @@ class ReviewFlowTests(unittest.TestCase):
         self.start(ok=False, correction=True, reason='   ')
         # Adding the regression on top of the same candidate lifts the requirement.
         (self.repo / 'tests').mkdir()
-        (self.repo / 'tests/test_fix.py').write_text('def test_fix(): pass\n')
+        (self.repo / 'tests/test_fix.py').write_text('def test_fix(): assert 1 == 1\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add regression')
+        self.matrix('tests/test_fix.py', [('1 == 1', '1 == 2', 'test_fix')])
         state = self.start(correction=True, reason='')
         self.assertEqual(state['round'], 2)
         self.assertEqual(state['regression_tests'], ['tests/test_fix.py'])
@@ -1851,6 +1966,7 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests' / 'test_thing.py').write_text('def test_thing():\n    assert True\n')
         self.commit('correction that changes a test')
+        self.matrix('tests/test_thing.py', [('assert True', 'assert False', 'test_thing')])
 
         believed = [dict(command='python3 -m pytest tests/test_thing.py', expected='passes',
                          observed='passes')]
@@ -1916,6 +2032,66 @@ class ReviewFlowTests(unittest.TestCase):
         refused = self.push('git push -u origin HEAD:feature', ok=False,
                             locations=[self.fake_codex('#!/bin/sh\nexit 0\n')])
         self.assertIn('but it is, at', refused.stderr)
+
+
+class BriefShowsTheDeltaTests(unittest.TestCase):
+    """What the brief RENDERS, which no case reached until now.
+
+    Both reviewers found the same hole from two directions: the matrix mutates review_claims
+    and review_matrix, so the two halves of the brief that live here were uncovered. Replacing
+    the removal check's call with `[]` and collapsing the three-state marker to a constant both
+    left the suite green, and each restores a defect a reviewer had already filed once.
+    """
+
+    def setUp(self):
+        """Enter a two-commit repository: both functions read the process cwd, not an argument."""
+        self.where = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(self.where, ignore_errors=True))
+        for command in (['init', '-q'], ['config', 'user.email', 'c@example.invalid'],
+                        ['config', 'user.name', 'C']):
+            subprocess.run(['git', '-C', str(self.where)] + command, check=True)
+        was = os.getcwd()
+        os.chdir(self.where)
+        self.addCleanup(os.chdir, was)
+        spec = importlib.util.spec_from_file_location('flow_brief', FLOW)
+        self.flow = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.flow)
+
+    def commit(self, files, drop=()):
+        for name in drop:
+            (self.where / name).unlink()
+        for name, text in files.items():
+            (self.where / name).write_text(text)
+        subprocess.run(['git', '-C', str(self.where), 'add', '-A'], check=True)
+        subprocess.run(['git', '-C', str(self.where), 'commit', '-q', '-m', 'x',
+                        '--allow-empty'], check=True)
+        return subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True).stdout.strip()
+
+    def test_the_brief_shows_a_removal_claim_the_check_only_reports(self):
+        """An independent reviewer found that nothing on the flow path executed the removal check, so its rows
+        reached nobody while the brief said they did. The fix was to RUN it; this is what
+        fails when it stops being run — replacing the call with `[]` passes every other case.
+        """
+        base = self.commit({'a.py': 'X = 1  # most likely never joined\n'})
+        head = self.commit({'a.py': 'X = 1  # most likely never joined\n',
+                            'NOTES.md': 'We removed `most likely never joined` from it.\n'})
+        said = self.flow.claims_coverage({'review_base': base, 'head': head})
+        self.assertIn('REPORTED, not refusing', said)
+        self.assertIn('most likely never joined', said)
+
+    def test_the_code_view_marks_an_addition_a_removal_and_a_change_with_no_line(self):
+        """A removal reached reviewers through the format an addition uses, and a file that
+        changed without any line changing was then announced as one too. Three states, three
+        marks: collapsing the expression to any single constant fails here.
+        """
+        base = self.commit({'a.py': 'A = 1\nB = 2\n', 'bin.dat': 'x'})
+        head = self.commit({'a.py': 'A = 1\nC = 3\n', 'bin.dat': 'x'})
+        subprocess.run(['chmod', '+x', str(self.where / 'bin.dat')], check=True)
+        head = self.commit({})
+        shown = self.flow.code_view({'review_base': base, 'head': head})
+        marks = {line.strip()[0] for line in shown.split('\n') if line.startswith('  ')}
+        self.assertEqual(marks, {'+', '-', '?'}, shown)
 
 
 if __name__ == '__main__':
