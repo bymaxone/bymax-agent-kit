@@ -911,8 +911,7 @@ def matrix_run(args, directory, state):
     """
     import review_matrix
     # Recorded under the HEAD it measured, not under the campaign's current candidate: this
-    # runs between committing a correction and opening the round that reviews it, so the
-    # state in hand still describes the round before.
+    # runs between committing a correction and opening the round that reviews it.
     head = clean_head()
     where = directory / ('matrix-' + head + '.json')
     return review_matrix.record(git('rev-parse', '--show-toplevel'), args.spec,
