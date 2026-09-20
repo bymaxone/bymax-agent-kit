@@ -186,6 +186,17 @@ class EnvelopeTests(unittest.TestCase):
         bench.write(START.replace('value > LIMIT', 'value >= LIMIT'))
         self.assertIn('behaviour changed', ' | '.join(bench.offences()))
 
+    def test_a_reader_edit_in_a_skip_worktree_file_is_seen(self):
+        """The skip-worktree bit hides a path from git status like assume-unchanged does, and
+        is set by sparse checkouts on files that may be absent. Present and edited, the file
+        is hashed like any other; absent, it is not a change."""
+        bench = Bench(self)
+        subprocess.run(['git', '-C', str(bench.where), 'update-index', '--skip-worktree', 'thing.py'], check=True)
+        bench.write(START.replace('value > LIMIT', 'value >= LIMIT'))
+        self.assertIn('behaviour changed', ' | '.join(bench.offences()))
+        (bench.where / 'thing.py').unlink()
+        self.assertEqual(bench.offences(), [])
+
     def test_a_clean_tree_is_inside_the_envelope(self):
         self.assertEqual(Bench(self).offences(), [])
 

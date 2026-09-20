@@ -77,14 +77,13 @@ def git(*args, cwd=None):
 
 
 def changed(cwd=None):
-    """Every path whose worktree content is not HEAD's, whatever git status would say.
+    """Paths whose worktree content is not HEAD's, whatever git status would say.
 
     Bytes, not stat: `git status` honours the assume-unchanged bit, submodule.<name>.ignore
     and status.showUntrackedFiles, and each of those hid an edit — a reader's, recorded as
-    inside the envelope, or the author's, blamed on the reader. So every tracked file is
+    inside the envelope, or the author's, blamed on the reader. So a tracked file is
     hashed from the worktree and compared with HEAD's blob; untracked files and dirty submodules, whose content is not a
-    blob of this tree, come from status told to hide neither. clean_head asks this
-    same function, so the clean gate and the envelope cannot disagree.
+    blob of this tree, come from status told to hide neither.
     """
     root = review_claims.root(cwd)
     skipped = {row[2:] for row in git('ls-files', '-z', '-v', cwd=cwd).split('\0') if row and row[0] == 'S'}
@@ -92,13 +91,16 @@ def changed(cwd=None):
     # blob of this tree and is left to the status call below; a symlink (120000) is its
     # target text, which hash-object on the path would follow instead of reading.
     entries = [(row.split()[0], row.split('\t', 1)[1]) for row in git('ls-files', '-z', '-s', cwd=cwd).split('\0') if row]
-    tracked = [(mode, name) for mode, name in entries if mode != '160000' and name not in skipped]
+    tracked = [(mode, name) for mode, name in entries if mode != '160000']
     present = [name for mode, name in tracked if mode != '120000' and (Path(root) / name).is_file()]
     hashed = subprocess.run(['git', 'hash-object', '--stdin-paths'], input='\n'.join(present) + '\n',
                             capture_output=True, text=True, cwd=root).stdout.split() if present else []
     at_head = {row.split('\t', 1)[1]: row.split()[2]
                for row in git('ls-tree', '-r', '-z', 'HEAD', cwd=cwd).split('\0') if row}
-    names = {name for mode, name in tracked if mode != '120000' and name not in present}
+    # A skip-worktree entry is one a sparse checkout may leave absent, so its absence is not a
+    # change; present and edited, it is hashed like any other, because the bit hides it from
+    # status exactly as assume-unchanged does and a reader's edit there went unseen.
+    names = {name for mode, name in tracked if mode != '120000' and name not in present and name not in skipped}
     names |= {name for name, blob in zip(present, hashed) if at_head.get(name) != blob}
     for mode, name in tracked:
         if mode == '120000':

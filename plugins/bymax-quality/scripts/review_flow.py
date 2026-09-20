@@ -49,7 +49,7 @@ def require(condition, message):
 
 def clean_head():
     """Resolve a candidate only when tracked and untracked work is clean."""
-    # The envelope's own listing, which compares bytes with HEAD: a status listing honours the
+    # The envelope's own listing: a status listing honours the
     # assume-unchanged bit, submodule.<name>.ignore and status.showUntrackedFiles, and a tree
     # that passed as clean under any of them started a pass on the author's edits.
     import review_prose
