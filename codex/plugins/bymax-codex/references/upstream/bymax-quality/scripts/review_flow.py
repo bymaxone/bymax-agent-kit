@@ -50,8 +50,7 @@ def require(condition, message):
 def clean_head():
     """Resolve a candidate only when tracked and untracked work is clean."""
     # Every untracked file, asked for explicitly: status.showUntrackedFiles=no hides them from
-    # a plain listing, a tree with hidden files passed as clean, and the whole-tree revert
-    # that trusts this answer then deleted an author's draft nothing had ever committed.
+    # a plain listing, and a tree holding an author's draft passed as clean.
     require(not git('status', '--porcelain', '--untracked-files=all'),
             'Commit the intended candidate first; worktree is dirty.')
     return git('rev-parse', 'HEAD')
@@ -1230,7 +1229,7 @@ def prose_command(root):
     The same hardening as the reviewer pass — no hooks, no MCP, no slash commands, no session
     — plus Edit under acceptEdits, because a pass that can only report is the round this
     exists to remove. What it may edit is not a permission question: review_prose.offences
-    reads the tree afterwards and every edit outside the envelope is reverted.
+    reads the tree afterwards and an edit outside the envelope refuses the whole pass.
     """
     return ['claude', '-p', '--output-format', 'json', '--tools', PROSE_TOOLS,
             '--allowedTools', PROSE_TOOLS, '--permission-mode', 'acceptEdits', '--add-dir', root,
@@ -1258,23 +1257,6 @@ def prose_base(args, directory, head):
             return old['head']
     require(args.base, 'No campaign is frozen on this branch, so the pass needs --base <merge-base>.')
     return git('rev-parse', '--verify', args.base + '^{commit}')
-
-
-def revert():
-    """Put the whole tree back to HEAD: worktree, index, and whatever was created.
-
-    Safe because the pass began on a tree clean_head() proved clean, so everything the
-    worktree and the index hold now is the pass's own. Naming states was the wrong shape:
-    a modified file, then an untracked one, then a directory, then a staged addition each
-    needed a branch, and each branch missed was a reader's edit left behind under a message
-    saying it was reverted. Ignored files are kept, as they were never observed.
-    """
-    # --recurse-submodules and the second -f: git documents that reset does not enter a
-    # submodule and clean does not remove a nested repository without them, and both left
-    # a dirty tree under a message saying it was put back.
-    root = git('rev-parse', '--show-toplevel')
-    git('-C', root, 'reset', '-q', '--hard', '--recurse-submodules', 'HEAD')
-    git('-C', root, 'clean', '-ffdq')
 
 
 def prose_run(args, directory):
@@ -1317,30 +1299,38 @@ def prose_run(args, directory):
     return prose_verify(base, head, directory)
 
 
+LEFT = ('The tree holds exactly what the reader left; nothing was put back. The runtime never writes '
+        'to the tree, because no listing git offers proves what in it is the author\'s — hidden '
+        'untracked files, assume-unchanged edits and ignored submodules all passed as clean once, '
+        'and a restore to HEAD destroyed them. Inspect `git status`, put back what you need, and run '
+        'the pass again; prepare and start refuse a dirty tree until then.')
+
+
 def read_with(task, log):
-    """Run the reader; whatever a reader that failed or timed out left is put back first."""
-    import review_prose
+    """Run the reader. A reader that failed or timed out leaves its edits where they are."""
     try:
         with log.open('w') as out:
             done = subprocess.run(prose_command(git('rev-parse', '--show-toplevel')), input=task,
                                   text=True, stdout=out, stderr=subprocess.STDOUT, timeout=900)
     except subprocess.TimeoutExpired:
-        revert()
-        raise ValueError('The prose pass timed out; its edits were reverted. Inspect ' + str(log))
-    if done.returncode != 0:
-        revert()
-    require(done.returncode == 0, 'The prose pass failed; its edits were reverted. Inspect ' + str(log))
+        raise ValueError('The prose pass timed out; inspect ' + str(log) + '. ' + LEFT) from None
+    require(done.returncode == 0, 'The prose pass failed; inspect ' + str(log) + '. ' + LEFT)
 
 
 def prose_verify(base, head, directory):
-    """Check what the pass left, revert it if it left the envelope, record it if it did not."""
+    """Check what the pass left: record it if it stayed inside the envelope, refuse it if not.
+
+    A refusal touches nothing. Four rounds of an automatic revert each patched a state in
+    which a git listing hides the author's work and each opened the next, because a listing
+    that is empty does not prove the tree equals HEAD; the mechanism was deleted rather than
+    extended, and the author, who can see what is theirs, puts the tree back.
+    """
     import review_matrix
     import review_prose
     root = git('rev-parse', '--show-toplevel')
     broken = review_prose.offences()
     if broken:
-        revert()
-        raise ValueError('The pass left the envelope and its edits were reverted:\n  ' + '\n  '.join(broken))
+        raise ValueError('The pass left the envelope:\n  ' + '\n  '.join(broken) + '\n' + LEFT)
     changed = review_prose.changed()
     files = review_claims.touched(base, head)
     record = dict(base=base, head=head, files=files, digest=review_matrix.digest(root, files),

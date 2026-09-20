@@ -554,16 +554,18 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('the record proves the text and not the reading', brief)
         self.assertIn('Wording is still not yours to review', brief)
 
-    def test_a_pass_that_edits_code_is_refused_and_reverted(self):
+    def test_a_pass_that_edits_code_is_refused_and_touches_nothing(self):
         """The one outcome worse than the defect: reviewers are told the pass touched no
-        behaviour. The tree was clean when the pass started, so everything it left is its
-        own and is put back; no record is written."""
+        behaviour. Refused, with no record — and the tree left exactly as the reader left it,
+        because four rounds of putting it back each destroyed something a git listing had
+        hidden, and the author can see what is theirs where the runtime cannot."""
         self.add_prose()
         refused = self.prose('--base', self.base, ok=False,
                              claude=self.fake_claude(('value > LIMIT', 'value >= LIMIT')))
         self.assertIn('left the envelope', refused.stderr)
         self.assertIn('behaviour changed', refused.stderr)
-        self.assertEqual(self.git('status', '--porcelain'), '')
+        self.assertIn('nothing was put back', refused.stderr)
+        self.assertIn('value >= LIMIT', (self.repo / 'thing.py').read_text())
         self.assertEqual(list((self.repo / '.git').glob('bymax-review/*/prose-*.json')), [])
 
     def test_start_refuses_a_candidate_whose_prose_no_pass_read(self):
@@ -630,60 +632,38 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(record['base'], self.base)
         self.assertEqual(self.start()['round'], 1)
 
-    def test_a_staged_code_edit_is_reverted(self):
-        """`git checkout --` restores the index, so a staged edit survived while the refusal
-        said it had been reverted."""
+    def test_a_refusal_leaves_the_tree_as_the_reader_left_it(self):
+        """A staged edit, a staged addition and an untracked directory, all still there after
+        the refusal, and no record: the runtime writes to the tree through nothing."""
         self.add_prose()
         self.prose('--base', self.base, '--stage', 'prepare', nested=True)
         (self.repo / 'thing.py').write_text(self.PROSE.replace('value > LIMIT', 'value >= LIMIT'))
-        self.git('add', 'thing.py')
-        self.assertIn('left the envelope', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
-        self.assertEqual(self.git('status', '--porcelain'), '')
-
-    def test_the_revert_works_from_a_subdirectory(self):
-        """changed() names paths from the worktree root; the checkout resolved them against
-        the process cwd, failed, and left the code edit in place."""
-        (self.repo / 'sub').mkdir()
-        (self.repo / 'sub/k.txt').write_text('k\n')
-        self.add_prose()
-        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
-        (self.repo / 'thing.py').write_text(self.PROSE.replace('value > LIMIT', 'value >= LIMIT'))
-        refused = self.prose('--stage', 'verify', nested=True, ok=False, cwd=self.repo / 'sub')
-        self.assertIn('left the envelope', refused.stderr)
-        self.assertEqual(self.git('status', '--porcelain'), '')
-
-    def test_a_directory_the_pass_created_is_removed(self):
-        """An untracked directory is one porcelain row, and unlink() refused it with an errno
-        that reached the author instead of the envelope refusal."""
-        self.add_prose()
-        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
+        (self.repo / 'NEW.py').write_text('X = 1\n')
+        self.git('add', 'thing.py', 'NEW.py')
         (self.repo / 'newdir').mkdir()
         (self.repo / 'newdir/x.md').write_text('# x\n')
-        refused = self.prose('--stage', 'verify', nested=True, ok=False)
-        self.assertIn('left the envelope', refused.stderr)
-        self.assertEqual(self.git('status', '--porcelain'), '')
+        before = self.git('status', '--porcelain', '--untracked-files=all')
+        refused = self.prose('--stage', 'verify', nested=True, ok=False).stderr
+        self.assertIn('left the envelope', refused)
+        self.assertIn('nothing was put back', refused)
+        self.assertEqual(self.git('status', '--porcelain', '--untracked-files=all'), before)
+        # Only prepare's own marker exists; nothing says the pass produced a candidate.
+        records = [json.loads(p.read_text())['outcome'] for p in (self.repo / '.git').glob('bymax-review/*/prose-*.json')]
+        self.assertEqual(records, ['prepared'])
+        self.assertIn('worktree is dirty', self.prose('--stage', 'prepare', nested=True, ok=False).stderr)
 
-    def test_a_reader_that_fails_leaves_no_edits(self):
-        """A reader that edited code and then exited non-zero left the edit in the tree, and
-        the next pass refused a dirty worktree it had made itself."""
+    def test_a_reader_that_fails_leaves_its_edits_and_says_so(self):
+        """A reader that edited code and then exited non-zero: the failure names the log and
+        says the tree holds what the reader left; the edit is there, and no record."""
         self.add_prose()
         binary_dir = self.fake_claude(('value > LIMIT', 'value >= LIMIT'))
         script = (binary_dir / 'claude').read_text().replace('echo \'{"is_error": false}\'', 'exit 1')
         (binary_dir / 'claude').write_text(script)
         refused = self.prose('--base', self.base, ok=False, claude=binary_dir)
-        self.assertIn('its edits were reverted', refused.stderr)
-        self.assertEqual(self.git('status', '--porcelain'), '')
-
-    def test_a_staged_new_file_is_reverted(self):
-        """A staged addition is an 'A' row with nothing in HEAD to restore it from; the
-        state-by-state revert had no branch for it, and a traceback replaced the refusal.
-        The whole tree goes back to HEAD now, so no state needs a branch."""
-        self.add_prose()
-        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
-        (self.repo / 'NEW.py').write_text('X = 1\n')
-        self.git('add', 'NEW.py')
-        self.assertIn('left the envelope', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
-        self.assertEqual(self.git('status', '--porcelain'), '')
+        self.assertIn('The prose pass failed', refused.stderr)
+        self.assertIn('nothing was put back', refused.stderr)
+        self.assertIn('value >= LIMIT', (self.repo / 'thing.py').read_text())
+        self.assertEqual(list((self.repo / '.git').glob('bymax-review/*/prose-*.json')), [])
 
     def test_a_hidden_untracked_file_makes_the_tree_dirty(self):
         """status.showUntrackedFiles=no hides untracked files from a plain listing; the pass
@@ -696,31 +676,24 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('worktree is dirty', refused.stderr)
         self.assertTrue((self.repo / 'draft.py').exists())
 
-    def test_a_nested_repository_the_pass_created_is_removed(self):
-        """git clean skips a nested repository without a second -f, and the tree stayed dirty
-        under a message saying it was put back."""
-        self.add_prose()
-        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
-        subprocess.run(['git', 'init', '-q', str(self.repo / 'nest')], check=True)
-        (self.repo / 'nest/r.md').write_text('# r\n')
-        self.assertIn('left the envelope', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
-        self.assertEqual(self.git('status', '--porcelain', '--untracked-files=all'), '')
-
-    def test_an_edit_inside_a_submodule_is_put_back(self):
-        """reset --hard does not enter a submodule without --recurse-submodules; a reader with
-        Edit can reach a file inside one."""
+    def test_an_edit_inside_an_ignored_submodule_is_seen(self):
+        """submodule.<name>.ignore hid a reader's code edit inside a submodule from the listing,
+        and the pass was recorded as inside the envelope. Seen and refused now — and, like
+        everything else, left where it is."""
         sub = self.root / 'sub-origin'
         subprocess.run(['git', 'init', '-q', str(sub)], check=True)
         (sub / 's.txt').write_text('s\n')
         for args in (['add', '-A'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A', 'commit', '-qm', 's']):
             subprocess.run(['git', '-C', str(sub), *args], check=True)
         self.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', str(sub), 'sub')
+        self.git('config', '-f', '.gitmodules', 'submodule.sub.ignore', 'dirty')
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'ignore the submodule')
         self.add_prose()
         self.prose('--base', self.base, '--stage', 'prepare', nested=True)
-        (self.repo / 'sub/s.txt').write_text('changed\n')
-        (self.repo / 'thing.py').write_text(self.PROSE.replace('value > LIMIT', 'value >= LIMIT'))
+        (self.repo / 'sub/s.txt').write_text('READER EDITED CODE\n')
         self.assertIn('left the envelope', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
-        self.assertEqual(self.git('status', '--porcelain', '--untracked-files=all'), '')
+        self.assertEqual((self.repo / 'sub/s.txt').read_text(), 'READER EDITED CODE\n')
 
     def test_a_correction_round_reads_prose_since_the_frozen_head(self):
         """No --base once a campaign is frozen: the delta is what changed since that head.

@@ -84,7 +84,8 @@ a separate design audit, report it separately from this campaign.
    prose:** `python3 "$FLOW" prose --base <merge-base>` (no `--base` once a campaign is frozen;
    the delta is then what changed since the frozen head). It hands the prose this delta added
    to a Claude that never saw your reasoning, may edit comments, docstrings and markdown only,
-   and reverts everything if a Python file's behaviour changed or any file's prose grew.
+   and refuses the pass if a Python file's behaviour changed or any file's prose grew,
+   leaving the tree for you to inspect — the runtime never writes to it.
    Commit what it corrected; `start` refuses a candidate that adds prose without a record
    bound to exactly that text. Inside a Claude session, which cannot start another Claude,
    run `prose --stage prepare`, hand the printed task to a fresh subagent with Edit, then

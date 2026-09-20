@@ -63,7 +63,7 @@ number. A number corrected is a number that drifts again.
 
 You may edit comments, docstrings and markdown only, and only in the files listed below. Do
 not add prose anywhere; do not touch code; do not create or delete files. A verifier runs
-after you and reverts everything if any of that happened."""
+after you and refuses the whole pass if any of that happened."""
 
 SCOPED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
@@ -81,7 +81,9 @@ def changed(cwd=None):
     Tracked changes and untracked files both, because a pass that adds a new source file
     leaves `git diff` silent and the envelope would report only what it could already see.
     """
-    listed = git('status', '--porcelain', '-z', '--untracked-files=all', cwd=cwd)
+    # --ignore-submodules=none: submodule.<name>.ignore hid a reader's edit inside a submodule
+    # from the listing, and a pass that edited code there was recorded as inside the envelope.
+    listed = git('status', '--porcelain', '-z', '--untracked-files=all', '--ignore-submodules=none', cwd=cwd)
     return sorted({row[3:] for row in listed.split('\0') if len(row) > 3})
 
 
