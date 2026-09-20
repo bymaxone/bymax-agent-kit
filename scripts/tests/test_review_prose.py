@@ -248,8 +248,8 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIn('other.py is new', found)
 
     def test_a_sparse_checkout_is_inside_the_envelope(self):
-        """A sparse checkout leaves files absent on purpose; its patterns are reapplied to the
-        scratch index, so those absences are not deletions."""
+        """A sparse checkout leaves files absent on purpose; the skip-worktree bit it sets in the
+        repository's own index excuses those absences, so they are not deletions."""
         bench = Bench(self, {'keep/k.py': 'x = 1\n', 'drop/d.py': 'y = 2\n'})
         subprocess.run(['git', '-C', str(bench.where), 'sparse-checkout', 'set', 'keep'], check=True, capture_output=True)
         self.assertFalse((bench.where / 'drop/d.py').exists())

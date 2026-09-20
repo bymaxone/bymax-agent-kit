@@ -80,7 +80,7 @@ def git(*args, cwd=None):
 def changed(cwd=None):
     """Every path whose worktree differs from HEAD, as git itself decides it.
 
-    Asked of git through a scratch index built from HEAD, never of the repository's own:
+    Asked of git through a scratch index built from HEAD, not of the repository's own:
     the index carries assume-unchanged and skip-worktree bits that hide a file from every
     status and diff, and status honours submodule.<name>.ignore and showUntrackedFiles on
     top. A scratch index has no bits, so `git diff HEAD` compares every tracked file, with
@@ -115,7 +115,7 @@ def changed(cwd=None):
 
 def ignored(cwd=None):
     """Untracked files the repository ignores: not a change, and never part of a candidate —
-    but one the pass CREATES is a file the reader left, so verify compares this set before
+    but one the pass CREATES is a file the reader left, so offences compares this set before
     and after."""
     root = review_claims.root(cwd)
     out = subprocess.run(['git', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
