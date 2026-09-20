@@ -41,6 +41,7 @@ import io
 import os
 import subprocess
 import sys
+import tempfile
 import tokenize
 from pathlib import Path
 
@@ -77,44 +78,49 @@ def git(*args, cwd=None):
 
 
 def changed(cwd=None):
-    """Paths whose worktree content is not HEAD's, whatever git status would say.
+    """Every path whose worktree differs from HEAD, as git itself decides it.
 
-    Bytes, not stat: `git status` honours the assume-unchanged bit, submodule.<name>.ignore
-    and status.showUntrackedFiles, and each of those hid an edit — a reader's, recorded as
-    inside the envelope, or the author's, blamed on the reader. So a tracked file is
-    hashed from the worktree and compared with HEAD's blob; untracked files and dirty submodules, whose content is not a
-    blob of this tree, come from status told to hide neither.
+    Asked of git through a scratch index built from HEAD, never of the repository's own:
+    the index carries assume-unchanged and skip-worktree bits that hide a file from every
+    status and diff, and status honours submodule.<name>.ignore and showUntrackedFiles on
+    top. A scratch index has no bits, so `git diff HEAD` compares every tracked file, with
+    git's own line-ending conversion — hashing the bytes outside the index normalised CRLF
+    that the index would have kept, and refused a clean tree forever. Untracked files are
+    read against the same scratch index, so a staged addition is listed too. A file a sparse
+    checkout leaves absent is not a change, because its skip-worktree bit excuses an absence
+    and nothing else.
     """
     root = review_claims.root(cwd)
-    skipped = {row[2:] for row in git('ls-files', '-z', '-v', cwd=cwd).split('\0') if row and row[0] == 'S'}
-    # Mode and path from the index: a gitlink (160000) is a submodule, whose content is not a
-    # blob of this tree and is left to the status call below; a symlink (120000) is its
-    # target text, which hash-object on the path would follow instead of reading.
-    entries = [(row.split()[0], row.split('\t', 1)[1]) for row in git('ls-files', '-z', '-s', cwd=cwd).split('\0') if row]
-    tracked = [(mode, name) for mode, name in entries if mode != '160000']
-    present = [name for mode, name in tracked if mode != '120000' and (Path(root) / name).is_file()]
-    hashed = subprocess.run(['git', 'hash-object', '--stdin-paths'], input='\n'.join(present) + '\n',
-                            capture_output=True, text=True, cwd=root).stdout.split() if present else []
-    at_head = {row.split('\t', 1)[1]: row.split()[2]
-               for row in git('ls-tree', '-r', '-z', 'HEAD', cwd=cwd).split('\0') if row}
-    # A skip-worktree entry is one a sparse checkout may leave absent, so its absence is not a
-    # change; present and edited, it is hashed like any other, because the bit hides it from
-    # status exactly as assume-unchanged does and a reader's edit there went unseen.
-    names = {name for mode, name in tracked if mode != '120000' and name not in present and name not in skipped}
-    names |= {name for name, blob in zip(present, hashed) if at_head.get(name) != blob}
-    for mode, name in tracked:
-        if mode == '120000':
-            path = Path(root) / name
-            target = os.readlink(path) if path.is_symlink() else None
-            blob = subprocess.run(['git', 'hash-object', '--stdin'], input=target, capture_output=True,
-                                  text=True, cwd=root).stdout.strip() if target is not None else None
-            if at_head.get(name) != blob:
-                names.add(name)
-    # Untracked files and dirty submodules from status told to hide neither: the flags override
-    # status.showUntrackedFiles and submodule.<name>.ignore, which a plain listing honours.
-    listed = git('status', '--porcelain', '-z', '--untracked-files=all', '--ignore-submodules=none', cwd=cwd)
-    names |= {row[3:] for row in listed.split('\0') if len(row) > 3}
-    return sorted(names)
+    handle, scratch = tempfile.mkstemp(prefix='bymax-index-')
+    os.close(handle)
+    os.unlink(scratch)
+    env = dict(os.environ, GIT_INDEX_FILE=scratch)
+    try:
+        subprocess.run(['git', 'read-tree', 'HEAD'], cwd=root, env=env, check=True, capture_output=True)
+        listed = subprocess.run(['git', 'diff', '--name-only', '-z', '--ignore-submodules=none', 'HEAD'],
+                                cwd=root, env=env, check=True, capture_output=True, text=True).stdout
+        others = subprocess.run(['git', 'ls-files', '-z', '--others', '--exclude-standard'],
+                                cwd=root, env=env, check=True, capture_output=True, text=True).stdout
+    finally:
+        if os.path.exists(scratch):
+            os.unlink(scratch)
+    names = {name for name in (listed + others).split('\0') if name}
+    # The one bit read from the repository's own index, and only to excuse an ABSENCE: a
+    # sparse checkout leaves files out on purpose and marks them skip-worktree, and read-tree
+    # does not reapply its patterns to a scratch index. A present file is compared whatever
+    # its bits say; an absent one with the bit is not a deletion.
+    skipped = {row[2:] for row in git('ls-files', '-z', '-v', cwd=cwd).split('\0') if row[:1] in ('S', 's')}
+    return sorted(name for name in names if name not in skipped or (Path(root) / name).exists())
+
+
+def ignored(cwd=None):
+    """Untracked files the repository ignores: not a change, and never part of a candidate —
+    but one the pass CREATES is a file the reader left, so verify compares this set before
+    and after."""
+    root = review_claims.root(cwd)
+    out = subprocess.run(['git', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
+                         cwd=root, check=True, capture_output=True, text=True).stdout
+    return {name for name in out.split('\0') if name}
 
 
 def sides(name, cwd=None):
@@ -200,13 +206,16 @@ def first_change(name, cwd=None):
     return removed
 
 
-def offences(cwd=None):
+def offences(cwd=None, ignored_before=None):
     """Every way the working tree has left the envelope, named one by one.
 
     Per file and never netted: an added comment in one file is not paid for by a deletion
     in another, because the reviewers are told each file's prose did not grow.
     """
     found = []
+    if ignored_before is not None:
+        for name in sorted(ignored(cwd=cwd) - ignored_before):
+            found.append('%s is ignored and new: a pass corrects prose that exists, it does not add a file' % name)
     for name in changed(cwd=cwd):
         if not name.endswith(review_claims.READABLE):
             found.append('%s is not a file this pass can read, so nothing here can show its '
@@ -218,6 +227,12 @@ def offences(cwd=None):
             continue
         if after is None:
             found.append('%s was deleted: a pass corrects prose, it does not remove a file' % name)
+            continue
+        if before == after:
+            # git lists it and the text is the same: the mode changed, or the line endings
+            # did, and neither is prose. Text mode folds CRLF into LF, so this is the only
+            # place a line-ending edit is seen.
+            found.append('%s: changed in mode or line endings, not prose' % name)
             continue
         if name.endswith('.py'):
             try:

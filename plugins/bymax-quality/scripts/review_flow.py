@@ -1279,7 +1279,7 @@ def prose_run(args, directory):
         require(kept.get('outcome') == 'prepared', 'Nothing was prepared at this head. Run `prose '
                 '--stage prepare` on a clean tree first: its marker proves the tree was clean when '
                 'the task was handed out, which is what binds the record to a pass at all.')
-        return prose_verify(kept['base'], head, directory)
+        return prose_verify(kept['base'], head, directory, set(kept.get('ignored', [])))
     head = clean_head()
     base = prose_base(args, directory, head)
     where = directory / ('prose-' + head + '.json')
@@ -1290,14 +1290,18 @@ def prose_run(args, directory):
         where.write_text(json.dumps(record, indent=2) + '\n')
         return record
     if args.stage == 'prepare':
-        where.write_text(json.dumps(dict(base=base, head=head, outcome='prepared'), indent=2) + '\n')
+        # The ignored files present now: one the reader creates is a file it left, and a set
+        # the listing must not refuse — ignored files never reach a candidate.
+        where.write_text(json.dumps(dict(base=base, head=head, outcome='prepared',
+                                         ignored=sorted(review_prose.ignored())), indent=2) + '\n')
         print(task)
         return None
     require(not os.environ.get('CLAUDECODE'), 'Inside Claude, a Claude cannot be started: '
             'run `prose --stage prepare`, hand the task to a fresh subagent with Edit, then '
             'run `prose --stage verify`.')
+    before = review_prose.ignored()
     read_with(task, directory / ('prose-' + head + '.log'))
-    return prose_verify(base, head, directory)
+    return prose_verify(base, head, directory, before)
 
 
 LEFT = ('The tree holds exactly what the reader left; nothing was put back. The runtime never writes '
@@ -1318,7 +1322,7 @@ def read_with(task, log):
     require(done.returncode == 0, 'The prose pass failed; inspect ' + str(log) + '. ' + LEFT)
 
 
-def prose_verify(base, head, directory):
+def prose_verify(base, head, directory, ignored_before=None):
     """Check what the pass left: record it if it stayed inside the envelope, refuse it if not.
 
     A refusal touches nothing. Every round of an automatic revert patched a state in
@@ -1329,7 +1333,7 @@ def prose_verify(base, head, directory):
     import review_matrix
     import review_prose
     root = git('rev-parse', '--show-toplevel')
-    broken = review_prose.offences()
+    broken = review_prose.offences(ignored_before=ignored_before)
     if broken:
         raise ValueError('The pass left the envelope:\n  ' + '\n  '.join(broken) + '\n' + LEFT)
     changed = review_prose.changed()

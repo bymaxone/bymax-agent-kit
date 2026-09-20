@@ -25,6 +25,7 @@ class Bench:
         self.where = Path(tempfile.mkdtemp())
         case.addCleanup(lambda: subprocess.run(['rm', '-rf', str(self.where)]))
         for name, text in (files or {'thing.py': START}).items():
+            (self.where / name).parent.mkdir(parents=True, exist_ok=True)
             (self.where / name).write_text(text)
         subprocess.run(['git', 'init', '-q', str(self.where)], check=True)
         for args in (['add', '-A'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A',
@@ -187,14 +188,71 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIn('behaviour changed', ' | '.join(bench.offences()))
 
     def test_a_reader_edit_in_a_skip_worktree_file_is_seen(self):
-        """The skip-worktree bit hides a path from git status like assume-unchanged does, and
-        is set by sparse checkouts on files that may be absent. Present and edited, the file
-        is hashed like any other; absent, it is not a change."""
+        """The skip-worktree bit hides a path from git status like assume-unchanged does. A
+        scratch index carries no such bit, so a present file is compared like any other; the
+        bit excuses an absence and nothing else."""
         bench = Bench(self)
         subprocess.run(['git', '-C', str(bench.where), 'update-index', '--skip-worktree', 'thing.py'], check=True)
         bench.write(START.replace('value > LIMIT', 'value >= LIMIT'))
         self.assertIn('behaviour changed', ' | '.join(bench.offences()))
+        # Absent with the bit: what a sparse checkout does on purpose, so not a change.
         (bench.where / 'thing.py').unlink()
+        self.assertEqual(bench.offences(), [])
+
+    def test_a_crlf_file_under_text_auto_is_not_a_change(self):
+        """Hashing the bytes outside the index normalised CRLF that git's safe-crlf rule keeps
+        when the index blob already carries it, and refused a clean tree forever. The listing
+        asks git, which applies its own conversion against the scratch index."""
+        bench = Bench(self, {'win.py': 'x = 1\r\n'})
+        (bench.where / '.gitattributes').write_text('* text=auto\n')
+        for args in (['add', '-A'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A', 'commit', '-qm', 'attrs']):
+            subprocess.run(['git', '-C', str(bench.where), *args], check=True)
+        self.assertEqual(bench.offences(), [])
+
+    def test_an_ignored_file_the_pass_created_is_an_offence(self):
+        """An ignored file never reaches a candidate, so one that predates the pass is not a
+        change; one the reader creates is a file it left, seen by comparing the set before
+        and after."""
+        bench = Bench(self, {'thing.py': START, '.gitignore': 'secret.env\n'})
+        (bench.where / 'secret.env').write_text('k\n')
+        self.assertEqual(bench.offences(), [])
+        self.assertIn('secret.env is ignored and new', ' | '.join(prose.offences(cwd=str(bench.where), ignored_before=set())))
+        self.assertEqual(prose.offences(cwd=str(bench.where), ignored_before={'secret.env'}), [])
+
+    def test_a_tracked_name_with_a_newline_is_seen(self):
+        """A newline in a name broke the one-per-line protocol of the previous listing and
+        silently dropped every file after it; git's own listing is NUL-separated."""
+        name = 'a\nb.py'
+        bench = Bench(self, {name: 'x = 1\n'})
+        subprocess.run(['git', '-C', str(bench.where), 'update-index', '--assume-unchanged', name], check=True)
+        bench.write('x = 2\n', name=name)
+        self.assertIn('behaviour changed', ' | '.join(bench.offences()))
+
+    def test_a_mode_only_change_is_seen(self):
+        """chmod +x leaves the text equal, so neither the tree nor the growth check moves; git
+        lists the file, and a listed file with identical text is a mode or line-ending
+        change, which is not prose."""
+        bench = Bench(self)
+        subprocess.run(['git', '-C', str(bench.where), 'update-index', '--assume-unchanged', 'thing.py'], check=True)
+        (bench.where / 'thing.py').chmod(0o755)
+        self.assertIn('changed in mode or line endings', ' | '.join(bench.offences()))
+
+    def test_a_staged_rename_names_both_paths(self):
+        """The previous listing sliced a rename's second row as a status row and named
+        `hing.py`; against the scratch index the old path is a deletion and the new one an
+        untracked file, each by its own name."""
+        bench = Bench(self)
+        subprocess.run(['git', '-C', str(bench.where), 'mv', 'thing.py', 'other.py'], check=True)
+        found = ' | '.join(bench.offences())
+        self.assertIn('thing.py was deleted', found)
+        self.assertIn('other.py is new', found)
+
+    def test_a_sparse_checkout_is_inside_the_envelope(self):
+        """A sparse checkout leaves files absent on purpose; its patterns are reapplied to the
+        scratch index, so those absences are not deletions."""
+        bench = Bench(self, {'keep/k.py': 'x = 1\n', 'drop/d.py': 'y = 2\n'})
+        subprocess.run(['git', '-C', str(bench.where), 'sparse-checkout', 'set', 'keep'], check=True, capture_output=True)
+        self.assertFalse((bench.where / 'drop/d.py').exists())
         self.assertEqual(bench.offences(), [])
 
     def test_a_clean_tree_is_inside_the_envelope(self):

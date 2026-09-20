@@ -720,6 +720,20 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'sub/s.txt').write_text('THE AUTHOR IS WORKING HERE\n')
         self.assertIn('worktree is dirty', self.prose('--base', self.base, '--stage', 'prepare', nested=True, ok=False).stderr)
 
+    def test_an_ignored_file_created_between_prepare_and_verify_is_refused(self):
+        """prepare records the ignored files present; verify names one that appeared. One that
+        was there before is not the reader's and is not refused."""
+        (self.repo / '.gitignore').write_text('*.env\n')
+        self.git('add', '.gitignore')
+        self.git('commit', '-qm', 'ignore env files')
+        (self.repo / 'old.env').write_text('old\n')
+        self.add_prose()
+        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
+        (self.repo / 'new.env').write_text('new\n')
+        refused = self.prose('--stage', 'verify', nested=True, ok=False).stderr
+        self.assertIn('new.env is ignored and new', refused)
+        self.assertNotIn('old.env', refused)
+
     def test_a_correction_round_reads_prose_since_the_frozen_head(self):
         """No --base once a campaign is frozen: the delta is what changed since that head.
         And on the frozen head itself the pass refuses, because editing what reviewers were
