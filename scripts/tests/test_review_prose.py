@@ -178,6 +178,14 @@ class EnvelopeTests(unittest.TestCase):
         bench.write('# a whole new file of prose\n', name='more.py')
         self.assertIn('more.py is new', ' | '.join(bench.offences()))
 
+    def test_a_reader_edit_in_an_assume_unchanged_file_is_seen(self):
+        """git status honours the assume-unchanged bit, and a reader's behaviour edit in such a
+        file was recorded as inside the envelope. The listing compares bytes with HEAD."""
+        bench = Bench(self)
+        subprocess.run(['git', '-C', str(bench.where), 'update-index', '--assume-unchanged', 'thing.py'], check=True)
+        bench.write(START.replace('value > LIMIT', 'value >= LIMIT'))
+        self.assertIn('behaviour changed', ' | '.join(bench.offences()))
+
     def test_a_clean_tree_is_inside_the_envelope(self):
         self.assertEqual(Bench(self).offences(), [])
 

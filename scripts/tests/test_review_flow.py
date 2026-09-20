@@ -695,6 +695,31 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('left the envelope', self.prose('--stage', 'verify', nested=True, ok=False).stderr)
         self.assertEqual((self.repo / 'sub/s.txt').read_text(), 'READER EDITED CODE\n')
 
+    def test_an_assume_unchanged_edit_makes_the_tree_dirty(self):
+        """The clean gate asks the envelope's own listing: an author's edit under the
+        assume-unchanged bit is invisible to git status and used to start a pass."""
+        self.add_prose()
+        self.git('update-index', '--assume-unchanged', 'thing.py')
+        (self.repo / 'thing.py').write_text(self.PROSE + 'LOCAL = True\n')
+        self.assertIn('worktree is dirty', self.prose('--base', self.base, '--stage', 'prepare', nested=True, ok=False).stderr)
+
+    def test_the_clean_gate_and_the_envelope_list_alike(self):
+        """An author's edit inside an ignore=dirty submodule: the envelope saw it and the clean
+        gate did not, so prepare admitted the tree and verify blamed a reader that edited
+        nothing. One listing for both."""
+        sub = self.root / 'sub-origin'
+        subprocess.run(['git', 'init', '-q', str(sub)], check=True)
+        (sub / 's.txt').write_text('s\n')
+        for args in (['add', '-A'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A', 'commit', '-qm', 's']):
+            subprocess.run(['git', '-C', str(sub), *args], check=True)
+        self.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', str(sub), 'sub')
+        self.git('config', '-f', '.gitmodules', 'submodule.sub.ignore', 'dirty')
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'ignore the submodule')
+        self.add_prose()
+        (self.repo / 'sub/s.txt').write_text('THE AUTHOR IS WORKING HERE\n')
+        self.assertIn('worktree is dirty', self.prose('--base', self.base, '--stage', 'prepare', nested=True, ok=False).stderr)
+
     def test_a_correction_round_reads_prose_since_the_frozen_head(self):
         """No --base once a campaign is frozen: the delta is what changed since that head.
         And on the frozen head itself the pass refuses, because editing what reviewers were

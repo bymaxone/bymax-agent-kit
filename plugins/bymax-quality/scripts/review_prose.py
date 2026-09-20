@@ -38,6 +38,7 @@ the why, correct or cut the what.
 """
 import ast
 import io
+import os
 import subprocess
 import sys
 import tokenize
@@ -76,15 +77,42 @@ def git(*args, cwd=None):
 
 
 def changed(cwd=None):
-    """Every path the working tree has moved away from HEAD, whatever its type.
+    """Every path whose worktree content is not HEAD's, whatever git status would say.
 
-    Tracked changes and untracked files both, because a pass that adds a new source file
-    leaves `git diff` silent and the envelope would report only what it could already see.
+    Bytes, not stat: `git status` honours the assume-unchanged bit, submodule.<name>.ignore
+    and status.showUntrackedFiles, and each of those hid an edit — a reader's, recorded as
+    inside the envelope, or the author's, blamed on the reader. So every tracked file is
+    hashed from the worktree and compared with HEAD's blob; untracked files and dirty submodules, whose content is not a
+    blob of this tree, come from status told to hide neither. clean_head asks this
+    same function, so the clean gate and the envelope cannot disagree.
     """
-    # --ignore-submodules=none: submodule.<name>.ignore hid a reader's edit inside a submodule
-    # from the listing, and a pass that edited code there was recorded as inside the envelope.
+    root = review_claims.root(cwd)
+    skipped = {row[2:] for row in git('ls-files', '-z', '-v', cwd=cwd).split('\0') if row and row[0] == 'S'}
+    # Mode and path from the index: a gitlink (160000) is a submodule, whose content is not a
+    # blob of this tree and is left to the status call below; a symlink (120000) is its
+    # target text, which hash-object on the path would follow instead of reading.
+    entries = [(row.split()[0], row.split('\t', 1)[1]) for row in git('ls-files', '-z', '-s', cwd=cwd).split('\0') if row]
+    tracked = [(mode, name) for mode, name in entries if mode != '160000' and name not in skipped]
+    present = [name for mode, name in tracked if mode != '120000' and (Path(root) / name).is_file()]
+    hashed = subprocess.run(['git', 'hash-object', '--stdin-paths'], input='\n'.join(present) + '\n',
+                            capture_output=True, text=True, cwd=root).stdout.split() if present else []
+    at_head = {row.split('\t', 1)[1]: row.split()[2]
+               for row in git('ls-tree', '-r', '-z', 'HEAD', cwd=cwd).split('\0') if row}
+    names = {name for mode, name in tracked if mode != '120000' and name not in present}
+    names |= {name for name, blob in zip(present, hashed) if at_head.get(name) != blob}
+    for mode, name in tracked:
+        if mode == '120000':
+            path = Path(root) / name
+            target = os.readlink(path) if path.is_symlink() else None
+            blob = subprocess.run(['git', 'hash-object', '--stdin'], input=target, capture_output=True,
+                                  text=True, cwd=root).stdout.strip() if target is not None else None
+            if at_head.get(name) != blob:
+                names.add(name)
+    # Untracked files and dirty submodules from status told to hide neither: the flags override
+    # status.showUntrackedFiles and submodule.<name>.ignore, which a plain listing honours.
     listed = git('status', '--porcelain', '-z', '--untracked-files=all', '--ignore-submodules=none', cwd=cwd)
-    return sorted({row[3:] for row in listed.split('\0') if len(row) > 3})
+    names |= {row[3:] for row in listed.split('\0') if len(row) > 3}
+    return sorted(names)
 
 
 def sides(name, cwd=None):
