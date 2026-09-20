@@ -170,6 +170,14 @@ class EnvelopeTests(unittest.TestCase):
         bench.write('x = 1\n# coding: new wording\n', name='mod.py')
         self.assertEqual(bench.offences(), [])
 
+    def test_a_hidden_untracked_file_is_still_an_offence(self):
+        """status.showUntrackedFiles=no empties a plain listing; the envelope asks for every
+        untracked file explicitly, or a file the reader created would pass unseen."""
+        bench = Bench(self)
+        subprocess.run(['git', '-C', str(bench.where), 'config', 'status.showUntrackedFiles', 'no'], check=True)
+        bench.write('# a whole new file of prose\n', name='more.py')
+        self.assertIn('more.py is new', ' | '.join(bench.offences()))
+
     def test_a_clean_tree_is_inside_the_envelope(self):
         self.assertEqual(Bench(self).offences(), [])
 
