@@ -557,7 +557,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_a_pass_that_edits_code_is_refused_and_touches_nothing(self):
         """The one outcome worse than the defect: reviewers are told the pass touched no
         behaviour. Refused, with no record — and the tree left exactly as the reader left it,
-        because four rounds of putting it back each destroyed something a git listing had
+        because every round of putting it back destroyed something a git listing had
         hidden, and the author can see what is theirs where the runtime cannot."""
         self.add_prose()
         refused = self.prose('--base', self.base, ok=False,

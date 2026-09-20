@@ -1320,8 +1320,8 @@ def read_with(task, log):
 def prose_verify(base, head, directory):
     """Check what the pass left: record it if it stayed inside the envelope, refuse it if not.
 
-    A refusal touches nothing. Four rounds of an automatic revert each patched a state in
-    which a git listing hides the author's work and each opened the next, because a listing
+    A refusal touches nothing. Every round of an automatic revert patched a state in
+    which a git listing hides the author's work and opened the next, because a listing
     that is empty does not prove the tree equals HEAD; the mechanism was deleted rather than
     extended, and the author, who can see what is theirs, puts the tree back.
     """
