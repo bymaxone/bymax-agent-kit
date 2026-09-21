@@ -206,27 +206,62 @@ class CollectTests(unittest.TestCase):
         self.assertEqual({c['ref'] for c in data['commits']}, {'main', 'fix/verdict'})
         self.assertEqual(len(data['commits']), 2)
 
-    def test_codex_keeps_a_repeated_ask_and_collapses_the_written_twice_pair(self):
-        """Codex writes one input twice (response_item and event_msg, same minute); that pair is
-        one ask. The same words typed on another day are another ask, and one typed before the
-        period must not hide the one typed inside it."""
-        meta = {'timestamp': noon('2026-09-10'), 'type': 'session_meta',
-                'payload': {'id': 'rep', 'cwd': str(self.repo), 'source': 'cli', 'originator': 'x'}}
-        def item(ts, text):
-            return {'timestamp': ts, 'type': 'response_item',
-                    'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}}
-        def event(ts, text):
-            return {'timestamp': ts, 'type': 'event_msg', 'payload': {'type': 'user_message', 'message': text}}
-        write_jsonl(self.home / '.codex/sessions/2026/09/10/rollout-rep.jsonl', [
-            meta,
-            item(noon('2026-09-10'), 'fix the approval flow'),
-            item(noon('2026-09-17'), 'fix the approval flow'),
-            event('2026-09-17T12:00:00.250Z', 'fix the approval flow'),
-            item('2026-09-17T15:00:00Z', 'continue'),
-            item('2026-09-17T16:00:00Z', 'continue'),
-        ])
-        data = self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)
-        self.assertEqual([r['text'] for r in data['requests']], ['fix the approval flow', 'continue', 'continue'])
+    def codex_rows(self, *entries):
+        """A session_meta for this repo followed by user messages: ('item'|'event', timestamp, text)."""
+        rows = [{'timestamp': noon('2026-09-10'), 'type': 'session_meta',
+                 'payload': {'id': 'rep', 'cwd': str(self.repo), 'source': 'cli', 'originator': 'x'}}]
+        for kind, ts, text in entries:
+            if kind == 'item':
+                rows.append({'timestamp': ts, 'type': 'response_item',
+                             'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}})
+            else:
+                rows.append({'timestamp': ts, 'type': 'event_msg', 'payload': {'type': 'user_message', 'message': text}})
+        write_jsonl(self.home / '.codex/sessions/2026/09/10/rollout-rep.jsonl', rows)
+        return [r['text'] for r in self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)['requests']]
+
+    def test_codex_collapses_one_input_written_twice_whichever_side_of_a_minute(self):
+        """Codex writes one input as a response_item and an event_msg milliseconds apart. That
+        pair is one ask in the same minute, across a minute boundary, and in either order; a
+        copy 1.5 s later is still the pair. The rule is a window on real time, never a calendar
+        minute, which a pair at :59.995 and :00.004 broke."""
+        self.assertEqual(self.codex_rows(('item', '2026-09-17T12:00:10.000Z', 'a'),
+                                         ('event', '2026-09-17T12:00:10.250Z', 'a')), ['a'])
+        self.assertEqual(self.codex_rows(('item', '2026-09-17T12:00:59.995Z', 'b'),
+                                         ('event', '2026-09-17T12:01:00.004Z', 'b')), ['b'])
+        self.assertEqual(self.codex_rows(('event', '2026-09-17T12:00:59.995Z', 'c'),
+                                         ('item', '2026-09-17T12:01:00.004Z', 'c')), ['c'])
+        self.assertEqual(self.codex_rows(('item', '2026-09-17T12:00:10.000Z', 'd'),
+                                         ('event', '2026-09-17T12:00:11.500Z', 'd')), ['d'])
+
+    def test_codex_keeps_the_same_words_typed_again_later(self):
+        """The same words are another ask when a person types them again: on another day, five
+        minutes later, or three seconds later, and one typed before the period must not hide
+        the one typed inside it. Different words at one timestamp are two asks."""
+        self.assertEqual(self.codex_rows(('event', noon('2026-09-10'), 'fix the approval flow'),
+                                         ('event', noon('2026-09-17'), 'fix the approval flow')), ['fix the approval flow'])
+        self.assertEqual(self.codex_rows(('item', '2026-09-17T15:00:00Z', 'continue'),
+                                         ('item', '2026-09-17T15:05:00Z', 'continue')), ['continue', 'continue'])
+        self.assertEqual(self.codex_rows(('item', '2026-09-17T15:00:00Z', 'continue'),
+                                         ('item', '2026-09-17T15:00:03Z', 'continue')), ['continue', 'continue'])
+        self.assertEqual(self.codex_rows(('item', '2026-09-17T15:00:00Z', 'x'),
+                                         ('item', '2026-09-17T15:00:00Z', 'y')), ['x', 'y'])
+
+    def test_commits_reachable_only_from_a_remote_branch_or_a_tag_are_read(self):
+        """The traversal names three ref classes; a commit that only a remote-tracking ref or a
+        tag still reaches is shipped work a deleted local branch must not hide."""
+        env = {**os.environ, 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
+               'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x', 'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        git = lambda *a: subprocess.run(['git', '-C', str(self.repo), *a], check=True, capture_output=True, env=env)
+        for name, subject in (('remote-only', 'feat(dm): reachable from origin only'), ('tagged', 'feat(grants): reachable from a tag only')):
+            git('checkout', '-q', '-b', name, 'main')
+            (self.repo / name).write_text(name)
+            git('add', name); git('commit', '-q', '-m', subject)
+        git('update-ref', 'refs/remotes/origin/remote-only', 'remote-only')
+        git('tag', 'v1', 'tagged')
+        git('checkout', '-q', 'main'); git('branch', '-D', 'remote-only', 'tagged')
+        subjects = {c['subject'] for c in self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)['commits']}
+        self.assertIn('feat(dm): reachable from origin only', subjects)
+        self.assertIn('feat(grants): reachable from a tag only', subjects)
 
     def test_gh_reaching_its_cap_is_said_in_coverage(self):
         """gh pr list has no pagination: a read that returns exactly the cap may have dropped older

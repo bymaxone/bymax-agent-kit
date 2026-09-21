@@ -43,6 +43,10 @@ PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
 TEXT_LIMIT = 800
+# Codex writes one input twice, as a response_item and an event_msg milliseconds apart.
+# The same text again inside this window is that second copy; outside it, a person typed
+# the words again. A calendar minute was tried first and split a pair at :59.995/:00.004.
+PAIR_WINDOW = dt.timedelta(seconds=2)
 # gh pr list has no pagination: a read that comes back exactly this long may have dropped
 # older PRs, and the coverage note says so instead of reading as complete.
 PR_LIMIT = 1000
@@ -85,8 +89,8 @@ def parse_period(spec: str | None, today: dt.date) -> tuple[dt.date, dt.date]:
     raise ValueError(f"unknown period {spec!r}: use last-week, this-week, <n>d or YYYY-MM-DD..YYYY-MM-DD")
 
 
-def local_date(timestamp: str) -> dt.date | None:
-    """The local calendar date of an ISO-8601 timestamp, or None when it cannot be read."""
+def parse_timestamp(timestamp: str) -> dt.datetime | None:
+    """An ISO-8601 timestamp as an aware datetime, UTC when it names no zone, or None when unreadable."""
     if not timestamp:
         return None
     try:
@@ -95,7 +99,13 @@ def local_date(timestamp: str) -> dt.date | None:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
-    return parsed.astimezone().date()
+    return parsed
+
+
+def local_date(timestamp: str) -> dt.date | None:
+    """The local calendar date of a timestamp, or None when it cannot be read."""
+    parsed = parse_timestamp(timestamp)
+    return None if parsed is None else parsed.astimezone().date()
 
 
 def in_period(timestamp: str, since: dt.date, until: dt.date) -> bool:
@@ -279,9 +289,7 @@ def clean_request(text: str) -> str | None:
 
 def request(source: str, session: str, timestamp: str, branch: str | None, opens: bool, text: str) -> dict:
     """One thing a person typed, dated in local time to the minute."""
-    parsed = dt.datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    parsed = parse_timestamp(timestamp)
     return {
         'source': source, 'session': session[:8], 'at': parsed.astimezone().strftime('%Y-%m-%d %H:%M'),
         'branch': branch, 'opens_session': opens, 'text': text,
@@ -374,7 +382,7 @@ def collect_codex(home: Path, paths: list[str], since: dt.date, until: dt.date) 
             continue
         matched += 1
         session = payload.get('id') or path.stem
-        seen: set[tuple[str, str]] = set()
+        last_admitted: dict[str, dt.datetime] = {}
         first = True
         for line in lines:
             kind = line.get('type')
@@ -388,12 +396,12 @@ def collect_codex(home: Path, paths: list[str], since: dt.date, until: dt.date) 
             if text is None:
                 continue
             timestamp = line.get('timestamp') or ''
-            # Codex writes one input twice (response_item and event_msg, milliseconds apart), so
-            # the same text in the same minute is one ask; the same words on another day are two.
-            key = (text, timestamp[:16])
-            if key in seen:
+            when = parse_timestamp(timestamp)
+            previous = last_admitted.get(text)
+            if previous is not None and when is not None and abs(when - previous) <= PAIR_WINDOW:
                 continue
-            seen.add(key)
+            if when is not None:
+                last_admitted[text] = when
             opens = first
             first = False
             if not in_period(timestamp, since, until):
