@@ -9,7 +9,7 @@ Nothing here summarises. The model summarises; this script enumerates.
 Sources, in the order they are read:
 
 - ``git log`` of the repository, non-merge commits in the period, with the ref each commit
-  was reached from, whether the delivery branch reaches it, and its Conventional Commits
+  was reached from, whether the delivery branch had reached it by the period's end, and its Conventional Commits
   type and scope. Reachability from any ref is not delivery, so ``shipped`` answers that
   separately. ``--author`` keeps the commits whose git name or email contains the text,
   and the PRs whose GitHub login does; the sessions are already one person\'s, so they

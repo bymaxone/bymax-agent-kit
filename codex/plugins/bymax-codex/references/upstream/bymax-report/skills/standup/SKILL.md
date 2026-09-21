@@ -93,9 +93,9 @@ What the file holds:
   is true only for one that merged in the period.
 - `commits`: non-merge commits in the period on any branch, remote branch or tag, with
   `pr` set when a pull request explains them and `shipped` true only when the delivery
-  branch had reached them by the end of the period. A commit with `pr: null` is one no pull request explains, which
-  is not the same as one that shipped; its body is kept. `shipped: null` means the
-  delivery branch could not be resolved, and `coverage.shipped` says so.
+  branch had reached them by the end of the period. A commit with `pr: null` is one no
+  pull request explains, which is not the same as one that shipped; its body is kept.
+  `shipped: null` means nothing decided what shipped, and `coverage.shipped` says why.
 - `requests`: what a person typed into Claude Code or Codex on this repository in
   the period, dated to the minute, with the git branch the session was on.
   Pasted text from a third party — a client's message, a bug report — is a request
@@ -105,8 +105,8 @@ What the file holds:
 
 If `coverage.gh` says gh failed, is missing or reached its cap, the evidence says so
 and UPDATES is built from what was read. If `coverage.delivery_ref` is null, nothing
-decided what shipped: write no UPDATES section, say that the delivery branch could not
-be resolved, and keep the period's work in PROGRESS. If `requests` is empty, PROGRESS cannot be
+decided what shipped: write no UPDATES section, say what `coverage.shipped` says, and
+keep the period's work in PROGRESS. If `requests` is empty, PROGRESS cannot be
 written: remove the temporary directory the collect printed, say so, and stop rather
 than inventing the week's asks from the commits.
 
@@ -156,7 +156,7 @@ allows ("Changed the model from Opus 5 to Fable 5.1 for reply posts").
 request already covers — a commit whose `pr` names one of those pull requests is that
 same change, and a commit whose `pr` names a pull request the file does not list (the
 number came from its own subject) is a bullet of its own. A pull request still open,
-one closed without merging, and a commit the delivery branch does not reach are work
+one closed without merging, and a commit whose `shipped` is false are work
 in flight: they are evidence for a PROGRESS item that is still open, never an update.
 A branch merged during the period is shipped whatever its state is now, because the
 delivery branch reaches its commits; where the merge squashed them, the delivery
@@ -183,9 +183,9 @@ Then, over the shipped records:
 
 Print the report, and only the report, inside one fenced block so it copies as
 written. Under it, a second fenced block titled `Evidence` with one row per report
-line, in report order. Open the evidence with the coverage row, and name the delivery
-ref and the shipped counts in it: a repository that delivers on a branch the collector
-did not pick is invisible in the report itself and obvious in that row.
+line, in report order, and a last row for coverage naming the delivery ref and the
+shipped counts: a repository that delivers on a branch the collector did not pick is
+invisible in the report itself and obvious in that row.
 
 ```
 | Line | Evidence |

@@ -406,10 +406,9 @@ class CollectTests(unittest.TestCase):
         self.assertIn('held nothing', data['coverage']['shipped'])
 
     def test_a_file_named_like_the_delivery_branch_does_not_break_the_question(self):
-        """`git rev-list <sha> --not main` refuses when a path called main exists: 'ambiguous
-        argument'. A compiled binary in the root is the everyday case. The separator says the
-        argument is a revision, and without it every commit came back undecided while coverage
-        still claimed the branch had decided them."""
+        """`git rev-list --before=<until> main` refuses when a path called main exists:
+        'ambiguous argument'. A compiled binary in the root is the everyday case. The separator
+        says the argument is a revision, and without it every commit came back undecided."""
         (self.repo / 'main').write_text('a compiled binary, not a branch')
         shipped, data = self.shipped_by_subject()
         self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
