@@ -177,6 +177,11 @@ class EnumerationTests(unittest.TestCase):
             bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
                            mutants=[twice, dict(twice, file='sub/../thing.py', case='over_again')]))
         self.assertIn('short by 1', str(caught.exception))
+        # Nor is a spelling a second mutant: the same mutation under both spellings is a repeat.
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='grep -c "v > LIMIT" thing.py',
+                           mutants=[twice, dict(twice, file='sub/../thing.py')]))
+        self.assertIn('repeats a mutant', str(caught.exception))
         # A file that is not here is apply_mutant's refusal, not a crash in the count.
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(enumeration='echo 1', mutants=[dict(twice, file='missing.py')]))

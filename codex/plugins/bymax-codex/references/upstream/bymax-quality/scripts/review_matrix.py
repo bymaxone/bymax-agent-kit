@@ -280,7 +280,8 @@ def matrix(root, spec, files):
             bail('Rule %r declares no mutants.' % rule.get('rule'))
         seen = set()
         for mutant in mutants:
-            key = (mutant.get('file'), mutant.get('anchor'), mutant.get('becomes'), mutant.get('case'))
+            # The file by its resolved path, as the site count keys it: a spelling is not a place.
+            key = ((Path(root) / mutant['file']).resolve(), mutant['anchor'], mutant['becomes'], mutant['case'])
             # Refused: a repeated entry satisfies the enumeration's count while running
             # the case it already ran, and 'all caught' then covers a case nothing exercised.
             # The case is part of the identity: the same mutation under another case is
