@@ -975,10 +975,10 @@ def matrix_first(state, directory):
 
 
 def ran_the_changed_tests(kept, changed):
-    """The record names the tests it ran, each with the cases a test of it failed under a
-    mutant, and the tests this correction changed must be among them with a case each: a
-    matrix over some other file measured nothing about the new gate, and a changed test that
-    failed under no mutant discriminates nothing."""
+    """The record names the test files pytest collected, each with the cases a test of it
+    failed under a mutant, and the tests this correction changed must be among them with a
+    case each: a matrix over some other file measured nothing about the new gate, and a
+    changed test that failed under no mutant discriminates nothing."""
     ran = kept.get('tests')
     require(isinstance(ran, dict) and all(isinstance(p, str) and isinstance(c, list)
                                           and all(isinstance(x, str) for x in c) for p, c in ran.items()),

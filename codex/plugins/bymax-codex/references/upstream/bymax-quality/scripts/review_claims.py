@@ -273,8 +273,8 @@ def orphaned(base, head, cwd=None):
     # using either silently matches nothing. Corrected twice — the \s half first, the \b half
     # only after a reviewer found that every function which merely MOVED to another module
     # read as removed. The case that should have caught it exercises a constant, which
-    # resolves through the second alternative, so there is now one case per alternative. An
-    # `async def` counts here as it does in defined(): a name moved and made async is alive.
+    # resolves through the second alternative. An `async def` counts here as it does in
+    # defined(): a name moved and made async is alive.
     alive = (r'^[[:space:]]*(async[[:space:]]+)?(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
              r'|^[[:space:]]*%s[[:space:]]*=')
     return sorted(name for name in lost

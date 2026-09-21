@@ -433,8 +433,8 @@ def record(root, spec_path, files, out=None):
     results = matrix(root, spec, files)
     survivors = [r for r in results if not r['caught']]
     head, names, tree = fingerprint(root, spec)
-    # The test files it ran travel with the record, each with the cases a test of it failed
-    # under a mutant: each result names the files whose node failed, so the mapping is what
+    # The test files pytest collected travel with the record, each with the cases a test of
+    # it failed under a mutant: each result names the files whose node failed, so the mapping is what
     # the results add up to, and a reader can check it against them file by file.
     payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
                'mutants': len(results), 'survivors': [r['case'] for r in survivors],
