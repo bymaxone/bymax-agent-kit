@@ -11,9 +11,9 @@ Sources, in the order they are read:
 - ``git log`` of the repository, non-merge commits in the period, with the ref each commit
   was reached from, whether the delivery branch reaches it, and its Conventional Commits
   type and scope. Reachability from any ref is not delivery, so ``shipped`` answers that
-  separately and the report is built from it rather than from the ref. ``--author``
-  keeps the commits whose git name or email contains the text, and the PRs whose
-  GitHub login does; the sessions are already one person\'s, so they are not filtered.
+  separately. ``--author`` keeps the commits whose git name or email contains the text,
+  and the PRs whose GitHub login does; the sessions are already one person\'s, so they
+  are not filtered.
 - ``gh pr list`` for pull requests merged or opened in the period. A missing or
   signed-out ``gh`` is recorded in ``coverage`` and never fails the collect.
 - Claude Code sessions under ``~/.claude/projects/<slug>``. Only lines a person typed
@@ -282,8 +282,8 @@ def collect_prs(repo: Path, since: dt.date, until: dt.date) -> tuple[list[dict],
         parsed = conventional(item.get('title') or '')
         prs.append({
             'number': item.get('number'), 'title': item.get('title'), 'state': item.get('state'),
-            # A pull request shipped when it merged; one opened in the period and still open,
-            # or closed without merging, is progress and never an update.
+            # A pull request shipped when it merged in the period; one merged after it, one
+            # still open, and one closed without merging are progress and never an update.
             'shipped': merged, 'merged_in_period': merged, 'opened_in_period': opened,
             'merged_at': item.get('mergedAt'), 'created_at': item.get('createdAt'),
             'head': item.get('headRefName'), 'url': item.get('url'),

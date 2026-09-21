@@ -336,8 +336,8 @@ class CollectTests(unittest.TestCase):
         """Reachability from any ref is not delivery: an open branch, a tag on it and a
         remote-tracking copy of it are all reachable and none of them shipped. What decides is
         ancestry of the branch the repository delivers on, so a feature branch merged into it
-        counts even after its own ref is deleted, and the same commits count before the merge
-        and not after nothing else changed."""
+        counts even after its own ref is deleted, and the same commit that did not count
+        before the merge counts after it, with nothing else changed."""
         self.commit_on('feat/open', 'feat(dm): still in flight')
         self.commit_on('feat/tagged', 'feat(grants): only a tag reaches it')
         self.git_in_repo('tag', 'v2', 'feat/tagged')

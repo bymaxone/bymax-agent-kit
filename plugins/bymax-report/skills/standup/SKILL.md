@@ -155,13 +155,12 @@ allows ("Changed the model from Opus 5 to Fable 5.1 for reply posts").
 `shipped` is true, then from the commits whose `shipped` is true that no listed pull
 request already covers — a commit whose `pr` names one of those pull requests is that
 same change, and a commit whose `pr` names a pull request the file does not list (the
-number came from its own subject, and `coverage.gh` says why the list is short) is a
-bullet of its own. A pull request still open, one closed without merging, and a commit
-the delivery branch does not reach are work in flight: they are evidence for a PROGRESS
-item that is still open, never an update. A branch merged during the period is shipped
-whatever its state is now, because the delivery branch reaches its commits; where the
-merge squashed them, the delivery branch reaches the squashed commit instead and that
-one carries the change.
+number came from its own subject) is a bullet of its own. A pull request still open,
+one closed without merging, and a commit the delivery branch does not reach are work
+in flight: they are evidence for a PROGRESS item that is still open, never an update.
+A branch merged during the period is shipped whatever its state is now, because the
+delivery branch reaches its commits; where the merge squashed them, the delivery
+branch reaches the squashed commit instead and that one carries the change.
 
 Then, over the shipped records:
 
