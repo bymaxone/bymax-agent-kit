@@ -88,10 +88,14 @@ the dates it resolved. **Read that line before anything else.** Then read
 
 What the file holds:
 
-- `prs`: pull requests merged or opened in the period, with title, body, state,
-  head branch and the Conventional Commits type and scope parsed from the title.
-- `commits`: non-merge commits in the period on any ref, with `pr` set when a PR
-  explains them. A commit with `pr: null` shipped without a PR; its body is kept.
+- `prs`: pull requests merged or opened in the period, with title, body, state, head
+  branch and the Conventional Commits type and scope parsed from the title. `shipped`
+  is true only for one that merged in the period.
+- `commits`: non-merge commits in the period on any branch, remote branch or tag, with
+  `pr` set when a pull request explains them and `shipped` true only when the delivery
+  branch reaches them. A commit with `pr: null` is one no pull request explains, which
+  is not the same as one that shipped; its body is kept. `shipped: null` means the
+  delivery branch could not be resolved, and `coverage.shipped` says so.
 - `requests`: what a person typed into Claude Code or Codex on this repository in
   the period, dated to the minute, with the git branch the session was on.
   Pasted text from a third party — a client's message, a bug report — is a request
@@ -100,7 +104,9 @@ What the file holds:
   read at all. `codex.matched` counts the interactive Codex sessions of this repo.
 
 If `coverage.gh` says gh failed, is missing or reached its cap, the evidence says so
-and UPDATES is built from what was read. If `requests` is empty, PROGRESS cannot be
+and UPDATES is built from what was read. If `coverage.delivery_ref` is null, nothing
+decided what shipped: write no UPDATES section, say that the delivery branch could not
+be resolved, and keep the period's work in PROGRESS. If `requests` is empty, PROGRESS cannot be
 written: remove the temporary directory the collect printed, say so, and stop rather
 than inventing the week's asks from the commits.
 
@@ -124,8 +130,10 @@ Build the list from `requests`:
    (the approver, the DM route, Pearl, the like sweep), not the code (`approval.ts`,
    `classifier`). Translate a Portuguese request into English; keep a client's
    English wording where it is already an outcome.
-4. **Mark** each ask done when a PR merged in the period on the same branch or
-   scope delivers it, or a linked commit does. A done item is the plain sentence;
+4. **Mark** each ask done when a shipped pull request on the same branch or scope
+   delivers it, or a shipped commit does. An ask whose only evidence is an open pull
+   request or an unreached commit is still open, however much work it has behind it.
+   A done item is the plain sentence;
    the author ticks it in the document. An open item ends with ` (in progress)`
    and goes last. An ask delivered partly is one open item describing what
    remains, not a done item with a caveat.
@@ -143,7 +151,19 @@ The area is a product name the reader uses ("Reply quality", "Reviewer workflow"
 fits no group stands alone as a bullet above the first heading, as the source format
 allows ("Changed the model from Opus 5 to Fable 5.1 for reply posts").
 
-Build the bullets from `prs` first, then from commits with `pr: null`:
+**Only what shipped belongs here.** Build the bullets from the pull requests whose
+`shipped` is true, then from the commits whose `shipped` is true that no listed pull
+request already covers — a commit whose `pr` names one of those pull requests is that
+same change, and a commit whose `pr` names a pull request the file does not list (the
+number came from its own subject, and `coverage.gh` says why the list is short) is a
+bullet of its own. A pull request still open, one closed without merging, and a commit
+the delivery branch does not reach are work in flight: they are evidence for a PROGRESS
+item that is still open, never an update. A branch merged during the period is shipped
+whatever its state is now, because the delivery branch reaches its commits; where the
+merge squashed them, the delivery branch reaches the squashed commit instead and that
+one carries the change.
+
+Then, over the shipped records:
 
 1. **One PR, one bullet**, normally. Two PRs that are one change to the reader
    (a feature and its fix the same day) become one bullet; one PR that shipped two

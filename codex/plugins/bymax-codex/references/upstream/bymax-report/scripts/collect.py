@@ -8,8 +8,10 @@ Nothing here summarises. The model summarises; this script enumerates.
 
 Sources, in the order they are read:
 
-- ``git log`` of the repository, non-merge commits in the period, with the ref
-  each commit was reached from and its Conventional Commits type and scope. ``--author``
+- ``git log`` of the repository, non-merge commits in the period, with the ref each commit
+  was reached from, whether the delivery branch reaches it, and its Conventional Commits
+  type and scope. Reachability from any ref is not delivery, so ``shipped`` answers that
+  separately and the report is built from it rather than from the ref. ``--author``
   keeps the commits whose git name or email contains the text, and the PRs whose
   GitHub login does; the sessions are already one person\'s, so they are not filtered.
 - ``gh pr list`` for pull requests merged or opened in the period. A missing or
@@ -159,6 +161,55 @@ def conventional(subject: str) -> dict:
     return {'type': match.group('type'), 'scope': match.group('scope') or None, 'summary': match.group('summary')}
 
 
+def delivery_ref(repo: Path) -> str | None:
+    """The ref this repository delivers on: what a commit must reach to count as shipped.
+
+    ``origin/HEAD`` is what the remote itself calls its default branch, so it is asked first;
+    the conventional names follow, and only ones that resolve here. None means the question
+    cannot be answered in this checkout, which is said rather than guessed.
+    """
+    try:
+        head = git(repo, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD').strip()
+    except RuntimeError:
+        head = ''
+    candidates = ([head[len('refs/remotes/'):]] if head.startswith('refs/remotes/') else [])
+    candidates += ['origin/main', 'origin/master', 'main', 'master', 'origin/trunk', 'trunk']
+    for name in candidates:
+        try:
+            git(repo, 'rev-parse', '--verify', '--quiet', name + '^{commit}')
+        except RuntimeError:
+            continue
+        return name
+    return None
+
+
+def mark_shipped(repo: Path, commits: list[dict], ref: str | None) -> None:
+    """Say, per commit, whether the delivery ref reaches it — the only sense in which it shipped.
+
+    Reachability from *any* ref is not delivery: an open branch, a tag on it and a
+    remote-tracking copy of it are all reachable, and a report built from them presents work
+    in flight as done. Ancestry answers it for all of them at once, including a branch whose
+    own ref was deleted after its merge.
+
+    One ``rev-list`` decides every commit: it prints what is reachable from the shas given and
+    not from the delivery ref, so a collected sha is unshipped exactly when it appears there.
+    Asking ``merge-base --is-ancestor`` instead would be one process per commit.
+    """
+    if ref is None or not commits:
+        for commit in commits:
+            commit['shipped'] = None
+        return
+    try:
+        out = git(repo, 'rev-list', '--no-walk', *[c['sha'] for c in commits], '--not', ref)
+    except RuntimeError:
+        for commit in commits:
+            commit['shipped'] = None
+        return
+    unshipped = {line.strip()[:12] for line in out.splitlines() if line.strip()}
+    for commit in commits:
+        commit['shipped'] = commit['sha'] not in unshipped
+
+
 def collect_commits(repo: Path, since: dt.date, until: dt.date) -> list[dict]:
     """Non-merge commits reachable from any branch, remote branch or tag in the period, oldest first."""
     # No --since here: git treats it as a traversal cutoff, not a filter, and stops
@@ -188,7 +239,7 @@ def collect_commits(repo: Path, since: dt.date, until: dt.date) -> list[dict]:
         commits.append({
             'sha': sha[:12], 'author': author, 'email': email, 'date': local_date(when).isoformat(),
             'ref': branch_name(ref), 'subject': subject, 'body': body.strip()[:BODY_LIMIT],
-            'pr': int(pr.group('number')) if pr else None, **parsed,
+            'pr': int(pr.group('number')) if pr else None, 'shipped': None, **parsed,
         })
     return commits
 
@@ -231,7 +282,9 @@ def collect_prs(repo: Path, since: dt.date, until: dt.date) -> tuple[list[dict],
         parsed = conventional(item.get('title') or '')
         prs.append({
             'number': item.get('number'), 'title': item.get('title'), 'state': item.get('state'),
-            'merged_in_period': merged, 'opened_in_period': opened,
+            # A pull request shipped when it merged; one opened in the period and still open,
+            # or closed without merging, is progress and never an update.
+            'shipped': merged, 'merged_in_period': merged, 'opened_in_period': opened,
             'merged_at': item.get('mergedAt'), 'created_at': item.get('createdAt'),
             'head': item.get('headRefName'), 'url': item.get('url'),
             'author': (item.get('author') or {}).get('login'),
@@ -409,6 +462,8 @@ def collect(repo: Path, since: dt.date, until: dt.date, home: Path, use_gh: bool
             author: str | None = None) -> dict:
     paths = repo_paths(repo)
     commits = by_author(collect_commits(repo, since, until), author, 'author', 'email')
+    ref = delivery_ref(repo)
+    mark_shipped(repo, commits, ref)
     prs, gh_note = collect_prs(repo, since, until) if use_gh else ([], 'gh skipped by --no-gh')
     prs = by_author(prs, author, 'author')
     if author:
@@ -425,7 +480,12 @@ def collect(repo: Path, since: dt.date, until: dt.date, home: Path, use_gh: bool
         'requests': requests,
         'coverage': {
             'commits': len(commits), 'commits_without_pr': sum(1 for c in commits if c['pr'] is None),
-            'prs': len(prs), 'requests': len(requests),
+            'commits_shipped': sum(1 for c in commits if c['shipped']),
+            'delivery_ref': ref,
+            'shipped': (f'a commit shipped when {ref} reaches it; a pull request when it merged'
+                        if ref else 'no default branch resolves here, so nothing decided what shipped'),
+            'prs': len(prs), 'prs_shipped': sum(1 for p in prs if p['shipped']),
+            'requests': len(requests),
             'gh': gh_note, 'claude': claude_cov, 'codex': codex_cov,
         },
     }

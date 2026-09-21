@@ -314,6 +314,75 @@ class CollectTests(unittest.TestCase):
         self.assertTrue((Path(work) / 'collect.json').exists(), with_file.stdout)
         self.assertIn('(2026-09-14 .. 2026-09-20)', with_file.stdout)
 
+    def git_in_repo(self, *args, **env):
+        base = {**os.environ, 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
+                'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x', 'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        return subprocess.run(['git', '-C', str(self.repo), *args], check=True, capture_output=True, text=True, env={**base, **env})
+
+    def commit_on(self, branch, subject, start='main'):
+        """One commit on its own branch, so each case can choose what reaches it afterwards."""
+        self.git_in_repo('checkout', '-q', '-B', branch, start)
+        (self.repo / subject.split(':')[0].replace('/', '-').replace('(', '-').replace(')', '-')).write_text(subject)
+        self.git_in_repo('add', '-A'); self.git_in_repo('commit', '-q', '-m', subject)
+        sha = self.git_in_repo('rev-parse', 'HEAD').stdout.strip()
+        self.git_in_repo('checkout', '-q', 'main')
+        return sha
+
+    def shipped_by_subject(self, **kw):
+        data = self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False, **kw)
+        return {c['subject']: c['shipped'] for c in data['commits']}, data
+
+    def test_only_what_reached_the_default_branch_counts_as_shipped(self):
+        """Reachability from any ref is not delivery: an open branch, a tag on it and a
+        remote-tracking copy of it are all reachable and none of them shipped. What decides is
+        ancestry of the branch the repository delivers on, so a feature branch merged into it
+        counts even after its own ref is deleted, and the same commits count before the merge
+        and not after nothing else changed."""
+        self.commit_on('feat/open', 'feat(dm): still in flight')
+        self.commit_on('feat/tagged', 'feat(grants): only a tag reaches it')
+        self.git_in_repo('tag', 'v2', 'feat/tagged')
+        self.commit_on('feat/remote-only', 'feat(likes): only a remote ref reaches it')
+        self.git_in_repo('update-ref', 'refs/remotes/origin/remote-only', 'feat/remote-only')
+        self.git_in_repo('branch', '-D', 'feat/remote-only')
+        self.commit_on('feat/merged', 'feat(replies): merged before the report ran')
+        shipped, data = self.shipped_by_subject()
+        self.assertIs(shipped['feat(replies): merged before the report ran'], False)
+        self.git_in_repo('merge', '-q', '--no-ff', '-m', 'merge', 'feat/merged')
+        self.git_in_repo('branch', '-D', 'feat/merged')
+        shipped, data = self.shipped_by_subject()
+        self.assertIs(shipped['feat(replies): merged before the report ran'], True)
+        self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
+        self.assertIs(shipped['feat(dm): still in flight'], False)
+        self.assertIs(shipped['feat(grants): only a tag reaches it'], False)
+        self.assertIs(shipped['feat(likes): only a remote ref reaches it'], False)
+        self.assertEqual(data['coverage']['delivery_ref'], 'main')
+        self.assertEqual(data['coverage']['commits_shipped'], 2)
+
+    def test_a_repository_with_no_delivery_branch_says_it_could_not_tell(self):
+        """A checkout whose default branch cannot be resolved must not call the work shipped,
+        and must not call it unshipped either: the answer is that nothing decided it."""
+        self.git_in_repo('checkout', '-q', '-b', 'feat/only-branch')
+        self.git_in_repo('branch', '-D', 'main')
+        shipped, data = self.shipped_by_subject()
+        self.assertEqual(set(shipped.values()), {None})
+        self.assertIsNone(data['coverage']['delivery_ref'])
+        self.assertIn('no default branch', data['coverage']['shipped'])
+
+    def test_a_pull_request_ships_when_it_merged_in_the_period(self):
+        """collect_prs keeps a pull request opened in the period whether or not it merged, so
+        each record says which it was; an open one is progress, never an update."""
+        rows = [{'number': 1, 'title': 'feat(a): merged', 'state': 'MERGED', 'mergedAt': noon('2026-09-17'),
+                 'createdAt': noon('2026-09-15'), 'author': {'login': 'dev'}},
+                {'number': 2, 'title': 'feat(b): still open', 'state': 'OPEN', 'mergedAt': None,
+                 'createdAt': noon('2026-09-16'), 'author': {'login': 'dev'}},
+                {'number': 3, 'title': 'feat(c): closed unmerged', 'state': 'CLOSED', 'mergedAt': None,
+                 'createdAt': noon('2026-09-16'), 'author': {'login': 'dev'}}]
+        def fake_gh(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows), stderr='')
+        with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
+            prs, _ = self.m.collect_prs(self.repo, self.since, self.until)
+        self.assertEqual({p['number']: p['shipped'] for p in prs}, {1: True, 2: False, 3: False})
+
     def test_the_skill_block_carries_a_failed_collect_and_leaves_nothing_behind(self):
         """A collect that cannot run left the block at exit 0 printing a directory with no
         collect.json in it, so the reader took that path for a successful collection and the
