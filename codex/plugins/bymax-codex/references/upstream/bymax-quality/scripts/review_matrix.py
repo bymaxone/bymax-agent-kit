@@ -242,12 +242,20 @@ def sites(root, mutants):
     which refuses it with the count."""
     spans, landed = {}, 0
     for mutant in mutants:
-        text = (Path(root) / mutant['file']).read_text()
+        # Keyed by the resolved path: `path` and `./path` are one file, and a spelling is
+        # not a place. A file that cannot be read counts as its own site, like an anchor
+        # that does not occur once, so apply_mutant's refusal is the one that fires.
+        where = (Path(root) / mutant['file']).resolve()
+        try:
+            text = where.read_text()
+        except OSError:
+            landed += 1
+            continue
         at = text.find(mutant['anchor'])
         if at >= 0 and text.count(mutant['anchor']) == 1:
-            spans.setdefault(mutant['file'], []).append((at, at + len(mutant['anchor'])))
+            spans.setdefault(where, []).append((at, at + len(mutant['anchor'])))
         else:
-            landed += 1  # counted as its own site, so the anchor refusal is the one that fires
+            landed += 1
     for runs in spans.values():
         end = -1
         for start, stop in sorted(runs):

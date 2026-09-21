@@ -1559,6 +1559,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('has survivors: None', self.start(ok=False, correction=True, reason='').stderr)
         # The containers too.
         for field, value, said in (('results', 1, 'never writes (results)'), ('mutants', '1', 'never writes (mutants)'),
+                                   ('mutants', True, 'never writes (mutants)'),
                                    ('files', ['tests/test_g.py', 1], 'not a list of paths')):
             forged = json.loads(json.dumps(measured))
             forged[field] = value

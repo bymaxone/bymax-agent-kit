@@ -982,7 +982,9 @@ def results_agree(kept, names):
     # value of the wrong type surfaced as a crash inside a comparison rather than as this
     # refusal. The containers come first of all: a count that is not a number or results
     # that are not a list have nothing inside them to compare.
-    odd = [f for f, kind in (('results', list), ('mutants', int)) if not isinstance(kept.get(f), kind)]
+    # A boolean is an int to isinstance, and JSON true is not a count the matrix writes.
+    odd = [f for f, kind in (('results', list), ('mutants', int))
+           if not isinstance(kept.get(f), kind) or isinstance(kept.get(f), bool)]
     require(not odd, 'The recorded matrix is in a shape the runtime never writes (%s). Re-run '
             '`review_flow.py matrix`.' % ', '.join(odd))
     for result in results:

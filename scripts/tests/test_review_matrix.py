@@ -171,6 +171,16 @@ class EnumerationTests(unittest.TestCase):
         payload = bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
                                mutants=[twice, dict(twice, anchor='v > 99', case='over_again')]))
         self.assertEqual(payload['mutants'], 2)
+        # A spelling is not a place: `sub/../thing.py` and `thing.py` are one file.
+        (bench.where / 'sub').mkdir()
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
+                           mutants=[twice, dict(twice, file='sub/../thing.py', case='over_again')]))
+        self.assertIn('short by 1', str(caught.exception))
+        # A file that is not here is apply_mutant's refusal, not a crash in the count.
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='echo 1', mutants=[dict(twice, file='missing.py')]))
+        self.assertIn('not a file here', str(caught.exception))
 
     def test_a_spec_is_read_in_the_shape_the_runtime_writes(self):
         """Found by a reviewer: a list where the rule's name should be ran the matrix, was
