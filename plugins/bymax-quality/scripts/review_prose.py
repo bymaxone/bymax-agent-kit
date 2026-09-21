@@ -110,13 +110,19 @@ def changed(cwd=None):
     finally:
         if os.path.exists(scratch):
             os.unlink(scratch)
-    names = {name for name in (listed + others).split('\0') if name}
-    # The one bit read from the repository's own index, and only to excuse an ABSENCE, and
-    # only in a sparse checkout: a sparse checkout leaves files out on purpose and marks
-    # them skip-worktree, and read-tree does not reapply its patterns to a scratch index.
-    # Outside a sparse checkout the bit was set by hand, and an absence is a deletion — a
-    # reader deleting such a file went unseen. A present path is compared whatever its bits
-    # say, and a symlink is present when its own entry is, whatever its target does.
+    return present(root, {name for name in (listed + others).split('\0') if name}, cwd=cwd)
+
+
+def present(root, names, cwd=None):
+    """The listed names minus the absences a sparse checkout made on purpose.
+
+    The one bit read from the repository's own index, and only to excuse an ABSENCE, and
+    only in a sparse checkout: a sparse checkout leaves files out on purpose and marks
+    them skip-worktree, and read-tree does not reapply its patterns to a scratch index.
+    Outside a sparse checkout the bit was set by hand, and an absence is a deletion — a
+    reader deleting such a file went unseen. A present path is compared whatever its bits
+    say, and a symlink is present when its own entry is, whatever its target does.
+    """
     if git('config', '--get', 'core.sparseCheckout', cwd=cwd).strip() != 'true':
         return sorted(names)
     skipped = {row[2:] for row in git('ls-files', '-z', '-v', cwd=cwd).split('\0') if row[:1] in ('S', 's')}
@@ -221,21 +227,26 @@ def first_change(name, cwd=None):
     return removed
 
 
+def ignored_since(before, cwd=None):
+    """What the reader did to ignored files, each named by its own verb."""
+    now = ignored(cwd=cwd)
+    found = []
+    for name in sorted(now.keys() - before.keys()):
+        found.append('%s is ignored and new: a pass corrects prose that exists, it does not add a file' % name)
+    for name in sorted(n for n in before if n in now and now[n] != before[n]):
+        found.append('%s is ignored and was edited: an ignored file is not prose of this delta' % name)
+    for name in sorted(before.keys() - now.keys()):
+        found.append('%s is ignored and was deleted: a pass corrects prose, it does not remove a file' % name)
+    return found
+
+
 def offences(cwd=None, ignored_before=None):
     """Every way the working tree has left the envelope, named one by one.
 
     Per file and never netted: an added comment in one file is not paid for by a deletion
     in another, because the reviewers are told each file's prose did not grow.
     """
-    found = []
-    if ignored_before is not None:
-        now = ignored(cwd=cwd)
-        for name in sorted(now.keys() - ignored_before.keys()):
-            found.append('%s is ignored and new: a pass corrects prose that exists, it does not add a file' % name)
-        for name in sorted(n for n in ignored_before if n in now and now[n] != ignored_before[n]):
-            found.append('%s is ignored and was edited: an ignored file is not prose of this delta' % name)
-        for name in sorted(ignored_before.keys() - now.keys()):
-            found.append('%s is ignored and was deleted: a pass corrects prose, it does not remove a file' % name)
+    found = [] if ignored_before is None else ignored_since(ignored_before, cwd=cwd)
     for name in changed(cwd=cwd):
         if not name.endswith(review_claims.READABLE):
             found.append('%s is not a file this pass can read, so nothing here can show its '
