@@ -20,7 +20,8 @@ Sources, in the order they are read:
   named ``<slug>--claude-worktrees-*``; those are read too, and every line is kept only
   if its ``cwd`` is this repository or one of its worktrees.
 - Codex sessions under ``~/.codex/sessions``. A session counts when its ``session_meta``
-  names this repository as ``cwd`` and its ``source`` is in ``CODEX_HUMAN_SOURCES``.
+  names this repository as ``cwd`` and its ``source`` is in ``CODEX_HUMAN_SOURCES``; a
+  request is a ``response_item`` of role ``user``, the one form every input has here.
   ``exec`` and subagent sessions are skipped: on the machine this was built, every
   ``exec`` session was the review plugin prompting Codex, not a person typing.
 
@@ -43,10 +44,6 @@ PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
 TEXT_LIMIT = 800
-# Codex writes one input twice, as a response_item and an event_msg milliseconds apart.
-# The same text again inside this window is that second copy; outside it, a person typed
-# the words again. A calendar minute was tried first and split a pair at :59.995/:00.004.
-PAIR_WINDOW = dt.timedelta(seconds=2)
 # gh pr list has no pagination: a read that comes back exactly this long may have dropped
 # older PRs, and the coverage note says so instead of reading as complete.
 PR_LIMIT = 1000
@@ -382,26 +379,20 @@ def collect_codex(home: Path, paths: list[str], since: dt.date, until: dt.date) 
             continue
         matched += 1
         session = payload.get('id') or path.stem
-        last_admitted: dict[str, dt.datetime] = {}
         first = True
         for line in lines:
-            kind = line.get('type')
             body = line.get('payload') or {}
-            if kind == 'response_item' and body.get('type') == 'message' and body.get('role') == 'user':
-                text = clean_request(message_text(body.get('content')))
-            elif kind == 'event_msg' and body.get('type') == 'user_message':
-                text = clean_request(body.get('message') or '')
-            else:
+            # What a person typed is a response_item of role user, and only that. Measured on
+            # the machine this was built (codex-cli 0.154.0, 5 interactive sessions): every
+            # input also appears 0-6 ms later as an event_msg item_completed/UserMessage, which
+            # is not read, so nothing here deduplicates and a repeat at any distance is another
+            # ask. Two windows were tried before this and each lost a real repeat.
+            if line.get('type') != 'response_item' or body.get('type') != 'message' or body.get('role') != 'user':
                 continue
+            text = clean_request(message_text(body.get('content')))
             if text is None:
                 continue
             timestamp = line.get('timestamp') or ''
-            when = parse_timestamp(timestamp)
-            previous = last_admitted.get(text)
-            if previous is not None and when is not None and abs(when - previous) <= PAIR_WINDOW:
-                continue
-            if when is not None:
-                last_admitted[text] = when
             opens = first
             first = False
             if not in_period(timestamp, since, until):

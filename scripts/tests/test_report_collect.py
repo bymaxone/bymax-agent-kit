@@ -162,7 +162,7 @@ class CollectTests(unittest.TestCase):
 
     def test_codex_counts_a_person_and_not_the_review_plugin_or_a_subagent(self):
         self.codex_session('cli1', 'cli', str(self.repo),
-                           ['<recommended_plugins>\nlist', '\n# Files mentioned by the user:\n\n## a.mov', 'make the DM route read the cache', 'make the DM route read the cache'])
+                           ['<recommended_plugins>\nlist', '\n# Files mentioned by the user:\n\n## a.mov', 'make the DM route read the cache'])
         self.codex_session('vs1', 'vscode', str(self.repo), ['ship the panel'])
         self.codex_session('exec1', 'exec', str(self.repo), ['Review this diff for defects'])
         self.codex_session('sub1', {'subagent': {'other': 'guardian'}}, str(self.repo), ['assess this action'])
@@ -207,44 +207,44 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(len(data['commits']), 2)
 
     def codex_rows(self, *entries):
-        """A session_meta for this repo followed by user messages: ('item'|'event', timestamp, text)."""
+        """A session_meta for this repo followed by rows: ('item'|'copy'|'event'|'assistant', timestamp, text).
+        'item' is what a person typed, a response_item of role user; 'copy' is the event_msg
+        item_completed/UserMessage Codex writes after it; 'event' is an event_msg/user_message."""
         rows = [{'timestamp': noon('2026-09-10'), 'type': 'session_meta',
                  'payload': {'id': 'rep', 'cwd': str(self.repo), 'source': 'cli', 'originator': 'x'}}]
         for kind, ts, text in entries:
-            if kind == 'item':
+            if kind in ('item', 'assistant'):
                 rows.append({'timestamp': ts, 'type': 'response_item',
-                             'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}})
+                             'payload': {'type': 'message', 'role': 'user' if kind == 'item' else 'assistant',
+                                         'content': [{'type': 'input_text' if kind == 'item' else 'output_text', 'text': text}]}})
+            elif kind == 'copy':
+                rows.append({'timestamp': ts, 'type': 'event_msg',
+                             'payload': {'type': 'item_completed', 'item': {'type': 'UserMessage', 'id': 'item-1',
+                                                                            'content': [{'type': 'text', 'text': text}]}}})
             else:
                 rows.append({'timestamp': ts, 'type': 'event_msg', 'payload': {'type': 'user_message', 'message': text}})
         write_jsonl(self.home / '.codex/sessions/2026/09/10/rollout-rep.jsonl', rows)
         return [r['text'] for r in self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)['requests']]
 
-    def test_codex_collapses_one_input_written_twice_whichever_side_of_a_minute(self):
-        """Codex writes one input as a response_item and an event_msg milliseconds apart. That
-        pair is one ask in the same minute, across a minute boundary, and in either order; a
-        copy 1.5 s later is still the pair. The rule is a window on real time, never a calendar
-        minute, which a pair at :59.995 and :00.004 broke."""
-        self.assertEqual(self.codex_rows(('item', '2026-09-17T12:00:10.000Z', 'a'),
-                                         ('event', '2026-09-17T12:00:10.250Z', 'a')), ['a'])
-        self.assertEqual(self.codex_rows(('item', '2026-09-17T12:00:59.995Z', 'b'),
-                                         ('event', '2026-09-17T12:01:00.004Z', 'b')), ['b'])
-        self.assertEqual(self.codex_rows(('event', '2026-09-17T12:00:59.995Z', 'c'),
-                                         ('item', '2026-09-17T12:01:00.004Z', 'c')), ['c'])
-        self.assertEqual(self.codex_rows(('item', '2026-09-17T12:00:10.000Z', 'd'),
-                                         ('event', '2026-09-17T12:00:11.500Z', 'd')), ['d'])
+    def test_codex_reads_the_typed_message_once_and_never_its_copy(self):
+        """Measured on this machine (codex-cli 0.154.0, 5 interactive sessions): a person's input is one
+        response_item of role user, and 0-6 ms later an event_msg item_completed/UserMessage carries
+        the same text. The item is the ask; the copy is not read; an assistant message is not read;
+        an event_msg/user_message, seen only in exec sessions of an earlier version, is not read either."""
+        self.assertEqual(self.codex_rows(('item', '2026-09-17T12:00:59.995Z', 'straddle'),
+                                         ('copy', '2026-09-17T12:01:00.004Z', 'straddle'),
+                                         ('assistant', '2026-09-17T12:01:05.000Z', 'straddle back'),
+                                         ('event', '2026-09-17T12:02:00.000Z', 'only an event')), ['straddle'])
 
-    def test_codex_keeps_the_same_words_typed_again_later(self):
-        """The same words are another ask when a person types them again: on another day, five
-        minutes later, or three seconds later, and one typed before the period must not hide
-        the one typed inside it. Different words at one timestamp are two asks."""
-        self.assertEqual(self.codex_rows(('event', noon('2026-09-10'), 'fix the approval flow'),
-                                         ('event', noon('2026-09-17'), 'fix the approval flow')), ['fix the approval flow'])
+    def test_codex_keeps_every_repeat_a_person_typed(self):
+        """Nothing deduplicates: the same words are another ask on another day, five minutes later,
+        half a second later, and out of order; one typed before the period does not hide one inside it."""
+        self.assertEqual(self.codex_rows(('item', noon('2026-09-10'), 'fix the approval flow'),
+                                         ('item', noon('2026-09-17'), 'fix the approval flow')), ['fix the approval flow'])
         self.assertEqual(self.codex_rows(('item', '2026-09-17T15:00:00Z', 'continue'),
-                                         ('item', '2026-09-17T15:05:00Z', 'continue')), ['continue', 'continue'])
-        self.assertEqual(self.codex_rows(('item', '2026-09-17T15:00:00Z', 'continue'),
-                                         ('item', '2026-09-17T15:00:03Z', 'continue')), ['continue', 'continue'])
-        self.assertEqual(self.codex_rows(('item', '2026-09-17T15:00:00Z', 'x'),
-                                         ('item', '2026-09-17T15:00:00Z', 'y')), ['x', 'y'])
+                                         ('item', '2026-09-17T15:05:00Z', 'continue'),
+                                         ('item', '2026-09-17T15:05:00.500Z', 'continue'),
+                                         ('item', '2026-09-17T15:04:00Z', 'continue')), ['continue'] * 4)
 
     def test_commits_reachable_only_from_a_remote_branch_or_a_tag_are_read(self):
         """A commit that only a remote-tracking ref or a tag still reaches is shipped work a
