@@ -978,12 +978,19 @@ def ran_the_changed_tests(kept, changed):
     """The record names the tests it ran, and the tests this correction changed must be
     among them: a matrix over some other file measured nothing about the new gate."""
     ran = kept.get('tests')
-    require(isinstance(ran, list) and all(isinstance(p, str) for p in ran), 'The recorded matrix '
-            'does not name the tests it ran. Re-run `review_flow.py matrix`.')
-    missing = sorted(set(changed) - {Path(p).as_posix() for p in ran})
+    require(isinstance(ran, dict) and all(isinstance(p, str) and isinstance(c, list)
+                                          and all(isinstance(x, str) for x in c) for p, c in ran.items()),
+            'The recorded matrix does not name the tests it ran. Re-run `review_flow.py matrix`.')
+    missing = sorted(set(changed) - set(ran))
     require(not missing, 'The recorded matrix did not run %s, which this correction changes; a '
             'matrix over other tests measured nothing about the gate that changed. Re-run '
             '`review_flow.py matrix` over it.' % ', '.join(missing))
+    # Named is not run: a file on the command line whose own cases were all deselected by the
+    # selector measured nothing about the gate in it.
+    idle = sorted(p for p in changed if not ran[p])
+    require(not idle, 'The recorded matrix ran no case of %s, which this correction changes: the '
+            'file was named but every case run belonged to another. Add a mutant whose case '
+            'lives in it and re-run `review_flow.py matrix`.' % ', '.join(idle))
 
 
 def results_agree(kept, names):

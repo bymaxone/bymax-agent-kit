@@ -110,7 +110,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
-    def matrix(self, path, cases):   # cases: (anchor, becomes, case)
+    def matrix(self, path, cases, also=(), where=None):   # cases: (anchor, becomes, case)
         """Run a real mutation matrix in the fixture repo, because nothing here fakes one.
 
         A correction that changes a test must carry a measured matrix, and a fixture that
@@ -121,10 +121,10 @@ class ReviewFlowTests(unittest.TestCase):
         spec = self.root / 'matrix.json'
         spec.write_text(json.dumps([{
             'rule': 'fixture: one mutant per case the file defines',
-            'enumeration': 'grep -c "def test_" %s' % path,
-            'mutants': [{'file': path, 'anchor': anchor, 'becomes': becomes, 'case': case}
+            'enumeration': 'grep -c "def test_" %s' % (where or path),
+            'mutants': [{'file': where or path, 'anchor': anchor, 'becomes': becomes, 'case': case}
                         for anchor, becomes, case in cases]}]))
-        return self.flow('matrix', '--spec', str(spec), path)
+        return self.flow('matrix', '--spec', str(spec), path, *also)
 
 
     def start(self, ok=True, correction=False, design=False, probe=None, reason='fixture: no test needed',
@@ -1559,7 +1559,7 @@ class ReviewFlowTests(unittest.TestCase):
         for field, value, said in (('results', 1, 'never writes (results)'), ('mutants', '1', 'never writes (mutants)'),
                                    ('mutants', True, 'never writes (mutants)'),
                                    ('files', ['tests/test_g.py', 1], 'not a list of paths'),
-                                   ('tests', 'tests/test_g.py', 'does not name the tests it ran')):
+                                   ('tests', ['tests/test_g.py'], 'does not name the tests it ran')):
             self.refused_with(record, measured, said, **{field: value})
 
     def test_a_record_must_have_run_the_tests_the_correction_changed(self):
@@ -1568,9 +1568,37 @@ class ReviewFlowTests(unittest.TestCase):
         changed test never ran. The record names the tests it ran; the changed ones must be
         among them."""
         record, measured = self.measured_record()
-        self.refused_with(record, measured, 'did not run tests/test_g.py', tests=['tests/test_other.py'])
+        self.refused_with(record, measured, 'did not run tests/test_g.py', tests={'tests/test_other.py': ['test_g']})
+        # Named is not run: the file on the command line with none of its own cases selected.
+        self.refused_with(record, measured, 'ran no case of tests/test_g.py', tests={'tests/test_g.py': []})
         record.write_text(json.dumps(measured))
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_the_record_names_a_test_as_the_runtime_does_whatever_the_command_line_said(self):
+        """Found by a reviewer: the matrix took an absolute path and wrote it verbatim, so its
+        own record was refused against the root-relative name of the changed test; and a
+        second file on the command line whose cases were all deselected was recorded as run."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_h.py').write_text('def test_h(): assert 2 == 2\n')
+        self.commit('a correction that changes two tests')
+        self.matrix(str(self.repo / 'tests/test_g.py'), [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_h.py',))
+        directory = Path(self.flow('status')['directory'])
+        record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
+        self.assertEqual(record['tests'], {'tests/test_g.py': ['test_g'], 'tests/test_h.py': []})
+        self.assertIn('ran no case of tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
+        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_h.py',))
+        self.assertIn('ran no case of tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
+        # A directory on the command line runs every test file under it, as pytest reads it:
+        # the record names both files, and the one no case of the spec lives in is refused.
+        self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
+        record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
+        self.assertEqual(record['tests'], {'tests/test_g.py': ['test_g'], 'tests/test_h.py': []})
+        self.assertIn('ran no case of tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
 
     def test_a_correction_that_changes_no_test_needs_no_matrix(self):
         """The scope, asserted: a correction with no gate to mutate is exempt, and saying so

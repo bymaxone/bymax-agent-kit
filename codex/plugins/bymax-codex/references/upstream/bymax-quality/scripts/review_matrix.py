@@ -346,6 +346,25 @@ def fingerprint(root, spec):
     return head, names, digest(root, names)
 
 
+def held(root, files, cases):
+    """Per test file the matrix ran, spelled relative to the root, the spec's cases that file
+    defines. A path alone proved nothing: pytest takes every path and one -k selector, so a
+    file could be named on the command line while every case ran belonged to another file
+    and its own were deselected. The spelling is the root-relative one whatever the command
+    line said, since that is how the runtime names a changed test."""
+    out = {}
+    for f in files:
+        # A directory runs every test file under it, and a node id its file: pytest reads
+        # both, so the record reads them the same way.
+        path = Path(root) / str(f).split('::')[0]
+        for each in (sorted(path.rglob('test_*.py')) if path.is_dir() else [path]):
+            text = each.read_text() if each.is_file() else ''
+            name = Path(os.path.relpath(each.resolve(), Path(root).resolve())).as_posix()
+            # A case is a -k selector: the name after test_, or the whole name.
+            out[name] = sorted(c for c in cases if ('def test_%s(' % c) in text or ('def %s(' % c) in text)
+    return out
+
+
 def record(root, spec_path, files, out=None):
     """Run the matrix and write what happened; a survivor is a failure, not a note."""
     spec = json.loads(Path(spec_path).read_text())
@@ -358,7 +377,8 @@ def record(root, spec_path, files, out=None):
     # the matrix ran is a question nothing else in the record answers.
     payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
                'mutants': len(results), 'survivors': [r['case'] for r in survivors],
-               'tests': sorted(Path(f).as_posix() for f in files), 'results': results}
+               'tests': held(root, files, {m['case'] for rule in spec for m in rule['mutants']}),
+               'results': results}
     if out:
         Path(out).write_text(json.dumps(payload, indent=2) + '\n')
     if survivors:
