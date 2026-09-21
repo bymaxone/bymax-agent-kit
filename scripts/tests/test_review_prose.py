@@ -145,9 +145,7 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_a_fence_closes_only_on_a_bare_fence_line(self):
         """Found by a reviewer: a content line like ```not-a-close closed the block for a
-        reader of its first three characters, and the command after it went unread. A closing
-        fence is the same character, at least as long, and nothing else; four backticks open a
-        block that three do not close."""
+        reader of its first three characters, and the command after it went unread."""
         tricky = '# Run\n\n```text\n```not-a-close\necho safe\n```\n\nSaid.\n'
         longer = '# Run\n\n````sh\n```\necho safe\n````\n\nSaid.\n'
         bench = Bench(self, {'A.md': tricky, 'B.md': longer})
@@ -158,8 +156,7 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_a_directive_moved_to_another_statement_is_not_prose(self):
         """Found by a reviewer: the same `# noqa` on another statement suppresses another
-        diagnostic, and a list of the comment strings alone read the move as no change. Beside
-        a statement, standing alone above one, and a checker the list had not named."""
+        diagnostic, and a list of the comment strings alone read the move as no change."""
         inline = 'x = 1  # noqa\ny = 2\n'
         alone = '# pylint: disable=invalid-name\na = 1\nb = 2\n'
         bench = Bench(self, {'thing.py': inline, 'other.py': alone})
