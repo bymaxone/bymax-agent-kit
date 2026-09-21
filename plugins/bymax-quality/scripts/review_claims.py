@@ -136,9 +136,9 @@ READABLE = ('.md', '.py')
 def touched(base, head, cwd=None):
     """Files this delta changed whose prose this module can read.
 
-    Renames are not detected, as they are not where the delta is read either: git reports a
-    rename as the destination alone, and a definition removed in the same commit then lived
-    in a path the base does not have, so nothing was read as removed at all.
+    Renames are not detected: git reports a rename as the destination alone, and a definition
+    removed in the same commit then lived in a path the base does not have, so nothing was
+    read as removed at all.
     """
     listed = git('diff', '--name-only', '--no-renames', '-z', base, head, cwd=cwd)
     return [n for n in listed.split('\0') if n.endswith(READABLE) and authored(n)]
@@ -270,7 +270,7 @@ def defined(text):
 
 
 def definitions(source):
-    """Every test a python source defines, spelled as pytest spells its node id — a method
+    """Every function a python source defines, spelled as pytest spells its node id — a method
     under `Class::`, a decorator counted as part of the test it decorates — with the lines it
     occupies. Read from the text: a file that cannot be parsed defines nothing here, which
     leaves the caller its own answer rather than a crash."""
@@ -294,8 +294,8 @@ def defined_under(node, prefix):
 
 def changed_tests(base, head, names, cwd=None):
     """Per named file, the tests this delta added or changed, spelled as pytest spells a node
-    id. A file whose delta touched no test of its own — a fixture, a helper, an import —
-    answers with none, because a correction there has no changed test to demand."""
+    id. A file whose delta touched no line a test of its own occupies answers with none,
+    because a correction there has no changed test to demand."""
     out = {}
     for name in names:
         lines = hunks(git('diff', '-U0', '--no-renames', base, head, '--', name, cwd=cwd))

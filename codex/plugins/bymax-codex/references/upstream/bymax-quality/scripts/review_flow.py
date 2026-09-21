@@ -971,8 +971,8 @@ def matrix_first(state, directory):
             'fingerprint does not match what is here now. A record is bound to the tree it '
             'measured; re-run the matrix on this one.' % ', '.join(names))
     ran_the_changed_tests(kept, state['regression_tests'])
-    # After results_agree, never before: the nodes it reads are the results, and a record whose
-    # results are not a list crashed here rather than being refused by name.
+    # Before caught_with_the_changed_test, never after: the nodes it reads are the results,
+    # and a record whose results are not a list crashed there rather than refused by name.
     results_agree(kept, names)
     caught_with_the_changed_test(kept, review_claims.changed_tests(
         state['review_base'], state['head'], state['regression_tests']))

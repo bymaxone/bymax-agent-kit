@@ -118,7 +118,7 @@ class ReviewFlowTests(unittest.TestCase):
 
         A correction that changes a test must carry a measured matrix, and a fixture that
         wrote the record by hand would make the gate satisfiable by typing — which is the
-        defect the gate exists to remove. `cases` is (anchor, case) per function the file
+        defect the gate exists to remove. `cases` is (anchor, becomes, case) per function the file
         defines, so the enumeration command and the mutant count agree by construction — a
         case that mutates a guard rather than a test file counts its own way instead.
         """
@@ -1741,8 +1741,8 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_delta_that_changed_no_test_of_its_own_keeps_the_file_rule(self):
-        """A correction that changes a helper, an import or a fixture in a test file has no
-        changed test to demand: the file rule stands there, and some test of it must catch."""
+        """A correction that changes a line no test of the file occupies has no changed test
+        to demand: the file rule stands there, and some test of it must catch."""
         self.a_guard_and_its_older_test()
         (self.repo / 'tests/test_calc.py').write_text('SPARE = 1\n' + OLD_TEST)
         self.commit('a correction that changes no test of its own')

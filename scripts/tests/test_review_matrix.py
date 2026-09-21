@@ -108,7 +108,7 @@ class MeaningTests(unittest.TestCase):
         self.assertIn('survived', str(caught.exception))
 
     def test_a_mutant_keeps_the_file_s_own_line_endings(self):
-        """Found by a reviewer: write_text() rewrites CRLF as LF, so a file restored through
+        """Found by a reviewer: read_text() turns CRLF into LF, so a file restored through
         text came back with every line ending changed — the worktree left dirty and the
         author's own source rewritten until they reset it. The bytes go back as they were,
         and the mutant goes in keeping the ending the file already used."""

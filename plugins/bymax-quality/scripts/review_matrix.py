@@ -182,7 +182,7 @@ def apply_mutant(root, mutant):
     if not os.access(path, os.W_OK):
         bail('Mutant for %r cannot be applied: %s is not writable, and a matrix that cannot '
              'restore what it changed must not start.' % (mutant.get('case'), mutant['file']))
-    # The bytes, because write_text() rewrites CRLF as LF: a file restored through text came
+    # The bytes, because read_text() turns CRLF into LF: a file restored through text came
     # back with every line ending changed, which left the worktree dirty and the author's
     # source rewritten. The text is read beside them so an anchor spelled with \n still finds
     # its line whatever the file uses, and the mutant goes back in the file's own ending.
