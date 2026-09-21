@@ -195,8 +195,8 @@ class EnvelopeTests(unittest.TestCase):
         subprocess.run(['git', '-C', str(bench.where), 'update-index', '--skip-worktree', 'thing.py'], check=True)
         bench.write(START.replace('value > LIMIT', 'value >= LIMIT'))
         self.assertIn('behaviour changed', ' | '.join(bench.offences()))
-        # Absent with a bit set by hand, outside any sparse checkout: a deletion. Only where
-        # git set the bit itself does an absence pass.
+        # Absent with a bit set by hand, outside any sparse checkout: a deletion. Only in a
+        # sparse checkout does an absence pass.
         (bench.where / 'thing.py').unlink()
         self.assertIn('was deleted', ' | '.join(bench.offences()))
 

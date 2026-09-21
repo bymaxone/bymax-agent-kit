@@ -112,7 +112,7 @@ def changed(cwd=None):
             os.unlink(scratch)
     names = {name for name in (listed + others).split('\0') if name}
     # The one bit read from the repository's own index, and only to excuse an ABSENCE, and
-    # only where git itself set it: a sparse checkout leaves files out on purpose and marks
+    # only in a sparse checkout: a sparse checkout leaves files out on purpose and marks
     # them skip-worktree, and read-tree does not reapply its patterns to a scratch index.
     # Outside a sparse checkout the bit was set by hand, and an absence is a deletion — a
     # reader deleting such a file went unseen. A present path is compared whatever its bits
