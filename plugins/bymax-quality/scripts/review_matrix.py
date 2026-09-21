@@ -354,8 +354,8 @@ def record(root, spec_path, files, out=None):
     results = matrix(root, spec, files)
     survivors = [r for r in results if not r['caught']]
     head, names, tree = fingerprint(root, spec)
-    # The test paths it ran travel with the record: a correction that changes a test is
-    # matrix-backed only if the matrix ran that test, and nothing else in the record says.
+    # The test paths it ran travel with the record: whether a given test was among those
+    # the matrix ran is a question nothing else in the record answers.
     payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
                'mutants': len(results), 'survivors': [r['case'] for r in survivors],
                'tests': sorted(Path(f).as_posix() for f in files), 'results': results}

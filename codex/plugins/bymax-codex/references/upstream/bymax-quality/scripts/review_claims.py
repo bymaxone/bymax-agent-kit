@@ -448,8 +448,8 @@ def report(base, head, cwd=None):
 
 def main(argv):
     """The command line: a base and a head, and the report over the delta between them.
-    Exit 2 for a refusal — a claim the delta contradicts — and 0 otherwise, whatever
-    the report merely reports."""
+    Exit 1 for a refusal — a claim the delta contradicts — and 0 otherwise, whatever
+    the report merely reports; 2 is a bad command line."""
     if len(argv) != 3:
         print('usage: review_claims.py <base> <head>', file=sys.stderr)
         return 2
