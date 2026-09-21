@@ -114,7 +114,7 @@ class ReviewFlowTests(unittest.TestCase):
         return result.stdout.strip()
 
     def matrix(self, path, cases, also=(), where=None, enumeration=None):
-        """Run a real mutation matrix in the fixture repo, because nothing here fakes one.
+        """Run a real mutation matrix in the fixture repo.
 
         A correction that changes a test must carry a measured matrix, and a fixture that
         wrote the record by hand would make the gate satisfiable by typing — which is the

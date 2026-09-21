@@ -284,9 +284,8 @@ def definitions(source):
 def defined_under(node, prefix):
     """The tests this body defines, and those its test classes do, prefixed as pytest spells
     them. Named as pytest collects them, because only what it collects can be demanded of a
-    correction: a helper or a fixture the tests share is a function of this file too, and a
-    name nothing collects could never appear among the nodes that failed. Nested functions
-    are not tests and are not descended into."""
+    correction: a name nothing collects — a helper, a fixture — could never appear among the
+    nodes that failed. Nested functions are not tests and are not descended into."""
     for child in getattr(node, 'body', []):
         if isinstance(child, ast.ClassDef) and child.name.startswith('Test'):
             yield from defined_under(child, prefix + child.name + '::')
