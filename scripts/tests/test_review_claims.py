@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
-import review_claims as claims                                     # noqa: E402
+import review_claims as claims
 
 
 def run(where, *args):
@@ -171,6 +171,20 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.ts': 'const x = 1\nconst z = 3\n'})
         split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
         self.assertEqual([(n, at) for n, at, _ in split['code']], [('a.ts', -2)])
+
+    def test_a_content_line_beginning_with_plus_signs_is_kept(self):
+        """A prefix increment `++n` prints as `+++n` under git's default indicator, and the
+        header test dropped it: the reviewer's delta lacked the one line that changed. Both
+        walkers, both signs."""
+        tree = Tree(self, {'a.ts': 'let n = 0\n', 'b.ts': 'let m = 0\n--m\n',
+                           'c.py': 'count = 0\n', 'd.py': 'total = 0\n--total\n'},
+                    {'a.ts': 'let n = 0\n++n\n', 'b.ts': 'let m = 0\n',
+                     'c.py': 'count = 0\n++count\n', 'd.py': 'total = 0\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertIn(('a.ts', 2, '++n'), split['code'])
+        self.assertIn(('b.ts', -2, '--m'), split['code'])
+        self.assertIn(('c.py', 2, '++count'), split['code'])
+        self.assertIn(('d.py', -2, '--total'), split['code'])
 
     def test_a_whole_file_deletion_is_marked_as_a_removal(self):
         """A file that disappears entirely still reports its lines as removals."""

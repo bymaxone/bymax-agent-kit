@@ -233,8 +233,11 @@ def digest(root, names):
     """One digest over these files, names and bytes, in a fixed order."""
     total = hashlib.sha256()
     for name in sorted(names):
-        total.update(name.encode())
-        total.update((Path(root) / name).read_bytes())
+        # Each field hashed to a fixed width before it joins the stream. Appending the
+        # bytes directly let a name's tail and a content's head trade places — `a`+`bc`
+        # and `ab`+`c` were one digest — and no digest strength repairs a moved boundary.
+        total.update(hashlib.sha256(name.encode()).digest())
+        total.update(hashlib.sha256((Path(root) / name).read_bytes()).digest())
     return total.hexdigest()
 
 

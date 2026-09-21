@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
-import review_matrix as matrix                                      # noqa: E402
+import review_matrix as matrix
 
 GUARDED = 'LIMIT = 10\n\n\ndef over(value):\n    return value > LIMIT\n'
 CASE = ('import sys\nsys.path.insert(0, ".")\nfrom thing import over\n\n\n'
@@ -181,6 +181,18 @@ class EnumerationTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(enumeration='true'))
         self.assertIn('produced no count', str(caught.exception))
+
+
+class FingerprintTests(unittest.TestCase):
+
+    def test_the_fingerprint_keeps_each_field_inside_its_boundary(self):
+        """Name and content appended raw let `a`+`bc` and `ab`+`c` digest alike, so a record
+        could be rebound to another file set under the same fingerprint."""
+        where = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(['rm', '-rf', str(where)]))
+        (where / 'a').write_text('bc')
+        (where / 'ab').write_text('c')
+        self.assertNotEqual(matrix.digest(str(where), ['a']), matrix.digest(str(where), ['ab']))
 
 
 class RecordTests(unittest.TestCase):

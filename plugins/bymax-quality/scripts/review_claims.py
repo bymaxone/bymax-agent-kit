@@ -181,17 +181,18 @@ def unreadable(base, head, out, cwd=None):
     for name in opaque(base, head, cwd=cwd):
         rows = len(out['code'])
         at = was = None
-        for row in git('diff', '-U0', base, head, '--', name, cwd=cwd).split('\n'):
+        for row in git('diff', '-U0', '--output-indicator-new=>', '--output-indicator-old=<',
+                       base, head, '--', name, cwd=cwd).split('\n'):
             if row.startswith('@@'):
                 # Both coordinates. Reading only the added side numbered a removed line by
                 # where it is NOT: a line deleted from old line 2 printed as `- a.ts:1`,
                 # because the new side had moved on. A removal is located where it was.
                 was = int(row.split('-')[1].split(',')[0].split()[0])
                 at = int(row.split('+')[1].split(',')[0].split()[0])
-            elif row.startswith('+') and not row.startswith('+++'):
+            elif row.startswith('>'):
                 out['code'].append((name, at or 0, row[1:]))
                 at = (at + 1) if at else at
-            elif row.startswith('-') and not row.startswith('---'):
+            elif row.startswith('<'):
                 # Negative, like every other removal here — and never -0, which is 0 and reads
                 # as an addition. A whole-file deletion has no added side, so its hunk header
                 # says +0; taking the sign from that printed a deleted file as added, which is
@@ -224,14 +225,18 @@ def split_delta(base, head, cwd=None):
         after = review_marks(name, git('show', '%s:%s' % (head, name), cwd=cwd))
         before = review_marks(name, git('show', '%s:%s' % (base, name), cwd=cwd))
         at = was = None
-        for row in git('diff', '-U0', base, head, '--', name, cwd=cwd).split('\n'):
+        for row in git('diff', '-U0', '--output-indicator-new=>', '--output-indicator-old=<',
+                       base, head, '--', name, cwd=cwd).split('\n'):
             if row.startswith('@@'):
                 was = int(row.split('-')[1].split(',')[0].split()[0])
                 at = int(row.split('+')[1].split(',')[0].split()[0])
-            elif row.startswith('+') and not row.startswith('+++') and at is not None:
+            # Indicators of git's choosing rather than its defaults: under `+`, a content
+            # line `++n` prints as `+++n` and the header test dropped it, so a reviewer was
+            # handed a delta missing the line that changed. `>` never opens a header.
+            elif row.startswith('>') and at is not None:
                 out['prose' if at in after else 'code'].append((name, at, row[1:]))
                 at += 1
-            elif row.startswith('-') and not row.startswith('---') and was is not None:
+            elif row.startswith('<') and was is not None:
                 # A deletion is a change. Counting only additions told both reviewers that a
                 # correction which removed four lines of live code had changed no code.
                 out['prose' if was in before else 'code'].append((name, -was, row[1:]))
