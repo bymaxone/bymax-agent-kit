@@ -147,10 +147,15 @@ class EnumerationTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"', mutants=[twice, dict(twice)]))
         self.assertIn('repeats a mutant', str(caught.exception))
-        # The same mutation under another case is another measurement, not a repeat.
+        # The same mutation under another case is another measurement, not a repeat — and
+        # not a mutation of the second site the command counts, either.
         again = CASE + '\n\ndef test_over_again():\n    assert not over(5)\n'
         bench = Bench(self, guard='LIMIT = 10\n\n\ndef over(v):\n    return v > LIMIT or v > 99\n', test=again)
-        payload = bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
+                           mutants=[twice, dict(twice, case='over_again')]))
+        self.assertIn('short by 1', str(caught.exception))
+        payload = bench.run(rule(enumeration='grep -c "v > LIMIT" thing.py',
                                mutants=[twice, dict(twice, case='over_again')]))
         self.assertEqual(payload['mutants'], 2)
 

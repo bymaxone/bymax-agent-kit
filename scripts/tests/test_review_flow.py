@@ -1540,6 +1540,19 @@ class ReviewFlowTests(unittest.TestCase):
         record.write_text(json.dumps(forged))
         self.assertIn('results it did not catch: test_g',
                       self.start(ok=False, correction=True, reason='').stderr)
+        # A forged result may carry no case at all; the refusal names it rather than raising.
+        forged = json.loads(json.dumps(measured))
+        forged['results'][0]['caught'] = False
+        del forged['results'][0]['case']
+        record.write_text(json.dumps(forged))
+        self.assertIn('results it did not catch: None',
+                      self.start(ok=False, correction=True, reason='').stderr)
+        # The runtime records a mutation shared by two rules twice; that is two measurements.
+        forged = json.loads(json.dumps(measured))
+        forged['mutants'] = 2
+        forged['results'].append(dict(forged['results'][0], rule='another rule'))
+        record.write_text(json.dumps(forged))
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_correction_that_changes_no_test_needs_no_matrix(self):
         """The scope, asserted: a correction with no gate to mutate is exempt, and saying so

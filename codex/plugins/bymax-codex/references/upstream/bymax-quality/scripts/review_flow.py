@@ -956,7 +956,7 @@ def matrix_first(state, directory):
     require(kept.get('tree'), 'The recorded matrix carries no fingerprint of the files it '
             'mutated, so nothing ties it to what is here now.')
     require(not kept.get('survivors'), 'The recorded matrix has survivors: '
-            + ', '.join(kept['survivors']) + '. A gate nothing can break is decoration.')
+            + ', '.join(str(s) for s in kept['survivors']) + '. A gate nothing can break is decoration.')
     # Recomputed, not trusted. The field was tested for presence and never for agreement, so
     # a record saying `tree: x` bound itself to nothing while two sentences said it did — the
     # head alone held the binding, and only on the path that refuses a dirty worktree.
@@ -982,7 +982,10 @@ def results_agree(kept, names):
     require(len(results) == kept.get('mutants'), 'The recorded matrix counts %s mutants and carries '
             '%d results; a summary its results do not add up to measured nothing. Re-run '
             '`review_flow.py matrix`.' % (kept.get('mutants'), len(results)))
-    identities = [(r.get('file'), r.get('anchor'), r.get('becomes'), r.get('case')) for r in results]
+    # The rule is part of it: the matrix dedupes per rule and records a mutation shared by
+    # two rules twice, and an identity without the rule refused the runtime's own record.
+    identities = [(r.get('rule'), r.get('file'), r.get('anchor'), r.get('becomes'), r.get('case'))
+                  for r in results]
     require(len(set(identities)) == len(identities), 'The recorded matrix repeats a result: two '
             'results with one identity are one measurement, so the count they add up to is not '
             'the count of mutants. Re-run `review_flow.py matrix`.')
@@ -990,7 +993,8 @@ def results_agree(kept, names):
     # "false" is truthy, so a surviving result retyped that way read as caught.
     uncaught = [r.get('case') for r in results if r.get('caught') is not True]
     require(not uncaught, 'The recorded matrix has results it did not catch: %s. Its survivor '
-            'list said otherwise; the results are what was measured.' % ', '.join(uncaught))
+            'list said otherwise; the results are what was measured.'
+            % ', '.join(str(c) for c in uncaught))  # str: a forged result may carry no case
 
 
 def code_view(state):

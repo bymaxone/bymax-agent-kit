@@ -232,10 +232,13 @@ def matrix(root, spec, files):
                      % (rule.get('rule'), mutant.get('file'), (mutant.get('anchor') or '')[:40],
                         mutant.get('case')))
             seen.add(key)
-        if declared is not None and declared > len(mutants):
-            bail('Rule %r enumerates %d case(s) by its own command and mutates %d. The list is '
-                 'short by %d: a case nothing mutates is a case nothing covers.'
-                 % (rule.get('rule'), declared, len(mutants), declared - len(mutants)))
+        # The enumeration counts sites, and so does this: a second case for one site is a
+        # second measurement of it, not a mutation of the site the command counted next.
+        sites = {(m.get('file'), m.get('anchor'), m.get('becomes')) for m in mutants}
+        if declared is not None and declared > len(sites):
+            bail('Rule %r enumerates %d case(s) by its own command and mutates %d site(s). The '
+                 'list is short by %d: a case nothing mutates is a case nothing covers.'
+                 % (rule.get('rule'), declared, len(sites), declared - len(sites)))
         for mutant in mutants:
             result = one(root, mutant, files, clean)
             result['rule'] = rule.get('rule')
