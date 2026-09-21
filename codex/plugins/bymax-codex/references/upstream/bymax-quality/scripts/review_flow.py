@@ -984,6 +984,10 @@ def results_agree(kept, names):
             '`review_flow.py matrix`.' % (kept.get('mutants'), len(results)))
     # `is not True`, not falsiness: the record is JSON an author can edit, and the string
     # "false" is truthy, so a surviving result retyped that way read as caught.
+    identities = [(r.get('file'), r.get('anchor'), r.get('becomes'), r.get('case')) for r in results]
+    require(len(set(identities)) == len(identities), 'The recorded matrix repeats a result: two '
+            'results with one identity are one measurement, so the count they add up to is not '
+            'the count of mutants. Re-run `review_flow.py matrix`.')
     uncaught = [r.get('case') for r in results if r.get('caught') is not True]
     require(not uncaught, 'The recorded matrix has results it did not catch: %s. Its survivor '
             'list said otherwise; the results are what was measured.' % ', '.join(uncaught))

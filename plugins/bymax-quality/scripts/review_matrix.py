@@ -205,7 +205,10 @@ def one(root, mutant, files, clean=None):
              'That is a crash, not a measurement: the case never ran, and every case would '
              'report the same. Mutate what the gate reads, not what the module needs to '
              'import.' % (mutant['case'], tail))
-    return {'case': mutant['case'], 'file': mutant['file'], 'caught': how == 'failed', 'saw': tail}
+    # The whole identity travels with the result, so a record's results can be told apart
+    # the way the spec's mutants are: a result repeated to match a forged count is not two.
+    return {'case': mutant['case'], 'file': mutant['file'], 'anchor': mutant['anchor'],
+            'becomes': mutant['becomes'], 'caught': how == 'failed', 'saw': tail}
 
 
 def matrix(root, spec, files):
