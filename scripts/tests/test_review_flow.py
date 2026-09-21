@@ -1574,7 +1574,7 @@ class ReviewFlowTests(unittest.TestCase):
         # A summary no result backs: the file said to hold a case nothing measured.
         self.refused_with(record, measured, 'says tests/test_g.py held nothing_measured, test_g, which its results do not',
                           tests={'tests/test_g.py': ['nothing_measured']})
-        # A measured case moved to another file's entry: the results say where it ran.
+        # A measured case credited to a second file's entry too: the results say where it ran.
         self.refused_with(record, measured, 'says tests/changed.py held test_g, which its results do not: they measured nothing there',
                           tests={'tests/changed.py': ['test_g'], 'tests/test_g.py': ['test_g']})
         record.write_text(json.dumps(measured))
