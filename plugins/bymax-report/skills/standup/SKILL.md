@@ -72,12 +72,18 @@ if [ -z "$PERIOD" ] || [ -z "$REPO" ]; then
   exit 1
 fi
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/bymax-report.XXXXXX")
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/collect.py" --period "$PERIOD" --repo "$REPO" --author "$AUTHOR" --out "${WORK}/collect.json"
+if ! python3 "${CLAUDE_PLUGIN_ROOT}/scripts/collect.py" --period "$PERIOD" --repo "$REPO" --author "$AUTHOR" --out "${WORK}/collect.json"; then
+  rm -rf "$WORK"
+  echo "The collect failed, so there is nothing to report on; the reason is above." >&2
+  exit 1
+fi
 echo "$WORK"
 ```
 
-The collect prints one line: how many commits, pull requests and requests it found
-and the dates it resolved. **Read that line before anything else.** Then read
+The block prints the temporary directory only when the collect succeeded; a failing
+collect removes it and exits nonzero, so a printed path always holds a `collect.json`.
+The collect's own line says how many commits, pull requests and requests it found and
+the dates it resolved. **Read that line before anything else.** Then read
 `collect.json`; it is one record per line, so read it whole with the file tool.
 
 What the file holds:

@@ -314,6 +314,23 @@ class CollectTests(unittest.TestCase):
         self.assertTrue((Path(work) / 'collect.json').exists(), with_file.stdout)
         self.assertIn('(2026-09-14 .. 2026-09-20)', with_file.stdout)
 
+    def test_the_skill_block_carries_a_failed_collect_and_leaves_nothing_behind(self):
+        """A collect that cannot run — a --repo that is not a repository, an unwritable --out,
+        no python3 — left the block at exit 0 printing a directory with no collect.json in it,
+        so the reader took that path for a successful collection and the directory stayed on
+        disk. The positive control is the other half: a collect that runs still gets its
+        directory and its zero, so the refusal is this failure and not any failure."""
+        home = self.tmp / 'h3'
+        bad = self.run_block(home, ['7d', '/no/such/repo', ''])
+        self.assertNotEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+        self.assertEqual(sorted((home / 'tmp').glob('bymax-report.*')), [])
+        home2 = self.tmp / 'h4'
+        good = self.run_block(home2, ['2026-09-14..2026-09-20', str(self.repo), ''])
+        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+        made = sorted((home2 / 'tmp').glob('bymax-report.*'))
+        self.assertEqual(len(made), 1, made)
+        self.assertTrue((made[0] / 'collect.json').exists())
+
     def test_the_cli_writes_one_record_per_line_and_a_summary(self):
         write_jsonl(self.home / '.claude/projects' / self.slug / 's.jsonl', [self.claude_line('ask')])
         out = self.tmp / 'out' / 'collect.json'
