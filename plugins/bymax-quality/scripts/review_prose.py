@@ -39,6 +39,7 @@ the why, correct or cut the what.
 import ast
 import hashlib
 import io
+from stat import S_IFMT, S_ISDIR, S_ISLNK, S_ISREG
 import os
 import subprocess
 import sys
@@ -137,21 +138,37 @@ def ignored(cwd=None):
     left, so offences compares this snapshot before and after. Names alone saw a creation and
     missed an edit and a deletion; size and mtime saw those and missed a same-length edit
     with the mtime put back. The bytes are what the invariant is about, and reading them
-    once per stage is cheap. A nested repository is one entry to git and its inside is not
-    this repository's; a directory entry is recorded by name alone."""
+    once per stage is cheap: twenty thousand small files or one of a gibibyte, under a
+    second. A nested repository is one entry to git and its inside is not this
+    repository's; a directory entry is recorded by name alone."""
     root = review_claims.root(cwd)
     out = subprocess.run(['git', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
                          cwd=root, check=True, capture_output=True, text=True).stdout
     found = {}
     for name in (n for n in out.split('\0') if n):
-        path = Path(root) / name
-        if path.is_symlink():
-            found[name] = 'link:' + os.readlink(path)
-        elif path.is_dir():
-            found[name] = 'dir'
-        else:
-            found[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        found[name] = identity(Path(root) / name)
     return found
+
+
+def identity(path):
+    """What an ignored entry is, as far as bytes go: a digest for a regular file, and a kind
+    for everything else. Only a regular file is opened — git lists a pipe or a socket among
+    the ignored too, and opening a pipe with no writer waits forever, ahead of any timeout.
+    A file that cannot be read is recorded as such: a reader with Edit alone cannot alter what
+    it cannot read either, and a refusal there protected nothing. The digest streams, so a
+    file larger than memory costs time and not a MemoryError."""
+    stat = os.lstat(path)
+    if S_ISLNK(stat.st_mode):
+        return 'link:' + os.readlink(path)
+    if S_ISDIR(stat.st_mode):
+        return 'dir'
+    if not S_ISREG(stat.st_mode):
+        return 'special:%o' % S_IFMT(stat.st_mode)
+    try:
+        with open(path, 'rb') as handle:
+            return hashlib.file_digest(handle, 'sha256').hexdigest()
+    except OSError as error:
+        return 'unreadable:%d' % (error.errno or 0)
 
 
 def sides(name, cwd=None):

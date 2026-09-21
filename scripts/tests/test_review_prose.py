@@ -323,6 +323,26 @@ class EnvelopeTests(unittest.TestCase):
         found = ' | '.join(prose.offences(cwd=str(bench.where), ignored_before={'old.env': [4, 1]}))
         self.assertIn('run `prose --stage prepare` again', found)
 
+    def test_a_pipe_is_recorded_by_kind_and_never_opened(self):
+        """Measured: git's directory walk skips pipes and sockets, so none reaches the
+        snapshot through the listing. identity() still opens regular files only, because an
+        lstat costs less than that assumption and a pipe with no writer waits forever. No
+        mutant names this case: one that opened the pipe would hang the matrix."""
+        bench = Bench(self)
+        os.mkfifo(bench.where / 'pipe')
+        self.assertTrue(prose.identity(bench.where / 'pipe').startswith('special:'))
+
+    def test_an_unreadable_ignored_file_is_recorded_not_refused(self):
+        """A file the user cannot read raised a bare errno out of the snapshot on a tree the
+        previous runtime accepted. A reader with Edit alone cannot alter it either."""
+        bench = Bench(self, {'thing.py': START, '.gitignore': 'locked.env\n'})
+        (bench.where / 'locked.env').write_text('k\n')
+        (bench.where / 'locked.env').chmod(0)
+        self.addCleanup((bench.where / 'locked.env').chmod, 0o644)
+        before = prose.ignored(cwd=str(bench.where))
+        self.assertTrue(before['locked.env'].startswith('unreadable:'))
+        self.assertEqual(prose.offences(cwd=str(bench.where), ignored_before=before), [])
+
     def test_a_clean_tree_is_inside_the_envelope(self):
         self.assertEqual(Bench(self).offences(), [])
 
