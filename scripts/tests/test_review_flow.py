@@ -1485,6 +1485,26 @@ class ReviewFlowTests(unittest.TestCase):
         self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
+    def test_a_record_naming_files_its_results_never_mutated_is_refused(self):
+        """The file list is the record's own and the digest is recomputed over it, so a list
+        swapped for files the matrix never touched carried a matching fingerprint and bound
+        the record to nothing the results measured."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        self.commit('a correction that changes a test')
+        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
+        directory = Path(self.flow('status')['directory'])
+        record = directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')
+        kept = json.loads(record.read_text())
+        kept['results'][0]['file'] = 'tests/other.py'
+        record.write_text(json.dumps(kept))
+        self.assertIn('results mutated tests/other.py',
+                      self.start(ok=False, correction=True, reason='').stderr)
+
     def test_a_correction_that_changes_no_test_needs_no_matrix(self):
         """The scope, asserted: a correction with no gate to mutate is exempt, and saying so
         here keeps the exemption from widening unnoticed."""
