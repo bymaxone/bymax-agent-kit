@@ -347,10 +347,9 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(prose.offences(cwd=str(bench.where), ignored_before=before), [])
 
     def test_the_snapshot_names_nothing_newer_than_the_documented_floor(self):
-        """README.md declares Python 3.10 load-bearing for the runtime, and no 3.10 is
-        installed to run the module on; the syntax tree stands in for the interpreter.
-        hashlib.file_digest arrived in 3.11 and was the one name in the runtime past the
-        floor."""
+        """README.md declares Python 3.10 load-bearing for the runtime, and a 3.10 interpreter
+        cannot be assumed on the machine running this; the syntax tree stands in for it.
+        hashlib.file_digest arrived in 3.11."""
         tree = ast.parse(Path(prose.__file__).read_text(encoding='utf-8'))
         named = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
         self.assertNotIn('file_digest', named)
