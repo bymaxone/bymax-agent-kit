@@ -256,7 +256,7 @@ def review_marks(name, text):
 
 def defined(text):
     """Names a python source defines, read as text so a half-written file still answers.
-    An `async def` is a def: without it, a function made async read as removed."""
+    An `async def` is a def: without it, an async function's removal went unreported."""
     found = set(re.findall(r'^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
     found |= set(re.findall(r'^\s*([A-Z][A-Z0-9_]{2,})\s*=', text, re.MULTILINE))
     return found
@@ -272,9 +272,8 @@ def orphaned(base, head, cwd=None):
     # Neither \s nor \b: git grep runs its own engine, where both are literal and a pattern
     # using either silently matches nothing. Corrected twice — the \s half first, the \b half
     # only after a reviewer found that every function which merely MOVED to another module
-    # read as removed. The case that should have caught it exercises a constant, which
-    # resolves through the second alternative. An `async def` counts here as it does in
-    # defined(): a name moved and made async is alive.
+    # read as removed. An `async def` counts here as it does in defined(): a name moved and
+    # made async is alive.
     alive = (r'^[[:space:]]*(async[[:space:]]+)?(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
              r'|^[[:space:]]*%s[[:space:]]*=')
     return sorted(name for name in lost
