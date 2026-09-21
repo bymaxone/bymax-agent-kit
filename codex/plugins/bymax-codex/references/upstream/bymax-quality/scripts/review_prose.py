@@ -151,9 +151,9 @@ def ignored(cwd=None):
 
 
 def identity(path):
-    """What an ignored entry is, as far as bytes go: a digest for a regular file, and a kind
-    for everything else. Only a regular file is opened — git lists a pipe or a socket among
-    the ignored too, and opening a pipe with no writer waits forever, ahead of any timeout.
+    """What an ignored entry is, as far as bytes go: a digest for a regular file, and no
+    digest for anything else. Only a regular file is opened — an lstat costs less than
+    trusting the listing to hold no pipe, and opening a pipe with no writer waits forever.
     A file that cannot be read is recorded as such: a reader with Edit alone cannot alter what
     it cannot read either, and a refusal there protected nothing. The digest streams, so a
     file larger than memory costs time and not a MemoryError."""

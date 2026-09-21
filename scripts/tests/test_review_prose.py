@@ -326,8 +326,8 @@ class EnvelopeTests(unittest.TestCase):
     def test_a_pipe_is_recorded_by_kind_and_never_opened(self):
         """Measured: git's directory walk skips pipes and sockets, so none reaches the
         snapshot through the listing. identity() still opens regular files only, because an
-        lstat costs less than that assumption and a pipe with no writer waits forever. No
-        mutant names this case: one that opened the pipe would hang the matrix."""
+        lstat costs less than that assumption and a pipe with no writer waits forever. A
+        mutant that opened the pipe would hang the matrix."""
         bench = Bench(self)
         os.mkfifo(bench.where / 'pipe')
         self.assertTrue(prose.identity(bench.where / 'pipe').startswith('special:'))
