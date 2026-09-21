@@ -308,7 +308,7 @@ def changed_tests(base, head, names, cwd=None):
     """Per named file, the tests this delta added or changed, spelled as pytest spells a node
     id. A file whose delta touched no line a test of its own occupies answers with none,
     because a correction to a helper, a fixture or an import has no changed test to demand.
-    A line that carries only prose is not a change to the test it sits in either: this
+    A prose line rewritten in place is not a change to the test it sits in either: this
     package's own prose pass rewraps a docstring inside a test before the freeze, and
     demanding that test catch would refuse the correction the pass belongs to."""
     out = {}

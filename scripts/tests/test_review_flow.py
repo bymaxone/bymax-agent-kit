@@ -1797,7 +1797,7 @@ class ReviewFlowTests(unittest.TestCase):
 
     def test_a_rewrapped_docstring_is_not_a_change_to_the_test(self):
         """This package's own prose pass rewraps a docstring inside a test before the freeze,
-        and a line carrying only prose is not a change to the test it sits in: demanding that
+        and a prose line rewritten in place is not a change to the test: demanding that
         test catch would refuse the correction the pass belongs to."""
         (self.repo / 'guard.py').write_text('LIMIT = 7\n')
         (self.repo / 'tests').mkdir(exist_ok=True)

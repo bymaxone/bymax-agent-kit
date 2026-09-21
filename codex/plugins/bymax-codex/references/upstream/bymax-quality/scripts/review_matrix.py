@@ -202,7 +202,7 @@ def apply_mutant(root, mutant):
 
 def spelled(text, mutant):
     """The anchor and its replacement in the line ending this file uses. A spec spells them
-    with \n, which a file written with CRLF does not hold anywhere, and the anchor that
+    with \n, which a CRLF line ending does not spell, and the anchor that
     matches nothing is refused as one that never landed."""
     anchor, becomes = mutant['anchor'], mutant['becomes']
     if anchor not in text and anchor.replace('\n', '\r\n') in text:
