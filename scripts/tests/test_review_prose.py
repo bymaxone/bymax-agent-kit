@@ -314,10 +314,13 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(bench.offences(), [])
 
     def test_a_snapshot_of_names_alone_is_refused_with_its_remedy(self):
-        """A marker an earlier runtime wrote records names, not contents; nothing can say what
-        the reader did to them, and a traceback is not a refusal."""
+        """A marker an earlier runtime wrote records names, or sizes and mtimes, not contents;
+        nothing can say what the reader did to them, and a traceback is not a refusal."""
         bench = Bench(self)
         found = ' | '.join(prose.offences(cwd=str(bench.where), ignored_before=['old.env']))
+        self.assertIn('run `prose --stage prepare` again', found)
+        # And one that recorded sizes and mtimes: a mapping, but not of contents.
+        found = ' | '.join(prose.offences(cwd=str(bench.where), ignored_before={'old.env': [4, 1]}))
         self.assertIn('run `prose --stage prepare` again', found)
 
     def test_a_clean_tree_is_inside_the_envelope(self):

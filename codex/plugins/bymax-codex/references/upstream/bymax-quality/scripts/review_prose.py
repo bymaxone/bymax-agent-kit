@@ -239,9 +239,9 @@ def first_change(name, cwd=None):
 
 def ignored_since(before, cwd=None):
     """What the reader did to ignored files, each named by its own verb."""
-    if not isinstance(before, dict):
-        # A marker from a runtime that recorded names alone: nothing here can say what the
-        # reader did to them. The remedy is a fresh prepare, not a guess.
+    if not isinstance(before, dict) or any(not isinstance(v, str) for v in before.values()):
+        # A marker from a runtime that recorded names alone, or sizes and mtimes: nothing here
+        # can say what the reader did to them. The remedy is a fresh prepare, not a guess.
         return ['the prepared marker records ignored files without their contents, which an earlier '
                 'runtime wrote; run `prose --stage prepare` again on a clean tree']
     now = ignored(cwd=cwd)
