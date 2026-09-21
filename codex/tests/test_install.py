@@ -53,7 +53,7 @@ class InstallationTests(unittest.TestCase):
         self.verify_discovery()
         version = json.loads((ROOT / 'codex/plugins/bymax-codex/.codex-plugin/plugin.json').read_text())['version']
         cache = self.root / 'profile/plugins/cache/bymax-codex/bymax-codex' / version
-        self.assertEqual(len(list((cache / 'skills').glob('*/SKILL.md'))), 27)
+        self.assertEqual(len(list((cache / 'skills').glob('*/SKILL.md'))), 28)
         self.run_command(['git', 'init', '-b', 'trunk'])
         (self.root / '.gitignore').write_text('profile/\n')
         (self.root / 'fixture.txt').write_text('portable\n')

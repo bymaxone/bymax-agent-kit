@@ -61,6 +61,7 @@ Default when the human didn't specify: install the **core pair** plus whatever t
 | `bymax-pr` | only if `gh` will be authenticated (Step 4) | `claude plugin install bymax-pr@bymax-agent-kit` |
 | `bymax-pm` | the human coordinates multiple Claude Code sessions | `claude plugin install bymax-pm@bymax-agent-kit` |
 | `bymax-qa` | the human wants a whole-system QA / security audit | `claude plugin install bymax-qa@bymax-agent-kit` |
+| `bymax-report` | the human writes a weekly standup or progress report | `claude plugin install bymax-report@bymax-agent-kit` |
 
 ⚠️ **Do NOT install `bymax-all`** — it is a documentation index; it installs no commands.
 
@@ -93,7 +94,7 @@ Say that to the human when they decline, and never record an incomplete campaign
 
 | Tool | Check | Install | Verify |
 |---|---|---|---|
-| `gh` (for `bymax-pr` and `bymax-qa`) | `command -v gh` | `brew install gh` | `gh auth status` |
+| `gh` (for `bymax-pr`, `bymax-qa` and `bymax-report`) | `command -v gh` | `brew install gh` | `gh auth status` |
 | Security scanners — **all optional** (for `bymax-qa`) | `bash ${CLAUDE_PLUGIN_ROOT}/scripts/qa-tools.sh` inside an audit | install per tool as needed, e.g. `brew install semgrep gitleaks osv-scanner trivy` | `/bymax-qa:audit` records any absent tool as a coverage gap — none is required |
 | `gh` auth | `gh auth status` | **HUMAN HANDOFF:** `gh auth login` is an interactive OAuth flow — the human must run it | `gh auth status` exits 0 |
 | pnpm (pnpm repos) | `command -v pnpm` | `corepack enable pnpm` | `pnpm --version` |
@@ -205,7 +206,7 @@ graphify hook install          # post-commit graph refresh
 claude plugin marketplace list   # bymax-agent-kit present, and bymax-claude-code absent
 claude plugin list               # every chosen plugin present
 claude mcp list                  # every chosen MCP present (if Step 5 ran)
-gh auth status                   # exit 0 (only if bymax-pr or bymax-qa installed)
+gh auth status                   # exit 0 (only if bymax-pr, bymax-qa or bymax-report installed)
 python3 scripts/doctor.py --auth # only if Step 4.5 ran; a declined gh is the one allowed failure
 ```
 

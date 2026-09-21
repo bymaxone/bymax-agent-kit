@@ -70,6 +70,7 @@ claude plugin install bymax-web-verify@bymax-agent-kit
 claude plugin install bymax-pr@bymax-agent-kit
 claude plugin install bymax-pm@bymax-agent-kit
 claude plugin install bymax-qa@bymax-agent-kit
+claude plugin install bymax-report@bymax-agent-kit
 
 # Restart Claude Code, then verify your changes
 

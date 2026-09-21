@@ -1,7 +1,7 @@
 # Install, update and verify Bymax Agent Kit
 
 This checkout contains two independent plugin packages: eight Claude Code plugins and
-one Codex plugin with 27 skills. A plugin installation supplies instructions, not the
+one Codex plugin with 28 skills. A plugin installation supplies instructions, not the
 project's dependencies, accounts, simulator or browser. This guide covers the complete
 setup for autonomous dual-review shipping and the optional skill families.
 
@@ -56,6 +56,7 @@ claude plugin install bymax-mobile@bymax-agent-kit
 claude plugin install bymax-web-verify@bymax-agent-kit
 claude plugin install bymax-pm@bymax-agent-kit
 claude plugin install bymax-qa@bymax-agent-kit
+claude plugin install bymax-report@bymax-agent-kit
 ```
 
 Install the shared reviewer runtime, global push handoff and managed policy:
