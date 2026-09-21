@@ -1719,7 +1719,7 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert True\n')
         self.commit('a correction that adds a vacuous test beside the older one')
         self.guard_matrix()
-        self.assertIn('caught nothing with the test this correction changed',
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
                       self.start(ok=False, correction=True, reason='').stderr)
         # The same test made to fail with the guard mutated is credited, and it opens.
         (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert LIMIT == 7\n')
@@ -1779,8 +1779,40 @@ class ReviewFlowTests(unittest.TestCase):
             + '@pytest.mark.filterwarnings("ignore")\ndef test_calc_new(): assert True\n')
         self.commit('a correction that adds only a mark above the vacuous test')
         self.guard_matrix()
-        self.assertIn('caught nothing with the test this correction changed',
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
                       self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_every_test_the_delta_changed_must_catch_not_one_of_them(self):
+        """Found by a reviewer: the demand was an intersection, so one changed test that
+        caught carried every other — a correction that edits a test which already
+        discriminated, in the commit that adds a vacuous one, was credited by the edit."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'tests/test_calc.py').write_text(
+            'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7, "seven"\n\n\n'
+            'def test_calc_new(): assert True\n')
+        self.commit('a correction that edits the older test and adds a vacuous one')
+        self.guard_matrix()
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
+                      self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_a_rewrapped_docstring_is_not_a_change_to_the_test(self):
+        """This package's own prose pass rewraps a docstring inside a test before the freeze,
+        and a line carrying only prose is not a change to the test it sits in: demanding that
+        test catch would refuse the correction the pass belongs to."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(
+            OLD_TEST + 'def test_calc_quiet():\n    """One line."""\n    assert True\n')
+        self.commit('a guard, the test that discriminates it and one that does not')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(
+            OLD_TEST + 'def test_calc_quiet():\n    """One line, rewrapped."""\n    assert True\n')
+        self.commit('a correction that rewraps a docstring inside a test')
+        self.guard_matrix()
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_test_of_a_unittest_class_is_a_test_pytest_collects(self):
         """Found by a reviewer: pytest collects a TestCase subclass whatever the class is
@@ -1798,7 +1830,7 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'tests/test_calc.py').write_text(UNITTEST_TEST + '    def test_calc_new(self): assert True\n')
         self.commit('a correction that adds a vacuous method beside the older one')
         self.guard_matrix()
-        self.assertIn('caught nothing with the test this correction changed',
+        self.assertIn('caught nothing with tests/test_calc.py::CalcTests::test_calc_new',
                       self.start(ok=False, correction=True, reason='').stderr)
 
     def test_a_deletion_is_a_change_to_the_test_it_emptied(self):
@@ -1817,7 +1849,7 @@ class ReviewFlowTests(unittest.TestCase):
         (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new():\n    assert True\n')
         self.commit('a correction that deletes the assertion out of the second test')
         self.guard_matrix()
-        self.assertIn('caught nothing with the test this correction changed',
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
                       self.start(ok=False, correction=True, reason='').stderr)
 
     def test_the_runtime_runs_pytest_without_the_project_addopts(self):

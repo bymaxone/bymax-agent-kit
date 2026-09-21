@@ -125,6 +125,28 @@ class MeaningTests(unittest.TestCase):
         bench.run(rule())
         self.assertEqual(guard.read_bytes(), before)
 
+    def test_a_mutant_changes_only_what_its_anchor_names(self):
+        """Found by a reviewer: the mutated copy was rewritten with one ending for the whole
+        file and re-encoded as UTF-8 from a locale decode, so lines the mutant never named
+        changed while the case ran, and a source that is not UTF-8 was mangled under the
+        measurement. The case reads the file, so outside the anchor it stays the author's."""
+        bench = Bench(self)
+        mixed = bench.where / 'mixed.py'
+        mixed.write_bytes(b'LIMIT = 10\r\nNOTE = "caf\xe9"\nTAIL = 2\n')
+        before = mixed.read_bytes()
+        path, original = matrix.apply_mutant(str(bench.where), {
+            'file': 'mixed.py', 'anchor': 'LIMIT = 10', 'becomes': 'LIMIT = 11', 'case': 'over_the_limit'})
+        self.assertEqual(path.read_bytes(), before.replace(b'LIMIT = 10', b'LIMIT = 11'))
+        path.write_bytes(original)
+        self.assertEqual(mixed.read_bytes(), before)
+        # An anchor spelled with \n finds its line in a file written with \r\n.
+        crlf = bench.where / 'crlf.py'
+        crlf.write_bytes(b'A = 1\r\nB = 2\r\n')
+        path, original = matrix.apply_mutant(str(bench.where), {
+            'file': 'crlf.py', 'anchor': 'A = 1\nB = 2\n', 'becomes': 'A = 9\nB = 8\n', 'case': 'over_the_limit'})
+        self.assertEqual(path.read_bytes(), b'A = 9\r\nB = 8\r\n')
+        path.write_bytes(original)
+
     def test_a_mutant_that_only_breaks_the_import_is_refused(self):
         """A crash is not a measurement. A mutant that stops the module loading makes every
         case error, which reads as caught while the case never ran — measured on this file's

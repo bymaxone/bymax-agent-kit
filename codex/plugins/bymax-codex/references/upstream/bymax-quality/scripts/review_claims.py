@@ -307,12 +307,15 @@ def collected_class(node):
 def changed_tests(base, head, names, cwd=None):
     """Per named file, the tests this delta added or changed, spelled as pytest spells a node
     id. A file whose delta touched no line a test of its own occupies answers with none,
-    because a correction to a helper, a fixture or an import has no changed test to demand."""
+    because a correction to a helper, a fixture or an import has no changed test to demand.
+    A line that carries only prose is not a change to the test it sits in either: this
+    package's own prose pass rewraps a docstring inside a test before the freeze, and
+    demanding that test catch would refuse the correction the pass belongs to."""
     out = {}
     for name in names:
-        lines = hunks(git('diff', '-U0', '--no-renames', base, head, '--', name, cwd=cwd))
-        out[name] = sorted(node for node, span in definitions(git('show', '%s:%s' % (head, name), cwd=cwd))
-                           if lines.intersection(span))
+        source = git('show', '%s:%s' % (head, name), cwd=cwd)
+        lines = hunks(git('diff', '-U0', '--no-renames', base, head, '--', name, cwd=cwd)) - marks(name, source)
+        out[name] = sorted(node for node, span in definitions(source) if lines.intersection(span))
     return out
 
 

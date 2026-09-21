@@ -182,21 +182,32 @@ def apply_mutant(root, mutant):
     if not os.access(path, os.W_OK):
         bail('Mutant for %r cannot be applied: %s is not writable, and a matrix that cannot '
              'restore what it changed must not start.' % (mutant.get('case'), mutant['file']))
-    # The bytes, because read_text() turns CRLF into LF: a file restored through text came
-    # back with every line ending changed, which left the worktree dirty and the author's
-    # source rewritten. The text is read beside them so an anchor spelled with \n still finds
-    # its line whatever the file uses, and the mutant goes back in the file's own ending.
+    # The bytes, and decoded here rather than read as text, so what goes back outside the
+    # anchor is what was there: read_text() turns CRLF into LF and decodes with the locale's
+    # codec, and re-encoding that as UTF-8 rewrote lines the mutant never named and mangled a
+    # source that was not UTF-8 — the case runs against the file, so the file must be the one
+    # the author has apart from the anchor.
     original = path.read_bytes()
-    text = path.read_text()
-    hits = text.count(mutant['anchor'])
+    text = original.decode('utf-8', 'surrogateescape')
+    anchor, becomes = spelled(text, mutant)
+    hits = text.count(anchor)
     if hits != 1:
         bail('Mutant for %r: its anchor occurs %d times in %s. Zero means the mutation never '
              'landed and the run proves nothing; more than one means nobody knows which line '
              'carried it. This is not a formality — a matrix that printed "69 passed" with no '
              'mutant applied is why the anchor is counted.' % (mutant.get('case'), hits, mutant['file']))
-    ending = b'\r\n' if b'\r\n' in original else b'\n'
-    path.write_bytes(text.replace(mutant['anchor'], mutant['becomes'], 1).encode().replace(b'\n', ending))
+    path.write_bytes(text.replace(anchor, becomes, 1).encode('utf-8', 'surrogateescape'))
     return path, original
+
+
+def spelled(text, mutant):
+    """The anchor and its replacement in the line ending this file uses. A spec spells them
+    with \n, which a file written with CRLF does not hold anywhere, and the anchor that
+    matches nothing is refused as one that never landed."""
+    anchor, becomes = mutant['anchor'], mutant['becomes']
+    if anchor not in text and anchor.replace('\n', '\r\n') in text:
+        return anchor.replace('\n', '\r\n'), becomes.replace('\n', '\r\n')
+    return anchor, becomes
 
 
 def one(root, mutant, files, clean=None):

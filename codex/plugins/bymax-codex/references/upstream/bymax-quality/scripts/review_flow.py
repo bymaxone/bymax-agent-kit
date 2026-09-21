@@ -1002,21 +1002,22 @@ def ran_the_changed_tests(kept, changed):
 
 
 def caught_with_the_changed_test(kept, wanted):
-    """The test the delta changed must be a test that caught something.
+    """Every test the delta changed must be a test that caught something.
 
-    A file is credited when any node of it failed, which an older neighbour of the new test
-    satisfies: measured, a vacuous test added beside a test that already discriminated made
-    the record say the file caught the mutant, and the correction opened on the neighbour's
-    evidence. A file whose delta touched no test of its own is left to the rule above.
+    Every, not one of them: a file is credited when any node of it failed, which an older
+    neighbour of the new test satisfies, and an intersection over the changed set is the same
+    argument one step in — a correction that edits a test which already discriminated, in the
+    commit that adds a vacuous one, was credited by the edit. A file whose delta touched no
+    test of its own is left to the rule above.
     """
     failed = {node.split('[')[0] for r in kept.get('results') or [] for node in (r.get('nodes') or [])}
     for name, nodes in sorted(wanted.items()):
-        require(not nodes or failed.intersection('%s::%s' % (name, node) for node in nodes),
-                'The recorded matrix caught nothing with the test this correction changed: %s '
-                'failed under a mutant, and %s did not. A neighbour that already discriminated '
-                'proves nothing about the new one.'
-                % (', '.join(sorted(n for n in failed if n.startswith(name + '::'))) or 'nothing in ' + name,
-                   ', '.join('%s::%s' % (name, node) for node in nodes)))
+        idle = ['%s::%s' % (name, node) for node in nodes if '%s::%s' % (name, node) not in failed]
+        require(not idle, 'The recorded matrix caught nothing with %s, which this correction '
+                'changes: %s failed under a mutant and %s did not. A test that already '
+                'discriminated proves nothing about the one beside it.'
+                % (', '.join(idle), ', '.join(sorted(n for n in failed if n.startswith(name + '::')))
+                   or 'nothing in ' + name, ', '.join(idle)))
 
 
 def results_agree(kept, names):
