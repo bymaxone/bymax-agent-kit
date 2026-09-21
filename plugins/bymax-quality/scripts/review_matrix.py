@@ -34,7 +34,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-PYTEST = [sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider']
+# `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
+# starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
+PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
 
 
 def bail(message):
@@ -63,7 +65,7 @@ def run_case(root, selector, files):
     the same size inside one second serve the previous one's result — and the direction that
     lies is 'broke nothing', which manufactures a false claim that a rule is uncovered."""
     caches(root)
-    done = subprocess.run([*PYTEST, *files, '-k', selector], cwd=root,
+    done = subprocess.run([*PYTEST, *arguments(root, files), '-k', selector], cwd=root,
                           capture_output=True, text=True,
                           env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
     tail = done.stdout.strip().splitlines()
@@ -346,6 +348,20 @@ def fingerprint(root, spec):
     return head, names, digest(root, names)
 
 
+def arguments(root, files):
+    """The test paths as pytest gets them, for the run and for the collect alike: the file
+    part spelled relative to the root, a node id's selector kept. Both take these, so what
+    the collect names is what the run selected from — a node id stripped of its selector
+    widened the collect to the whole file while the run stayed on the node."""
+    real = os.path.realpath(root)
+    out = []
+    for f in files:
+        path, _, node = str(f).partition('::')
+        rel = os.path.relpath(os.path.realpath(os.path.join(root, path)), real)
+        out.append(rel + ('::' + node if node else ''))
+    return out
+
+
 def collected(root, files, cases):
     """Per test file pytest collects under these paths, spelled as pytest spells it, the spec's
     cases it collected there. Asked of pytest rather than read from the text: a case named in
@@ -364,20 +380,16 @@ def nodes(root, files, selector=None):
     """The files of the node ids pytest collects under these paths, and under a selector
     when one is given. A collect that fails for any reason but finding nothing is refused,
     since a record built from a broken collect would name nothing and prove the same."""
-    # The arguments go in spelled relative to the root — an absolute path made relative, a
-    # node id stripped to its file — because pytest spells a node id against the argument
-    # it collected it from, and a root-relative argument yields a root-relative id.
     # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
     # every id against the argument's own directory instead — a bare name for a file under
     # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
-    paths = [os.path.relpath(os.path.realpath(os.path.join(root, str(f).split('::')[0])), real) for f in files]
-    args = [*PYTEST, '--collect-only', '--rootdir', real, *paths] + (['-k', selector] if selector else [])
+    args = [*PYTEST, '--collect-only', '--rootdir', real, *arguments(root, files)] + (['-k', selector] if selector else [])
     done = subprocess.run(args, cwd=real, capture_output=True, text=True,
                           env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
     if done.returncode not in (0, 5):
         bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
-             (done.stdout + done.stderr).strip().splitlines()[-1:] or ['no output']))
+             ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
     return sorted({Path(line.split('::')[0]).as_posix() for line in done.stdout.splitlines() if '::' in line})
 
 
@@ -387,6 +399,11 @@ def record(root, spec_path, files, out=None):
     if not isinstance(spec, list) or not spec:
         bail('A matrix is a non-empty list of rules.')
     results = matrix(root, spec, files)
+    # Each result names the files its case was collected in, so the record's mapping is
+    # what the results add up to and a reader can check it against them file by file.
+    where = {case: nodes(root, files, case) for case in {r['case'] for r in results}}
+    for result in results:
+        result['tests'] = where[result['case']]
     survivors = [r for r in results if not r['caught']]
     head, names, tree = fingerprint(root, spec)
     # The test paths it ran travel with the record: whether a given test was among those

@@ -1572,8 +1572,11 @@ class ReviewFlowTests(unittest.TestCase):
         # Named is not run: the file on the command line with none of its own cases selected.
         self.refused_with(record, measured, 'ran no case of tests/test_g.py', tests={'tests/test_g.py': []})
         # A summary no result backs: the file said to hold a case nothing measured.
-        self.refused_with(record, measured, 'held nothing_measured, which no result measured',
+        self.refused_with(record, measured, 'says tests/test_g.py held nothing_measured, test_g, which its results do not',
                           tests={'tests/test_g.py': ['nothing_measured']})
+        # A measured case moved to another file's entry: the results say where it ran.
+        self.refused_with(record, measured, 'says tests/changed.py held test_g, which its results do not: they measured nothing there',
+                          tests={'tests/changed.py': ['test_g'], 'tests/test_g.py': ['test_g']})
         record.write_text(json.dumps(measured))
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
@@ -1621,6 +1624,47 @@ class ReviewFlowTests(unittest.TestCase):
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/quiet_test.py': [], 'tests/test_g.py': ['test_g']})
         self.assertIn('ran no case of tests/quiet_test.py', self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_a_node_id_selects_for_the_collect_what_it_selects_for_the_run(self):
+        """Found by a reviewer: the collect stripped a node id to its file while the run kept
+        the node, so a second file defining a case of the same name was credited with it though
+        the run never selected it there. Both take the same arguments now."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_b.py').write_text('def test_g(): assert 2 == 2\ndef test_other(): assert 3 == 3\n')
+        self.commit('a correction that changes two tests')
+        self.matrix('tests/test_g.py::test_g', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_b.py::test_g',), where='tests/test_g.py')
+        directory = Path(self.flow('status')['directory'])
+        record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
+        self.assertEqual(record['results'][0]['tests'], ['tests/test_b.py', 'tests/test_g.py'])
+        self.assertEqual(record['tests'], {'tests/test_b.py': ['test_g'], 'tests/test_g.py': ['test_g']})
+        self.matrix('tests/test_g.py::test_g', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_b.py::test_other',), where='tests/test_g.py')
+        record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
+        self.assertEqual(record['tests'], {'tests/test_b.py': [], 'tests/test_g.py': ['test_g']})
+        self.assertIn('ran no case of tests/test_b.py', self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_the_runtime_runs_pytest_without_the_project_addopts(self):
+        """Found by a reviewer: a project's addopts reached every pytest the runtime starts, and
+        one `-q` more or a `-v` changed the lines the collect and the outcome read, so the
+        record named nothing and a caught mutant read as a survivor."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'pytest.ini').write_text('[pytest]\naddopts = -v\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        self.commit('a correction that changes a test, under a project that sets addopts')
+        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
+        directory = Path(self.flow('status')['directory'])
+        record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
+        self.assertEqual(record['tests'], {'tests/test_g.py': ['test_g']})
+        self.assertTrue(all(r['caught'] for r in record['results']))
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_correction_that_changes_no_test_needs_no_matrix(self):
         """The scope, asserted: a correction with no gate to mutate is exempt, and saying so

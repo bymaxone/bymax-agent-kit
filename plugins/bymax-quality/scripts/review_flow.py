@@ -1012,6 +1012,9 @@ def results_agree(kept, names):
                if not isinstance(result.get(f), str)] if isinstance(result, dict) else ['result']
         if isinstance(result, dict) and not isinstance(result.get('caught'), bool):
             odd.append('caught')
+        if isinstance(result, dict) and not (isinstance(result.get('tests'), list)
+                                             and all(isinstance(x, str) for x in result['tests'])):
+            odd.append('tests')
         require(not odd, 'The recorded matrix has a result in a shape the runtime never writes '
                 '(%s). Re-run `review_flow.py matrix`.' % ', '.join(odd))
     mutated = {r.get('file') for r in results}
@@ -1033,12 +1036,19 @@ def results_agree(kept, names):
     require(not uncaught, 'The recorded matrix has results it did not catch: %s. Its survivor '
             'list said otherwise; the results are what was measured.'
             % ', '.join(uncaught))
-    # The tests mapping too: a case a file is said to hold must be a case some result
-    # measured, or the mapping is a summary saying so.
-    unmeasured = sorted({c for cases in (kept.get('tests') or {}).values() for c in cases}
-                        - {r.get('case') for r in results})
-    require(not unmeasured, 'The recorded matrix says a file held %s, which no result measured. '
-            'Re-run `review_flow.py matrix`.' % ', '.join(unmeasured))
+    mapping_agrees(kept, results)
+
+
+def mapping_agrees(kept, results):
+    """The tests mapping, file by file: what a file is said to hold must be what the results
+    say was collected there, or the mapping is a summary saying so — a measured case moved
+    to another file's entry was accepted while the check read cases alone."""
+    for name, cases in (kept.get('tests') or {}).items() if isinstance(kept.get('tests'), dict) else []:
+        held = {r.get('case') for r in results if name in r.get('tests', [])}
+        wrong = sorted(set(cases) ^ held)
+        require(not wrong, 'The recorded matrix says %s held %s, which its results do not: they '
+                'measured %s there. Re-run `review_flow.py matrix`.'
+                % (name, ', '.join(wrong), ', '.join(sorted(held)) or 'nothing'))
 
 
 def code_view(state):
