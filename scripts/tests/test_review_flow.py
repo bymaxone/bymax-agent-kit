@@ -886,7 +886,9 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(self.start(correction=True, design=True)['reopened'], ['guard:spelling'])
 
     def test_test_path_classification(self):
-        """Jest's __tests__ and Python's test_ files count; a spec document does not."""
+        """Jest's __tests__ and Python's test_ files count; a spec document does not, and
+        neither does a conftest: pytest collects no test from one, so a correction that
+        changed only a conftest could never name a case that ran in it."""
         import importlib.util
         spec = importlib.util.spec_from_file_location('flow', FLOW)
         flow = importlib.util.module_from_spec(spec)
@@ -901,7 +903,7 @@ class ReviewFlowTests(unittest.TestCase):
                      'contest.py', 'attestation.json', 'docs/spec/overview.md', 'spec/README.md',
                      'docs/tests/plan.md', 'notes_test.txt', 'latest.spec.md', 'tests/README.md',
                      'tests/plan.markdown', 'tests/notes.adoc', 'openapi/v1.spec.yaml', 'api.spec.json',
-                     'config.test.toml'):
+                     'config.test.toml', 'tests/conftest.py', 'conftest.py', 'src/__tests__/conftest.py'):
             self.assertFalse(flow.is_test_path(path), path)
 
     def test_each_reviewers_open_disposition_needs_its_own_resolution(self):

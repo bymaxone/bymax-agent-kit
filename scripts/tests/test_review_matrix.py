@@ -146,6 +146,11 @@ class MeaningTests(unittest.TestCase):
             'file': 'crlf.py', 'anchor': 'A = 1\nB = 2\n', 'becomes': 'A = 9\nB = 8\n', 'case': 'over_the_limit'})
         self.assertEqual(path.read_bytes(), b'A = 9\r\nB = 8\r\n')
         path.write_bytes(original)
+        # And the count that runs before any of it reads the source the same way: read as
+        # text, a source that is not UTF-8 raised here, ahead of the decoding put in to
+        # survive one.
+        self.assertEqual(matrix.sites(str(bench.where), [
+            {'file': 'mixed.py', 'anchor': 'LIMIT = 10', 'becomes': 'LIMIT = 11', 'case': 'over_the_limit'}]), 1)
 
     def test_a_mutant_that_only_breaks_the_import_is_refused(self):
         """A crash is not a measurement. A mutant that stops the module loading makes every

@@ -319,10 +319,13 @@ def sites(root, mutants):
     which refuses it with the count."""
     spans, landed = {}, 0
     for mutant in mutants:
+        # Read as apply_mutant reads it, bytes decoded with surrogateescape: read as text,
+        # a source that is not UTF-8 raised here, before the decoding that was put in to
+        # survive one — the count runs first, so the crash was all anyone saw.
         # A file that cannot be read counts as its own site, like an anchor that does not
         # occur once, so apply_mutant's refusal is the one that fires.
         try:
-            text = (Path(root) / mutant['file']).read_text()
+            text = (Path(root) / mutant['file']).read_bytes().decode('utf-8', 'surrogateescape')
         except OSError:
             landed += 1
             continue

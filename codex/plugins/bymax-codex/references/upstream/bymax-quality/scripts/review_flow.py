@@ -1202,9 +1202,16 @@ INSIDE_ONLY_SUFFIXES = ('.txt', '.rst', '.yaml', '.yml', '.json', '.toml')
 
 
 def is_test_path(path):
-    """A test by location or name; prose never, text and data only inside a test directory."""
+    """A test by location or name; prose never, text and data only inside a test directory.
+
+    A conftest is not one: pytest collects no test from it, so a correction that changed only
+    a conftest could never name a case that ran in it, and the rule that a changed test file
+    must have caught something became a refusal nobody could satisfy.
+    """
     lower = path.lower()
     if not TEST_PATH.search(path) or lower.endswith(PROSE_SUFFIXES):
+        return False
+    if Path(lower).name == 'conftest.py':
         return False
     return bool(TEST_DIRECTORY.search(path)) or not lower.endswith(INSIDE_ONLY_SUFFIXES)
 
