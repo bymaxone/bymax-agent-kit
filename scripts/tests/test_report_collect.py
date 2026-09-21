@@ -247,8 +247,8 @@ class CollectTests(unittest.TestCase):
                                          ('item', '2026-09-17T15:00:00Z', 'y')), ['x', 'y'])
 
     def test_commits_reachable_only_from_a_remote_branch_or_a_tag_are_read(self):
-        """The traversal names three ref classes; a commit that only a remote-tracking ref or a
-        tag still reaches is shipped work a deleted local branch must not hide."""
+        """A commit that only a remote-tracking ref or a tag still reaches is shipped work a
+        deleted local branch must not hide."""
         env = {**os.environ, 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
                'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x', 'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         git = lambda *a: subprocess.run(['git', '-C', str(self.repo), *a], check=True, capture_output=True, env=env)
