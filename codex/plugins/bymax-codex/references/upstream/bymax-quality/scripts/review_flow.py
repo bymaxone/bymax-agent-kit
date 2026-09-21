@@ -964,6 +964,8 @@ def matrix_first(state, directory):
     names = kept.get('files')
     require(names is not None, 'The recorded matrix does not name the files it mutated, so its '
             'fingerprint cannot be checked against this tree. Re-run `review_flow.py matrix`.')
+    require(isinstance(names, list) and all(isinstance(n, str) for n in names), 'The recorded '
+            'matrix names its files as %r, not a list of paths. Re-run `review_flow.py matrix`.' % (names,))
     now = review_matrix.digest(git('rev-parse', '--show-toplevel'), names)
     require(now == kept['tree'], 'The recorded matrix was measured on other contents of %s: its '
             'fingerprint does not match what is here now. A record is bound to the tree it '
@@ -975,10 +977,14 @@ def results_agree(kept, names):
     """The record's summary fields are its own and mutable; the results are what was measured,
     so each summary is checked against them. A survivor list cleared by hand passed here while
     a result still said caught: false."""
-    results = kept.get('results') or []
+    results = kept.get('results')
     # Shape first, fields second: every field below is JSON an author can edit, and a
     # value of the wrong type surfaced as a crash inside a comparison rather than as this
-    # refusal.
+    # refusal. The containers come first of all: a count that is not a number or results
+    # that are not a list have nothing inside them to compare.
+    odd = [f for f, kind in (('results', list), ('mutants', int)) if not isinstance(kept.get(f), kind)]
+    require(not odd, 'The recorded matrix is in a shape the runtime never writes (%s). Re-run '
+            '`review_flow.py matrix`.' % ', '.join(odd))
     for result in results:
         odd = [f for f in ('rule', 'file', 'anchor', 'becomes', 'case')
                if not isinstance(result.get(f), str)] if isinstance(result, dict) else ['result']

@@ -1557,6 +1557,14 @@ class ReviewFlowTests(unittest.TestCase):
         forged['survivors'] = [None]
         record.write_text(json.dumps(forged))
         self.assertIn('has survivors: None', self.start(ok=False, correction=True, reason='').stderr)
+        # The containers too: results that are not a list, a count that is not a number,
+        # files that are not a list of paths.
+        for field, value, said in (('results', 1, 'never writes (results)'), ('mutants', '1', 'never writes (mutants)'),
+                                   ('files', ['tests/test_g.py', 1], 'not a list of paths')):
+            forged = json.loads(json.dumps(measured))
+            forged[field] = value
+            record.write_text(json.dumps(forged))
+            self.assertIn(said, self.start(ok=False, correction=True, reason='').stderr)
         # The runtime records a mutation shared by two rules twice; that is two measurements.
         forged = json.loads(json.dumps(measured))
         forged['mutants'] = 2

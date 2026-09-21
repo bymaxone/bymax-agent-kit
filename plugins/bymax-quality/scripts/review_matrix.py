@@ -216,24 +216,56 @@ def shaped(rule):
     or print them. Checked once, up front, because every field here is spec text an author
     wrote, and a list where a string was expected surfaced later as a crash in the runtime
     that read the record rather than as a refusal naming the rule."""
+    # Containers before fields: a rule that is not a mapping, or a mutant that is not, has
+    # no fields to read, and reading them anyway crashed where a refusal should have named it.
+    if not isinstance(rule, dict):
+        bail('A rule is a mapping with a name, an enumeration and mutants; %r is not a mapping.' % (rule,))
     if not isinstance(rule.get('rule'), str) or not rule['rule'].strip():
         bail('A rule must be named by a non-empty string; got %r.' % (rule.get('rule'),))
-    for mutant in rule.get('mutants') or []:
+    if not isinstance(rule.get('enumeration'), str):
+        bail('Rule %r declares its enumeration as %r, not a string.' % (rule['rule'], rule.get('enumeration')))
+    if not isinstance(rule.get('mutants'), list):
+        bail('Rule %r declares its mutants as %r, not a list.' % (rule['rule'], rule.get('mutants')))
+    for mutant in rule['mutants']:
+        if not isinstance(mutant, dict):
+            bail('Rule %r has a mutant that is %r, not a mapping.' % (rule['rule'], mutant))
         for field in ('file', 'anchor', 'becomes', 'case'):
             if not isinstance(mutant.get(field), str) or not mutant[field]:
                 bail('Rule %r has a mutant whose %s is %r, not a non-empty string.'
                      % (rule['rule'], field, mutant.get(field)))
 
 
+def sites(root, mutants):
+    """How many places in the source these mutants land on: each anchor resolved to its span
+    in its file, spans that overlap merged, because an anchor is text and two different
+    texts can name one place. An anchor that does not occur once is left to apply_mutant,
+    which refuses it with the count."""
+    spans, landed = {}, 0
+    for mutant in mutants:
+        text = (Path(root) / mutant['file']).read_text()
+        at = text.find(mutant['anchor'])
+        if at >= 0 and text.count(mutant['anchor']) == 1:
+            spans.setdefault(mutant['file'], []).append((at, at + len(mutant['anchor'])))
+        else:
+            landed += 1  # counted as its own site, so the anchor refusal is the one that fires
+    for runs in spans.values():
+        end = -1
+        for start, stop in sorted(runs):
+            landed += start >= end
+            end = max(end, stop)
+    return landed
+
+
 def matrix(root, spec, files):
     """Every rule, every mutant, with a survivor stopping the run."""
     results, clean = [], {}
-    names = [r.get('rule') for r in spec]
+    for rule in spec:
+        shaped(rule)
+    names = [r['rule'] for r in spec]
     if len(set(map(str, names))) != len(names):
         bail('Two rules share a name: a result is told from another by its rule, so each rule '
              'needs one of its own.')
     for rule in spec:
-        shaped(rule)
         declared = enumerated(root, rule)
         mutants = rule.get('mutants') or []
         if not mutants:
@@ -252,13 +284,13 @@ def matrix(root, spec, files):
                         mutant.get('case')))
             seen.add(key)
         # The enumeration counts sites, and so does this: a site is where in the source the
-        # mutation lands, so a second case or a second replacement at one anchor is a second
-        # measurement of it, not a mutation of the site the command counted next.
-        sites = {(m.get('file'), m.get('anchor')) for m in mutants}
-        if declared is not None and declared > len(sites):
+        # mutation lands, so a second case, a second replacement, or a second anchor over
+        # the same span is a second measurement of it, not the site the command counted next.
+        landed = sites(root, mutants)
+        if declared is not None and declared > landed:
             bail('Rule %r enumerates %d case(s) by its own command and mutates %d site(s). The '
                  'list is short by %d: a case nothing mutates is a case nothing covers.'
-                 % (rule.get('rule'), declared, len(sites), declared - len(sites)))
+                 % (rule.get('rule'), declared, landed, declared - landed))
         for mutant in mutants:
             result = one(root, mutant, files, clean)
             result['rule'] = rule.get('rule')

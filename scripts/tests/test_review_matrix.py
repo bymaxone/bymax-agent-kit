@@ -163,6 +163,14 @@ class EnumerationTests(unittest.TestCase):
             bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
                            mutants=[twice, dict(twice, becomes='v >= LIMIT', case='over_again')]))
         self.assertIn('short by 1', str(caught.exception))
+        # Two anchors over one span land on one site; two disjoint anchors on two.
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
+                           mutants=[twice, dict(twice, anchor='> LIMIT or', becomes='>= LIMIT or', case='over_again')]))
+        self.assertIn('short by 1', str(caught.exception))
+        payload = bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
+                               mutants=[twice, dict(twice, anchor='v > 99', case='over_again')]))
+        self.assertEqual(payload['mutants'], 2)
 
     def test_a_spec_is_read_in_the_shape_the_runtime_writes(self):
         """Found by a reviewer: a list where the rule's name should be ran the matrix, was
@@ -177,6 +185,12 @@ class EnumerationTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             matrix.matrix(str(bench.where), rule() + rule(), ['test_thing.py'])
         self.assertIn('share a name', str(caught.exception))
+        # The containers are part of the shape: a rule, a mutant, a list of mutants.
+        for body, said in (([None], 'not a mapping'), (rule(mutants='x'), 'not a list'),
+                           (rule(mutants=[7]), 'not a mapping'), (rule(enumeration=['ls']), 'not a string')):
+            with self.assertRaises(SystemExit) as caught:
+                matrix.matrix(str(bench.where), body, ['test_thing.py'])
+            self.assertIn(said, str(caught.exception))
 
     def test_a_count_is_the_last_field_of_each_line_not_every_digit(self):
         """`grep -c` prints "path:count" per file, so a filename carrying a digit was being
