@@ -970,7 +970,20 @@ def matrix_first(state, directory):
     require(now == kept['tree'], 'The recorded matrix was measured on other contents of %s: its '
             'fingerprint does not match what is here now. A record is bound to the tree it '
             'measured; re-run the matrix on this one.' % ', '.join(names))
+    ran_the_changed_tests(kept, state['regression_tests'])
     results_agree(kept, names)
+
+
+def ran_the_changed_tests(kept, changed):
+    """The record names the tests it ran, and the tests this correction changed must be
+    among them: a matrix over some other file measured nothing about the new gate."""
+    ran = kept.get('tests')
+    require(isinstance(ran, list) and all(isinstance(p, str) for p in ran), 'The recorded matrix '
+            'does not name the tests it ran. Re-run `review_flow.py matrix`.')
+    missing = sorted(set(changed) - {Path(p).as_posix() for p in ran})
+    require(not missing, 'The recorded matrix did not run %s, which this correction changes; a '
+            'matrix over other tests measured nothing about the gate that changed. Re-run '
+            '`review_flow.py matrix` over it.' % ', '.join(missing))
 
 
 def results_agree(kept, names):

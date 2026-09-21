@@ -51,6 +51,9 @@ def bail(message):
 
 
 def caches(root):
+    """Drop every __pycache__ under root. CPython invalidates bytecode on (mtime, size),
+    so two mutants of one size within a second would serve the first one's bytecode to
+    the second's run; cleared after every restore, the next run compiles what is there."""
     for path in Path(root).rglob('__pycache__'):
         shutil.rmtree(path, ignore_errors=True)
 
@@ -351,9 +354,11 @@ def record(root, spec_path, files, out=None):
     results = matrix(root, spec, files)
     survivors = [r for r in results if not r['caught']]
     head, names, tree = fingerprint(root, spec)
+    # The test paths it ran travel with the record: a correction that changes a test is
+    # matrix-backed only if the matrix ran that test, and nothing else in the record says.
     payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
                'mutants': len(results), 'survivors': [r['case'] for r in survivors],
-               'results': results}
+               'tests': sorted(Path(f).as_posix() for f in files), 'results': results}
     if out:
         Path(out).write_text(json.dumps(payload, indent=2) + '\n')
     if survivors:
@@ -365,6 +370,10 @@ def record(root, spec_path, files, out=None):
 
 
 def main(argv):
+    """The command line: a spec, the test paths to run it over, and optionally where to
+    write the record. Exit 0 with every mutant caught, 2 for any refusal — a survivor,
+    an anchor that does not occur once, a spec out of shape — so a caller keying on 2
+    reads BLOCKED and nothing else."""
     if len(argv) < 3:
         print('usage: review_matrix.py <matrix.json> <test path> [more paths] [--out FILE]',
               file=sys.stderr)

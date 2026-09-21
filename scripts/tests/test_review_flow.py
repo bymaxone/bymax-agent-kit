@@ -1505,10 +1505,9 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('results mutated tests/other.py',
                       self.start(ok=False, correction=True, reason='').stderr)
 
-    def test_a_record_is_judged_by_its_results_not_its_summary(self):
-        """Found by a reviewer: the survivor list is a summary the record carries beside the
-        results, and clearing it by hand passed matrix_first while a result still said
-        caught: false; a mutant count the results do not add up to is the same forgery."""
+    def measured_record(self):
+        """A correction that changes a test, its matrix run for real, and the record it wrote:
+        what the forgeries below start from. Returns (record path, its contents)."""
         self.start()
         self.report('claude')
         self.report('codex')
@@ -1519,57 +1518,58 @@ class ReviewFlowTests(unittest.TestCase):
         self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
         directory = Path(self.flow('status')['directory'])
         record = directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')
-        measured = json.loads(record.read_text())
+        return record, json.loads(record.read_text())
+
+    def refused_with(self, record, measured, said, **edits):
+        """Write the measured record with these top-level fields replaced and assert the
+        refusal names what the forgery did."""
         forged = json.loads(json.dumps(measured))
-        forged['results'][0]['caught'] = False
+        forged.update(edits)
         record.write_text(json.dumps(forged))
-        self.assertIn('results it did not catch: test_g',
-                      self.start(ok=False, correction=True, reason='').stderr)
-        forged = json.loads(json.dumps(measured))
-        forged['mutants'] = 2
-        record.write_text(json.dumps(forged))
-        self.assertIn('carries 1 results', self.start(ok=False, correction=True, reason='').stderr)
-        forged = json.loads(json.dumps(measured))
-        forged['mutants'] = 2
-        forged['results'].append(dict(forged['results'][0]))
-        record.write_text(json.dumps(forged))
-        self.assertIn('repeats a result', self.start(ok=False, correction=True, reason='').stderr)
-        # JSON an author can edit: the string "false" is truthy and read as caught.
-        forged = json.loads(json.dumps(measured))
-        forged['results'][0]['caught'] = 'false'
-        record.write_text(json.dumps(forged))
-        self.assertIn('shape the runtime never writes (caught)',
-                      self.start(ok=False, correction=True, reason='').stderr)
-        # A forged result may carry no case, or a list where the rule's name should be: the
-        # shape is refused by name before any field is compared, so nothing raises.
-        forged = json.loads(json.dumps(measured))
-        forged['results'][0]['caught'] = False
-        del forged['results'][0]['case']
-        record.write_text(json.dumps(forged))
-        self.assertIn('shape the runtime never writes (case)',
-                      self.start(ok=False, correction=True, reason='').stderr)
-        forged = json.loads(json.dumps(measured))
-        forged['results'][0]['rule'] = ['r']
-        record.write_text(json.dumps(forged))
-        self.assertIn('shape the runtime never writes (rule)',
-                      self.start(ok=False, correction=True, reason='').stderr)
-        forged = json.loads(json.dumps(measured))
-        forged['survivors'] = [None]
-        record.write_text(json.dumps(forged))
-        self.assertIn('has survivors: None', self.start(ok=False, correction=True, reason='').stderr)
-        # The containers too.
-        for field, value, said in (('results', 1, 'never writes (results)'), ('mutants', '1', 'never writes (mutants)'),
-                                   ('mutants', True, 'never writes (mutants)'),
-                                   ('files', ['tests/test_g.py', 1], 'not a list of paths')):
-            forged = json.loads(json.dumps(measured))
-            forged[field] = value
-            record.write_text(json.dumps(forged))
-            self.assertIn(said, self.start(ok=False, correction=True, reason='').stderr)
+        self.assertIn(said, self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_a_record_is_judged_by_its_results_not_its_summary(self):
+        """Found by a reviewer: the survivor list is a summary the record carries beside the
+        results, and clearing it by hand passed matrix_first while a result still said
+        caught: false; a mutant count the results do not add up to is the same forgery."""
+        record, measured = self.measured_record()
+        result = measured['results'][0]
+        self.refused_with(record, measured, 'results it did not catch: test_g', results=[dict(result, caught=False)])
+        self.refused_with(record, measured, 'carries 1 results', mutants=2)
+        self.refused_with(record, measured, 'repeats a result', mutants=2, results=[result, dict(result)])
         # The runtime records a mutation shared by two rules twice; that is two measurements.
         forged = json.loads(json.dumps(measured))
         forged['mutants'] = 2
-        forged['results'].append(dict(forged['results'][0], rule='another rule'))
+        forged['results'].append(dict(result, rule='another rule'))
         record.write_text(json.dumps(forged))
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_record_is_read_in_the_shape_the_runtime_writes(self):
+        """JSON an author can edit: the string "false" is truthy, a result may carry no case
+        or a list where the rule's name should be, a survivor may be null, and a container may
+        be the wrong kind; each is refused by name before any field is compared, so nothing
+        raises."""
+        record, measured = self.measured_record()
+        result = measured['results'][0]
+        self.refused_with(record, measured, 'shape the runtime never writes (caught)', results=[dict(result, caught='false')])
+        self.refused_with(record, measured, 'shape the runtime never writes (case)',
+                          results=[{k: v for k, v in dict(result, caught=False).items() if k != 'case'}])
+        self.refused_with(record, measured, 'shape the runtime never writes (rule)', results=[dict(result, rule=['r'])])
+        self.refused_with(record, measured, 'has survivors: None', survivors=[None])
+        for field, value, said in (('results', 1, 'never writes (results)'), ('mutants', '1', 'never writes (mutants)'),
+                                   ('mutants', True, 'never writes (mutants)'),
+                                   ('files', ['tests/test_g.py', 1], 'not a list of paths'),
+                                   ('tests', 'tests/test_g.py', 'does not name the tests it ran')):
+            self.refused_with(record, measured, said, **{field: value})
+
+    def test_a_record_must_have_run_the_tests_the_correction_changed(self):
+        """Found by a reviewer: a matrix run over some other test file carried a valid head,
+        files and results, and start accepted the correction as matrix-backed although the
+        changed test never ran. The record names the tests it ran; the changed ones must be
+        among them."""
+        record, measured = self.measured_record()
+        self.refused_with(record, measured, 'did not run tests/test_g.py', tests=['tests/test_other.py'])
+        record.write_text(json.dumps(measured))
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_correction_that_changes_no_test_needs_no_matrix(self):

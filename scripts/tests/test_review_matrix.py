@@ -140,60 +140,52 @@ class EnumerationTests(unittest.TestCase):
                                      'case': 'over_the_limit'}]))
         self.assertIn('short by 1', str(caught.exception))
 
+    GUARD_TWO = 'LIMIT = 10\n\n\ndef over(v):\n    return v > LIMIT or v > 99\n'
+    TWICE = {'file': 'thing.py', 'anchor': 'v > LIMIT', 'becomes': 'True', 'case': 'over_the_limit'}
+    AGAIN = CASE + '\n\ndef test_over_again():\n    assert not over(5)\n'
+
+    def refused(self, bench, said, **over):
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(**over))
+        self.assertIn(said, str(caught.exception))
+
     def test_a_repeated_mutant_does_not_count_toward_the_enumeration(self):
         """Found by a reviewer: the same entry twice satisfied a command that counted two
         cases, ran the same test twice, and printed all caught over a case nothing ran."""
-        bench = Bench(self, guard='LIMIT = 10\n\n\ndef over(v):\n    return v > LIMIT or v > 99\n')
-        twice = {'file': 'thing.py', 'anchor': 'v > LIMIT', 'becomes': 'True', 'case': 'over_the_limit'}
-        with self.assertRaises(SystemExit) as caught:
-            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"', mutants=[twice, dict(twice)]))
-        self.assertIn('repeats a mutant', str(caught.exception))
+        twice, both = self.TWICE, 'grep -o ">" thing.py | grep -c ">"'
+        bench = Bench(self, guard=self.GUARD_TWO, test=self.AGAIN)
+        self.refused(bench, 'repeats a mutant', enumeration=both, mutants=[twice, dict(twice)])
         # The same mutation under another case is another measurement, not a repeat — and
         # not a mutation of the second site the command counts, either.
-        again = CASE + '\n\ndef test_over_again():\n    assert not over(5)\n'
-        bench = Bench(self, guard='LIMIT = 10\n\n\ndef over(v):\n    return v > LIMIT or v > 99\n', test=again)
-        with self.assertRaises(SystemExit) as caught:
-            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
-                           mutants=[twice, dict(twice, case='over_again')]))
-        self.assertIn('short by 1', str(caught.exception))
+        self.refused(bench, 'short by 1', enumeration=both, mutants=[twice, dict(twice, case='over_again')])
         payload = bench.run(rule(enumeration='grep -c "v > LIMIT" thing.py',
                                mutants=[twice, dict(twice, case='over_again')]))
         self.assertEqual(payload['mutants'], 2)
         # A second replacement at one anchor is the same site, not the second one counted.
-        with self.assertRaises(SystemExit) as caught:
-            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
-                           mutants=[twice, dict(twice, becomes='v >= LIMIT', case='over_again')]))
-        self.assertIn('short by 1', str(caught.exception))
-        # Two anchors over one span land on one site; two disjoint anchors on two.
-        with self.assertRaises(SystemExit) as caught:
-            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
-                           mutants=[twice, dict(twice, anchor='> LIMIT or', becomes='>= LIMIT or', case='over_again')]))
-        self.assertIn('short by 1', str(caught.exception))
-        payload = bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
-                               mutants=[twice, dict(twice, anchor='v > 99', case='over_again')]))
+        self.refused(bench, 'short by 1', enumeration=both,
+                     mutants=[twice, dict(twice, becomes='v >= LIMIT', case='over_again')])
+
+    def test_a_site_is_where_a_mutation_lands(self):
+        """Two anchors over one span land on one site and two disjoint anchors on two; a
+        spelling is not a place, so `sub/../thing.py`, `thing.py` and a hard link to it are one
+        file (which the resolved path did not know, nor that a case-folding disk reads THING.PY
+        as thing.py); and a file that is not here is apply_mutant's refusal, not a crash in the
+        count."""
+        twice, both = self.TWICE, 'grep -o ">" thing.py | grep -c ">"'
+        bench = Bench(self, guard=self.GUARD_TWO, test=self.AGAIN)
+        self.refused(bench, 'short by 1', enumeration=both,
+                     mutants=[twice, dict(twice, anchor='> LIMIT or', becomes='>= LIMIT or', case='over_again')])
+        payload = bench.run(rule(enumeration=both, mutants=[twice, dict(twice, anchor='v > 99', case='over_again')]))
         self.assertEqual(payload['mutants'], 2)
-        # A spelling is not a place: `sub/../thing.py` and `thing.py` are one file.
         (bench.where / 'sub').mkdir()
-        with self.assertRaises(SystemExit) as caught:
-            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
-                           mutants=[twice, dict(twice, file='sub/../thing.py', case='over_again')]))
-        self.assertIn('short by 1', str(caught.exception))
-        # Nor is a spelling a second mutant: the same mutation under both spellings is a repeat.
-        with self.assertRaises(SystemExit) as caught:
-            bench.run(rule(enumeration='grep -c "v > LIMIT" thing.py',
-                           mutants=[twice, dict(twice, file='sub/../thing.py')]))
-        self.assertIn('repeats a mutant', str(caught.exception))
-        # Nor is another name for the same inode: a hard link is the place itself, which the
-        # resolved path did not know (nor that a case-folding disk reads THING.PY as thing.py).
+        self.refused(bench, 'short by 1', enumeration=both,
+                     mutants=[twice, dict(twice, file='sub/../thing.py', case='over_again')])
+        self.refused(bench, 'repeats a mutant', enumeration='grep -c "v > LIMIT" thing.py',
+                     mutants=[twice, dict(twice, file='sub/../thing.py')])
         os.link(bench.where / 'thing.py', bench.where / 'other.py')
-        with self.assertRaises(SystemExit) as caught:
-            bench.run(rule(enumeration='grep -c "v > LIMIT" thing.py',
-                           mutants=[twice, dict(twice, file='other.py')]))
-        self.assertIn('repeats a mutant', str(caught.exception))
-        # A file that is not here is apply_mutant's refusal, not a crash in the count.
-        with self.assertRaises(SystemExit) as caught:
-            bench.run(rule(enumeration='echo 1', mutants=[dict(twice, file='missing.py')]))
-        self.assertIn('not a file here', str(caught.exception))
+        self.refused(bench, 'repeats a mutant', enumeration='grep -c "v > LIMIT" thing.py',
+                     mutants=[twice, dict(twice, file='other.py')])
+        self.refused(bench, 'not a file here', enumeration='echo 1', mutants=[dict(twice, file='missing.py')])
 
     def test_a_spec_is_read_in_the_shape_the_runtime_writes(self):
         """Found by a reviewer: a list where the rule's name should be ran the matrix, was
