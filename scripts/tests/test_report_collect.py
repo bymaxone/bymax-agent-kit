@@ -328,8 +328,8 @@ class CollectTests(unittest.TestCase):
         self.git_in_repo('checkout', '-q', 'main')
         return sha
 
-    def shipped_by_subject(self, **kw):
-        data = self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False, **kw)
+    def shipped_by_subject(self, until=None, **kw):
+        data = self.m.collect(self.repo, self.since, until or self.until, self.home, use_gh=False, **kw)
         return {c['subject']: c['shipped'] for c in data['commits']}, data
 
     def test_only_what_reached_the_default_branch_counts_as_shipped(self):
@@ -357,6 +357,87 @@ class CollectTests(unittest.TestCase):
         self.assertIs(shipped['feat(likes): only a remote ref reaches it'], False)
         self.assertEqual(data['coverage']['delivery_ref'], 'main')
         self.assertEqual(data['coverage']['commits_shipped'], 2)
+
+    def test_what_the_delivery_branch_reached_only_afterwards_did_not_ship_in_the_period(self):
+        """Ancestry asked now answers a different question from the one a period report asks.
+        A commit authored inside the week and merged the week after had not shipped in it, and
+        the pull request half of this collector already said so. The tip is followed by first
+        parent because a date walk descends into a merge's second parent and hands back a
+        commit that was never on the delivery branch — which would mark itself shipped."""
+        early = 'feat(early): merged inside the week'
+        self.commit_on('feat/early', early)
+        self.git_in_repo('merge', '-q', '--no-ff', '-m', 'merged in the period', 'feat/early')
+        # Dated after everything the delivery branch itself holds in the period, so a walk that
+        # descends into the merge's second parent hands this commit back as the tip and it then
+        # marks itself shipped. That is what --first-parent is for, and what this case pins.
+        subject = 'feat(late): merged the week after'
+        self.git_in_repo('checkout', '-q', '-B', 'feat/late', 'main')
+        (self.repo / 'late').write_text(subject)
+        self.git_in_repo('add', '-A')
+        self.git_in_repo('commit', '-q', '-m', subject,
+                         GIT_AUTHOR_DATE='2026-09-19T12:00:00Z', GIT_COMMITTER_DATE='2026-09-19T12:00:00Z')
+        self.git_in_repo('checkout', '-q', 'main')
+        self.git_in_repo('merge', '-q', '--no-ff', '-m', 'merged after the period', 'feat/late',
+                         GIT_AUTHOR_DATE='2026-09-25T12:00:00Z', GIT_COMMITTER_DATE='2026-09-25T12:00:00Z')
+        shipped, data = self.shipped_by_subject()
+        self.assertIs(shipped[early], True)
+        self.assertIs(shipped[subject], False)
+        self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
+
+    def test_a_delivery_branch_that_held_nothing_yet_shipped_nothing(self):
+        """A delivery branch whose first commit lands after the period held nothing during it.
+        That is an answer, not a missing one: the work had not shipped by then, and the file
+        must say so rather than leave the week undecided."""
+        repo = self.tmp / 'late' / 'app'; repo.mkdir(parents=True)
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(*args, **extra):
+            subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, env={**env, **extra})
+        stamps = lambda when: {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when}
+        git('init', '-q', '-b', 'main')
+        git('commit', '-q', '--allow-empty', '-m', 'chore: main starts after the period', **stamps('2026-09-25T12:00:00Z'))
+        git('checkout', '-q', '-b', 'feat/inside')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(x): written during the period', **stamps('2026-09-16T12:00:00Z'))
+        git('checkout', '-q', 'main')
+        data = self.m.collect(repo.resolve(), self.since, self.until, self.home, use_gh=False)
+        self.assertEqual([(c['subject'], c['shipped']) for c in data['commits']],
+                         [('feat(x): written during the period', False)])
+        self.assertEqual(data['coverage']['delivery_ref'], 'main')
+        self.assertIn('held nothing', data['coverage']['shipped'])
+
+    def test_a_file_named_like_the_delivery_branch_does_not_break_the_question(self):
+        """`git rev-list <sha> --not main` refuses when a path called main exists: 'ambiguous
+        argument'. A compiled binary in the root is the everyday case. The separator says the
+        argument is a revision, and without it every commit came back undecided while coverage
+        still claimed the branch had decided them."""
+        (self.repo / 'main').write_text('a compiled binary, not a branch')
+        shipped, data = self.shipped_by_subject()
+        self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
+        self.assertEqual(data['coverage']['delivery_ref'], 'main')
+
+    def collect_with_git_refusing(self, refuse_when):
+        """Run a collect where git refuses the calls this predicate picks, and nothing else."""
+        real = self.m.git
+        def refuse(repo, *args, **kw):
+            if refuse_when(args):
+                raise RuntimeError('pretend git said no')
+            return real(repo, *args, **kw)
+        with unittest.mock.patch.object(self.m, 'git', side_effect=refuse):
+            return self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)
+
+    def test_an_ancestry_question_git_refuses_decides_nothing_and_says_so(self):
+        """Two calls can fail — where the branch stood, and what it reached — and each must end
+        the same way: nothing decided, and no ref left in coverage claiming it did. The skill's
+        one escape hatch reads `delivery_ref`, so a ref there with every commit undecided is how
+        a report silently loses its updates. A test that kills the first call never reaches the
+        second, which is what let a mutant of that branch live."""
+        for name, predicate in (('where the branch stood', lambda a: a[:2] == ('rev-list', '-1')),
+                                ('what it reached', lambda a: a[:2] == ('rev-list', '--no-walk'))):
+            with self.subTest(call=name):
+                data = self.collect_with_git_refusing(predicate)
+                self.assertEqual({c['shipped'] for c in data['commits']}, {None})
+                self.assertIsNone(data['coverage']['delivery_ref'])
+                self.assertIn('failed', data['coverage']['shipped'])
 
     def test_a_repository_with_no_delivery_branch_says_it_could_not_tell(self):
         """A checkout whose default branch cannot be resolved must not call the work shipped,

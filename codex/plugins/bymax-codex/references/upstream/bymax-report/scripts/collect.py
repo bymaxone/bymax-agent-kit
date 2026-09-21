@@ -183,31 +183,66 @@ def delivery_ref(repo: Path) -> str | None:
     return None
 
 
-def mark_shipped(repo: Path, commits: list[dict], ref: str | None) -> None:
-    """Say, per commit, whether the delivery ref reaches it — the only sense in which it shipped.
+def delivery_tip(repo: Path, ref: str, until: dt.date) -> str | None:
+    """Where the delivery ref stood at the end of the period, or None if it had nothing yet.
 
-    Reachability from *any* ref is not delivery: an open branch, a tag on it and a
-    remote-tracking copy of it are all reachable, and a report built from them presents work
-    in flight as done. Ancestry answers it for all of them at once, including a branch whose
-    own ref was deleted after its merge.
+    Asking what the ref reaches *now* answers a different question from the one a period
+    report asks: a branch merged the week after is reachable today and shipped in no week
+    under review. ``--first-parent`` is not decoration — a date walk descends into a merge's
+    second parent and returns a commit that was never on the delivery branch, and that commit
+    then marks itself shipped. ``--`` ends the revisions: this is the one call that hands git a
+    ref by name, and a path called the same — a compiled ``main`` in the root is the everyday
+    one — otherwise makes it refuse the question. The two calls around it pass a sha and a
+    ``^{commit}``, which name no path; measured, each accepts the argument with a file there.
+    """
+    out = git(repo, 'rev-list', '-1', '--first-parent',
+              f'--before={until.isoformat()}T23:59:59', ref, '--')
+    return out.strip() or None
 
-    One ``rev-list`` decides every commit: it prints what is reachable from the shas given and
-    not from the delivery ref, so a collected sha is unshipped exactly when it appears there.
+
+def mark_shipped(repo: Path, commits: list[dict], ref: str | None, until: dt.date) -> tuple[str | None, str]:
+    """Say, per commit, whether the delivery ref had reached it by the end of the period.
+
+    That is the only sense in which a commit shipped *in* a period. Reachability from any ref
+    is not delivery either: an open branch, a tag on it and a remote-tracking copy are all
+    reachable, and a report built from them presents work in flight as done.
+
+    Returns the ref that decided, and the sentence coverage carries. A question git refuses
+    decides nothing, and says so with a null ref, because the skill's one escape hatch reads
+    that field: leaving the ref there while every commit came back undecided is how a report
+    silently loses its updates and claims the branch had ruled on them.
+
+    One ``rev-list`` decides every commit: with ``--no-walk`` it prints the shas given that
+    the tip does not reach, so a collected sha is unshipped exactly when it appears there.
     Asking ``merge-base --is-ancestor`` instead would be one process per commit.
     """
-    if ref is None or not commits:
+    if ref is None:
         for commit in commits:
             commit['shipped'] = None
-        return
+        return None, 'no default branch resolves here, so nothing decided what shipped'
     try:
-        out = git(repo, 'rev-list', '--no-walk', *[c['sha'] for c in commits], '--not', ref)
-    except RuntimeError:
+        tip = delivery_tip(repo, ref, until)
+    except RuntimeError as error:
         for commit in commits:
             commit['shipped'] = None
-        return
+        return None, f'asking where {ref} stood on {until.isoformat()} failed, so nothing decided what shipped: {error}'
+    decided = f'a commit shipped when {ref} reached it by {until.isoformat()}; a pull request when it merged in the period'
+    if tip is None:
+        for commit in commits:
+            commit['shipped'] = False
+        return ref, f'{ref} held nothing by {until.isoformat()}, so nothing had shipped by then'
+    if not commits:
+        return ref, decided
+    try:
+        out = git(repo, 'rev-list', '--no-walk', *[c['sha'] for c in commits], '--not', tip)
+    except RuntimeError as error:
+        for commit in commits:
+            commit['shipped'] = None
+        return None, f'asking what {ref} reached failed, so nothing decided what shipped: {error}'
     unshipped = {line.strip()[:12] for line in out.splitlines() if line.strip()}
     for commit in commits:
         commit['shipped'] = commit['sha'] not in unshipped
+    return ref, decided
 
 
 def collect_commits(repo: Path, since: dt.date, until: dt.date) -> list[dict]:
@@ -462,8 +497,7 @@ def collect(repo: Path, since: dt.date, until: dt.date, home: Path, use_gh: bool
             author: str | None = None) -> dict:
     paths = repo_paths(repo)
     commits = by_author(collect_commits(repo, since, until), author, 'author', 'email')
-    ref = delivery_ref(repo)
-    mark_shipped(repo, commits, ref)
+    ref, shipped_note = mark_shipped(repo, commits, delivery_ref(repo), until)
     prs, gh_note = collect_prs(repo, since, until) if use_gh else ([], 'gh skipped by --no-gh')
     prs = by_author(prs, author, 'author')
     if author:
@@ -481,9 +515,7 @@ def collect(repo: Path, since: dt.date, until: dt.date, home: Path, use_gh: bool
         'coverage': {
             'commits': len(commits), 'commits_without_pr': sum(1 for c in commits if c['pr'] is None),
             'commits_shipped': sum(1 for c in commits if c['shipped']),
-            'delivery_ref': ref,
-            'shipped': (f'a commit shipped when {ref} reaches it; a pull request when it merged'
-                        if ref else 'no default branch resolves here, so nothing decided what shipped'),
+            'delivery_ref': ref, 'shipped': shipped_note,
             'prs': len(prs), 'prs_shipped': sum(1 for p in prs if p['shipped']),
             'requests': len(requests),
             'gh': gh_note, 'claude': claude_cov, 'codex': codex_cov,

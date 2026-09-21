@@ -93,7 +93,7 @@ What the file holds:
   is true only for one that merged in the period.
 - `commits`: non-merge commits in the period on any branch, remote branch or tag, with
   `pr` set when a pull request explains them and `shipped` true only when the delivery
-  branch reaches them. A commit with `pr: null` is one no pull request explains, which
+  branch had reached them by the end of the period. A commit with `pr: null` is one no pull request explains, which
   is not the same as one that shipped; its body is kept. `shipped: null` means the
   delivery branch could not be resolved, and `coverage.shipped` says so.
 - `requests`: what a person typed into Claude Code or Codex on this repository in
@@ -183,13 +183,15 @@ Then, over the shipped records:
 
 Print the report, and only the report, inside one fenced block so it copies as
 written. Under it, a second fenced block titled `Evidence` with one row per report
-line, in report order:
+line, in report order. Open the evidence with the coverage row, and name the delivery
+ref and the shipped counts in it: a repository that delivers on a branch the collector
+did not pick is invisible in the report itself and obvious in that row.
 
 ```
 | Line | Evidence |
 | PROGRESS 1 | requests 2026-09-16 18:06, 18:12 (feat/guideline-flags-reach-pearl); PR #128, #129 |
 | UPDATES Likes 2 | PR #138 (a9d438e); request 2026-09-19 10:41 |
-| coverage | gh ok; 3 Claude session dirs, 30 files; 0 Codex sessions matched, 8 exec skipped |
+| coverage | delivery ref origin/main, 14 of 21 commits shipped, 6 of 9 PRs; gh ok; 3 Claude session dirs, 30 files; 0 Codex sessions matched, 8 exec skipped |
 ```
 
 Then remove the temporary directory the collect printed, with the file tool's Bash:
