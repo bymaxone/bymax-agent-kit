@@ -235,6 +235,20 @@ def shaped(rule):
                      % (rule['rule'], field, mutant.get(field)))
 
 
+def place(root, name):
+    """Where a file is, as far as the disk knows: its device and inode. A spelling is not a
+    place — `./path`, `sub/../path`, an absolute path, a hard link and, on a filesystem that
+    folds case, PATH — and the resolved path still told the last two apart. A file that is
+    not there has no place and is named by its resolved path instead, so the refusal that
+    names it fires later with the spelling the spec used."""
+    path = Path(root) / name
+    try:
+        stat = path.stat()
+    except OSError:
+        return path.resolve()
+    return (stat.st_dev, stat.st_ino)
+
+
 def sites(root, mutants):
     """How many places in the source these mutants land on: each anchor resolved to its span
     in its file, spans that overlap merged, because an anchor is text and two different
@@ -242,18 +256,16 @@ def sites(root, mutants):
     which refuses it with the count."""
     spans, landed = {}, 0
     for mutant in mutants:
-        # Keyed by the resolved path: `path` and `./path` are one file, and a spelling is
-        # not a place. A file that cannot be read counts as its own site, like an anchor
-        # that does not occur once, so apply_mutant's refusal is the one that fires.
-        where = (Path(root) / mutant['file']).resolve()
+        # A file that cannot be read counts as its own site, like an anchor that does not
+        # occur once, so apply_mutant's refusal is the one that fires.
         try:
-            text = where.read_text()
+            text = (Path(root) / mutant['file']).read_text()
         except OSError:
             landed += 1
             continue
         at = text.find(mutant['anchor'])
         if at >= 0 and text.count(mutant['anchor']) == 1:
-            spans.setdefault(where, []).append((at, at + len(mutant['anchor'])))
+            spans.setdefault(place(root, mutant['file']), []).append((at, at + len(mutant['anchor'])))
         else:
             landed += 1
     for runs in spans.values():
@@ -280,8 +292,8 @@ def matrix(root, spec, files):
             bail('Rule %r declares no mutants.' % rule.get('rule'))
         seen = set()
         for mutant in mutants:
-            # The file by its resolved path, as the site count keys it: a spelling is not a place.
-            key = ((Path(root) / mutant['file']).resolve(), mutant['anchor'], mutant['becomes'], mutant['case'])
+            # The file by its place, as the site count keys it: a spelling is not a place.
+            key = (place(root, mutant['file']), mutant['anchor'], mutant['becomes'], mutant['case'])
             # Refused: a repeated entry satisfies the enumeration's count while running
             # the case it already ran, and 'all caught' then covers a case nothing exercised.
             # The case is part of the identity: the same mutation under another case is

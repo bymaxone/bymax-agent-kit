@@ -1,5 +1,6 @@
 """The matrix runner: what it refuses, and what it records."""
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -181,6 +182,13 @@ class EnumerationTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(enumeration='grep -c "v > LIMIT" thing.py',
                            mutants=[twice, dict(twice, file='sub/../thing.py')]))
+        self.assertIn('repeats a mutant', str(caught.exception))
+        # Nor is another name for the same inode: a hard link is the place itself, which the
+        # resolved path did not know (nor that a case-folding disk reads THING.PY as thing.py).
+        os.link(bench.where / 'thing.py', bench.where / 'other.py')
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='grep -c "v > LIMIT" thing.py',
+                           mutants=[twice, dict(twice, file='other.py')]))
         self.assertIn('repeats a mutant', str(caught.exception))
         # A file that is not here is apply_mutant's refusal, not a crash in the count.
         with self.assertRaises(SystemExit) as caught:
