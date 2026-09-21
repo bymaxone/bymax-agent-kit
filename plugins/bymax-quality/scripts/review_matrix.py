@@ -41,7 +41,7 @@ PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cach
 
 
 def pytest_env():
-    """The environment every pytest here runs with: bytecode off, and no PYTEST_ADDOPTS —
+    """The environment every pytest here runs with: no bytecode written, and no PYTEST_ADDOPTS —
     pytest prepends it as it does the ini's addopts, and it reached the runs and the collects
     when only the ini's was cleared."""
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
