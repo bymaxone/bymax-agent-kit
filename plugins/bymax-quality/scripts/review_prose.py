@@ -68,7 +68,8 @@ or a set ("these three refusals", "six attempts", "the helper has one call site"
 to delete the assertion and point at the test or the code that holds it — not to correct the
 number. A number corrected is a number that drifts again.
 
-You may edit comments, docstrings and markdown only, and only in the files listed below. Do
+You may edit comments, docstrings and markdown only, and only in the files listed below —
+never a fenced block, a frontmatter, or a comment a linter or a type checker reads. Do
 not add prose anywhere; do not touch code; do not create or delete files. A verifier runs
 after you and refuses the whole pass if any of that happened."""
 
@@ -362,29 +363,48 @@ def instructs(text):
             lines = lines[end + 1:]
     fence = None
     for line in lines:
-        mark = line.strip()[:3]
-        if fence is None and mark in ('```', '~~~'):
-            fence = mark
+        hit = FENCE.match(line)
+        if fence is None:
+            if hit and not (hit.group(1)[0] == '`' and '`' in hit.group(2)):
+                fence = (hit.group(1)[0], len(hit.group(1)))
+                found.append(line)
+        else:
             found.append(line)
-        elif fence is not None:
-            found.append(line)
-            if mark == fence:
+            # A closing fence is the same character, at least as long, and nothing after it
+            # but whitespace: a line like ```not-a-close is content, and what follows it is
+            # still inside the block. Reading the first three characters alone closed the
+            # block there and let the command after it go unread.
+            if hit and hit.group(1)[0] == fence[0] and len(hit.group(1)) >= fence[1] and not hit.group(2).strip():
                 fence = None
     return found
 
 
-DIRECTIVE = re.compile(r'#\s*(noqa|type:|pragma|pylint:|flake8:|mypy:|ruff:|nosec|fmt:|isort:)', re.I)
+FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})(.*)$')
+
+
+DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
 
 
 def directives(text):
-    """The comments a tool reads. A suppression or a directive is behaviour to the linter or
-    the type checker that honours it, and the syntax tree never sees it; a reader that
-    replaced a comment with `# noqa` was recorded as prose-only."""
+    """The comments a tool reads, each with the statement it sits on. A suppression or a
+    directive is behaviour to the linter or the type checker that honours it, and the syntax
+    tree never sees it; a reader that replaced a comment with `# noqa` was recorded as
+    prose-only. The statement travels with it — the code before it on its line, or the next
+    line of code when it stands alone — because the same `# noqa` moved to another statement
+    suppresses another diagnostic, and a list of the strings alone read that as no change."""
+    lines = text.split('\n')
+    found = []
     try:
-        return [tok.string for tok in tokenize.generate_tokens(io.StringIO(text).readline)
-                if tok.type == tokenize.COMMENT and DIRECTIVE.search(tok.string)]
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT and DIRECTIVE.search(tok.string):
+                row, col = tok.start
+                beside = tok.line[:col].strip()
+                below = '' if beside else next((l.strip() for l in lines[row:]
+                                                if l.strip() and not l.strip().startswith('#')), '')
+                found.append((beside, below, tok.string))
     except (SyntaxError, tokenize.TokenError):
         return None
+    return found
 
 
 def envelope(cwd=None):

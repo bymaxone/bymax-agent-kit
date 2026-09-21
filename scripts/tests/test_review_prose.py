@@ -143,6 +143,38 @@ class EnvelopeTests(unittest.TestCase):
         bench.write(tagged.replace('  # type: ignore', ''))
         self.assertIn('a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
+    def test_a_fence_closes_only_on_a_bare_fence_line(self):
+        """Found by a reviewer: a content line like ```not-a-close closed the block for a
+        reader of its first three characters, and the command after it went unread. A closing
+        fence is the same character, at least as long, and nothing else; four backticks open a
+        block that three do not close."""
+        tricky = '# Run\n\n```text\n```not-a-close\necho safe\n```\n\nSaid.\n'
+        longer = '# Run\n\n````sh\n```\necho safe\n````\n\nSaid.\n'
+        bench = Bench(self, {'A.md': tricky, 'B.md': longer})
+        bench.write(tricky.replace('echo safe', 'rm -rf x'), name='A.md')
+        self.assertIn('A.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
+        bench.write(longer.replace('echo safe', 'rm -rf x'), name='B.md')
+        self.assertIn('B.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
+
+    def test_a_directive_moved_to_another_statement_is_not_prose(self):
+        """Found by a reviewer: the same `# noqa` on another statement suppresses another
+        diagnostic, and a list of the comment strings alone read the move as no change. Beside
+        a statement, standing alone above one, and a checker the list had not named."""
+        inline = 'x = 1  # noqa\ny = 2\n'
+        alone = '# pylint: disable=invalid-name\na = 1\nb = 2\n'
+        bench = Bench(self, {'thing.py': inline, 'other.py': alone})
+        bench.write('x = 1\ny = 2  # noqa\n')
+        self.assertIn('thing.py: a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
+        bench.write(inline)
+        bench.write('a = 1\n# pylint: disable=invalid-name\nb = 2\n', name='other.py')
+        self.assertIn('other.py: a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
+        bench.write(alone, name='other.py')
+        bench = Bench(self)
+        bench.write(START.replace('# Six attempts at this rule, and it guards the limit.', '# pyright: ignore'))
+        self.assertIn('a linter or a type checker reads changed', ' | '.join(bench.offences()))
+        bench.write(START.replace('# Six attempts at this rule, and it guards the limit.', '# Pragmatically, a guard.'))
+        self.assertEqual(bench.offences(), [])
+
     def test_a_refusal_names_a_written_line_that_begins_with_plus_signs(self):
         """`++LIMIT` prints as `+++LIMIT` under git's default sign, and a header test skipped
         it, so the refusal said behaviour changed and named nothing."""
