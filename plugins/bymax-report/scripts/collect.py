@@ -21,8 +21,8 @@ Sources, in the order they are read:
   if its ``cwd`` is this repository or one of its worktrees.
 - Codex sessions under ``~/.codex/sessions``. A session counts when its ``session_meta``
   names this repository as ``cwd`` and its ``source`` is in ``CODEX_HUMAN_SOURCES``.
-  ``exec`` sessions are the review plugin calling Codex with a prompt an author never
-  typed, and subagent sessions are Codex talking to itself; both skipped.
+  ``exec`` and subagent sessions are skipped: on the machine this was built, every
+  ``exec`` session was the review plugin prompting Codex, not a person typing.
 
 Timestamps are stored in UTC; the period is a range of local calendar days, so each
 timestamp is converted to the machine's local zone before its date is compared.
@@ -43,11 +43,14 @@ PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
 TEXT_LIMIT = 800
+# gh pr list has no pagination: a read that comes back exactly this long may have dropped
+# older PRs, and the coverage note says so instead of reading as complete.
+PR_LIMIT = 1000
 # A commit body is dropped once a pull request is linked by title or head; the PR body
 # carries the story then, and 150 bodies of a week were 110 KB the reader never needed.
 BODY_LIMIT = 400
 # A Codex session's ``source`` is a string for a person at a keyboard and a dict for a
-# subagent. ``exec`` is a string too, and is not a person.
+# subagent. ``exec`` is a string too; on the machine this was built it was never a person.
 CODEX_HUMAN_SOURCES = {'cli', 'vscode', 'tui'}
 # A Claude line whose promptSource is one of these was written by the harness.
 CLAUDE_MACHINE_PROMPTS = {'system'}
@@ -150,14 +153,16 @@ def conventional(subject: str) -> dict:
 
 
 def collect_commits(repo: Path, since: dt.date, until: dt.date) -> list[dict]:
-    """Non-merge commits reachable from any ref in the period, oldest first."""
+    """Non-merge commits reachable from any branch, remote branch or tag in the period, oldest first."""
     # No --since here: git treats it as a traversal cutoff, not a filter, and stops
     # walking a line at the first commit older than the date. A backdated commit
     # (a rebase, a cherry-pick, a clock) then hides every ancestor behind it — the
     # fixture that found this had a commit dated 09-01 whose parent was dated 09-16.
     # So every commit is read and the period is applied here, by author date.
     fmt = '%H%x1f%an%x1f%ae%x1f%aI%x1f%S%x1f%s%x1f%b%x1e'
-    out = git(repo, 'log', '--all', '--source', '--no-merges', '--reverse', f'--format={fmt}')
+    # Not --all: it walks refs/stash too, and a stash is two non-merge commits nobody shipped.
+    out = git(repo, 'log', '--branches', '--remotes', '--tags', '--source', '--no-merges', '--reverse',
+              f'--format={fmt}')
     commits = []
     seen: set[str] = set()
     for record in out.split('\x1e'):
@@ -196,7 +201,7 @@ def by_author(items: list[dict], author: str | None, *fields: str) -> list[dict]
 def collect_prs(repo: Path, since: dt.date, until: dt.date) -> tuple[list[dict], str]:
     """Pull requests merged or opened in the period, and a coverage note for the reader."""
     fields = 'number,title,body,state,createdAt,mergedAt,closedAt,headRefName,url,author'
-    cmd = ['gh', 'pr', 'list', '--state', 'all', '--limit', '200',
+    cmd = ['gh', 'pr', 'list', '--state', 'all', '--limit', str(PR_LIMIT),
            '--search', f'updated:>={since.isoformat()}', '--json', fields]
     try:
         result = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True, timeout=60)
@@ -226,7 +231,10 @@ def collect_prs(repo: Path, since: dt.date, until: dt.date) -> tuple[list[dict],
             'body': (item.get('body') or '').strip()[:TEXT_LIMIT * 2], **parsed,
         })
     prs.sort(key=lambda pr: pr['merged_at'] or pr['created_at'] or '')
-    return prs, f'gh read {len(raw)} pull requests updated since {since.isoformat()}'
+    note = f'gh read {len(raw)} pull requests updated since {since.isoformat()}'
+    if len(raw) >= PR_LIMIT:
+        note += f', which is the cap of {PR_LIMIT}: older ones may be missing'
+    return prs, note
 
 
 def link_commits_to_prs(commits: list[dict], prs: list[dict]) -> None:
@@ -262,7 +270,7 @@ def message_text(content) -> str:
 def clean_request(text: str) -> str | None:
     """Strip image tokens and refuse text the harness wrote."""
     text = IMAGE_TOKEN.sub('', text or '').strip()
-    if not text or text.startswith('<') or text.startswith('Another Claude session'):
+    if not text or text.startswith(('<', 'Another Claude session', '[Request interrupted')):
         return None
     if text.lstrip().startswith('# Files mentioned by the user'):
         return None
@@ -366,7 +374,7 @@ def collect_codex(home: Path, paths: list[str], since: dt.date, until: dt.date) 
             continue
         matched += 1
         session = payload.get('id') or path.stem
-        seen: set[str] = set()
+        seen: set[tuple[str, str]] = set()
         first = True
         for line in lines:
             kind = line.get('type')
@@ -377,19 +385,24 @@ def collect_codex(home: Path, paths: list[str], since: dt.date, until: dt.date) 
                 text = clean_request(body.get('message') or '')
             else:
                 continue
-            if text is None or text in seen:
+            if text is None:
                 continue
-            seen.add(text)
+            timestamp = line.get('timestamp') or ''
+            # Codex writes one input twice (response_item and event_msg, milliseconds apart), so
+            # the same text within one minute is one ask; the same words on another day are two.
+            key = (text, timestamp[:16])
+            if key in seen:
+                continue
+            seen.add(key)
             opens = first
             first = False
-            timestamp = line.get('timestamp') or ''
             if not in_period(timestamp, since, until):
                 continue
             requests.append(request('codex', session, timestamp, None, opens, text))
     return requests, {
         'directory': str(sessions), 'files': scanned, 'matched': matched,
         'skipped_exec': skipped_exec, 'skipped_subagent': skipped_subagent,
-        'note': 'exec sessions are the review plugin prompting Codex, not a person; skipped',
+        'note': 'exec and subagent sessions were not read',
     }
 
 

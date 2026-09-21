@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'plugins/bymax-report/scripts/collect.py'
@@ -108,7 +109,7 @@ class CollectTests(unittest.TestCase):
         base = {'type': 'user', 'timestamp': noon('2026-09-16'), 'cwd': str(self.repo), 'sessionId': 'abcdef1234',
                 'gitBranch': 'main', 'promptSource': 'typed', 'message': {'role': 'user', 'content': text}}
         base.update(extra)
-        return base
+        return {k: v for k, v in base.items() if v is not None}
 
     def test_only_what_a_person_typed_is_a_request(self):
         """Every shape below exists in a real session file; only the first two are asks."""
@@ -124,6 +125,10 @@ class CollectTests(unittest.TestCase):
             self.claude_line('a sidechain prompt', isSidechain=True),
             self.claude_line('typed in another repo', cwd='/elsewhere/other'),
             self.claude_line('typed before the period', timestamp=noon('2026-09-10')),
+            self.claude_line('[Request interrupted by user]'),
+            self.claude_line('[Request interrupted by user for tool use]'),
+            # A session written before promptSource existed: the tag alone must refuse it.
+            self.claude_line('<task-notification> done without promptSource', promptSource=None),
         ]
         write_jsonl(self.home / '.claude/projects' / self.slug / 's1.jsonl', lines)
         data = self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)
@@ -188,6 +193,89 @@ class CollectTests(unittest.TestCase):
         self.m.link_commits_to_prs(commits, prs)
         self.assertEqual([c['pr'] for c in commits], [138, 138, None, 9])
         self.assertEqual([c['body'] for c in commits], ['', '', 'stays', 'already'])
+
+    def test_a_stash_is_not_a_shipped_commit(self):
+        """`git stash -u` writes two non-merge commits under refs/stash ('index on', 'untracked
+        files on'); `--all` walks them and the report would list a stash as shipped work."""
+        env = {**os.environ, 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
+               'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x', 'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        (self.repo / 'a').write_text('changed')
+        (self.repo / 'u').write_text('untracked')
+        subprocess.run(['git', '-C', str(self.repo), 'stash', 'push', '-q', '-u', '-m', 'wip'], check=True, env=env)
+        data = self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)
+        self.assertEqual({c['ref'] for c in data['commits']}, {'main', 'fix/verdict'})
+        self.assertEqual(len(data['commits']), 2)
+
+    def test_codex_keeps_a_repeated_ask_and_collapses_the_written_twice_pair(self):
+        """Codex writes one input twice (response_item and event_msg, same minute); that pair is
+        one ask. The same words typed on another day are another ask, and one typed before the
+        period must not hide the one typed inside it."""
+        meta = {'timestamp': noon('2026-09-10'), 'type': 'session_meta',
+                'payload': {'id': 'rep', 'cwd': str(self.repo), 'source': 'cli', 'originator': 'x'}}
+        def item(ts, text):
+            return {'timestamp': ts, 'type': 'response_item',
+                    'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}}
+        def event(ts, text):
+            return {'timestamp': ts, 'type': 'event_msg', 'payload': {'type': 'user_message', 'message': text}}
+        write_jsonl(self.home / '.codex/sessions/2026/09/10/rollout-rep.jsonl', [
+            meta,
+            item(noon('2026-09-10'), 'fix the approval flow'),
+            item(noon('2026-09-17'), 'fix the approval flow'),
+            event('2026-09-17T12:00:00.250Z', 'fix the approval flow'),
+            item('2026-09-17T15:00:00Z', 'continue'),
+            item('2026-09-17T16:00:00Z', 'continue'),
+        ])
+        data = self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)
+        self.assertEqual([r['text'] for r in data['requests']], ['fix the approval flow', 'continue', 'continue'])
+
+    def test_gh_reaching_its_cap_is_said_in_coverage(self):
+        """gh pr list has no pagination: a read that returns exactly the cap may have dropped older
+        PRs, and the evidence block must say so rather than read as complete."""
+        cap = self.m.PR_LIMIT
+        rows = [{'number': n, 'title': f'feat: item {n}', 'createdAt': noon('2026-09-17'), 'author': {'login': 'x'}} for n in range(cap)]
+        def fake_gh(cmd, **kwargs):
+            limit = int(cmd[cmd.index('--limit') + 1])
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows[:limit]), stderr='')
+        with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
+            prs, note = self.m.collect_prs(self.repo, self.since, self.until)
+        self.assertEqual(len(prs), cap)
+        self.assertIn('cap', note)
+        def fake_gh_under_cap(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows[:cap - 1]), stderr='')
+        with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh_under_cap):
+            self.assertNotIn('cap', self.m.collect_prs(self.repo, self.since, self.until)[1])
+
+    def skill_block(self):
+        text = (ROOT / 'plugins/bymax-report/skills/standup/SKILL.md').read_text()
+        import re
+        return re.search(r'```bash\n(.*?)```', text, re.S).group(1)
+
+    def run_block(self, home, args_lines):
+        home.mkdir(parents=True, exist_ok=True)
+        if args_lines is not None:
+            (home / '.claude').mkdir(exist_ok=True)
+            (home / '.claude/bymax-report-args').write_text('\n'.join(args_lines) + '\n')
+        env = {**os.environ, 'HOME': str(home), 'TMPDIR': str(home / 'tmp'),
+               'CLAUDE_PLUGIN_ROOT': str(ROOT / 'plugins/bymax-report')}
+        (home / 'tmp').mkdir(exist_ok=True)
+        return subprocess.run(['bash', '-c', self.skill_block()], cwd=str(self.repo), env=env,
+                              capture_output=True, text=True)
+
+    def test_the_skill_block_refuses_a_missing_args_file_and_runs_with_one(self):
+        """The handoff file carries what the user typed; without it the block used to run the
+        collect on defaults and exit 0, dropping an explicit period and author silently. The
+        positive control proves the refusal is not just any refusal: with the file, the block
+        runs the collect, deletes the file, and prints the temporary directory."""
+        home = self.tmp / 'h1'
+        missing = self.run_block(home, None)
+        self.assertNotEqual(missing.returncode, 0, missing.stdout + missing.stderr)
+        home2 = self.tmp / 'h2'
+        with_file = self.run_block(home2, ['2026-09-14..2026-09-20', str(self.repo), ''])
+        self.assertEqual(with_file.returncode, 0, with_file.stdout + with_file.stderr)
+        self.assertFalse((home2 / '.claude/bymax-report-args').exists())
+        work = with_file.stdout.strip().splitlines()[-1]
+        self.assertTrue((Path(work) / 'collect.json').exists(), with_file.stdout)
+        self.assertIn('(2026-09-14 .. 2026-09-20)', with_file.stdout)
 
     def test_the_cli_writes_one_record_per_line_and_a_summary(self):
         write_jsonl(self.home / '.claude/projects' / self.slug / 's.jsonl', [self.claude_line('ask')])

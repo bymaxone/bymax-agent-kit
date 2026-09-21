@@ -1,6 +1,6 @@
 # Install, update and verify Bymax Agent Kit
 
-This checkout contains two independent plugin packages: eight Claude Code plugins and
+This checkout contains two independent plugin packages: nine Claude Code plugins and
 one Codex plugin with 28 skills. A plugin installation supplies instructions, not the
 project's dependencies, accounts, simulator or browser. This guide covers the complete
 setup for autonomous dual-review shipping and the optional skill families.
@@ -39,7 +39,7 @@ cd bymax-agent-kit
 
 ## Claude package
 
-Register the marketplace and install all eight components. If this machine still has the
+Register the marketplace and install all nine components. If this machine still has the
 former `bymax-claude-code` marketplace registered, remove it first — the GitHub URL
 redirects but the marketplace id does not, and mixing the two suffixes installs two copies:
 

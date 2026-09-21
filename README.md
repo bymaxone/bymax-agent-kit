@@ -355,7 +355,7 @@ graphify hook install
 
 ## 📦 Plugins
 
-For Claude Code the toolkit ships as **eight composable plugins** (plus a reference index) — use
+For Claude Code the toolkit ships as **nine composable plugins** (plus a reference index) — use
 them à la carte. For Codex the same surface arrives as **one plugin with 28 native skills**; the
 short name in the tables below maps to `bymax-codex:bymax-<name>` there, and the full mapping is
 in [CODEX.md](./CODEX.md#available-workflows-and-capability-boundaries).
@@ -503,7 +503,7 @@ Findings carry ASVS 5.0, CWE and API Top 10 references and a CVSS vector, and li
 
 ### 🎁 [`bymax-all`](./plugins/bymax-all/) — Reference index
 
-A docs-only marketplace entry that lists the full set. Claude Code's plugin manifest does **not** auto-install dependencies, so installing `bymax-all` does nothing on its own — install the eight sibling plugins individually for the complete toolkit.
+A docs-only marketplace entry that lists the full set. Claude Code's plugin manifest does **not** auto-install dependencies, so installing `bymax-all` does nothing on its own — install the nine sibling plugins individually for the complete toolkit.
 
 ---
 

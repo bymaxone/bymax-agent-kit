@@ -55,16 +55,22 @@ it is a section title or an area name.
 ## Step 1 — Collect (deterministic, read-only)
 
 First write the arguments to a file with the file tool, three lines, so a value the
-user typed never becomes shell source: line 1 the period token (or `last-week`),
-line 2 the repository path (or `.`), line 3 the author text (or an empty line). The
-file is `${TMPDIR:-/tmp}/bymax-report-args`; the block below deletes it. Then run:
+user typed never becomes shell source: line 1 the period token (`last-week` when none
+was given), line 2 the repository path (`.` when none was given), line 3 the author
+text (an empty line when none was given). The file is `.claude/bymax-report-args` in
+the home directory; the block below reads it, deletes it, and refuses to run without
+it, so a run never falls back to defaults the user did not choose. Then run:
 
 ```bash
-ARGS="${TMPDIR:-/tmp}/bymax-report-args"
-PERIOD=$(sed -n 1p "$ARGS")
-REPO=$(sed -n 2p "$ARGS")
-AUTHOR=$(sed -n 3p "$ARGS")
+ARGS="${HOME}/.claude/bymax-report-args"
+PERIOD=$(sed -n 1p "$ARGS" 2>/dev/null)
+REPO=$(sed -n 2p "$ARGS" 2>/dev/null)
+AUTHOR=$(sed -n 3p "$ARGS" 2>/dev/null)
 rm -f "$ARGS"
+if [ -z "$PERIOD" ] || [ -z "$REPO" ]; then
+  echo "No arguments file at $ARGS: write it (period, repo, author) and run this block again." >&2
+  exit 1
+fi
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/bymax-report.XXXXXX")
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/collect.py" --period "$PERIOD" --repo "$REPO" --author "$AUTHOR" --out "${WORK}/collect.json"
 echo "$WORK"
@@ -87,10 +93,10 @@ What the file holds:
 - `coverage`: what was read and what was not. `gh` says whether pull requests were
   read at all. `codex.matched` counts the interactive Codex sessions of this repo.
 
-If `coverage.gh` says gh failed or is missing, the UPDATES section is built from
-commits alone and the report's appendix says so. If `requests` is empty, PROGRESS
-cannot be written; say so and stop rather than inventing the week's asks from the
-commits.
+If `coverage.gh` says gh failed, is missing or reached its cap, the evidence says so
+and UPDATES is built from what was read. If `requests` is empty, PROGRESS cannot be
+written: remove the temporary directory the collect printed, say so, and stop rather
+than inventing the week's asks from the commits.
 
 ## Step 2 — PROGRESS: the asks, as outcomes
 

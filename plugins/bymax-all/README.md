@@ -1,6 +1,6 @@
 # 🎁 Bymax All — Reference Index
 
-> **Docs-only marketplace entry.** Claude Code's plugin manifest does not auto-install dependencies, so this plugin does nothing on its own. Install the eight sibling plugins individually for the complete toolkit.
+> **Docs-only marketplace entry.** Claude Code's plugin manifest does not auto-install dependencies, so this plugin does nothing on its own. Install the nine sibling plugins individually for the complete toolkit.
 
 ## Install
 
