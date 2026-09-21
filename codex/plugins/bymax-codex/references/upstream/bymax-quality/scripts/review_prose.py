@@ -16,8 +16,10 @@ code instead.
 What keeps this from becoming the loop it is meant to end:
 
     prose only      a Python file's behaviour — its syntax tree with every docstring
-                    removed — must be identical before and after. Markdown is prose
-                    throughout. Anything else this pass cannot read, so it cannot show a
+                    removed — must be identical before and after, and so must the
+                    comments a linter or a type checker reads. Markdown is prose outside
+                    its frontmatter and fenced blocks, which are what a command file
+                    instructs. Anything else this pass cannot read, so it cannot show a
                     change there is prose, and refuses it.
     never longer    the pass may correct and delete; it may not expand, per file. An
                     "improved" comment is new unverified surface, which is how the loop
@@ -39,6 +41,7 @@ the why, correct or cut the what.
 import ast
 import hashlib
 import io
+import re
 from stat import S_IFMT, S_ISDIR, S_ISLNK, S_ISREG
 import os
 import subprocess
@@ -251,16 +254,19 @@ def first_change(name, cwd=None):
     """
     at = None
     removed = ''
-    for row in git('diff', '-U0', 'HEAD', '--', name, cwd=cwd).split('\n'):
+    # `>` and `<` rather than git's default signs: a written line `++x` prints as `+++x`
+    # under the default and a header test skipped it, so the refusal named nothing.
+    for row in git('diff', '-U0', '--output-indicator-new=>', '--output-indicator-old=<',
+                   'HEAD', '--', name, cwd=cwd).split('\n'):
         if row.startswith('@@'):
             at = int(row.split('+')[1].split(',')[0].split()[0])
-        elif row[:1] in '+-' and row[:3] not in ('+++', '---') and at is not None:
+        elif row[:1] in '><' and at is not None:
             text = row[1:].strip()
             if text and not text.startswith('#'):
-                if row.startswith('+'):
+                if row.startswith('>'):
                     return ' at line %d: %s' % (at, text[:70])
                 removed = removed or ' near line %d, removed: %s' % (at, text[:70])
-            at += row.startswith('+')
+            at += row.startswith('>')
     return removed
 
 
@@ -307,24 +313,78 @@ def offences(cwd=None, ignored_before=None):
             # place a line-ending edit is seen.
             found.append('%s: changed in mode or line endings, not prose' % name)
             continue
-        if name.endswith('.py'):
-            try:
-                same = behaviour(before) == behaviour(after)
-            except SyntaxError as error:
-                found.append('%s does not parse, so nothing can show its change is prose: %s'
-                             % (name, error))
-                continue
-            if not same:
-                found.append('%s: behaviour changed, not prose%s' % (name, first_change(name, cwd=cwd)))
-            if header(before) != header(after):
-                found.append('%s: the shebang or coding declaration changed, which Python reads '
-                             'as behaviour' % name)
+        found += behaviour_offences(name, before, after, cwd=cwd)
         was, now = prose_size(name, before), prose_size(name, after)
         if was is not None and now is not None and now > was:
             found.append('%s: prose grew by %d; this pass corrects and cuts, it does not expand, '
                          'because an expanded comment is new surface nothing checks'
                          % (name, now - was))
     return found
+
+
+def behaviour_offences(name, before, after, cwd=None):
+    """What in one file's change is behaviour rather than prose, by the kind of file."""
+    if name.endswith('.md'):
+        if instructs(before) != instructs(after):
+            return ['%s: its frontmatter or a fenced block changed, which is what the file '
+                    'instructs, not prose' % name]
+        return []
+    try:
+        same = behaviour(before) == behaviour(after)
+    except SyntaxError as error:
+        return ['%s does not parse, so nothing can show its change is prose: %s' % (name, error)]
+    found = []
+    if not same:
+        found.append('%s: behaviour changed, not prose%s' % (name, first_change(name, cwd=cwd)))
+    if header(before) != header(after):
+        found.append('%s: the shebang or coding declaration changed, which Python reads '
+                     'as behaviour' % name)
+    if directives(before) != directives(after):
+        found.append('%s: a comment a linter or a type checker reads changed, which is '
+                     'behaviour to the tool that honours it' % name)
+    return found
+
+
+def instructs(text):
+    """What a markdown file instructs rather than says: its frontmatter and its fenced blocks.
+
+    A command file is code here, reviewed for what it instructs, and a reader holding the
+    whole file could turn `echo safe` inside a fence into something else while the line
+    count stood still. The opening fence travels with its block: the language it names is
+    part of the instruction.
+    """
+    lines = text.split('\n')
+    found = []
+    if lines and lines[0].strip() == '---':
+        end = next((i for i in range(1, len(lines)) if lines[i].strip() == '---'), None)
+        if end is not None:
+            found.append('\n'.join(lines[:end + 1]))
+            lines = lines[end + 1:]
+    fence = None
+    for line in lines:
+        mark = line.strip()[:3]
+        if fence is None and mark in ('```', '~~~'):
+            fence = mark
+            found.append(line)
+        elif fence is not None:
+            found.append(line)
+            if mark == fence:
+                fence = None
+    return found
+
+
+DIRECTIVE = re.compile(r'#\s*(noqa|type:|pragma|pylint:|flake8:|mypy:|ruff:|nosec|fmt:|isort:)', re.I)
+
+
+def directives(text):
+    """The comments a tool reads. A suppression or a directive is behaviour to the linter or
+    the type checker that honours it, and the syntax tree never sees it; a reader that
+    replaced a comment with `# noqa` was recorded as prose-only."""
+    try:
+        return [tok.string for tok in tokenize.generate_tokens(io.StringIO(text).readline)
+                if tok.type == tokenize.COMMENT and DIRECTIVE.search(tok.string)]
+    except (SyntaxError, tokenize.TokenError):
+        return None
 
 
 def envelope(cwd=None):

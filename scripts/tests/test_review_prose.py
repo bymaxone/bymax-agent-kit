@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
-import review_prose as prose                                        # noqa: E402
+import review_prose as prose
 
 START = ('LIMIT = 10\n'
          '# Six attempts at this rule, and it guards the limit.\n'
@@ -116,6 +116,39 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(bench.offences(), [])
         bench.write(NOTES + '\nAnd one more thing.\n', name='NOTES.md')
         self.assertIn('prose grew by 1', ' | '.join(bench.offences()))
+
+    def test_a_fenced_block_or_the_frontmatter_is_what_a_markdown_file_instructs(self):
+        """A command file is code here. A reader with the whole file could turn `echo safe`
+        inside a fence into another command, or widen `allowed-tools`, with the line count
+        unchanged; the prose around a fence stays correctable."""
+        run = '# Run\n\n```sh\necho safe\n```\n\nThen read what it printed.\n'
+        cmd = "---\ndescription: 'Run it'\nallowed-tools: Read\n---\n\n# Cmd\n\nRead first.\n"
+        bench = Bench(self, {'RUN.md': run, 'CMD.md': cmd})
+        bench.write(run.replace('echo safe', 'rm -rf x'), name='RUN.md')
+        self.assertIn('fenced block changed', ' | '.join(bench.offences()))
+        bench.write(run.replace('read what it printed', 'read the output'), name='RUN.md')
+        self.assertEqual(bench.offences(), [])
+        bench.write(cmd.replace('allowed-tools: Read', 'allowed-tools: Bash'), name='CMD.md')
+        self.assertIn('frontmatter or a fenced block changed', ' | '.join(bench.offences()))
+
+    def test_a_comment_a_tool_reads_is_not_prose(self):
+        """The syntax tree never sees `# noqa` or `# type: ignore`, and the comment count
+        stands still when one replaces a sentence, so the envelope recorded a suppression as
+        prose-only. Replacing, adding beside, and cutting one are each refused."""
+        bench = Bench(self)
+        bench.write(START.replace('# Six attempts at this rule, and it guards the limit.', '# noqa'))
+        self.assertIn('a linter or a type checker reads changed', ' | '.join(bench.offences()))
+        tagged = START.replace('LIMIT = 10\n', 'LIMIT = 10  # type: ignore\n')
+        bench = Bench(self, {'thing.py': tagged})
+        bench.write(tagged.replace('  # type: ignore', ''))
+        self.assertIn('a linter or a type checker reads changed', ' | '.join(bench.offences()))
+
+    def test_a_refusal_names_a_written_line_that_begins_with_plus_signs(self):
+        """`++LIMIT` prints as `+++LIMIT` under git's default sign, and a header test skipped
+        it, so the refusal said behaviour changed and named nothing."""
+        bench = Bench(self)
+        bench.write(START.replace('def over', '++LIMIT\ndef over'))
+        self.assertIn('at line 3: ++LIMIT', ' | '.join(bench.offences()))
 
     def test_a_file_this_pass_cannot_read_is_refused(self):
         bench = Bench(self, {'app.ts': 'export const limit = 10 // ten\n'})

@@ -83,7 +83,7 @@ a separate design audit, report it separately from this campaign.
    **Then, with the candidate committed and before `start`, let a fresh reader correct its
    prose:** `python3 "$FLOW" prose --base <merge-base>` (no `--base` once a campaign is frozen;
    the delta is then what changed since the frozen head). It hands the prose this delta added
-   to a Claude that never saw your reasoning, may edit comments, docstrings and markdown only,
+   to a Claude that never saw your reasoning, may edit comments, docstrings and markdown only — never a fenced block, a frontmatter, or a comment a linter or a type checker reads —
    and refuses the pass if a Python file's behaviour changed or any file's prose grew,
    leaving the tree for you to inspect — the runtime never writes to it.
    Commit what it corrected; `start` refuses a candidate that adds prose without a record
