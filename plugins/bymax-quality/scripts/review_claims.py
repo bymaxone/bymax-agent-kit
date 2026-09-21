@@ -297,8 +297,8 @@ def defined_under(node, prefix):
 def collected_class(node):
     """Whether pytest collects the tests of this class: named as python_classes has it, or a
     TestCase subclass, which the unittest plugin collects whatever the class is called. This
-    repository's own tests are those, and the name alone passed over every one of them. A
-    subclass of a base defined elsewhere is not read here, which leaves the file rule."""
+    repository's own tests are those, and the name alone passed over every one of them. A base
+    is read as spelled, never followed to its own definition."""
     named = [base.attr if isinstance(base, ast.Attribute) else getattr(base, 'id', '')
              for base in node.bases]
     return node.name.startswith('Test') or any(name.endswith('TestCase') for name in named)
