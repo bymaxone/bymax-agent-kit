@@ -220,7 +220,10 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIn('secret.env is ignored and new', ' | '.join(prose.offences(cwd=str(bench.where), ignored_before={})))
         before = prose.ignored(cwd=str(bench.where))
         self.assertEqual(prose.offences(cwd=str(bench.where), ignored_before=before), [])
-        (bench.where / 'secret.env').write_text('k2\n')
+        # Same length, mtime put back: metadata cannot tell, the bytes can.
+        stat = os.lstat(bench.where / 'secret.env')
+        (bench.where / 'secret.env').write_text('j\n')
+        os.utime(bench.where / 'secret.env', ns=(stat.st_atime_ns, stat.st_mtime_ns))
         self.assertIn('secret.env is ignored and was edited', ' | '.join(prose.offences(cwd=str(bench.where), ignored_before=before)))
         (bench.where / 'secret.env').unlink()
         self.assertIn('secret.env is ignored and was deleted', ' | '.join(prose.offences(cwd=str(bench.where), ignored_before=before)))
@@ -298,6 +301,24 @@ class EnvelopeTests(unittest.TestCase):
         tempfile.tempdir = None
         self.addCleanup(setattr, tempfile, 'tempdir', None)
         self.assertEqual(bench.offences(), [])
+
+    def test_a_sparse_checkout_spelled_yes_is_still_one(self):
+        """git reads core.sparseCheckout as a boolean, so yes, on and 1 are true; a string
+        compare saw none of them and refused a clean sparse checkout forever."""
+        bench = Bench(self, {'keep/k.py': 'x = 1\n', 'drop/d.py': 'y = 2\n'})
+        subprocess.run(['git', '-C', str(bench.where), 'config', 'core.sparseCheckout', 'yes'], check=True)
+        (bench.where / '.git/info').mkdir(exist_ok=True)
+        (bench.where / '.git/info/sparse-checkout').write_text('/*\n!/drop/\n')
+        subprocess.run(['git', '-C', str(bench.where), 'read-tree', '-mu', 'HEAD'], check=True)
+        self.assertFalse((bench.where / 'drop/d.py').exists())
+        self.assertEqual(bench.offences(), [])
+
+    def test_a_snapshot_of_names_alone_is_refused_with_its_remedy(self):
+        """A marker an earlier runtime wrote records names, not contents; nothing can say what
+        the reader did to them, and a traceback is not a refusal."""
+        bench = Bench(self)
+        found = ' | '.join(prose.offences(cwd=str(bench.where), ignored_before=['old.env']))
+        self.assertIn('run `prose --stage prepare` again', found)
 
     def test_a_clean_tree_is_inside_the_envelope(self):
         self.assertEqual(Bench(self).offences(), [])

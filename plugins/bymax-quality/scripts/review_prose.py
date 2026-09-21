@@ -37,6 +37,7 @@ implementation changes; a description of the implementation rots by definition. 
 the why, correct or cut the what.
 """
 import ast
+import hashlib
 import io
 import os
 import subprocess
@@ -120,27 +121,36 @@ def present(root, names, cwd=None):
     only in a sparse checkout: a sparse checkout leaves files out on purpose and marks
     them skip-worktree, and read-tree does not reapply its patterns to a scratch index.
     Outside a sparse checkout the bit was set by hand, and an absence is a deletion — a
-    reader deleting such a file went unseen. A present path is compared whatever its bits
+    reader deleting such a file went unseen. Asked as a boolean, because git spells true
+    as yes, on and 1 too, and a string compare refused a clean sparse checkout forever. A present path is compared whatever its bits
     say, and a symlink is present when its own entry is, whatever its target does.
     """
-    if git('config', '--get', 'core.sparseCheckout', cwd=cwd).strip() != 'true':
+    if git('config', '--type=bool', '--get', 'core.sparseCheckout', cwd=cwd).strip() != 'true':
         return sorted(names)
     skipped = {row[2:] for row in git('ls-files', '-z', '-v', cwd=cwd).split('\0') if row[:1] in ('S', 's')}
     return sorted(name for name in names if name not in skipped or os.path.lexists(Path(root) / name))
 
 
 def ignored(cwd=None):
-    """Untracked files the repository ignores, each with its size and mtime: not a change,
+    """Untracked files the repository ignores, each with a digest of its bytes: not a change,
     and never part of a candidate — but one the reader creates, edits or deletes is a file it
     left, so offences compares this snapshot before and after. Names alone saw a creation and
-    missed an edit and a deletion."""
+    missed an edit and a deletion; size and mtime saw those and missed a same-length edit
+    with the mtime put back. The bytes are what the invariant is about, and reading them
+    once per stage is cheap. A nested repository is one entry to git and its inside is not
+    this repository's; a directory entry is recorded by name alone."""
     root = review_claims.root(cwd)
     out = subprocess.run(['git', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
                          cwd=root, check=True, capture_output=True, text=True).stdout
     found = {}
     for name in (n for n in out.split('\0') if n):
-        stat = os.lstat(Path(root) / name)
-        found[name] = [stat.st_size, stat.st_mtime_ns]
+        path = Path(root) / name
+        if path.is_symlink():
+            found[name] = 'link:' + os.readlink(path)
+        elif path.is_dir():
+            found[name] = 'dir'
+        else:
+            found[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     return found
 
 
@@ -229,6 +239,11 @@ def first_change(name, cwd=None):
 
 def ignored_since(before, cwd=None):
     """What the reader did to ignored files, each named by its own verb."""
+    if not isinstance(before, dict):
+        # A marker from a runtime that recorded names alone: nothing here can say what the
+        # reader did to them. The remedy is a fresh prepare, not a guess.
+        return ['the prepared marker records ignored files without their contents, which an earlier '
+                'runtime wrote; run `prose --stage prepare` again on a clean tree']
     now = ignored(cwd=cwd)
     found = []
     for name in sorted(now.keys() - before.keys()):
