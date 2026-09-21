@@ -194,21 +194,18 @@ def apply_mutant(root, mutant):
 
 
 def one(root, mutant, files, clean=None):
-    """Clean run, then each node the case collects run alone under the mutant, then restore
-    whatever happens.
+    """Each node the case collects, shown to pass alone on the clean tree, then run alone under
+    the mutant, then restore whatever happens.
 
-    The clean run is a property of the case, not of the mutant, so `clean` carries the answer
-    between mutants that share one, and the nodes the case collects beside it. Without it a
-    sixteen-mutant matrix pays thirty-two suite runs for sixteen measurements, and a matrix
-    nobody can afford to run is a matrix nobody runs.
+    The clean baseline is a property of the case, not of the mutant, so `clean` carries it
+    between mutants that share one. Without it a sixteen-mutant matrix pays thirty-two suite
+    runs for sixteen measurements, and a matrix nobody can afford to run is a matrix nobody
+    runs.
     """
     seen = clean if clean is not None else {}
     if mutant['case'] not in seen:
-        seen[mutant['case']] = (*run_case(root, mutant['case'], files), ids(root, files, mutant['case']))
-    clean_code, clean_tail, nodes_of_case = seen[mutant['case']]
-    if clean_code != 0:
-        bail('Case %r does not pass on the clean tree (%s). A mutant that fails a case which '
-             'already fails measures nothing.' % (mutant['case'], clean_tail))
+        seen[mutant['case']] = baseline(root, files, mutant['case'])
+    nodes_of_case = seen[mutant['case']]
     path, original = apply_mutant(root, mutant)
     try:
         # One pytest per node: run together under the selector, the summary line said some
@@ -225,6 +222,23 @@ def one(root, mutant, files, clean=None):
     return {'case': mutant['case'], 'file': mutant['file'], 'anchor': mutant['anchor'],
             'becomes': mutant['becomes'], 'caught': bool(failed), 'saw': saw,
             'tests': sorted({Path(node.split('::')[0]).as_posix() for node in failed})}
+
+
+def baseline(root, files, case):
+    """The nodes the case collects, each shown to pass alone on the clean tree — alone, as it
+    then runs under the mutant. Shown passing together, a node that leaned on an earlier one's
+    side effect failed alone under a mutation of something else entirely, and that failure was
+    recorded as a catch."""
+    nodes = ids(root, files, case)
+    if not nodes:
+        bail('Case %r collects no test under %s. A case pytest cannot find measures nothing.'
+             % (case, ' '.join(files)))
+    for node in nodes:
+        clean_code, clean_tail = run_case(root, None, [node])
+        if clean_code != 0:
+            bail('Case %r does not pass on the clean tree (%s: %s). A mutant that fails a case '
+                 'which already fails measures nothing.' % (case, node, clean_tail))
+    return nodes
 
 
 def judged(mutant, runs):

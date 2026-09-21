@@ -79,6 +79,18 @@ class MeaningTests(unittest.TestCase):
             bench.run(rule())
         self.assertIn('does not pass on the clean tree', str(caught.exception))
 
+    def test_a_node_must_pass_alone_on_the_clean_tree(self):
+        """Found by a reviewer: the clean run put the selected nodes in one pytest while the
+        mutant runs each alone, so a node that leaned on an earlier one's side effect failed
+        alone under a mutation of something else entirely, and the failure was recorded as a
+        catch. The baseline runs each node alone, and refuses the one that fails there."""
+        bench = Bench(self, test='STATE = []\n\n\ndef test_ordered_a():\n    STATE.append(1)\n\n\n'
+                                 'def test_ordered_b():\n    assert STATE\n')
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'value > LIMIT', 'becomes': 'True',
+                                     'case': 'ordered'}]))
+        self.assertIn('does not pass on the clean tree (test_thing.py::test_ordered_b', str(caught.exception))
+
     def test_a_surviving_mutant_is_the_finding(self):
         """A guard whose case cannot tell the mutant from the original is decoration."""
         bench = Bench(self, test='def test_over_the_limit():\n    assert True\n')
