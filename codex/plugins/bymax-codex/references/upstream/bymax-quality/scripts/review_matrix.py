@@ -367,10 +367,13 @@ def nodes(root, files, selector=None):
     # The arguments go in spelled relative to the root — an absolute path made relative, a
     # node id stripped to its file — because pytest spells a node id against the argument
     # it collected it from, and a root-relative argument yields a root-relative id.
+    # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
+    # every id against the argument's own directory instead — a bare name for a file under
+    # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
     paths = [os.path.relpath(os.path.realpath(os.path.join(root, str(f).split('::')[0])), real) for f in files]
-    args = [*PYTEST, '--collect-only', '--rootdir', root, *paths] + (['-k', selector] if selector else [])
-    done = subprocess.run(args, cwd=root, capture_output=True, text=True,
+    args = [*PYTEST, '--collect-only', '--rootdir', real, *paths] + (['-k', selector] if selector else [])
+    done = subprocess.run(args, cwd=real, capture_output=True, text=True,
                           env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
     if done.returncode not in (0, 5):
         bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,

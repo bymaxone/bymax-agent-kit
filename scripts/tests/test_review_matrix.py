@@ -187,6 +187,19 @@ class EnumerationTests(unittest.TestCase):
                      mutants=[twice, dict(twice, file='other.py')])
         self.refused(bench, 'not a file here', enumeration='echo 1', mutants=[dict(twice, file='missing.py')])
 
+    def test_the_record_spells_a_test_against_the_real_root(self):
+        """Found by measuring from the object store: handed a rootdir reached through a symlink,
+        pytest spelled every id against the argument's own directory — a bare name for a file
+        under tests/ — and the record named a file that did not exist."""
+        bench = Bench(self)
+        (bench.where / 'tests').mkdir()
+        (bench.where / 'tests' / 'test_thing.py').write_text(CASE)
+        link = Path(tempfile.mkdtemp()) / 'link'
+        os.symlink(bench.where, link)
+        self.addCleanup(lambda: subprocess.run(['rm', '-rf', str(link.parent)]))
+        self.assertEqual(matrix.collected(str(link), ['tests', str(link / 'tests')], {'over_the_limit'}),
+                         {'tests/test_thing.py': ['over_the_limit']})
+
     def test_a_spec_is_read_in_the_shape_the_runtime_writes(self):
         """Found by a reviewer: a list where the rule's name should be ran the matrix, was
         copied into every result, and crashed the runtime that later read the record."""
