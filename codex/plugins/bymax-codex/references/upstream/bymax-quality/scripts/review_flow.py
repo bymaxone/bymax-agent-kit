@@ -973,9 +973,8 @@ def matrix_first(state, directory):
 
 def results_agree(kept, names):
     """The record's summary fields are its own and mutable; the results are what was measured,
-    so each summary is checked against them: the files named against the files mutated, the
-    mutant count against the result count, and the survivor list against the results not
-    caught. A survivor list cleared by hand passed here while a result still said caught: false."""
+    so each summary is checked against them. A survivor list cleared by hand passed here while
+    a result still said caught: false."""
     results = kept.get('results') or []
     mutated = {r.get('file') for r in results}
     require(set(names) == mutated, 'The recorded matrix names %s but its results mutated %s. '

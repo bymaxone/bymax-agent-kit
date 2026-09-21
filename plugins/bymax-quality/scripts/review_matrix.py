@@ -219,7 +219,7 @@ def matrix(root, spec, files):
         seen = set()
         for mutant in mutants:
             key = (mutant.get('file'), mutant.get('anchor'), mutant.get('becomes'))
-            # Counted once: a repeated entry satisfies the enumeration's count while running
+            # Refused: a repeated entry satisfies the enumeration's count while running
             # the case it already ran, and 'all caught' then covers a case nothing exercised.
             if key in seen:
                 bail('Rule %r repeats a mutant of %s at %r: a duplicate counts toward the '
