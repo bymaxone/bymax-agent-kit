@@ -282,9 +282,8 @@ def definitions(source):
 def defined_under(node, prefix, classes):
     """The tests this body defines, and those its test classes do, prefixed as pytest spells
     them. Only a test that can fail is named, because only such a test can be demanded of a
-    correction: a helper or a fixture is never collected, and an async test is collected and
-    skipped unless a plugin teaches pytest otherwise. Nested functions are not descended
-    into."""
+    correction: a helper or a fixture is never collected, and an async test is never named —
+    a stated gap where a plugin runs one. Nested functions are not descended into."""
     for child in getattr(node, 'body', []):
         if isinstance(child, ast.ClassDef) and child.name in classes:
             yield from defined_under(child, prefix + child.name + '::', classes)
@@ -295,9 +294,9 @@ def defined_under(node, prefix, classes):
 def test_classes(source):
     """The classes of this source whose tests pytest collects: named as python_classes has
     it, or carrying a TestCase base, which the unittest plugin collects whatever the class is
-    called — including through a base this file defines that carries one itself. A base from
-    another module is read as spelled and followed no further, so a subclass of an imported
-    case class is not named here and its tests are left to the file rule."""
+    called — including through a base this file defines that carries one itself. A base is
+    read by its last name and followed no further, so a subclass of an imported base not
+    called TestCase is not named here and its tests are left to the file rule."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -320,11 +319,8 @@ def changed_tests(base, head, names, cwd=None):
 
     Added, and not edited: what a correction adds is a gate it asserts, and a name absent
     before and present now is a fact of the two trees. Whether an EDIT changed what a test
-    measures is a question the diff cannot answer, and four rounds of this campaign were
-    spent on line arithmetic that kept refusing corrections nobody could fix — a deleted
-    neighbour, a deleted comment, a statement removed between two tests. A heuristic that
-    refuses is worse than none, so an edited test is left to the rule that its file must have
-    caught something.
+    measures is a question neither tree answers, and a heuristic that refuses is worse than
+    none, so an edited test is left to the rule that its file must have caught something.
     """
     out = {}
     for name in names:

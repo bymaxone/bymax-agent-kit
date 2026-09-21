@@ -321,7 +321,7 @@ def sites(root, mutants):
     for mutant in mutants:
         # Read as apply_mutant reads it, bytes decoded with surrogateescape: read as text,
         # a source that is not UTF-8 raised here, before the decoding that was put in to
-        # survive one — the count runs first, so the crash was all anyone saw.
+        # survive one — the count runs before apply_mutant, so the crash was all anyone saw.
         # A file that cannot be read counts as its own site, like an anchor that does not
         # occur once, so apply_mutant's refusal is the one that fires.
         try:

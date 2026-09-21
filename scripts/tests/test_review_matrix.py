@@ -146,7 +146,7 @@ class MeaningTests(unittest.TestCase):
             'file': 'crlf.py', 'anchor': 'A = 1\nB = 2\n', 'becomes': 'A = 9\nB = 8\n', 'case': 'over_the_limit'})
         self.assertEqual(path.read_bytes(), b'A = 9\r\nB = 8\r\n')
         path.write_bytes(original)
-        # And the count that runs before any of it reads the source the same way: read as
+        # And the count that runs before the mutants reads the source the same way: read as
         # text, a source that is not UTF-8 raised here, ahead of the decoding put in to
         # survive one.
         self.assertEqual(matrix.sites(str(bench.where), [

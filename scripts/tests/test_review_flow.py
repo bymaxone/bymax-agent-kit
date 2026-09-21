@@ -1778,9 +1778,8 @@ class ReviewFlowTests(unittest.TestCase):
 
     def test_an_edited_test_is_left_to_the_file_rule(self):
         """What a correction adds is a gate it asserts, and a name absent before and present
-        now is a fact of the two trees. Whether an edit changed what a test measures is a
-        question the diff cannot answer, and the arithmetic that tried refused corrections
-        nobody could fix, so an edited test is left to the rule that its file must catch."""
+        now is a fact of the two trees. Whether an edit changed what a test measures is not
+        one, so an edited test is left to the rule that its file must catch."""
         self.a_guard_and_its_older_test()
         (self.repo / 'tests/test_calc.py').write_text(
             'from guard import LIMIT\n\n\ndef test_calc_old():\n    """Rewrapped."""\n'

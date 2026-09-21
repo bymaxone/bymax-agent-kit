@@ -539,8 +539,7 @@ class ChangedTestTests(unittest.TestCase):
         """pytest collects a TestCase subclass whatever it is called, and a subclass of one
         of those as well. A base is matched by its own last name and never by a name that
         merely ends in it, or a class called FauxTestCase would carry a demand nothing can
-        satisfy; a base from another module is followed no further, which leaves the file
-        rule rather than a refusal."""
+        satisfy."""
         through = Tree(self, {'t.py': 'import unittest\nclass Base(unittest.TestCase): pass\n'
                                       'class Cases(Base):\n    def test_one(self): assert 1\n'},
                        {'t.py': 'import unittest\nclass Base(unittest.TestCase): pass\n'
