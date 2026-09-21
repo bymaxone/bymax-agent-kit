@@ -287,8 +287,23 @@ def defined_under(node, prefix, classes):
     for child in getattr(node, 'body', []):
         if isinstance(child, ast.ClassDef) and child.name in classes:
             yield from defined_under(child, prefix + child.name + '::', classes)
-        elif isinstance(child, ast.FunctionDef) and child.name.startswith('test'):
+        elif isinstance(child, ast.FunctionDef) and child.name.startswith('test') and runs(child):
             yield prefix + child.name
+
+
+SKIPPED = ('skip', 'skipif', 'xfail')
+
+
+def runs(node):
+    """Whether this test can fail, which is the whole of what may be demanded of it: a test
+    pytest is told to skip, or to expect a failure from, is collected and never counted among
+    the nodes that failed, so demanding it refuses a correction nobody could satisfy."""
+    for mark in node.decorator_list:
+        while isinstance(mark, ast.Call):
+            mark = mark.func
+        if isinstance(mark, ast.Attribute) and mark.attr in SKIPPED:
+            return False
+    return True
 
 
 def test_classes(source):
@@ -301,15 +316,29 @@ def test_classes(source):
         tree = ast.parse(source)
     except SyntaxError:
         return set()
+    # The last binding of a name is the one a base of that name resolves to: a module that
+    # defines a case class and then reuses its name has no case class by then, and reading
+    # every binding at once named a class pytest cannot collect, which nothing could satisfy.
+    held = {}
+    # Gathered where defined_under can reach it — a module body and the bodies of its classes
+    # — because a class defined inside a function is a name nothing collects, and matching by
+    # name alone let one stand in for a module-level class it happens to share a name with.
+    for parent in [tree] + [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+        for node in getattr(parent, 'body', []):
+            if isinstance(node, ast.ClassDef):
+                held[node.name] = max(held.get(node.name, node), node, key=lambda n: n.lineno)
+            for target in getattr(node, 'targets', []) + [getattr(node, 'target', None)]:
+                if isinstance(target, ast.Name) and held.get(target.id) and target.lineno > held[target.id].lineno:
+                    held[target.id] = None
     found, again = set(), True
     while again:
         again = False
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef) or node.name in found:
+        for name, node in held.items():
+            if node is None or name in found:
                 continue
             named = [b.attr if isinstance(b, ast.Attribute) else getattr(b, 'id', '') for b in node.bases]
-            if node.name.startswith('Test') or any(n == 'TestCase' or n in found for n in named):
-                found.add(node.name)
+            if name.startswith('Test') or any(n == 'TestCase' or n in found for n in named):
+                found.add(name)
                 again = True
     return found
 

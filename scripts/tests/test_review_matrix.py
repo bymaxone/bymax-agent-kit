@@ -146,6 +146,15 @@ class MeaningTests(unittest.TestCase):
             'file': 'crlf.py', 'anchor': 'A = 1\nB = 2\n', 'becomes': 'A = 9\nB = 8\n', 'case': 'over_the_limit'})
         self.assertEqual(path.read_bytes(), b'A = 9\r\nB = 8\r\n')
         path.write_bytes(original)
+        # A replacement the spec already spells with the file's ending is spelled once.
+        self.assertEqual(matrix.spelled('X = 1\r\n', {'anchor': 'X = 1', 'becomes': 'A = 1\r\nB = 2'})[1],
+                         'A = 1\r\nB = 2')
+        # And the count matches the anchor the mutant will match, or a multi-line anchor in a
+        # CRLF file falls through to the branch for a file nothing can read.
+        crlf.write_bytes(b'A = 1\r\nB = 2\r\nC = 3\r\n')
+        self.assertEqual(matrix.sites(str(bench.where), [
+            {'file': 'crlf.py', 'anchor': 'A = 1\nB = 2\n', 'becomes': 'X = 9\n', 'case': 'over_the_limit'},
+            {'file': 'crlf.py', 'anchor': 'B = 2\n', 'becomes': 'Y = 8\n', 'case': 'over_the_limit'}]), 1)
         # And the count that runs before the mutants reads the source the same way: read as
         # text, a source that is not UTF-8 raised here, ahead of the decoding put in to
         # survive one.

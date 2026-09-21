@@ -886,9 +886,9 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(self.start(correction=True, design=True)['reopened'], ['guard:spelling'])
 
     def test_test_path_classification(self):
-        """Jest's __tests__ and Python's test_ files count; a spec document does not, and
-        neither does a conftest: pytest collects no test from one, so a correction that
-        changed only a conftest could never name a case that ran in it."""
+        """Jest's __tests__ and Python's test_ files count; a spec document does not. A
+        conftest counts: it is part of the correction, and whether a case can be named in it
+        is the demand's business rather than this rule's."""
         import importlib.util
         spec = importlib.util.spec_from_file_location('flow', FLOW)
         flow = importlib.util.module_from_spec(spec)
@@ -903,7 +903,7 @@ class ReviewFlowTests(unittest.TestCase):
                      'contest.py', 'attestation.json', 'docs/spec/overview.md', 'spec/README.md',
                      'docs/tests/plan.md', 'notes_test.txt', 'latest.spec.md', 'tests/README.md',
                      'tests/plan.markdown', 'tests/notes.adoc', 'openapi/v1.spec.yaml', 'api.spec.json',
-                     'config.test.toml', 'tests/conftest.py', 'conftest.py', 'src/__tests__/conftest.py'):
+                     'config.test.toml'):
             self.assertFalse(flow.is_test_path(path), path)
 
     def test_each_reviewers_open_disposition_needs_its_own_resolution(self):
@@ -1763,6 +1763,19 @@ class ReviewFlowTests(unittest.TestCase):
         self.commit('a correction that changes a helper and a method nothing collects')
         self.guard_matrix()
         self.assertEqual(self.start(correction=True, reason='')['round'], 3)
+
+    def test_a_file_pytest_collects_no_test_from_is_not_asked_for_a_case(self):
+        """A conftest, a fixture and a helper module are test paths the scope rule counts as
+        part of the correction, and no matrix can ever name a case that ran in one: asking
+        was a refusal nobody could satisfy. Asked of pytest, not guessed from the name."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'tests/conftest.py').write_text('import pytest\n\n\n@pytest.fixture\ndef spare(): return 1\n')
+        (self.repo / 'tests/helpers.py').write_text('def build(v): return v\n')
+        (self.repo / 'tests/fixtures.json').parent.mkdir(exist_ok=True)
+        (self.repo / 'tests/fixtures.json').write_text('{"v": 1}\n')
+        self.commit('a correction that repairs a fixture the tests share')
+        self.guard_matrix()
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_every_test_the_delta_changed_must_catch_not_one_of_them(self):
         """Found by a reviewer: the demand was an intersection, so one test that caught

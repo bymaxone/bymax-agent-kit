@@ -208,7 +208,9 @@ def spelled(text, mutant):
     """
     ending = '\r\n' if '\r\n' in text else '\n'
     anchor = mutant['anchor'] if mutant['anchor'] in text else mutant['anchor'].replace('\n', ending)
-    return anchor, mutant['becomes'].replace('\n', ending)
+    # Normalised before it is spelled: a spec that already writes \r\n would otherwise have
+    # its own carriage return doubled.
+    return anchor, mutant['becomes'].replace('\r\n', '\n').replace('\n', ending)
 
 
 def one(root, mutant, files, clean=None):
@@ -329,9 +331,10 @@ def sites(root, mutants):
         except OSError:
             landed += 1
             continue
-        at = text.find(mutant['anchor'])
-        if at >= 0 and text.count(mutant['anchor']) == 1:
-            spans.setdefault(place(root, mutant['file']), []).append((at, at + len(mutant['anchor'])))
+        anchor = spelled(text, mutant)[0]
+        at = text.find(anchor)
+        if at >= 0 and text.count(anchor) == 1:
+            spans.setdefault(place(root, mutant['file']), []).append((at, at + len(anchor)))
         else:
             landed += 1
     for runs in spans.values():

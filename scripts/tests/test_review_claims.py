@@ -556,6 +556,40 @@ class ChangedTestTests(unittest.TestCase):
                                 '    def test_two(self): return 2\n'})
         self.assertEqual(self.changed(helpers, 't.py'), {'t.py': []})
 
+    def test_a_test_pytest_cannot_fail_is_not_named(self):
+        """Only a test that can fail may be demanded of a correction. pytest collects a test
+        marked skip, skipif or xfail and never counts it among those that failed, so naming
+        one refuses a correction nobody could satisfy — the argument that excluded async."""
+        mark = 'import pytest\n@pytest.mark.%s\ndef test_one(): assert 1\n'
+        for skipped in ('skip', 'skipif(True, reason="x")', 'xfail'):
+            self.assertEqual(sorted(claims.definitions(mark % skipped)), [], skipped)
+        self.assertEqual(sorted(claims.definitions(mark % 'parametrize("v", [1])')), ['test_one'])
+        self.assertEqual(sorted(claims.definitions('def test_one(): assert 1\n')), ['test_one'])
+
+    def test_a_class_inside_a_function_is_not_a_class_pytest_collects(self):
+        """A name is gathered where the reader can reach it — a module body and the bodies of
+        its classes — because a class defined inside a function is a name nothing collects,
+        and matching by name alone let one stand in for the module-level class it shadows."""
+        inside = 'def outer():\n    class Cases:\n        def test_one(self): assert 1\n'
+        self.assertEqual(sorted(claims.definitions(inside)), [])
+        shadowed = ('import unittest\nclass Cases(unittest.TestCase):\n'
+                    '    def test_one(self): assert 1\n' + inside.replace('test_one', 'test_two'))
+        self.assertEqual(sorted(claims.definitions(shadowed)), ['Cases::test_one'])
+
+    def test_the_last_binding_of_a_name_is_the_class_it_names(self):
+        """A class name can be rebound, and the base of a class written after that resolves
+        to what the name holds by then. Reading every binding at once named a test in a class
+        pytest cannot collect, which is a demand nothing could satisfy."""
+        def named(source):
+            return sorted(claims.definitions(source))
+        case = 'import unittest\nclass Base(unittest.TestCase): pass\n'
+        sub = 'class Cases(Base):\n    def test_added(self): assert 1\n'
+        self.assertEqual(named(case + sub), ['Cases::test_added'])
+        self.assertEqual(named(case + 'class Base: pass\n' + sub), [])
+        self.assertEqual(named(case + 'Base = int\n' + sub), [])
+        self.assertEqual(named('import unittest\nclass Base: pass\n' + case.split(chr(10), 1)[1] + sub),
+                         ['Cases::test_added'])
+
     def test_deleting_a_test_is_not_a_change_to_the_one_before_it(self):
         """A removal has no line of its own on the head side, and reading it from the lines
         around the gap would demand the test above it, which nothing touched."""

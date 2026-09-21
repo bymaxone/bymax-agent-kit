@@ -982,11 +982,18 @@ def ran_the_changed_tests(kept, changed):
     """The record names the test files pytest collected, each with the cases a test of it
     failed under a mutant, and the tests this correction changed must be among them with a
     case each: a matrix over some other file measured nothing about the new gate, and a
-    changed test that failed under no mutant discriminates nothing."""
+    changed test that failed under no mutant discriminates nothing.
+
+    Of the changed files, only those pytest collects a test from are asked about: a conftest,
+    a fixture, a helper module and a data file are test paths the scope rule counts as part
+    of the correction, and no matrix could ever name a case that ran in one, so demanding it
+    was a refusal nobody could satisfy.
+    """
     ran = kept.get('tests')
     require(isinstance(ran, dict) and all(isinstance(p, str) and isinstance(c, list)
                                           and all(isinstance(x, str) for x in c) for p, c in ran.items()),
             'The recorded matrix does not name the tests it ran. Re-run `review_flow.py matrix`.')
+    changed = [p for p in changed if collects_a_test(p)]
     missing = sorted(set(changed) - set(ran))
     require(not missing, 'The recorded matrix did not run %s, which this correction changes; a '
             'matrix over other tests measured nothing about the gate that changed. Re-run '
@@ -999,6 +1006,19 @@ def ran_the_changed_tests(kept, changed):
     require(not idle, 'The recorded matrix caught nothing in %s, which this correction changes: '
             'the file was named, and no test of it failed under any mutant. Add a mutant its '
             'own case catches and re-run `review_flow.py matrix`.' % ', '.join(idle))
+
+
+def collects_a_test(path):
+    """Whether pytest collects any test from this file, asked of pytest rather than guessed
+    from the name: a file it collects nothing from can carry no case, and a file that is gone
+    from the tree carries none either. Only a python source is asked about — pytest reads a
+    path that is not one as a usage error, and a fixture file is a test path this repository
+    counts and pytest never collects."""
+    import review_matrix
+    root = git('rev-parse', '--show-toplevel')
+    if not path.endswith('.py') or not Path(root, path).is_file():
+        return False
+    return bool(review_matrix.nodes(root, [path]))
 
 
 def caught_with_the_changed_test(kept, wanted):
@@ -1204,14 +1224,13 @@ INSIDE_ONLY_SUFFIXES = ('.txt', '.rst', '.yaml', '.yml', '.json', '.toml')
 def is_test_path(path):
     """A test by location or name; prose never, text and data only inside a test directory.
 
-    A conftest is not one: pytest collects no test from it, so a correction that changed only
-    a conftest could never name a case that ran in it, and the rule that a changed test file
-    must have caught something became a refusal nobody could satisfy.
+    A conftest is one, and so is a fixture file: what a correction may not be asked for is a
+    CASE in a file pytest collects none from, which is the demand's business and not this
+    predicate's — the scope rule reads it too, and a fix to a conftest is part of the
+    correction rather than an addition to it.
     """
     lower = path.lower()
     if not TEST_PATH.search(path) or lower.endswith(PROSE_SUFFIXES):
-        return False
-    if Path(lower).name == 'conftest.py':
         return False
     return bool(TEST_DIRECTORY.search(path)) or not lower.endswith(INSIDE_ONLY_SUFFIXES)
 
