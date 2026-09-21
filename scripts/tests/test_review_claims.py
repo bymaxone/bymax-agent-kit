@@ -567,8 +567,8 @@ class ChangedTestTests(unittest.TestCase):
         self.assertEqual(sorted(claims.definitions('def test_one(): assert 1\n')), ['test_one'])
 
     def test_a_class_inside_a_function_is_not_a_class_pytest_collects(self):
-        """A name is gathered where the reader can reach it — a module body and the bodies of
-        its classes — because a class defined inside a function is a name nothing collects,
+        """A name is gathered from a module body and from class bodies, never from a
+        function's — because a class defined inside a function is a name nothing collects,
         and matching by name alone let one stand in for the module-level class it shadows."""
         inside = 'def outer():\n    class Cases:\n        def test_one(self): assert 1\n'
         self.assertEqual(sorted(claims.definitions(inside)), [])

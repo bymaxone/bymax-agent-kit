@@ -886,9 +886,8 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(self.start(correction=True, design=True)['reopened'], ['guard:spelling'])
 
     def test_test_path_classification(self):
-        """Jest's __tests__ and Python's test_ files count; a spec document does not. A
-        conftest counts: it is part of the correction, and whether a case can be named in it
-        is the demand's business rather than this rule's."""
+        """Jest's __tests__ and Python's test_ files count; a spec document does not. Whether
+        a case can be named in one is the demand's business rather than this rule's."""
         import importlib.util
         spec = importlib.util.spec_from_file_location('flow', FLOW)
         flow = importlib.util.module_from_spec(spec)

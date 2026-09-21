@@ -295,9 +295,9 @@ SKIPPED = ('skip', 'skipif', 'xfail')
 
 
 def runs(node):
-    """Whether this test can fail, which is the whole of what may be demanded of it: a test
-    pytest is told to skip, or to expect a failure from, is collected and never counted among
-    the nodes that failed, so demanding it refuses a correction nobody could satisfy."""
+    """Whether this test can fail, which is all that may be demanded of it: a test whose
+    decorator marks it skipped or expected to fail is never counted among the nodes that
+    failed, so demanding it refuses a correction nobody could satisfy. Nothing else is read."""
     for mark in node.decorator_list:
         while isinstance(mark, ast.Call):
             mark = mark.func
@@ -320,9 +320,9 @@ def test_classes(source):
     # defines a case class and then reuses its name has no case class by then, and reading
     # every binding at once named a class pytest cannot collect, which nothing could satisfy.
     held = {}
-    # Gathered where defined_under can reach it — a module body and the bodies of its classes
-    # — because a class defined inside a function is a name nothing collects, and matching by
-    # name alone let one stand in for a module-level class it happens to share a name with.
+    # Gathered from a module body and from class bodies, never from a function's, because a
+    # class defined inside a function is a name nothing collects, and matching by name alone
+    # let one stand in for a module-level class it happens to share a name with.
     for parent in [tree] + [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
         for node in getattr(parent, 'body', []):
             if isinstance(node, ast.ClassDef):

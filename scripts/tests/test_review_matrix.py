@@ -150,7 +150,7 @@ class MeaningTests(unittest.TestCase):
         self.assertEqual(matrix.spelled('X = 1\r\n', {'anchor': 'X = 1', 'becomes': 'A = 1\r\nB = 2'})[1],
                          'A = 1\r\nB = 2')
         # And the count matches the anchor the mutant will match, or a multi-line anchor in a
-        # CRLF file falls through to the branch for a file nothing can read.
+        # CRLF file matches nothing here and is counted as a site of its own.
         crlf.write_bytes(b'A = 1\r\nB = 2\r\nC = 3\r\n')
         self.assertEqual(matrix.sites(str(bench.where), [
             {'file': 'crlf.py', 'anchor': 'A = 1\nB = 2\n', 'becomes': 'X = 9\n', 'case': 'over_the_limit'},

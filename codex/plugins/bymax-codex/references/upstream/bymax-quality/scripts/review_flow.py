@@ -984,10 +984,9 @@ def ran_the_changed_tests(kept, changed):
     case each: a matrix over some other file measured nothing about the new gate, and a
     changed test that failed under no mutant discriminates nothing.
 
-    Of the changed files, only those pytest collects a test from are asked about: a conftest,
-    a fixture, a helper module and a data file are test paths the scope rule counts as part
-    of the correction, and no matrix could ever name a case that ran in one, so demanding it
-    was a refusal nobody could satisfy.
+    Of the changed files, only those pytest collects a test from are asked about: a file it
+    collects none from is still a test path a correction may change, and no matrix could ever
+    name a case that ran in one, so demanding it was a refusal nobody could satisfy.
     """
     ran = kept.get('tests')
     require(isinstance(ran, dict) and all(isinstance(p, str) and isinstance(c, list)
@@ -1224,10 +1223,8 @@ INSIDE_ONLY_SUFFIXES = ('.txt', '.rst', '.yaml', '.yml', '.json', '.toml')
 def is_test_path(path):
     """A test by location or name; prose never, text and data only inside a test directory.
 
-    A conftest is one, and so is a fixture file: what a correction may not be asked for is a
-    CASE in a file pytest collects none from, which is the demand's business and not this
-    predicate's — the scope rule reads it too, and a fix to a conftest is part of the
-    correction rather than an addition to it.
+    What a correction may not be asked for is a CASE in a file pytest collects none from,
+    which is the demand's business and not this predicate's.
     """
     lower = path.lower()
     if not TEST_PATH.search(path) or lower.endswith(PROSE_SUFFIXES):
