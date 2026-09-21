@@ -271,90 +271,66 @@ def defined(text):
 
 def definitions(source):
     """Every test a python source defines, spelled as pytest spells its node id — a method
-    under `Class::`, a decorator counted as part of the test it decorates — with the lines it
-    occupies. Read from the text: a file that cannot be parsed defines nothing here, which
-    leaves the caller its own answer rather than a crash."""
+    under `Class::`. Read from the text: a file that cannot be parsed defines nothing here,
+    which leaves the caller its own answer rather than a crash."""
+    try:
+        return set(defined_under(ast.parse(source), '', test_classes(source)))
+    except SyntaxError:
+        return set()
+
+
+def defined_under(node, prefix, classes):
+    """The tests this body defines, and those its test classes do, prefixed as pytest spells
+    them. Only a test that can fail is named, because only such a test can be demanded of a
+    correction: a helper or a fixture is never collected, and an async test is collected and
+    skipped unless a plugin teaches pytest otherwise. Nested functions are not descended
+    into."""
+    for child in getattr(node, 'body', []):
+        if isinstance(child, ast.ClassDef) and child.name in classes:
+            yield from defined_under(child, prefix + child.name + '::', classes)
+        elif isinstance(child, ast.FunctionDef) and child.name.startswith('test'):
+            yield prefix + child.name
+
+
+def test_classes(source):
+    """The classes of this source whose tests pytest collects: named as python_classes has
+    it, or carrying a TestCase base, which the unittest plugin collects whatever the class is
+    called — including through a base this file defines that carries one itself. A base from
+    another module is read as spelled and followed no further, so a subclass of an imported
+    case class is not named here and its tests are left to the file rule."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return []
-    return list(defined_under(tree, ''))
-
-
-def defined_under(node, prefix):
-    """The tests this body defines, and those its test classes do, prefixed as pytest spells
-    them. Only a test that can fail can be demanded of a correction: a name nothing
-    collects — a helper, a fixture — could never appear among the nodes that failed, and
-    neither could an async test, which pytest collects and skips unless a plugin teaches it
-    otherwise. Nested functions are not tests and are not descended into."""
-    for child in getattr(node, 'body', []):
-        if isinstance(child, ast.ClassDef) and collected_class(child):
-            yield from defined_under(child, prefix + child.name + '::')
-        elif isinstance(child, ast.FunctionDef) and child.name.startswith('test'):
-            first = min([child.lineno] + [d.lineno for d in child.decorator_list])
-            yield prefix + child.name, range(first, (child.end_lineno or child.lineno) + 1)
-
-
-def collected_class(node):
-    """Whether pytest collects the tests of this class: named as python_classes has it, or a
-    TestCase subclass, which the unittest plugin collects whatever the class is called. This
-    repository's own tests are those, and the name alone passed over every one of them. A base
-    is read as spelled, never followed to its own definition."""
-    named = [base.attr if isinstance(base, ast.Attribute) else getattr(base, 'id', '')
-             for base in node.bases]
-    return node.name.startswith('Test') or any(name.endswith('TestCase') for name in named)
+        return set()
+    found, again = set(), True
+    while again:
+        again = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef) or node.name in found:
+                continue
+            named = [b.attr if isinstance(b, ast.Attribute) else getattr(b, 'id', '') for b in node.bases]
+            if node.name.startswith('Test') or any(n == 'TestCase' or n in found for n in named):
+                found.add(node.name)
+                again = True
+    return found
 
 
 def changed_tests(base, head, names, cwd=None):
-    """Per named file, the tests this delta added or changed, spelled as pytest spells a node
-    id. A file whose delta touched no line a test of its own occupies answers with none,
-    because a correction to a helper, a fixture or an import has no changed test to demand.
-    A prose line rewritten in place is not a change to the test it sits in either: this
-    package's own prose pass rewraps a docstring inside a test before the freeze, and
-    demanding that test catch would refuse the correction the pass belongs to."""
+    """Per named file, the tests this delta ADDED, spelled as pytest spells a node id.
+
+    Added, and not edited: what a correction adds is a gate it asserts, and a name absent
+    before and present now is a fact of the two trees. Whether an EDIT changed what a test
+    measures is a question the diff cannot answer, and four rounds of this campaign were
+    spent on line arithmetic that kept refusing corrections nobody could fix — a deleted
+    neighbour, a deleted comment, a statement removed between two tests. A heuristic that
+    refuses is worse than none, so an edited test is left to the rule that its file must have
+    caught something.
+    """
     out = {}
     for name in names:
-        source = git('show', '%s:%s' % (head, name), cwd=cwd)
-        lines = hunks(git('diff', '-U0', '--no-renames', base, head, '--', name, cwd=cwd)) - marks(name, source)
-        out[name] = sorted(node for node, span in definitions(source) if lines.intersection(span))
+        before = definitions(git('show', '%s:%s' % (base, name), cwd=cwd))
+        out[name] = sorted(definitions(git('show', '%s:%s' % (head, name), cwd=cwd)) - before)
     return out
-
-
-def hunks(diff):
-    """The head-side line numbers a diff changed, hunk by hunk. A removal has no line of its
-    own on that side, so it is read from the numbers beside the gap — unless what it removed
-    was a definition, or nothing but prose, in which case the test that happens to
-    surround the gap did not change, and demanding it would refuse a correction for deleting
-    the neighbour or the comment."""
-    lines = set()
-    for (start, count), removed in blocks(diff):
-        if count:
-            lines.update(range(start, start + count))
-        elif emptied(removed):
-            lines.update((start, start + 1))
-    return lines
-
-
-def blocks(diff):
-    """Each hunk's head-side (start, count), with the lines that hunk removed."""
-    out, header, removed = [], None, []
-    for row in diff.splitlines():
-        found = re.match(r'@@ -\S+ \+(\d+)(?:,(\d+))? @@', row)
-        if found:
-            if header:
-                out.append((header, removed))
-            header, removed = (int(found.group(1)), int(found.group(2) or 1)), []
-        elif header is not None and row.startswith('-'):
-            removed.append(row[1:])
-    return out + ([(header, removed)] if header else [])
-
-
-def emptied(removed):
-    """Whether a removal took something out of the test that surrounds it: not when it removed
-    any definition at all, and not when every line of it was blank or a comment."""
-    if any(re.match(r'\s*(async\s+)?(def|class)\s', line) for line in removed):
-        return False
-    return any(line.strip() and not line.strip().startswith('#') for line in removed)
 
 
 def orphaned(base, head, cwd=None):

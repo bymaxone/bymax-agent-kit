@@ -202,12 +202,13 @@ def apply_mutant(root, mutant):
 
 def spelled(text, mutant):
     """The anchor and its replacement in the line ending this file uses. A spec spells them
-    with \n, which a CRLF line ending does not spell, and the anchor that
-    matches nothing is refused as one that never landed."""
-    anchor, becomes = mutant['anchor'], mutant['becomes']
-    if anchor not in text and anchor.replace('\n', '\r\n') in text:
-        return anchor.replace('\n', '\r\n'), becomes.replace('\n', '\r\n')
-    return anchor, becomes
+    with \n, which a CRLF line ending does not spell, so the anchor is converted to match and
+    the replacement is converted whatever the anchor needed: a single-line anchor matches a
+    CRLF file untouched, and a replacement spanning lines would then have carried LF into it.
+    """
+    ending = '\r\n' if '\r\n' in text else '\n'
+    anchor = mutant['anchor'] if mutant['anchor'] in text else mutant['anchor'].replace('\n', ending)
+    return anchor, mutant['becomes'].replace('\n', ending)
 
 
 def one(root, mutant, files, clean=None):

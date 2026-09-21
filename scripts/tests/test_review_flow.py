@@ -1762,55 +1762,28 @@ class ReviewFlowTests(unittest.TestCase):
         self.guard_matrix()
         self.assertEqual(self.start(correction=True, reason='')['round'], 3)
 
-    def test_a_decorator_is_part_of_the_test_it_decorates(self):
-        """A mark added above a test is a change to that test: parametrising or skipping it
-        changes what it measures, and a delta that added only the line would otherwise read
-        as touching no test at all."""
-        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
-        (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert True\n')
-        self.commit('a guard, the test that discriminates it, and a vacuous neighbour')
-        self.start()
-        self.report('claude')
-        self.report('codex')
-        self.triage()
-        (self.repo / 'tests/test_calc.py').write_text(
-            'import pytest\n' + OLD_TEST
-            + '@pytest.mark.filterwarnings("ignore")\ndef test_calc_new(): assert True\n')
-        self.commit('a correction that adds only a mark above the vacuous test')
-        self.guard_matrix()
-        self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
-                      self.start(ok=False, correction=True, reason='').stderr)
-
     def test_every_test_the_delta_changed_must_catch_not_one_of_them(self):
-        """Found by a reviewer: the demand was an intersection, so one changed test that
-        caught carried every other — a correction that edits a test which already
-        discriminated, in the commit that adds a vacuous one, was credited by the edit."""
+        """Found by a reviewer: the demand was an intersection, so one test that caught
+        carried every other — a correction adding a test that discriminates, in the commit
+        that adds a vacuous one beside it, was credited by the first."""
         self.a_guard_and_its_older_test()
         (self.repo / 'tests/test_calc.py').write_text(
-            'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7, "seven"\n\n\n'
-            'def test_calc_new(): assert True\n')
-        self.commit('a correction that edits the older test and adds a vacuous one')
+            OLD_TEST + 'def test_calc_two(): assert LIMIT == 7\n\n\ndef test_calc_new(): assert True\n')
+        self.commit('a correction that adds a discriminating test and a vacuous one')
         self.guard_matrix()
         self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
                       self.start(ok=False, correction=True, reason='').stderr)
 
-    def test_a_rewrapped_docstring_is_not_a_change_to_the_test(self):
-        """This package's own prose pass rewraps a docstring inside a test before the freeze,
-        and a prose line rewritten in place is not a change to the test: demanding that
-        test catch would refuse the correction the pass belongs to."""
-        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
-        (self.repo / 'tests').mkdir(exist_ok=True)
+    def test_an_edited_test_is_left_to_the_file_rule(self):
+        """What a correction adds is a gate it asserts, and a name absent before and present
+        now is a fact of the two trees. Whether an edit changed what a test measures is a
+        question the diff cannot answer, and the arithmetic that tried refused corrections
+        nobody could fix, so an edited test is left to the rule that its file must catch."""
+        self.a_guard_and_its_older_test()
         (self.repo / 'tests/test_calc.py').write_text(
-            OLD_TEST + 'def test_calc_quiet():\n    """One line."""\n    assert True\n')
-        self.commit('a guard, the test that discriminates it and one that does not')
-        self.start()
-        self.report('claude')
-        self.report('codex')
-        self.triage()
-        (self.repo / 'tests/test_calc.py').write_text(
-            OLD_TEST + 'def test_calc_quiet():\n    """One line, rewrapped."""\n    assert True\n')
-        self.commit('a correction that rewraps a docstring inside a test')
+            'from guard import LIMIT\n\n\ndef test_calc_old():\n    """Rewrapped."""\n'
+            '    assert LIMIT == 7, "seven"\n')
+        self.commit('a correction that edits the older test and adds nothing')
         self.guard_matrix()
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
@@ -1831,25 +1804,6 @@ class ReviewFlowTests(unittest.TestCase):
         self.commit('a correction that adds a vacuous method beside the older one')
         self.guard_matrix()
         self.assertIn('caught nothing with tests/test_calc.py::CalcTests::test_calc_new',
-                      self.start(ok=False, correction=True, reason='').stderr)
-
-    def test_a_deletion_is_a_change_to_the_test_it_emptied(self):
-        """Found by a reviewer: a removal has no line of its own on the head side, so a
-        correction that deleted the assertion out of a test left it reading as untouched, and
-        the emptied test was credited by its older neighbour."""
-        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
-        (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_calc.py').write_text(
-            OLD_TEST + 'def test_calc_new():\n    assert LIMIT == 7\n    assert True\n')
-        self.commit('a guard and two tests that discriminate it')
-        self.start()
-        self.report('claude')
-        self.report('codex')
-        self.triage()
-        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new():\n    assert True\n')
-        self.commit('a correction that deletes the assertion out of the second test')
-        self.guard_matrix()
-        self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
                       self.start(ok=False, correction=True, reason='').stderr)
 
     def test_the_runtime_runs_pytest_without_the_project_addopts(self):

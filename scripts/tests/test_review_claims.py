@@ -521,6 +521,42 @@ class ChangedTestTests(unittest.TestCase):
     def changed(self, tree, *names):
         return claims.changed_tests(tree.base, tree.head, list(names), cwd=str(tree.where))
 
+    def test_only_a_test_the_delta_added_is_demanded(self):
+        """A name absent before and present now is a fact of the two trees. An edit is not:
+        deleting a test, a comment or a statement between two tests moves every line below it,
+        and the arithmetic that read those lines demanded tests nothing had touched."""
+        edited = Tree(self, {'t.py': 'def test_one():\n    assert 1\n    assert 2\n'},
+                      {'t.py': 'def test_one():\n    assert 2\n'})
+        self.assertEqual(self.changed(edited, 't.py'), {'t.py': []})
+        spare = Tree(self, {'t.py': 'def test_one(): assert 1\nSPARE = 1\ndef test_two(): assert 2\n'},
+                     {'t.py': 'def test_one(): assert 1\ndef test_two(): assert 2\n'})
+        self.assertEqual(self.changed(spare, 't.py'), {'t.py': []})
+        added = Tree(self, {'t.py': 'def test_one(): assert 1\n'},
+                     {'t.py': 'def test_one(): assert 1\ndef test_two(): assert 2\n'})
+        self.assertEqual(self.changed(added, 't.py'), {'t.py': ['test_two']})
+
+    def test_a_class_is_collected_through_a_base_this_file_defines(self):
+        """pytest collects a TestCase subclass whatever it is called, and a subclass of one
+        of those as well. A base is matched by its own last name and never by a name that
+        merely ends in it, or a class called FauxTestCase would carry a demand nothing can
+        satisfy; a base from another module is followed no further, which leaves the file
+        rule rather than a refusal."""
+        through = Tree(self, {'t.py': 'import unittest\nclass Base(unittest.TestCase): pass\n'
+                                      'class Cases(Base):\n    def test_one(self): assert 1\n'},
+                       {'t.py': 'import unittest\nclass Base(unittest.TestCase): pass\n'
+                                'class Cases(Base):\n    def test_one(self): assert 1\n'
+                                '    def test_two(self): assert 2\n'})
+        self.assertEqual(self.changed(through, 't.py'), {'t.py': ['Cases::test_two']})
+        faux = Tree(self, {'t.py': 'class FauxTestCase: pass\nclass Cases(FauxTestCase):\n'
+                                   '    def test_one(self): assert 1\n'},
+                    {'t.py': 'class FauxTestCase: pass\nclass Cases(FauxTestCase):\n'
+                             '    def test_one(self): assert 1\n    def test_two(self): assert 2\n'})
+        self.assertEqual(self.changed(faux, 't.py'), {'t.py': []})
+        helpers = Tree(self, {'t.py': 'class Helpers:\n    def test_one(self): return 1\n'},
+                       {'t.py': 'class Helpers:\n    def test_one(self): return 1\n'
+                                '    def test_two(self): return 2\n'})
+        self.assertEqual(self.changed(helpers, 't.py'), {'t.py': []})
+
     def test_deleting_a_test_is_not_a_change_to_the_one_before_it(self):
         """A removal has no line of its own on the head side, and reading it from the lines
         around the gap would demand the test above it, which nothing touched."""
@@ -533,15 +569,11 @@ class ChangedTestTests(unittest.TestCase):
         self.assertEqual(self.changed(tree, 't.py', 'u.py'), {'t.py': [], 'u.py': ['test_two']})
 
     def test_deleting_a_comment_is_not_a_change_to_the_test_around_it(self):
-        """Prose the delta rewrote in place is subtracted from the head side; prose it deleted
-        has no head side to subtract, and the test around the gap did not change either."""
+        """Prose is not a gate, and neither the comment nor the test it sat in was added by
+        this delta: what the file still asserts is what its own rule asks about."""
         tree = Tree(self, {'t.py': 'def test_one():\n    # why\n    assert 1\n'},
                     {'t.py': 'def test_one():\n    assert 1\n'})
         self.assertEqual(self.changed(tree, 't.py'), {'t.py': []})
-        # The assertion itself, deleted: that is the test emptied, and it is demanded.
-        tree = Tree(self, {'t.py': 'def test_one():\n    assert 1\n    assert 2\n'},
-                    {'t.py': 'def test_one():\n    assert 2\n'})
-        self.assertEqual(self.changed(tree, 't.py'), {'t.py': ['test_one']})
 
     def test_an_async_test_is_not_a_test_pytest_runs(self):
         """pytest collects an async test and skips it unless a plugin teaches it otherwise, so
