@@ -91,6 +91,15 @@ class MeaningTests(unittest.TestCase):
                                      'case': 'ordered'}]))
         self.assertIn('does not pass on the clean tree (test_thing.py::test_ordered_b', str(caught.exception))
 
+    def test_a_case_that_collects_no_node_is_refused_by_name(self):
+        """A case pytest finds nothing for has no baseline to pass and no node to run: refused
+        by name, not recorded as a survivor of a run that never happened."""
+        bench = Bench(self)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'value > LIMIT', 'becomes': 'True',
+                                     'case': 'nothing_named_so'}]))
+        self.assertIn("Case 'nothing_named_so' collects no test under test_thing.py", str(caught.exception))
+
     def test_a_surviving_mutant_is_the_finding(self):
         """A guard whose case cannot tell the mutant from the original is decoration."""
         bench = Bench(self, test='def test_over_the_limit():\n    assert True\n')
