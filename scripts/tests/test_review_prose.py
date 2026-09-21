@@ -134,7 +134,7 @@ class EnvelopeTests(unittest.TestCase):
     def test_a_comment_a_tool_reads_is_not_prose(self):
         """The syntax tree never sees `# noqa` or `# type: ignore`, and the comment count
         stands still when one replaces a sentence, so the envelope recorded a suppression as
-        prose-only. Replacing, adding beside, and cutting one are each refused."""
+        prose-only."""
         bench = Bench(self)
         bench.write(START.replace('# Six attempts at this rule, and it guards the limit.', '# noqa'))
         self.assertIn('a linter or a type checker reads changed', ' | '.join(bench.offences()))

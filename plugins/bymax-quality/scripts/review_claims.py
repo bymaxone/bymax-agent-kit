@@ -230,7 +230,7 @@ def split_delta(base, head, cwd=None):
             if row.startswith('@@'):
                 was = int(row.split('-')[1].split(',')[0].split()[0])
                 at = int(row.split('+')[1].split(',')[0].split()[0])
-            # Indicators of git's choosing rather than its defaults: under `+`, a content
+            # Indicators of this walker's choosing rather than git's defaults: under `+`, a content
             # line `++n` prints as `+++n` and the header test dropped it, so a reviewer was
             # handed a delta missing the line that changed. `>` never opens a header.
             elif row.startswith('>') and at is not None:
