@@ -270,7 +270,7 @@ def defined(text):
 
 
 def definitions(source):
-    """Every function a python source defines, spelled as pytest spells its node id — a method
+    """Every test a python source defines, spelled as pytest spells its node id — a method
     under `Class::`, a decorator counted as part of the test it decorates — with the lines it
     occupies. Read from the text: a file that cannot be parsed defines nothing here, which
     leaves the caller its own answer rather than a crash."""
@@ -282,12 +282,15 @@ def definitions(source):
 
 
 def defined_under(node, prefix):
-    """The functions this body defines, and those its classes do, prefixed as pytest spells
-    them. Nested functions are not tests and are not descended into."""
+    """The tests this body defines, and those its test classes do, prefixed as pytest spells
+    them. Named as pytest collects them, because only what it collects can be demanded of a
+    correction: a helper or a fixture the tests share is a function of this file too, and a
+    name nothing collects could never appear among the nodes that failed. Nested functions
+    are not tests and are not descended into."""
     for child in getattr(node, 'body', []):
-        if isinstance(child, ast.ClassDef):
+        if isinstance(child, ast.ClassDef) and child.name.startswith('Test'):
             yield from defined_under(child, prefix + child.name + '::')
-        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith('test'):
             first = min([child.lineno] + [d.lineno for d in child.decorator_list])
             yield prefix + child.name, range(first, (child.end_lineno or child.lineno) + 1)
 
@@ -295,7 +298,7 @@ def defined_under(node, prefix):
 def changed_tests(base, head, names, cwd=None):
     """Per named file, the tests this delta added or changed, spelled as pytest spells a node
     id. A file whose delta touched no line a test of its own occupies answers with none,
-    because a correction there has no changed test to demand."""
+    because a correction to a helper, a fixture or an import has no changed test to demand."""
     out = {}
     for name in names:
         lines = hunks(git('diff', '-U0', '--no-renames', base, head, '--', name, cwd=cwd))

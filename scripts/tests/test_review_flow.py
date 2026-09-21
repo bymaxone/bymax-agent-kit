@@ -1742,12 +1742,23 @@ class ReviewFlowTests(unittest.TestCase):
 
     def test_a_delta_that_changed_no_test_of_its_own_keeps_the_file_rule(self):
         """A correction that changes a line no test of the file occupies has no changed test
-        to demand: the file rule stands there, and some test of it must catch."""
+        to demand: the file rule stands there, and some test of it must catch. What pytest
+        does not collect is not a test here — a helper the tests share, a method of a class
+        pytest passes over — or the correction that changed one would be refused for a node
+        that can never appear among those that failed."""
         self.a_guard_and_its_older_test()
         (self.repo / 'tests/test_calc.py').write_text('SPARE = 1\n' + OLD_TEST)
         self.commit('a correction that changes no test of its own')
         self.guard_matrix()
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(
+            OLD_TEST + 'def helper(v): return v\n\n\nclass Helpers:\n    def test_spare(self): return 1\n')
+        self.commit('a correction that changes a helper and a method nothing collects')
+        self.guard_matrix()
+        self.assertEqual(self.start(correction=True, reason='')['round'], 3)
 
     def test_a_decorator_is_part_of_the_test_it_decorates(self):
         """A mark added above a test is a change to that test: parametrising or skipping it
