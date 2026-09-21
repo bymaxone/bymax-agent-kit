@@ -36,7 +36,17 @@ from pathlib import Path
 
 # `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
 # starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
+# The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
 PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
+
+
+def pytest_env():
+    """The environment every pytest here runs with: bytecode off, and no PYTEST_ADDOPTS —
+    pytest prepends it as it does the ini's addopts, and it reached the runs and the collects
+    when only the ini's was cleared."""
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+    env.pop('PYTEST_ADDOPTS', None)
+    return env
 
 
 def bail(message):
@@ -66,8 +76,7 @@ def run_case(root, selector, files):
     lies is 'broke nothing', which manufactures a false claim that a rule is uncovered."""
     caches(root)
     done = subprocess.run([*PYTEST, *arguments(root, files), '-k', selector], cwd=root,
-                          capture_output=True, text=True,
-                          env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
+                          capture_output=True, text=True, env=pytest_env())
     tail = done.stdout.strip().splitlines()
     return done.returncode, (tail[-1] if tail else done.stderr[-160:])
 
@@ -385,8 +394,7 @@ def nodes(root, files, selector=None):
     # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
     args = [*PYTEST, '--collect-only', '--rootdir', real, *arguments(root, files)] + (['-k', selector] if selector else [])
-    done = subprocess.run(args, cwd=real, capture_output=True, text=True,
-                          env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
+    done = subprocess.run(args, cwd=real, capture_output=True, text=True, env=pytest_env())
     if done.returncode not in (0, 5):
         bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
              ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))

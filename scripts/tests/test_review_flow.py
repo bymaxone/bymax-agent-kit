@@ -1577,6 +1577,12 @@ class ReviewFlowTests(unittest.TestCase):
         # A measured case credited to a second file's entry too: the results say where it ran.
         self.refused_with(record, measured, 'says tests/changed.py held test_g, which its results do not: they measured nothing there',
                           tests={'tests/changed.py': ['test_g'], 'tests/test_g.py': ['test_g']})
+        # And the other direction: a result collected in a file the mapping never names.
+        forged = json.loads(json.dumps(measured))
+        forged['results'][0]['tests'] = ['tests/omitted.py', 'tests/test_g.py']
+        record.write_text(json.dumps(forged))
+        self.assertIn('collected in tests/omitted.py, which its tests mapping never names',
+                      self.start(ok=False, correction=True, reason='').stderr)
         record.write_text(json.dumps(measured))
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
@@ -1650,12 +1656,15 @@ class ReviewFlowTests(unittest.TestCase):
     def test_the_runtime_runs_pytest_without_the_project_addopts(self):
         """Found by a reviewer: a project's addopts reached every pytest the runtime starts, and
         one `-q` more or a `-v` changed the lines the collect and the outcome read, so the
-        record named nothing and a caught mutant read as a survivor."""
+        record named nothing and a caught mutant read as a survivor. PYTEST_ADDOPTS in the
+        environment is the same option by another door."""
         self.start()
         self.report('claude')
         self.report('codex')
         self.triage()
         (self.repo / 'pytest.ini').write_text('[pytest]\naddopts = -v\n')
+        os.environ['PYTEST_ADDOPTS'] = '-qq'
+        self.addCleanup(os.environ.pop, 'PYTEST_ADDOPTS', None)
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
         self.commit('a correction that changes a test, under a project that sets addopts')

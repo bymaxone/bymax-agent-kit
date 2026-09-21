@@ -1043,7 +1043,13 @@ def mapping_agrees(kept, results):
     """The tests mapping, file by file: what a file is said to hold must be what the results
     say was collected there, or the mapping is a summary saying so — a measured case moved
     to another file's entry was accepted while the check read cases alone."""
-    for name, cases in (kept.get('tests') or {}).items() if isinstance(kept.get('tests'), dict) else []:
+    # Both directions: a file a result names must be in the mapping, or the record's results
+    # say the case ran somewhere the mapping never mentions.
+    mapping = kept.get('tests') if isinstance(kept.get('tests'), dict) else {}
+    stray = sorted({f for r in results for f in r.get('tests', [])} - set(mapping))
+    require(not stray, 'The recorded matrix has results collected in %s, which its tests mapping '
+            'never names. Re-run `review_flow.py matrix`.' % ', '.join(stray))
+    for name, cases in mapping.items():
         held = {r.get('case') for r in results if name in r.get('tests', [])}
         wrong = sorted(set(cases) ^ held)
         require(not wrong, 'The recorded matrix says %s held %s, which its results do not: they '
