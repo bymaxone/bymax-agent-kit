@@ -283,13 +283,14 @@ def definitions(source):
 
 def defined_under(node, prefix):
     """The tests this body defines, and those its test classes do, prefixed as pytest spells
-    them. Named as pytest collects them, because only what it collects can be demanded of a
+    them. Named as pytest RUNS them, because only a test that can fail can be demanded of a
     correction: a name nothing collects — a helper, a fixture — could never appear among the
-    nodes that failed. Nested functions are not tests and are not descended into."""
+    nodes that failed, and neither could an async test, which pytest collects and skips unless
+    a plugin teaches it otherwise. Nested functions are not tests and are not descended into."""
     for child in getattr(node, 'body', []):
         if isinstance(child, ast.ClassDef) and collected_class(child):
             yield from defined_under(child, prefix + child.name + '::')
-        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith('test'):
+        elif isinstance(child, ast.FunctionDef) and child.name.startswith('test'):
             first = min([child.lineno] + [d.lineno for d in child.decorator_list])
             yield prefix + child.name, range(first, (child.end_lineno or child.lineno) + 1)
 
@@ -320,17 +321,40 @@ def changed_tests(base, head, names, cwd=None):
 
 
 def hunks(diff):
-    """The head-side line numbers a diff changed, read from its hunk headers. A removal has
-    no line of its own on that side, and the two it sat between are what it changed: read as
-    an empty range, a correction that deleted the assertion out of a test left the test it
-    emptied reading as untouched."""
+    """The head-side line numbers a diff changed, hunk by hunk. A removal has no line of its
+    own on that side, and the two it sat between are what it changed — unless what it removed
+    was a test of its own, or nothing but prose, in which case the test that happens to
+    surround the gap did not change, and demanding it would refuse a correction for deleting
+    the neighbour or the comment."""
     lines = set()
+    for (start, count), removed in blocks(diff):
+        if count:
+            lines.update(range(start, start + count))
+        elif emptied(removed):
+            lines.update((start, start + 1))
+    return lines
+
+
+def blocks(diff):
+    """Each hunk's head-side (start, count), with the lines that hunk removed."""
+    out, header, removed = [], None, []
     for row in diff.splitlines():
         found = re.match(r'@@ -\S+ \+(\d+)(?:,(\d+))? @@', row)
         if found:
-            start, count = int(found.group(1)), int(found.group(2) or 1)
-            lines.update(range(start, start + count) if count else (start, start + 1))
-    return lines
+            if header:
+                out.append((header, removed))
+            header, removed = (int(found.group(1)), int(found.group(2) or 1)), []
+        elif header is not None and row.startswith('-'):
+            removed.append(row[1:])
+    return out + ([(header, removed)] if header else [])
+
+
+def emptied(removed):
+    """Whether a removal took something out of the test that surrounds it: not when it removed
+    a definition of its own, and not when every line of it was blank or a comment."""
+    if any(re.match(r'\s*(async\s+)?(def|class)\s', line) for line in removed):
+        return False
+    return any(line.strip() and not line.strip().startswith('#') for line in removed)
 
 
 def orphaned(base, head, cwd=None):

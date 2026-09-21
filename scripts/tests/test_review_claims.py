@@ -510,6 +510,48 @@ class ProseExtractionTests(unittest.TestCase):
         self.assertEqual(claims.prose('x.json', '{"NAME": 1}'), '')
 
 
+class ChangedTestTests(unittest.TestCase):
+    """Which tests a delta changed, over the whole list of shapes a delta comes in.
+
+    What this answers is demanded of the correction: a test named here has to be among those
+    that failed under a mutant. So a name that pytest cannot fail is a refusal nobody can
+    satisfy, and a test the delta never touched is a refusal for somebody else's work.
+    """
+
+    def changed(self, tree, *names):
+        return claims.changed_tests(tree.base, tree.head, list(names), cwd=str(tree.where))
+
+    def test_deleting_a_test_is_not_a_change_to_the_one_before_it(self):
+        """A removal has no line of its own on the head side, so it is read from the two it
+        sat between — which for a deleted test are lines of the test above it, unchanged."""
+        tree = Tree(self, {'t.py': 'def test_one(): assert 1\ndef test_two(): assert 2\n'},
+                    {'t.py': 'def test_one(): assert 1\n'})
+        self.assertEqual(self.changed(tree, 't.py'), {'t.py': []})
+        # Moved rather than deleted: changed where it arrived, untouched where it left.
+        tree = Tree(self, {'t.py': 'def test_one(): assert 1\ndef test_two(): assert 2\n'},
+                    {'t.py': 'def test_one(): assert 1\n', 'u.py': 'def test_two(): assert 2\n'})
+        self.assertEqual(self.changed(tree, 't.py', 'u.py'), {'t.py': [], 'u.py': ['test_two']})
+
+    def test_deleting_a_comment_is_not_a_change_to_the_test_around_it(self):
+        """Prose the delta rewrote in place is subtracted from the head side; prose it deleted
+        has no head side to subtract, and the test around the gap did not change either."""
+        tree = Tree(self, {'t.py': 'def test_one():\n    # why\n    assert 1\n'},
+                    {'t.py': 'def test_one():\n    assert 1\n'})
+        self.assertEqual(self.changed(tree, 't.py'), {'t.py': []})
+        # The assertion itself, deleted: that is the test emptied, and it is demanded.
+        tree = Tree(self, {'t.py': 'def test_one():\n    assert 1\n    assert 2\n'},
+                    {'t.py': 'def test_one():\n    assert 2\n'})
+        self.assertEqual(self.changed(tree, 't.py'), {'t.py': ['test_one']})
+
+    def test_an_async_test_is_not_a_test_pytest_runs(self):
+        """pytest collects an async test and skips it unless a plugin teaches it otherwise, so
+        it can never be among the nodes that failed: demanding it refuses the correction that
+        added it, which is a gate nobody can pass rather than a gate."""
+        tree = Tree(self, {'t.py': 'def test_one(): assert 1\n'},
+                    {'t.py': 'def test_one(): assert 1\nasync def test_two(): assert 2\n'})
+        self.assertEqual(self.changed(tree, 't.py'), {'t.py': []})
+
+
 class ExitStatusTests(unittest.TestCase):
 
     def test_only_the_exact_tier_decides_the_exit_status(self):
