@@ -20,6 +20,8 @@ PUSH = FLOW.with_name('review_push.py')
 
 
 OLD_TEST = 'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7\n\n\n'
+UNITTEST_TEST = ('import unittest\nfrom guard import LIMIT\n\n\nclass CalcTests(unittest.TestCase):\n'
+                 '    def test_calc_old(self): assert LIMIT == 7\n')
 
 
 class ReviewFlowTests(unittest.TestCase):
@@ -1776,6 +1778,44 @@ class ReviewFlowTests(unittest.TestCase):
             'import pytest\n' + OLD_TEST
             + '@pytest.mark.filterwarnings("ignore")\ndef test_calc_new(): assert True\n')
         self.commit('a correction that adds only a mark above the vacuous test')
+        self.guard_matrix()
+        self.assertIn('caught nothing with the test this correction changed',
+                      self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_a_test_of_a_unittest_class_is_a_test_pytest_collects(self):
+        """Found by a reviewer: pytest collects a TestCase subclass whatever the class is
+        called, and this repository's own tests are those, so reading the name alone passed
+        over every one of them and the demand fell back to the file rule exactly where the
+        correction it guards would be written."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(UNITTEST_TEST)
+        self.commit('a guard and the unittest class that discriminates it')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(UNITTEST_TEST + '    def test_calc_new(self): assert True\n')
+        self.commit('a correction that adds a vacuous method beside the older one')
+        self.guard_matrix()
+        self.assertIn('caught nothing with the test this correction changed',
+                      self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_a_deletion_is_a_change_to_the_test_it_emptied(self):
+        """Found by a reviewer: a removal has no line of its own on the head side, so a
+        correction that deleted the assertion out of a test left it reading as untouched, and
+        the emptied test was credited by its older neighbour."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(
+            OLD_TEST + 'def test_calc_new():\n    assert LIMIT == 7\n    assert True\n')
+        self.commit('a guard and two tests that discriminate it')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new():\n    assert True\n')
+        self.commit('a correction that deletes the assertion out of the second test')
         self.guard_matrix()
         self.assertIn('caught nothing with the test this correction changed',
                       self.start(ok=False, correction=True, reason='').stderr)

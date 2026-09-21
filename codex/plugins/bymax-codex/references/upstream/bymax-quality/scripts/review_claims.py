@@ -287,11 +287,21 @@ def defined_under(node, prefix):
     correction: a name nothing collects — a helper, a fixture — could never appear among the
     nodes that failed. Nested functions are not tests and are not descended into."""
     for child in getattr(node, 'body', []):
-        if isinstance(child, ast.ClassDef) and child.name.startswith('Test'):
+        if isinstance(child, ast.ClassDef) and collected_class(child):
             yield from defined_under(child, prefix + child.name + '::')
         elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith('test'):
             first = min([child.lineno] + [d.lineno for d in child.decorator_list])
             yield prefix + child.name, range(first, (child.end_lineno or child.lineno) + 1)
+
+
+def collected_class(node):
+    """Whether pytest collects the tests of this class: named as python_classes has it, or a
+    TestCase subclass, which the unittest plugin collects whatever the class is called. This
+    repository's own tests are those, and the name alone passed over every one of them. A
+    subclass of a base defined elsewhere is not read here, which leaves the file rule."""
+    named = [base.attr if isinstance(base, ast.Attribute) else getattr(base, 'id', '')
+             for base in node.bases]
+    return node.name.startswith('Test') or any(name.endswith('TestCase') for name in named)
 
 
 def changed_tests(base, head, names, cwd=None):
@@ -307,12 +317,16 @@ def changed_tests(base, head, names, cwd=None):
 
 
 def hunks(diff):
-    """The head-side line numbers a diff changed, read from its hunk headers."""
+    """The head-side line numbers a diff changed, read from its hunk headers. A removal has
+    no line of its own on that side, and the two it sat between are what it changed: read as
+    an empty range, a correction that deleted the assertion out of a test left the test it
+    emptied reading as untouched."""
     lines = set()
     for row in diff.splitlines():
         found = re.match(r'@@ -\S+ \+(\d+)(?:,(\d+))? @@', row)
         if found:
-            lines.update(range(int(found.group(1)), int(found.group(1)) + int(found.group(2) or 1)))
+            start, count = int(found.group(1)), int(found.group(2) or 1)
+            lines.update(range(start, start + count) if count else (start, start + 1))
     return lines
 
 
