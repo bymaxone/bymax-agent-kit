@@ -134,8 +134,13 @@ READABLE = ('.md', '.py')
 
 
 def touched(base, head, cwd=None):
-    """Files this delta changed whose prose this module can read."""
-    listed = git('diff', '--name-only', '-z', base, head, cwd=cwd)
+    """Files this delta changed whose prose this module can read.
+
+    Renames are not detected, as they are not where the delta is read either: git reports a
+    rename as the destination alone, and a definition removed in the same commit then lived
+    in a path the base does not have, so nothing was read as removed at all.
+    """
+    listed = git('diff', '--name-only', '--no-renames', '-z', base, head, cwd=cwd)
     return [n for n in listed.split('\0') if n.endswith(READABLE) and authored(n)]
 
 
@@ -146,8 +151,10 @@ def opaque(base, head, cwd=None):
     every changed file lands in this list, and saying so is the difference between a checker
     that is silent and one that lies: without it the brief told both reviewers that a real
     code delta changed no code, and that two checks had run over files nothing had opened.
+    Renames are not detected here either: a renamed file the module cannot read changed on
+    both sides, and counting it once tells the reader one side of it stayed put.
     """
-    listed = git('diff', '--name-only', '-z', base, head, cwd=cwd)
+    listed = git('diff', '--name-only', '--no-renames', '-z', base, head, cwd=cwd)
     return [n for n in listed.split('\0')
             if n and not n.endswith(READABLE) and authored(n)]
 
@@ -260,6 +267,51 @@ def defined(text):
     found = set(re.findall(r'^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
     found |= set(re.findall(r'^\s*([A-Z][A-Z0-9_]{2,})\s*=', text, re.MULTILINE))
     return found
+
+
+def definitions(source):
+    """Every test a python source defines, spelled as pytest spells its node id — a method
+    under `Class::`, a decorator counted as part of the test it decorates — with the lines it
+    occupies. Read from the text: a file that cannot be parsed defines nothing here, which
+    leaves the caller its own answer rather than a crash."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    return list(defined_under(tree, ''))
+
+
+def defined_under(node, prefix):
+    """The functions this body defines, and those its classes do, prefixed as pytest spells
+    them. Nested functions are not tests and are not descended into."""
+    for child in getattr(node, 'body', []):
+        if isinstance(child, ast.ClassDef):
+            yield from defined_under(child, prefix + child.name + '::')
+        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            first = min([child.lineno] + [d.lineno for d in child.decorator_list])
+            yield prefix + child.name, range(first, (child.end_lineno or child.lineno) + 1)
+
+
+def changed_tests(base, head, names, cwd=None):
+    """Per named file, the tests this delta added or changed, spelled as pytest spells a node
+    id. A file whose delta touched no test of its own — a fixture, a helper, an import —
+    answers with none, because a correction there has no changed test to demand."""
+    out = {}
+    for name in names:
+        lines = hunks(git('diff', '-U0', '--no-renames', base, head, '--', name, cwd=cwd))
+        out[name] = sorted(node for node, span in definitions(git('show', '%s:%s' % (head, name), cwd=cwd))
+                           if lines.intersection(span))
+    return out
+
+
+def hunks(diff):
+    """The head-side line numbers a diff changed, read from its hunk headers."""
+    lines = set()
+    for row in diff.splitlines():
+        found = re.match(r'@@ -\S+ \+(\d+)(?:,(\d+))? @@', row)
+        if found:
+            lines.update(range(int(found.group(1)), int(found.group(1)) + int(found.group(2) or 1)))
+    return lines
 
 
 def orphaned(base, head, cwd=None):

@@ -182,6 +182,11 @@ def apply_mutant(root, mutant):
     if not os.access(path, os.W_OK):
         bail('Mutant for %r cannot be applied: %s is not writable, and a matrix that cannot '
              'restore what it changed must not start.' % (mutant.get('case'), mutant['file']))
+    # The bytes, because write_text() rewrites CRLF as LF: a file restored through text came
+    # back with every line ending changed, which left the worktree dirty and the author's
+    # source rewritten. The text is read beside them so an anchor spelled with \n still finds
+    # its line whatever the file uses, and the mutant goes back in the file's own ending.
+    original = path.read_bytes()
     text = path.read_text()
     hits = text.count(mutant['anchor'])
     if hits != 1:
@@ -189,8 +194,9 @@ def apply_mutant(root, mutant):
              'landed and the run proves nothing; more than one means nobody knows which line '
              'carried it. This is not a formality — a matrix that printed "69 passed" with no '
              'mutant applied is why the anchor is counted.' % (mutant.get('case'), hits, mutant['file']))
-    path.write_text(text.replace(mutant['anchor'], mutant['becomes'], 1))
-    return path, text
+    ending = b'\r\n' if b'\r\n' in original else b'\n'
+    path.write_bytes(text.replace(mutant['anchor'], mutant['becomes'], 1).encode().replace(b'\n', ending))
+    return path, original
 
 
 def one(root, mutant, files, clean=None):
@@ -212,14 +218,16 @@ def one(root, mutant, files, clean=None):
         # older test of the same name in another file caught.
         runs = [(node, run_case(root, None, [node])[1]) for node in nodes_of_case]
     finally:
-        path.write_text(original)
+        path.write_bytes(original)
         caches(root)
     failed, saw = judged(mutant, runs)
     # The whole identity travels with the result, so a record's results can be told apart
     # the way the spec's mutants are: a result repeated to match a forged count is not two.
-    # With it the files whose node failed: what caught the mutant, not what was collected.
+    # With it the nodes that failed, and their files: a file is credited when any node of it
+    # failed, and the node says which — an older neighbour of the changed test is a file.
     return {'case': mutant['case'], 'file': mutant['file'], 'anchor': mutant['anchor'],
             'becomes': mutant['becomes'], 'caught': bool(failed), 'saw': saw,
+            'nodes': sorted(failed),
             'tests': sorted({Path(node.split('::')[0]).as_posix() for node in failed})}
 
 

@@ -971,7 +971,11 @@ def matrix_first(state, directory):
             'fingerprint does not match what is here now. A record is bound to the tree it '
             'measured; re-run the matrix on this one.' % ', '.join(names))
     ran_the_changed_tests(kept, state['regression_tests'])
+    # After results_agree, never before: the nodes it reads are the results, and a record whose
+    # results are not a list crashed here rather than being refused by name.
     results_agree(kept, names)
+    caught_with_the_changed_test(kept, review_claims.changed_tests(
+        state['review_base'], state['head'], state['regression_tests']))
 
 
 def ran_the_changed_tests(kept, changed):
@@ -997,6 +1001,24 @@ def ran_the_changed_tests(kept, changed):
             'own case catches and re-run `review_flow.py matrix`.' % ', '.join(idle))
 
 
+def caught_with_the_changed_test(kept, wanted):
+    """The test the delta changed must be a test that caught something.
+
+    A file is credited when any node of it failed, which an older neighbour of the new test
+    satisfies: measured, a vacuous test added beside a test that already discriminated made
+    the record say the file caught the mutant, and the correction opened on the neighbour's
+    evidence. A file whose delta touched no test of its own is left to the rule above.
+    """
+    failed = {node.split('[')[0] for r in kept.get('results') or [] for node in (r.get('nodes') or [])}
+    for name, nodes in sorted(wanted.items()):
+        require(not nodes or failed.intersection('%s::%s' % (name, node) for node in nodes),
+                'The recorded matrix caught nothing with the test this correction changed: %s '
+                'failed under a mutant, and %s did not. A neighbour that already discriminated '
+                'proves nothing about the new one.'
+                % (', '.join(sorted(n for n in failed if n.startswith(name + '::'))) or 'nothing in ' + name,
+                   ', '.join('%s::%s' % (name, node) for node in nodes)))
+
+
 def results_agree(kept, names):
     """The record's summary fields are its own and mutable; the results are what was measured,
     so each summary is checked against them. A survivor list cleared by hand passed here while
@@ -1016,9 +1038,10 @@ def results_agree(kept, names):
                if not isinstance(result.get(f), str)] if isinstance(result, dict) else ['result']
         if isinstance(result, dict) and not isinstance(result.get('caught'), bool):
             odd.append('caught')
-        if isinstance(result, dict) and not (isinstance(result.get('tests'), list)
-                                             and all(isinstance(x, str) for x in result['tests'])):
-            odd.append('tests')
+        for field in ('tests', 'nodes'):
+            if isinstance(result, dict) and not (isinstance(result.get(field), list)
+                                                 and all(isinstance(x, str) for x in result[field])):
+                odd.append(field)
         require(not odd, 'The recorded matrix has a result in a shape the runtime never writes '
                 '(%s). Re-run `review_flow.py matrix`.' % ', '.join(odd))
     mutated = {r.get('file') for r in results}

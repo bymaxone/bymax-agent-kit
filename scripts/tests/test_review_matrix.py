@@ -107,6 +107,24 @@ class MeaningTests(unittest.TestCase):
             bench.run(rule())
         self.assertIn('survived', str(caught.exception))
 
+    def test_a_mutant_keeps_the_file_s_own_line_endings(self):
+        """Found by a reviewer: write_text() rewrites CRLF as LF, so a file restored through
+        text came back with every line ending changed — the worktree left dirty and the
+        author's own source rewritten until they reset it. The bytes go back as they were,
+        and the mutant goes in keeping the ending the file already used."""
+        bench = Bench(self)
+        guard = bench.where / 'thing.py'
+        guard.write_bytes(GUARDED.encode().replace(b'\n', b'\r\n'))
+        before = guard.read_bytes()
+        mutant = {'file': 'thing.py', 'anchor': 'value > LIMIT', 'becomes': 'True', 'case': 'over_the_limit'}
+        path, original = matrix.apply_mutant(str(bench.where), mutant)
+        self.assertEqual(path.read_bytes().count(b'\r\n'), before.count(b'\r\n'))
+        self.assertIn(b'return True', path.read_bytes())
+        path.write_bytes(original)
+        self.assertEqual(guard.read_bytes(), before)
+        bench.run(rule())
+        self.assertEqual(guard.read_bytes(), before)
+
     def test_a_mutant_that_only_breaks_the_import_is_refused(self):
         """A crash is not a measurement. A mutant that stops the module loading makes every
         case error, which reads as caught while the case never ran — measured on this file's

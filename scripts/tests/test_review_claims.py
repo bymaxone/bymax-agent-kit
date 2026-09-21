@@ -104,6 +104,16 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': 'async def fetch_data(x):\n    return x\n# calls fetch_data\n'})
         self.assertEqual(tree.retired(), [])
 
+    def test_a_definition_removed_in_a_rename_is_still_reported(self):
+        """Found by a reviewer: git reports a rename as its destination alone, so a definition
+        removed in the same commit sat in a path the base does not have, nothing read it as
+        removed, and the check reported that it had passed. Renames are not detected here."""
+        whole = ('def old_helper(x):\n    return x\n\n\ndef kept_one(x):\n    return x + 1\n\n\n'
+                 'def kept_two(x):\n    return x + 2\n\n\ndef kept_three(x):\n    return x + 3\n')
+        tree = Tree(self, {'a.py': whole, 'README.md': '# doc\n\nCalls old_helper for the thing.\n'},
+                    {'b.py': whole.split('\n\n\n', 1)[1], 'README.md': '# doc\n\nCalls old_helper for the thing.\n'})
+        self.assertEqual(tree.retired(), [('README.md', 'old_helper')])
+
     def test_a_function_removed_outright_is_still_reported(self):
         """The other side of the same alternative: moved is silence, gone is a finding."""
         tree = Tree(self, {'a.py': 'def helper_one(x):\n    return x\n# calls helper_one\n'},
@@ -314,6 +324,13 @@ class OpaqueFileTests(unittest.TestCase):
     def test_a_changed_file_of_another_language_is_named(self):
         tree = Tree(self, {'a.ts': 'const x = 1\n'}, {'a.ts': 'const x = 2\n'})
         self.assertEqual(self.opaque(tree), ['a.ts'])
+
+    def test_a_renamed_file_this_module_cannot_read_is_named_on_both_sides(self):
+        """A rename changed both paths, and naming one of them tells the reader that the other
+        side stayed put — the same detection that hid a removed definition from the check."""
+        whole = 'const a = 1\nconst b = 2\nconst c = 3\nconst d = 4\nconst e = 5\n'
+        tree = Tree(self, {'a.ts': whole}, {'b.ts': whole + 'const f = 6\n'})
+        self.assertEqual(self.opaque(tree), ['a.ts', 'b.ts'])
 
     def test_a_readable_file_is_not_named(self):
         tree = Tree(self, {'a.py': 'X = 1\n'}, {'a.py': 'X = 2\n'})

@@ -19,6 +19,9 @@ sys.path.insert(0, str(FLOW.parent))
 PUSH = FLOW.with_name('review_push.py')
 
 
+OLD_TEST = 'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7\n\n\n'
+
+
 class ReviewFlowTests(unittest.TestCase):
     """Model candidate changes and independent reviewer evidence through the CLI."""
 
@@ -110,18 +113,19 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
-    def matrix(self, path, cases, also=(), where=None):   # cases: (anchor, becomes, case)
+    def matrix(self, path, cases, also=(), where=None, enumeration=None):
         """Run a real mutation matrix in the fixture repo, because nothing here fakes one.
 
         A correction that changes a test must carry a measured matrix, and a fixture that
         wrote the record by hand would make the gate satisfiable by typing — which is the
         defect the gate exists to remove. `cases` is (anchor, case) per function the file
-        defines, so the enumeration command and the mutant count agree by construction.
+        defines, so the enumeration command and the mutant count agree by construction — a
+        case that mutates a guard rather than a test file counts its own way instead.
         """
         spec = self.root / 'matrix.json'
         spec.write_text(json.dumps([{
             'rule': 'fixture: one mutant per case the file defines',
-            'enumeration': 'grep -c "def test_" %s' % (where or path),
+            'enumeration': enumeration or 'grep -c "def test_" %s' % (where or path),
             'mutants': [{'file': where or path, 'anchor': anchor, 'becomes': becomes, 'case': case}
                         for anchor, becomes, case in cases]}]))
         return self.flow('matrix', '--spec', str(spec), path, *also)
@@ -1686,6 +1690,84 @@ class ReviewFlowTests(unittest.TestCase):
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_changed.py': ['test_g'], 'tests/test_g.py': ['test_g']})
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def a_guard_and_its_older_test(self):
+        """A guard outside the test directory, and the test that already discriminates it:
+        what a correction adding a test of its own starts from."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)
+        self.commit('a guard and the test that discriminates it')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+
+    def guard_matrix(self):
+        """The matrix over the guard, whose own file defines no test to count."""
+        return self.matrix('tests', [('LIMIT = 7', 'LIMIT = 8', 'test_calc')],
+                           where='guard.py', enumeration='echo 1')
+
+    def test_the_test_the_delta_changed_is_the_test_that_must_catch(self):
+        """Found by a reviewer: a file is credited when any node of it failed, so a vacuous
+        test added beside a test that already discriminated made the record say the file
+        caught the mutant, and the correction opened on the neighbour's evidence. A result
+        names the nodes that failed, and the test the delta changed must be one of them."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert True\n')
+        self.commit('a correction that adds a vacuous test beside the older one')
+        self.guard_matrix()
+        self.assertIn('caught nothing with the test this correction changed',
+                      self.start(ok=False, correction=True, reason='').stderr)
+        # The same test made to fail with the guard mutated is credited, and it opens.
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert LIMIT == 7\n')
+        self.commit('a correction whose own test fails with the guard mutated')
+        self.guard_matrix()
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_changed_test_is_found_under_its_class_and_its_parameters(self):
+        """A node id is file::Class::name[param]; the changed test is the name the source
+        defines, so the class has to prefix it and the parameters must not hide it."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'tests/test_calc.py').write_text(
+            OLD_TEST + 'import pytest\n\n\nclass TestCalc:\n'
+            '    @pytest.mark.parametrize("v", [7])\n'
+            '    def test_calc_new(self, v): assert LIMIT == v\n')
+        self.commit('a correction whose own test is a parametrized method')
+        directory = Path(self.flow('status')['directory'])
+        self.guard_matrix()
+        record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
+        self.assertIn('tests/test_calc.py::TestCalc::test_calc_new[7]', record['results'][0]['nodes'])
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_delta_that_changed_no_test_of_its_own_keeps_the_file_rule(self):
+        """A correction that changes a helper, an import or a fixture in a test file has no
+        changed test to demand: the file rule stands there, and some test of it must catch."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'tests/test_calc.py').write_text('SPARE = 1\n' + OLD_TEST)
+        self.commit('a correction that changes no test of its own')
+        self.guard_matrix()
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_decorator_is_part_of_the_test_it_decorates(self):
+        """A mark added above a test is a change to that test: parametrising or skipping it
+        changes what it measures, and a delta that added only the line would otherwise read
+        as touching no test at all."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert True\n')
+        self.commit('a guard, the test that discriminates it, and a vacuous neighbour')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(
+            'import pytest\n' + OLD_TEST
+            + '@pytest.mark.filterwarnings("ignore")\ndef test_calc_new(): assert True\n')
+        self.commit('a correction that adds only a mark above the vacuous test')
+        self.guard_matrix()
+        self.assertIn('caught nothing with the test this correction changed',
+                      self.start(ok=False, correction=True, reason='').stderr)
 
     def test_the_runtime_runs_pytest_without_the_project_addopts(self):
         """Found by a reviewer: a project's addopts reached every pytest the runtime starts, and
