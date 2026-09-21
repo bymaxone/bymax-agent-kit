@@ -129,6 +129,8 @@ class CollectTests(unittest.TestCase):
             self.claude_line('[Request interrupted by user for tool use]'),
             # A session written before promptSource existed: the tag alone must refuse it.
             self.claude_line('<task-notification> done without promptSource', promptSource=None),
+            # What Codex injects at the start of a turn, as a user-role message with no tag.
+            self.claude_line('# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>\nrules'),
         ]
         write_jsonl(self.home / '.claude/projects' / self.slug / 's1.jsonl', lines)
         data = self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)
@@ -227,10 +229,10 @@ class CollectTests(unittest.TestCase):
         return [r['text'] for r in self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)['requests']]
 
     def test_codex_reads_the_typed_message_once_and_never_its_copy(self):
-        """Measured on this machine (codex-cli 0.154.0, 5 interactive sessions): a person's input is one
-        response_item of role user, and 0-6 ms later an event_msg item_completed/UserMessage carries
-        the same text. The item is the ask; the copy is not read; an assistant message is not read;
-        an event_msg/user_message, seen only in exec sessions of an earlier version, is not read either."""
+        """Measured on this machine (5 interactive sessions, cli_version 0.151.0 to 0.154.0-alpha):
+        a typed input is one response_item of role user, and 0-6 ms later an event_msg
+        item_completed/UserMessage carries the same text. The item is the ask; the copy is not read;
+        an assistant message is not read; an event_msg/user_message, in no session here, neither."""
         self.assertEqual(self.codex_rows(('item', '2026-09-17T12:00:59.995Z', 'straddle'),
                                          ('copy', '2026-09-17T12:01:00.004Z', 'straddle'),
                                          ('assistant', '2026-09-17T12:01:05.000Z', 'straddle back'),

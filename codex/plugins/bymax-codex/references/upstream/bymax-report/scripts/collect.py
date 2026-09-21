@@ -279,7 +279,7 @@ def clean_request(text: str) -> str | None:
     text = IMAGE_TOKEN.sub('', text or '').strip()
     if not text or text.startswith(('<', 'Another Claude session', '[Request interrupted')):
         return None
-    if text.lstrip().startswith('# Files mentioned by the user'):
+    if text.lstrip().startswith(('# Files mentioned by the user', '# AGENTS.md instructions')):
         return None
     return text[:TEXT_LIMIT]
 
@@ -383,10 +383,10 @@ def collect_codex(home: Path, paths: list[str], since: dt.date, until: dt.date) 
         for line in lines:
             body = line.get('payload') or {}
             # What a person typed is a response_item of role user, and only that. Measured on
-            # the machine this was built (codex-cli 0.154.0, 5 interactive sessions): every
-            # input also appears 0-6 ms later as an event_msg item_completed/UserMessage, which
-            # is not read, so nothing here deduplicates and a repeat at any distance is another
-            # ask. Two windows were tried before this and each lost a real repeat.
+            # the machine this was built (5 interactive sessions, cli_version 0.151.0, 0.153.4
+            # and 0.154.0-alpha.6.2): a typed input also appears 0-6 ms later as an event_msg
+            # item_completed/UserMessage, which is not read, so nothing here deduplicates and a
+            # repeat at any distance is another ask. Two windows were tried and each lost one.
             if line.get('type') != 'response_item' or body.get('type') != 'message' or body.get('role') != 'user':
                 continue
             text = clean_request(message_text(body.get('content')))
