@@ -147,6 +147,12 @@ class EnumerationTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"', mutants=[twice, dict(twice)]))
         self.assertIn('repeats a mutant', str(caught.exception))
+        # The same mutation under another case is another measurement, not a repeat.
+        again = CASE + '\n\ndef test_over_again():\n    assert not over(5)\n'
+        bench = Bench(self, guard='LIMIT = 10\n\n\ndef over(v):\n    return v > LIMIT or v > 99\n', test=again)
+        payload = bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
+                               mutants=[twice, dict(twice, case='over_again')]))
+        self.assertEqual(payload['mutants'], 2)
 
     def test_a_count_is_the_last_field_of_each_line_not_every_digit(self):
         """`grep -c` prints "path:count" per file, so a filename carrying a digit was being

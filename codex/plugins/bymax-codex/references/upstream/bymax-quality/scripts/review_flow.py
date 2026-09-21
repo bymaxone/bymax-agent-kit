@@ -982,7 +982,9 @@ def results_agree(kept, names):
     require(len(results) == kept.get('mutants'), 'The recorded matrix counts %s mutants and carries '
             '%d results; a summary its results do not add up to measured nothing. Re-run '
             '`review_flow.py matrix`.' % (kept.get('mutants'), len(results)))
-    uncaught = [r.get('case') for r in results if not r.get('caught')]
+    # `is not True`, not falsiness: the record is JSON an author can edit, and the string
+    # "false" is truthy, so a surviving result retyped that way read as caught.
+    uncaught = [r.get('case') for r in results if r.get('caught') is not True]
     require(not uncaught, 'The recorded matrix has results it did not catch: %s. Its survivor '
             'list said otherwise; the results are what was measured.' % ', '.join(uncaught))
 
