@@ -734,6 +734,20 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('new.env is ignored and new', refused)
         self.assertNotIn('old.env', refused)
 
+    def test_a_marker_without_a_snapshot_compares_nothing(self):
+        """A marker the previous runtime wrote carries no ignored snapshot; an empty default
+        made every ignored file that predates the pass a new one."""
+        (self.repo / '.gitignore').write_text('*.env\n')
+        self.git('add', '.gitignore')
+        self.git('commit', '-qm', 'ignore env files')
+        (self.repo / 'old.env').write_text('old\n')
+        self.add_prose()
+        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
+        directory = Path(self.flow('status', ok=False).stdout or '.')  # no campaign yet: find the marker by glob
+        marker = next((self.repo / '.git').glob('bymax-review/*/prose-*.json'))
+        kept = json.loads(marker.read_text()); kept.pop('ignored'); marker.write_text(json.dumps(kept))
+        self.assertEqual(self.prose('--stage', 'verify', nested=True)['outcome'], 'unchanged')
+
     def test_a_correction_round_reads_prose_since_the_frozen_head(self):
         """No --base once a campaign is frozen: the delta is what changed since that head.
         And on the frozen head itself the pass refuses, because editing what reviewers were

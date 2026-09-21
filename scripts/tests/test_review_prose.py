@@ -195,9 +195,10 @@ class EnvelopeTests(unittest.TestCase):
         subprocess.run(['git', '-C', str(bench.where), 'update-index', '--skip-worktree', 'thing.py'], check=True)
         bench.write(START.replace('value > LIMIT', 'value >= LIMIT'))
         self.assertIn('behaviour changed', ' | '.join(bench.offences()))
-        # Absent with the bit: what a sparse checkout does on purpose, so not a change.
+        # Absent with a bit set by hand, outside any sparse checkout: a deletion. Only where
+        # git set the bit itself does an absence pass.
         (bench.where / 'thing.py').unlink()
-        self.assertEqual(bench.offences(), [])
+        self.assertIn('was deleted', ' | '.join(bench.offences()))
 
     def test_a_crlf_file_under_text_auto_is_not_a_change(self):
         """Hashing the bytes outside the index normalised CRLF that git's safe-crlf rule keeps
@@ -216,8 +217,13 @@ class EnvelopeTests(unittest.TestCase):
         bench = Bench(self, {'thing.py': START, '.gitignore': 'secret.env\n'})
         (bench.where / 'secret.env').write_text('k\n')
         self.assertEqual(bench.offences(), [])
-        self.assertIn('secret.env is ignored and new', ' | '.join(prose.offences(cwd=str(bench.where), ignored_before=set())))
-        self.assertEqual(prose.offences(cwd=str(bench.where), ignored_before={'secret.env'}), [])
+        self.assertIn('secret.env is ignored and new', ' | '.join(prose.offences(cwd=str(bench.where), ignored_before={})))
+        before = prose.ignored(cwd=str(bench.where))
+        self.assertEqual(prose.offences(cwd=str(bench.where), ignored_before=before), [])
+        (bench.where / 'secret.env').write_text('k2\n')
+        self.assertIn('secret.env is ignored and was edited', ' | '.join(prose.offences(cwd=str(bench.where), ignored_before=before)))
+        (bench.where / 'secret.env').unlink()
+        self.assertIn('secret.env is ignored and was deleted', ' | '.join(prose.offences(cwd=str(bench.where), ignored_before=before)))
 
     def test_a_tracked_name_with_a_newline_is_seen(self):
         """A newline in a name broke the one-per-line protocol of the previous listing and
@@ -253,6 +259,44 @@ class EnvelopeTests(unittest.TestCase):
         bench = Bench(self, {'keep/k.py': 'x = 1\n', 'drop/d.py': 'y = 2\n'})
         subprocess.run(['git', '-C', str(bench.where), 'sparse-checkout', 'set', 'keep'], check=True, capture_output=True)
         self.assertFalse((bench.where / 'drop/d.py').exists())
+        self.assertEqual(bench.offences(), [])
+
+    def test_a_clean_tree_is_clean_whatever_diff_autorefreshindex_says(self):
+        """The scratch index is stat-dirty everywhere, and the porcelain diff drops a stat-dirty
+        file with identical content only under diff.autoRefreshIndex; with it off, a clean tree
+        listed every file and the clean gate refused every entry point."""
+        bench = Bench(self)
+        subprocess.run(['git', '-C', str(bench.where), 'config', 'diff.autoRefreshIndex', 'false'], check=True)
+        self.assertEqual(bench.offences(), [])
+
+    def test_a_dangling_symlink_under_a_sparse_checkout_is_present(self):
+        """A reader that puts a symlink to a missing target where a sparse checkout had left
+        an absence: git itself clears the skip-worktree bit from any present entry, a
+        dangling link included, before a listing reads it, so the excuse is reachable only
+        for absent paths and the retargeting is listed and refused. lexists is the primitive
+        that matches what git does; measured, exists would answer the same on this git."""
+        bench = Bench(self, {'keep/k.py': 'x = 1\n'})
+        os.symlink('missing-one', bench.where / 'keep/l')
+        for args in (['add', '-A'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A', 'commit', '-qm', 'link']):
+            subprocess.run(['git', '-C', str(bench.where), *args], check=True)
+        subprocess.run(['git', '-C', str(bench.where), 'config', 'core.sparseCheckout', 'true'], check=True)
+        (bench.where / '.git/info').mkdir(exist_ok=True)
+        (bench.where / '.git/info/sparse-checkout').write_text('/*\n!/keep/l\n')
+        subprocess.run(['git', '-C', str(bench.where), 'read-tree', '-mu', 'HEAD'], check=True)
+        self.assertEqual(bench.offences(), [])
+        os.symlink('missing-two', bench.where / 'keep/l')
+        self.assertIn('keep/l is not a file this pass can read', ' | '.join(bench.offences()))
+
+    def test_the_scratch_index_does_not_list_itself(self):
+        """Built under $TMPDIR inside the worktree, the scratch index appeared in its own
+        untracked listing and refused a clean tree; it lives under the git directory now."""
+        bench = Bench(self)
+        (bench.where / 'tmp').mkdir()
+        was = os.environ.get('TMPDIR')
+        os.environ['TMPDIR'] = str(bench.where / 'tmp')
+        self.addCleanup(lambda: os.environ.update(TMPDIR=was) if was else os.environ.pop('TMPDIR', None))
+        tempfile.tempdir = None
+        self.addCleanup(setattr, tempfile, 'tempdir', None)
         self.assertEqual(bench.offences(), [])
 
     def test_a_clean_tree_is_inside_the_envelope(self):

@@ -1279,7 +1279,9 @@ def prose_run(args, directory):
         require(kept.get('outcome') == 'prepared', 'Nothing was prepared at this head. Run `prose '
                 '--stage prepare` on a clean tree first: its marker proves the tree was clean when '
                 'the task was handed out, which is what binds the record to a pass at all.')
-        return prose_verify(kept['base'], head, directory, set(kept.get('ignored', [])))
+        # None, not an empty set: a marker the previous runtime wrote carries no snapshot, and
+        # an empty one made every ignored file that predates the pass a new one.
+        return prose_verify(kept['base'], head, directory, kept.get('ignored'))
     head = clean_head()
     base = prose_base(args, directory, head)
     where = directory / ('prose-' + head + '.json')
@@ -1293,7 +1295,7 @@ def prose_run(args, directory):
         # The ignored files present now: one the reader creates is a file it left, and a set
         # the listing must not refuse — ignored files never reach a candidate.
         where.write_text(json.dumps(dict(base=base, head=head, outcome='prepared',
-                                         ignored=sorted(review_prose.ignored())), indent=2) + '\n')
+                                         ignored=review_prose.ignored()), indent=2) + '\n')
         print(task)
         return None
     require(not os.environ.get('CLAUDECODE'), 'Inside Claude, a Claude cannot be started: '

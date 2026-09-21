@@ -91,13 +91,19 @@ def changed(cwd=None):
     and nothing else.
     """
     root = review_claims.root(cwd)
-    handle, scratch = tempfile.mkstemp(prefix='bymax-index-')
+    # Under the git directory, which no listing walks: a scratch file under a $TMPDIR inside
+    # the worktree listed itself as untracked while it existed.
+    handle, scratch = tempfile.mkstemp(prefix='bymax-index-', dir=git('rev-parse', '--absolute-git-dir', cwd=cwd).strip())
     os.close(handle)
     os.unlink(scratch)
     env = dict(os.environ, GIT_INDEX_FILE=scratch)
     try:
         subprocess.run(['git', 'read-tree', 'HEAD'], cwd=root, env=env, check=True, capture_output=True)
-        listed = subprocess.run(['git', 'diff', '--name-only', '-z', '--ignore-submodules=none', 'HEAD'],
+        # The scratch index is stat-dirty everywhere by construction, and the porcelain diff
+        # drops a stat-dirty file with identical content only under diff.autoRefreshIndex;
+        # asked for explicitly, so a user who turned it off does not get a clean tree refused.
+        listed = subprocess.run(['git', '-c', 'diff.autoRefreshIndex=true', 'diff', '--name-only', '-z',
+                                 '--ignore-submodules=none', 'HEAD'],
                                 cwd=root, env=env, check=True, capture_output=True, text=True).stdout
         others = subprocess.run(['git', 'ls-files', '-z', '--others', '--exclude-standard'],
                                 cwd=root, env=env, check=True, capture_output=True, text=True).stdout
@@ -105,22 +111,31 @@ def changed(cwd=None):
         if os.path.exists(scratch):
             os.unlink(scratch)
     names = {name for name in (listed + others).split('\0') if name}
-    # The one bit read from the repository's own index, and only to excuse an ABSENCE: a
-    # sparse checkout leaves files out on purpose and marks them skip-worktree, and read-tree
-    # does not reapply its patterns to a scratch index. A present file is compared whatever
-    # its bits say; an absent one with the bit is not a deletion.
+    # The one bit read from the repository's own index, and only to excuse an ABSENCE, and
+    # only where git itself set it: a sparse checkout leaves files out on purpose and marks
+    # them skip-worktree, and read-tree does not reapply its patterns to a scratch index.
+    # Outside a sparse checkout the bit was set by hand, and an absence is a deletion — a
+    # reader deleting such a file went unseen. A present path is compared whatever its bits
+    # say, and a symlink is present when its own entry is, whatever its target does.
+    if git('config', '--get', 'core.sparseCheckout', cwd=cwd).strip() != 'true':
+        return sorted(names)
     skipped = {row[2:] for row in git('ls-files', '-z', '-v', cwd=cwd).split('\0') if row[:1] in ('S', 's')}
-    return sorted(name for name in names if name not in skipped or (Path(root) / name).exists())
+    return sorted(name for name in names if name not in skipped or os.path.lexists(Path(root) / name))
 
 
 def ignored(cwd=None):
-    """Untracked files the repository ignores: not a change, and never part of a candidate —
-    but one the pass CREATES is a file the reader left, so offences compares this set before
-    and after."""
+    """Untracked files the repository ignores, each with its size and mtime: not a change,
+    and never part of a candidate — but one the reader creates, edits or deletes is a file it
+    left, so offences compares this snapshot before and after. Names alone saw a creation and
+    missed an edit and a deletion."""
     root = review_claims.root(cwd)
     out = subprocess.run(['git', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
                          cwd=root, check=True, capture_output=True, text=True).stdout
-    return {name for name in out.split('\0') if name}
+    found = {}
+    for name in (n for n in out.split('\0') if n):
+        stat = os.lstat(Path(root) / name)
+        found[name] = [stat.st_size, stat.st_mtime_ns]
+    return found
 
 
 def sides(name, cwd=None):
@@ -214,8 +229,13 @@ def offences(cwd=None, ignored_before=None):
     """
     found = []
     if ignored_before is not None:
-        for name in sorted(ignored(cwd=cwd) - ignored_before):
+        now = ignored(cwd=cwd)
+        for name in sorted(now.keys() - ignored_before.keys()):
             found.append('%s is ignored and new: a pass corrects prose that exists, it does not add a file' % name)
+        for name in sorted(n for n in ignored_before if n in now and now[n] != ignored_before[n]):
+            found.append('%s is ignored and was edited: an ignored file is not prose of this delta' % name)
+        for name in sorted(ignored_before.keys() - now.keys()):
+            found.append('%s is ignored and was deleted: a pass corrects prose, it does not remove a file' % name)
     for name in changed(cwd=cwd):
         if not name.endswith(review_claims.READABLE):
             found.append('%s is not a file this pass can read, so nothing here can show its '
