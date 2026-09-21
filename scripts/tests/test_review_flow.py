@@ -1505,6 +1505,31 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('results mutated tests/other.py',
                       self.start(ok=False, correction=True, reason='').stderr)
 
+    def test_a_record_is_judged_by_its_results_not_its_summary(self):
+        """Found by a reviewer: the survivor list is a summary the record carries beside the
+        results, and clearing it by hand passed matrix_first while a result still said
+        caught: false; a mutant count the results do not add up to is the same forgery."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        self.commit('a correction that changes a test')
+        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
+        directory = Path(self.flow('status')['directory'])
+        record = directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')
+        measured = json.loads(record.read_text())
+        forged = json.loads(json.dumps(measured))
+        forged['results'][0]['caught'] = False
+        record.write_text(json.dumps(forged))
+        self.assertIn('results it did not catch: test_g',
+                      self.start(ok=False, correction=True, reason='').stderr)
+        forged = json.loads(json.dumps(measured))
+        forged['mutants'] = 2
+        record.write_text(json.dumps(forged))
+        self.assertIn('carries 1 results', self.start(ok=False, correction=True, reason='').stderr)
+
     def test_a_correction_that_changes_no_test_needs_no_matrix(self):
         """The scope, asserted: a correction with no gate to mutate is exempt, and saying so
         here keeps the exemption from widening unnoticed."""

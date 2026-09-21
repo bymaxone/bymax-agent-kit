@@ -216,6 +216,16 @@ def matrix(root, spec, files):
         mutants = rule.get('mutants') or []
         if not mutants:
             bail('Rule %r declares no mutants.' % rule.get('rule'))
+        seen = set()
+        for mutant in mutants:
+            key = (mutant.get('file'), mutant.get('anchor'), mutant.get('becomes'))
+            # Counted once: a repeated entry satisfies the enumeration's count while running
+            # the case it already ran, and 'all caught' then covers a case nothing exercised.
+            if key in seen:
+                bail('Rule %r repeats a mutant of %s at %r: a duplicate counts toward the '
+                     'enumeration and exercises nothing new.'
+                     % (rule.get('rule'), mutant.get('file'), (mutant.get('anchor') or '')[:40]))
+            seen.add(key)
         if declared is not None and declared > len(mutants):
             bail('Rule %r enumerates %d case(s) by its own command and mutates %d. The list is '
                  'short by %d: a case nothing mutates is a case nothing covers.'

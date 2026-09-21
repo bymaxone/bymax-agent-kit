@@ -139,6 +139,15 @@ class EnumerationTests(unittest.TestCase):
                                      'case': 'over_the_limit'}]))
         self.assertIn('short by 1', str(caught.exception))
 
+    def test_a_repeated_mutant_does_not_count_toward_the_enumeration(self):
+        """Found by a reviewer: the same entry twice satisfied a command that counted two
+        cases, ran the same test twice, and printed all caught over a case nothing ran."""
+        bench = Bench(self, guard='LIMIT = 10\n\n\ndef over(v):\n    return v > LIMIT or v > 99\n')
+        twice = {'file': 'thing.py', 'anchor': 'v > LIMIT', 'becomes': 'True', 'case': 'over_the_limit'}
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"', mutants=[twice, dict(twice)]))
+        self.assertIn('repeats a mutant', str(caught.exception))
+
     def test_a_count_is_the_last_field_of_each_line_not_every_digit(self):
         """`grep -c` prints "path:count" per file, so a filename carrying a digit was being
         added to the total: a rule over mod_v2.py answered 3 for 1 real hit and fired a

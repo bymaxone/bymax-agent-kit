@@ -968,11 +968,24 @@ def matrix_first(state, directory):
     require(now == kept['tree'], 'The recorded matrix was measured on other contents of %s: its '
             'fingerprint does not match what is here now. A record is bound to the tree it '
             'measured; re-run the matrix on this one.' % ', '.join(names))
-    # The list is the record's own and mutable, so it is checked against what the results
-    # say was mutated: a fingerprint over files the matrix never touched binds nothing.
-    mutated = {r.get('file') for r in kept.get('results') or []}
+    results_agree(kept, names)
+
+
+def results_agree(kept, names):
+    """The record's summary fields are its own and mutable; the results are what was measured,
+    so each summary is checked against them: the files named against the files mutated, the
+    mutant count against the result count, and the survivor list against the results not
+    caught. A survivor list cleared by hand passed here while a result still said caught: false."""
+    results = kept.get('results') or []
+    mutated = {r.get('file') for r in results}
     require(set(names) == mutated, 'The recorded matrix names %s but its results mutated %s. '
             'Re-run `review_flow.py matrix`.' % (', '.join(names), ', '.join(sorted(mutated)) or 'nothing'))
+    require(len(results) == kept.get('mutants'), 'The recorded matrix counts %s mutants and carries '
+            '%d results; a summary its results do not add up to measured nothing. Re-run '
+            '`review_flow.py matrix`.' % (kept.get('mutants'), len(results)))
+    uncaught = [r.get('case') for r in results if not r.get('caught')]
+    require(not uncaught, 'The recorded matrix has results it did not catch: %s. Its survivor '
+            'list said otherwise; the results are what was measured.' % ', '.join(uncaught))
 
 
 def code_view(state):
