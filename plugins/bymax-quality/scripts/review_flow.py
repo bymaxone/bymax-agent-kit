@@ -985,7 +985,7 @@ def ran_the_changed_tests(kept, changed):
     require(not missing, 'The recorded matrix did not run %s, which this correction changes; a '
             'matrix over other tests measured nothing about the gate that changed. Re-run '
             '`review_flow.py matrix` over it.' % ', '.join(missing))
-    # Named is not run: a file on the command line whose own cases were all deselected by the
+    # Named is not run: a file the record names whose own cases were all deselected by the
     # selector measured nothing about the gate in it.
     idle = sorted(p for p in changed if not ran[p])
     require(not idle, 'The recorded matrix ran no case of %s, which this correction changes: the '

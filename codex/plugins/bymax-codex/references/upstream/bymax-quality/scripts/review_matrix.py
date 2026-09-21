@@ -355,7 +355,7 @@ def held(root, files, cases):
     out = {}
     for f in files:
         # A directory runs every test file under it, and a node id its file: pytest reads
-        # both, so the record reads them the same way.
+        # both, so the record reads them too.
         path = Path(root) / str(f).split('::')[0]
         for each in (sorted(path.rglob('test_*.py')) if path.is_dir() else [path]):
             text = each.read_text() if each.is_file() else ''
