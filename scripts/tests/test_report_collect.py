@@ -315,11 +315,10 @@ class CollectTests(unittest.TestCase):
         self.assertIn('(2026-09-14 .. 2026-09-20)', with_file.stdout)
 
     def test_the_skill_block_carries_a_failed_collect_and_leaves_nothing_behind(self):
-        """A collect that cannot run — a --repo that is not a repository, an unwritable --out,
-        no python3 — left the block at exit 0 printing a directory with no collect.json in it,
-        so the reader took that path for a successful collection and the directory stayed on
-        disk. The positive control is the other half: a collect that runs still gets its
-        directory and its zero, so the refusal is this failure and not any failure."""
+        """A collect that cannot run left the block at exit 0 printing a directory with no
+        collect.json in it, so the reader took that path for a successful collection and the
+        directory stayed on disk. The positive control is the other half: a collect that runs
+        still gets its directory and its zero, so the refusal is this failure and not any failure."""
         home = self.tmp / 'h3'
         bad = self.run_block(home, ['7d', '/no/such/repo', ''])
         self.assertNotEqual(bad.returncode, 0, bad.stdout + bad.stderr)

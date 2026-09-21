@@ -80,8 +80,8 @@ fi
 echo "$WORK"
 ```
 
-The block prints the temporary directory only when the collect succeeded; a failing
-collect removes it and exits nonzero, so a printed path always holds a `collect.json`.
+The block prints the temporary directory only when the collect succeeded; on a failure
+it removes that directory and exits nonzero, so a printed path always holds a `collect.json`.
 The collect's own line says how many commits, pull requests and requests it found and
 the dates it resolved. **Read that line before anything else.** Then read
 `collect.json`; it is one record per line, so read it whole with the file tool.
