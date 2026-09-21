@@ -198,9 +198,8 @@ def one(root, mutant, files, clean=None):
     the mutant, then restore whatever happens.
 
     The clean baseline is a property of the case, not of the mutant, so `clean` carries it
-    between mutants that share one. Without it a sixteen-mutant matrix pays thirty-two suite
-    runs for sixteen measurements, and a matrix nobody can afford to run is a matrix nobody
-    runs.
+    between mutants that share one. Without it every mutant pays its case's baseline again,
+    and a matrix nobody can afford to run is a matrix nobody runs.
     """
     seen = clean if clean is not None else {}
     if mutant['case'] not in seen:
