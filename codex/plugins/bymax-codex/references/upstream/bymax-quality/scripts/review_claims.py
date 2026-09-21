@@ -283,10 +283,10 @@ def definitions(source):
 
 def defined_under(node, prefix):
     """The tests this body defines, and those its test classes do, prefixed as pytest spells
-    them. Named as pytest RUNS them, because only a test that can fail can be demanded of a
-    correction: a name nothing collects — a helper, a fixture — could never appear among the
-    nodes that failed, and neither could an async test, which pytest collects and skips unless
-    a plugin teaches it otherwise. Nested functions are not tests and are not descended into."""
+    them. Only a test that can fail can be demanded of a correction: a name nothing
+    collects — a helper, a fixture — could never appear among the nodes that failed, and
+    neither could an async test, which pytest collects and skips unless a plugin teaches it
+    otherwise. Nested functions are not tests and are not descended into."""
     for child in getattr(node, 'body', []):
         if isinstance(child, ast.ClassDef) and collected_class(child):
             yield from defined_under(child, prefix + child.name + '::')
@@ -322,8 +322,8 @@ def changed_tests(base, head, names, cwd=None):
 
 def hunks(diff):
     """The head-side line numbers a diff changed, hunk by hunk. A removal has no line of its
-    own on that side, and the two it sat between are what it changed — unless what it removed
-    was a test of its own, or nothing but prose, in which case the test that happens to
+    own on that side, so it is read from the numbers beside the gap — unless what it removed
+    was a definition, or nothing but prose, in which case the test that happens to
     surround the gap did not change, and demanding it would refuse a correction for deleting
     the neighbour or the comment."""
     lines = set()
@@ -351,7 +351,7 @@ def blocks(diff):
 
 def emptied(removed):
     """Whether a removal took something out of the test that surrounds it: not when it removed
-    a definition of its own, and not when every line of it was blank or a comment."""
+    any definition at all, and not when every line of it was blank or a comment."""
     if any(re.match(r'\s*(async\s+)?(def|class)\s', line) for line in removed):
         return False
     return any(line.strip() and not line.strip().startswith('#') for line in removed)

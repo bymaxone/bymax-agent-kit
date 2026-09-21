@@ -511,7 +511,7 @@ class ProseExtractionTests(unittest.TestCase):
 
 
 class ChangedTestTests(unittest.TestCase):
-    """Which tests a delta changed, over the whole list of shapes a delta comes in.
+    """Which tests a delta changed.
 
     What this answers is demanded of the correction: a test named here has to be among those
     that failed under a mutant. So a name that pytest cannot fail is a refusal nobody can
@@ -522,8 +522,8 @@ class ChangedTestTests(unittest.TestCase):
         return claims.changed_tests(tree.base, tree.head, list(names), cwd=str(tree.where))
 
     def test_deleting_a_test_is_not_a_change_to_the_one_before_it(self):
-        """A removal has no line of its own on the head side, so it is read from the two it
-        sat between — which for a deleted test are lines of the test above it, unchanged."""
+        """A removal has no line of its own on the head side, and reading it from the lines
+        around the gap would demand the test above it, which nothing touched."""
         tree = Tree(self, {'t.py': 'def test_one(): assert 1\ndef test_two(): assert 2\n'},
                     {'t.py': 'def test_one(): assert 1\n'})
         self.assertEqual(self.changed(tree, 't.py'), {'t.py': []})
