@@ -976,6 +976,16 @@ def results_agree(kept, names):
     so each summary is checked against them. A survivor list cleared by hand passed here while
     a result still said caught: false."""
     results = kept.get('results') or []
+    # Shape first, fields second: every field below is JSON an author can edit, and a
+    # value of the wrong type surfaced as a crash inside a comparison rather than as this
+    # refusal. The runtime writes strings and a boolean; anything else it never wrote.
+    for result in results:
+        odd = [f for f in ('rule', 'file', 'anchor', 'becomes', 'case')
+               if not isinstance(result.get(f), str)] if isinstance(result, dict) else ['result']
+        if isinstance(result, dict) and not isinstance(result.get('caught'), bool):
+            odd.append('caught')
+        require(not odd, 'The recorded matrix has a result in a shape the runtime never writes '
+                '(%s). Re-run `review_flow.py matrix`.' % ', '.join(odd))
     mutated = {r.get('file') for r in results}
     require(set(names) == mutated, 'The recorded matrix names %s but its results mutated %s. '
             'Re-run `review_flow.py matrix`.' % (', '.join(names), ', '.join(sorted(mutated)) or 'nothing'))
@@ -994,7 +1004,7 @@ def results_agree(kept, names):
     uncaught = [r.get('case') for r in results if r.get('caught') is not True]
     require(not uncaught, 'The recorded matrix has results it did not catch: %s. Its survivor '
             'list said otherwise; the results are what was measured.'
-            % ', '.join(str(c) for c in uncaught))  # str: a forged result may carry no case
+            % ', '.join(uncaught))
 
 
 def code_view(state):

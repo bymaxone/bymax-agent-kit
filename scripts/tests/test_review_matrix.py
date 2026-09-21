@@ -158,6 +158,25 @@ class EnumerationTests(unittest.TestCase):
         payload = bench.run(rule(enumeration='grep -c "v > LIMIT" thing.py',
                                mutants=[twice, dict(twice, case='over_again')]))
         self.assertEqual(payload['mutants'], 2)
+        # A second replacement at one anchor is the same site, not the second one counted.
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='grep -o ">" thing.py | grep -c ">"',
+                           mutants=[twice, dict(twice, becomes='v >= LIMIT', case='over_again')]))
+        self.assertIn('short by 1', str(caught.exception))
+
+    def test_a_spec_is_read_in_the_shape_the_runtime_writes(self):
+        """Found by a reviewer: a list where the rule's name should be ran the matrix, was
+        copied into every result, and crashed the runtime that later read the record."""
+        bench = Bench(self)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(rule=['not', 'a', 'name']))
+        self.assertIn('non-empty string', str(caught.exception))
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'value > LIMIT', 'becomes': 'True', 'case': 7}]))
+        self.assertIn('case is 7', str(caught.exception))
+        with self.assertRaises(SystemExit) as caught:
+            matrix.matrix(str(bench.where), rule() + rule(), ['test_thing.py'])
+        self.assertIn('share a name', str(caught.exception))
 
     def test_a_count_is_the_last_field_of_each_line_not_every_digit(self):
         """`grep -c` prints "path:count" per file, so a filename carrying a digit was being

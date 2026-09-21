@@ -1538,15 +1538,25 @@ class ReviewFlowTests(unittest.TestCase):
         forged = json.loads(json.dumps(measured))
         forged['results'][0]['caught'] = 'false'
         record.write_text(json.dumps(forged))
-        self.assertIn('results it did not catch: test_g',
+        self.assertIn('shape the runtime never writes (caught)',
                       self.start(ok=False, correction=True, reason='').stderr)
-        # A forged result may carry no case at all; the refusal names it rather than raising.
+        # A forged result may carry no case, or a list where the rule's name should be: the
+        # shape is refused by name before any field is compared, so nothing raises.
         forged = json.loads(json.dumps(measured))
         forged['results'][0]['caught'] = False
         del forged['results'][0]['case']
         record.write_text(json.dumps(forged))
-        self.assertIn('results it did not catch: None',
+        self.assertIn('shape the runtime never writes (case)',
                       self.start(ok=False, correction=True, reason='').stderr)
+        forged = json.loads(json.dumps(measured))
+        forged['results'][0]['rule'] = ['r']
+        record.write_text(json.dumps(forged))
+        self.assertIn('shape the runtime never writes (rule)',
+                      self.start(ok=False, correction=True, reason='').stderr)
+        forged = json.loads(json.dumps(measured))
+        forged['survivors'] = [None]
+        record.write_text(json.dumps(forged))
+        self.assertIn('has survivors: None', self.start(ok=False, correction=True, reason='').stderr)
         # The runtime records a mutation shared by two rules twice; that is two measurements.
         forged = json.loads(json.dumps(measured))
         forged['mutants'] = 2

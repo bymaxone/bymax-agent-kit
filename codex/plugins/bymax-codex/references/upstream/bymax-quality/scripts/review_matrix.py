@@ -211,10 +211,29 @@ def one(root, mutant, files, clean=None):
             'becomes': mutant['becomes'], 'caught': how == 'failed', 'saw': tail}
 
 
+def shaped(rule):
+    """A rule and its mutants in the shape the runtime reads: strings where it will compare
+    or print them. Checked once, up front, because every field here is spec text an author
+    wrote, and a list where a string was expected surfaced later as a crash in the runtime
+    that read the record rather than as a refusal naming the rule."""
+    if not isinstance(rule.get('rule'), str) or not rule['rule'].strip():
+        bail('A rule must be named by a non-empty string; got %r.' % (rule.get('rule'),))
+    for mutant in rule.get('mutants') or []:
+        for field in ('file', 'anchor', 'becomes', 'case'):
+            if not isinstance(mutant.get(field), str) or not mutant[field]:
+                bail('Rule %r has a mutant whose %s is %r, not a non-empty string.'
+                     % (rule['rule'], field, mutant.get(field)))
+
+
 def matrix(root, spec, files):
     """Every rule, every mutant, with a survivor stopping the run."""
     results, clean = [], {}
+    names = [r.get('rule') for r in spec]
+    if len(set(map(str, names))) != len(names):
+        bail('Two rules share a name: a result is told from another by its rule, so each rule '
+             'needs one of its own.')
     for rule in spec:
+        shaped(rule)
         declared = enumerated(root, rule)
         mutants = rule.get('mutants') or []
         if not mutants:
@@ -232,9 +251,10 @@ def matrix(root, spec, files):
                      % (rule.get('rule'), mutant.get('file'), (mutant.get('anchor') or '')[:40],
                         mutant.get('case')))
             seen.add(key)
-        # The enumeration counts sites, and so does this: a second case for one site is a
-        # second measurement of it, not a mutation of the site the command counted next.
-        sites = {(m.get('file'), m.get('anchor'), m.get('becomes')) for m in mutants}
+        # The enumeration counts sites, and so does this: a site is where in the source the
+        # mutation lands, so a second case or a second replacement at one anchor is a second
+        # measurement of it, not a mutation of the site the command counted next.
+        sites = {(m.get('file'), m.get('anchor')) for m in mutants}
         if declared is not None and declared > len(sites):
             bail('Rule %r enumerates %d case(s) by its own command and mutates %d site(s). The '
                  'list is short by %d: a case nothing mutates is a case nothing covers.'
