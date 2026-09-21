@@ -8,7 +8,7 @@ Nothing here summarises. The model summarises; this script enumerates.
 
 Sources, in the order they are read:
 
-- ``git log --all`` of the repository, non-merge commits in the period, with the ref
+- ``git log`` of the repository, non-merge commits in the period, with the ref
   each commit was reached from and its Conventional Commits type and scope. ``--author``
   keeps the commits whose git name or email contains the text, and the PRs whose
   GitHub login does; the sessions are already one person\'s, so they are not filtered.
@@ -160,7 +160,7 @@ def collect_commits(repo: Path, since: dt.date, until: dt.date) -> list[dict]:
     # fixture that found this had a commit dated 09-01 whose parent was dated 09-16.
     # So every commit is read and the period is applied here, by author date.
     fmt = '%H%x1f%an%x1f%ae%x1f%aI%x1f%S%x1f%s%x1f%b%x1e'
-    # Not --all: it walks refs/stash too, and a stash is two non-merge commits nobody shipped.
+    # Not --all: it walks refs/stash too, and a stash's commits are work nobody shipped.
     out = git(repo, 'log', '--branches', '--remotes', '--tags', '--source', '--no-merges', '--reverse',
               f'--format={fmt}')
     commits = []
@@ -389,7 +389,7 @@ def collect_codex(home: Path, paths: list[str], since: dt.date, until: dt.date) 
                 continue
             timestamp = line.get('timestamp') or ''
             # Codex writes one input twice (response_item and event_msg, milliseconds apart), so
-            # the same text within one minute is one ask; the same words on another day are two.
+            # the same text in the same minute is one ask; the same words on another day are two.
             key = (text, timestamp[:16])
             if key in seen:
                 continue
