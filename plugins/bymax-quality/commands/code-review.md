@@ -80,6 +80,17 @@ a separate design audit, report it separately from this campaign.
    versions and required gate commands in the campaign context. Give both reviewers
    the identical generated prompt. Share prior dispositions on correction rounds,
    but never the other reviewer's current findings before freezing your own report.
+   **Then, with the candidate committed and before `start`, let a fresh reader correct its
+   prose:** `python3 "$FLOW" prose --base <merge-base>` (no `--base` once a campaign is frozen;
+   the delta is then what changed since the frozen head). It hands the prose this delta added
+   to a Claude that never saw your reasoning, may edit comments, docstrings and markdown only,
+   and refuses the pass if a Python file's behaviour changed or any file's prose grew,
+   leaving the tree for you to inspect — the runtime never writes to it.
+   Commit what it corrected; `start` refuses a candidate that adds prose without a record
+   bound to exactly that text. Inside a Claude session, which cannot start another Claude,
+   run `prose --stage prepare`, hand the printed task to a fresh subagent with Edit, then
+   `prose --stage verify`. The logic reviewers are told wording is not theirs: a finding whose
+   remedy is rewriting prose is not a finding unless the sentence is false about the code.
 2. **Run the declared gates before either reviewer reads the tree.** `python3 "$FLOW" check
    -- <command>` for every gate the context names, and fix the candidate until they pass;
    `prompt` refuses to build the reviewer task until they have, so this is not advice. A
