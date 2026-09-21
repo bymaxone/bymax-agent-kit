@@ -978,7 +978,7 @@ def results_agree(kept, names):
     results = kept.get('results') or []
     # Shape first, fields second: every field below is JSON an author can edit, and a
     # value of the wrong type surfaced as a crash inside a comparison rather than as this
-    # refusal. The runtime writes strings and a boolean; anything else it never wrote.
+    # refusal.
     for result in results:
         odd = [f for f in ('rule', 'file', 'anchor', 'becomes', 'case')
                if not isinstance(result.get(f), str)] if isinstance(result, dict) else ['result']
