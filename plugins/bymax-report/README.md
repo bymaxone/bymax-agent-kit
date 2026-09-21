@@ -46,10 +46,10 @@ and one range of local dates:
 
 | Source | What counts | What is skipped |
 | --- | --- | --- |
-| `git log --all` | non-merge commits in the period, with the branch they were reached from and their Conventional Commits type and scope; linked to a PR by title or head branch | merge commits |
+| `git log --all` | non-merge commits in the period, with the branch they were reached from and their Conventional Commits type and scope; linked to a PR when the tree still says which | merge commits |
 | `gh pr list` | PRs merged or opened in the period, with body and head | anything gh cannot read — recorded in `coverage.gh`, never fatal |
-| `~/.claude/projects/<slug>*` | lines a person typed, in sessions whose `cwd` is the repo or one of its worktrees (the `--claude-worktrees-*` sibling directories are read) | tool results, task notifications, harness-injected meta lines, compact summaries, sidechains, cross-session messages |
-| `~/.codex/sessions` | user messages of interactive sessions (`cli`, `vscode`) whose `cwd` is the repo | `exec` sessions (the review plugin prompting Codex) and subagent sessions |
+| `~/.claude/projects/<slug>` | lines a person typed, in sessions whose `cwd` is the repo or one of its worktrees (the `--claude-worktrees-*` sibling directories are read) | tool results, task notifications, harness-injected meta lines, compact summaries, sidechains, cross-session messages |
+| `~/.codex/sessions` | user messages of interactive sessions whose `cwd` is the repo | `exec` sessions (the review plugin prompting Codex) and subagent sessions |
 
 Text a person pasted into a session — a client's request, a bug report — is a
 request too. Member names and emails in such text stay in the evidence file and

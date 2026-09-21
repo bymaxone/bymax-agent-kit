@@ -49,9 +49,8 @@ it is a section title or an area name.
   and the PRs whose GitHub login does. The asks are not filtered: the sessions read
   are this machine's, so they are already one person's. Use it when several people
   commit to the repository and the standup is one person's.
-- `--lang <code>`: the language of the report. Default `en`. A language given here
-  changes the report's prose only; headings keep their English form unless the
-  language is not English, in which case they are translated too.
+- `--lang <code>`: the language of the report. Default `en`. Another language
+  translates the whole report, headings included.
 
 ## Step 1 — Collect (deterministic, read-only)
 
@@ -86,7 +85,7 @@ What the file holds:
   Pasted text from a third party — a client's message, a bug report — is a request
   too; it was put in the session so the work would be done.
 - `coverage`: what was read and what was not. `gh` says whether pull requests were
-  read at all. `codex.matched` says how many Codex sessions belonged to this repo.
+  read at all. `codex.matched` counts the interactive Codex sessions of this repo.
 
 If `coverage.gh` says gh failed or is missing, the UPDATES section is built from
 commits alone and the report's appendix says so. If `requests` is empty, PROGRESS

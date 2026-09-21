@@ -3,10 +3,8 @@
 A report is only as honest as the records under it, and the collector's job is to
 admit a person's request and refuse everything the harness wrote in the same file.
 Each case names a line shape that exists in a real session file on the machine this
-was built on: a tool result, a task notification, a harness-injected meta line, a
-peer session's message, a Codex guardian subagent, a Codex exec session started by
-the review plugin. A collector that admitted any of them would write a PROGRESS
-item nobody asked for.
+was built on. A collector that admitted any of them would write a PROGRESS item
+nobody asked for.
 """
 import datetime as dt
 import importlib.util

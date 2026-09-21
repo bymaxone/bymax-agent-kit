@@ -14,15 +14,15 @@ Sources, in the order they are read:
   GitHub login does; the sessions are already one person\'s, so they are not filtered.
 - ``gh pr list`` for pull requests merged or opened in the period. A missing or
   signed-out ``gh`` is recorded in ``coverage`` and never fails the collect.
-- Claude Code sessions under ``~/.claude/projects/<slug>*``. Only lines a person typed
+- Claude Code sessions under ``~/.claude/projects/<slug>``. Only lines a person typed
   count: tool results, task notifications, meta lines the harness injects, compact
   summaries and sidechains are skipped. Worktree sessions live in sibling directories
   named ``<slug>--claude-worktrees-*``; those are read too, and every line is kept only
   if its ``cwd`` is this repository or one of its worktrees.
 - Codex sessions under ``~/.codex/sessions``. A session counts when its ``session_meta``
-  names this repository as ``cwd`` and its ``source`` is an interactive one (``cli``,
-  ``vscode``). ``exec`` sessions are the review plugin calling Codex with a prompt an
-  author never typed, and subagent sessions are Codex talking to itself; both skipped.
+  names this repository as ``cwd`` and its ``source`` is in ``CODEX_HUMAN_SOURCES``.
+  ``exec`` sessions are the review plugin calling Codex with a prompt an author never
+  typed, and subagent sessions are Codex talking to itself; both skipped.
 
 Timestamps are stored in UTC; the period is a range of local calendar days, so each
 timestamp is converted to the machine's local zone before its date is compared.
@@ -43,8 +43,8 @@ PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
 TEXT_LIMIT = 800
-# A commit body is kept only for a commit no pull request explains; the PR body carries
-# the story for the rest, and 150 bodies of a week were 110 KB the reader never needed.
+# A commit body is dropped once a pull request is linked by title or head; the PR body
+# carries the story then, and 150 bodies of a week were 110 KB the reader never needed.
 BODY_LIMIT = 400
 # A Codex session's ``source`` is a string for a person at a keyboard and a dict for a
 # subagent. ``exec`` is a string too, and is not a person.
@@ -136,7 +136,7 @@ def belongs(cwd: str | None, paths: list[str]) -> bool:
 
 
 def branch_name(ref: str) -> str:
-    """A ref as a branch name: no refs/heads/, no refs/remotes/, no remote prefix."""
+    """A ref as a branch name: no refs/heads/, no refs/remotes/, no origin/ prefix."""
     ref = ref.replace('refs/heads/', '').replace('refs/remotes/', '')
     return ref.split('/', 1)[1] if ref.startswith('origin/') else ref
 
@@ -260,7 +260,7 @@ def message_text(content) -> str:
 
 
 def clean_request(text: str) -> str | None:
-    """Strip image tokens and refuse text the harness wrote: tags, notifications, peer messages."""
+    """Strip image tokens and refuse text the harness wrote."""
     text = IMAGE_TOKEN.sub('', text or '').strip()
     if not text or text.startswith('<') or text.startswith('Another Claude session'):
         return None
