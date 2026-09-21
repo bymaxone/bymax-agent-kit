@@ -975,8 +975,10 @@ def matrix_first(state, directory):
 
 
 def ran_the_changed_tests(kept, changed):
-    """The record names the tests it ran, and the tests this correction changed must be
-    among them: a matrix over some other file measured nothing about the new gate."""
+    """The record names the tests it ran, each with the cases a test of it failed under a
+    mutant, and the tests this correction changed must be among them with a case each: a
+    matrix over some other file measured nothing about the new gate, and a changed test that
+    failed under no mutant discriminates nothing."""
     ran = kept.get('tests')
     require(isinstance(ran, dict) and all(isinstance(p, str) and isinstance(c, list)
                                           and all(isinstance(x, str) for x in c) for p, c in ran.items()),
@@ -985,12 +987,14 @@ def ran_the_changed_tests(kept, changed):
     require(not missing, 'The recorded matrix did not run %s, which this correction changes; a '
             'matrix over other tests measured nothing about the gate that changed. Re-run '
             '`review_flow.py matrix` over it.' % ', '.join(missing))
-    # Named is not run: a file the record names whose own cases were all deselected by the
-    # selector measured nothing about the gate in it.
+    # Named is not caught: a file the record names whose selected tests passed under every
+    # mutant, or were all deselected, measured nothing about the gate in it — a vacuous test
+    # beside an older one of the same name was credited with the older one's catch while the
+    # run read one summary line for both.
     idle = sorted(p for p in changed if not ran[p])
-    require(not idle, 'The recorded matrix ran no case of %s, which this correction changes: the '
-            'file was named but every case run belonged to another. Add a mutant whose case '
-            'lives in it and re-run `review_flow.py matrix`.' % ', '.join(idle))
+    require(not idle, 'The recorded matrix caught nothing in %s, which this correction changes: '
+            'the file was named, and no test of it failed under any mutant. Add a mutant its '
+            'own case catches and re-run `review_flow.py matrix`.' % ', '.join(idle))
 
 
 def results_agree(kept, names):
@@ -1041,13 +1045,13 @@ def results_agree(kept, names):
 
 def mapping_agrees(kept, results):
     """The tests mapping, file by file: what a file is said to hold must be what the results
-    say was collected there, or the mapping is a summary saying so — a measured case moved
+    say was caught there, or the mapping is a summary saying so — a measured case moved
     to another file's entry was accepted while the check read cases alone."""
     # Both directions: a file a result names must be in the mapping, or the record's results
     # say the case ran somewhere the mapping never mentions.
     mapping = kept.get('tests') if isinstance(kept.get('tests'), dict) else {}
     stray = sorted({f for r in results for f in r.get('tests', [])} - set(mapping))
-    require(not stray, 'The recorded matrix has results collected in %s, which its tests mapping '
+    require(not stray, 'The recorded matrix has results caught in %s, which its tests mapping '
             'never names. Re-run `review_flow.py matrix`.' % ', '.join(stray))
     for name, cases in mapping.items():
         held = {r.get('case') for r in results if name in r.get('tests', [])}

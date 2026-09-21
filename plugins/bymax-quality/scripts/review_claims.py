@@ -255,8 +255,9 @@ def review_marks(name, text):
 
 
 def defined(text):
-    """Names a python source defines, read as text so a half-written file still answers."""
-    found = set(re.findall(r'^\s*(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
+    """Names a python source defines, read as text so a half-written file still answers.
+    An `async def` is a def: without it, a function made async read as removed."""
+    found = set(re.findall(r'^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
     found |= set(re.findall(r'^\s*([A-Z][A-Z0-9_]{2,})\s*=', text, re.MULTILINE))
     return found
 
@@ -272,8 +273,9 @@ def orphaned(base, head, cwd=None):
     # using either silently matches nothing. Corrected twice — the \s half first, the \b half
     # only after a reviewer found that every function which merely MOVED to another module
     # read as removed. The case that should have caught it exercises a constant, which
-    # resolves through the second alternative, so there is now one case per alternative.
-    alive = (r'^[[:space:]]*(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
+    # resolves through the second alternative, so there is now one case per alternative. An
+    # `async def` counts here as it does in defined(): a name moved and made async is alive.
+    alive = (r'^[[:space:]]*(async[[:space:]]+)?(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
              r'|^[[:space:]]*%s[[:space:]]*=')
     return sorted(name for name in lost
                   if not git('grep', '-lE', alive % (name, name), head,

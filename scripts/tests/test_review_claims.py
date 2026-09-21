@@ -89,6 +89,21 @@ class RetiredNameTests(unittest.TestCase):
                      'b.py': 'def helper_one(x):\n    return x\nY = 2\n'})
         self.assertEqual(tree.retired(), [])
 
+    def test_an_async_definition_is_a_definition(self):
+        """Found by a reviewer: neither the definition read nor the alive grep knew `async def`,
+        so a function made async read as removed and blocked a valid candidate. One case per
+        read: moved and made async, the alive grep must find it; async in the base and removed,
+        the definition read must have counted it. The conversion in place is the report's own."""
+        tree = Tree(self, {'a.py': 'def fetch_data(x):\n    return x\n# calls fetch_data\n', 'b.py': 'Y = 2\n'},
+                    {'a.py': '# calls fetch_data\n', 'b.py': 'async def fetch_data(x):\n    return x\nY = 2\n'})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'async def fetch_data(x):\n    return x\n# calls fetch_data\n'},
+                    {'a.py': '# calls fetch_data\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'fetch_data')])
+        tree = Tree(self, {'a.py': 'def fetch_data(x):\n    return x\n# calls fetch_data\n'},
+                    {'a.py': 'async def fetch_data(x):\n    return x\n# calls fetch_data\n'})
+        self.assertEqual(tree.retired(), [])
+
     def test_a_function_removed_outright_is_still_reported(self):
         """The other side of the same alternative: moved is silence, gone is a finding."""
         tree = Tree(self, {'a.py': 'def helper_one(x):\n    return x\n# calls helper_one\n'},

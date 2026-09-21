@@ -197,8 +197,8 @@ class EnumerationTests(unittest.TestCase):
         link = Path(tempfile.mkdtemp()) / 'link'
         os.symlink(bench.where, link)
         self.addCleanup(lambda: subprocess.run(['rm', '-rf', str(link.parent)]))
-        self.assertEqual(matrix.collected(str(link), ['tests', str(link / 'tests')], {'over_the_limit'}),
-                         {'tests/test_thing.py': ['over_the_limit']})
+        self.assertEqual(matrix.nodes(str(link), ['tests', str(link / 'tests')], 'over_the_limit'),
+                         ['tests/test_thing.py'])
 
     def test_a_spec_is_read_in_the_shape_the_runtime_writes(self):
         """Found by a reviewer: a list where the rule's name should be ran the matrix, was

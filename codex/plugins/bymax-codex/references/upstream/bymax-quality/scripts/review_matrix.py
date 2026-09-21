@@ -71,12 +71,13 @@ def caches(root):
 
 
 def run_case(root, selector, files):
-    """Run one case. CPython invalidates bytecode on (mtime seconds, size), so two mutants of
+    """Run one case: the selector over these paths, or with no selector one node id, which
+    selects itself. CPython invalidates bytecode on (mtime seconds, size), so two mutants of
     the same size inside one second serve the previous one's result — and the direction that
     lies is 'broke nothing', which manufactures a false claim that a rule is uncovered."""
     caches(root)
-    done = subprocess.run([*PYTEST, *arguments(root, files), '-k', selector], cwd=root,
-                          capture_output=True, text=True, env=pytest_env())
+    done = subprocess.run([*PYTEST, *arguments(root, files)] + (['-k', selector] if selector else []),
+                          cwd=root, capture_output=True, text=True, env=pytest_env())
     tail = done.stdout.strip().splitlines()
     return done.returncode, (tail[-1] if tail else done.stderr[-160:])
 
@@ -193,36 +194,51 @@ def apply_mutant(root, mutant):
 
 
 def one(root, mutant, files, clean=None):
-    """Clean run, then mutated run, then restore whatever happens.
+    """Clean run, then each node the case collects run alone under the mutant, then restore
+    whatever happens.
 
     The clean run is a property of the case, not of the mutant, so `clean` carries the answer
-    between mutants that share one. Without it a sixteen-mutant matrix pays thirty-two suite
-    runs for sixteen measurements, and a matrix nobody can afford to run is a matrix nobody
-    runs.
+    between mutants that share one, and the nodes the case collects beside it. Without it a
+    sixteen-mutant matrix pays thirty-two suite runs for sixteen measurements, and a matrix
+    nobody can afford to run is a matrix nobody runs.
     """
     seen = clean if clean is not None else {}
     if mutant['case'] not in seen:
-        seen[mutant['case']] = run_case(root, mutant['case'], files)
-    clean_code, clean_tail = seen[mutant['case']]
+        seen[mutant['case']] = (*run_case(root, mutant['case'], files), ids(root, files, mutant['case']))
+    clean_code, clean_tail, nodes_of_case = seen[mutant['case']]
     if clean_code != 0:
         bail('Case %r does not pass on the clean tree (%s). A mutant that fails a case which '
              'already fails measures nothing.' % (mutant['case'], clean_tail))
     path, original = apply_mutant(root, mutant)
     try:
-        code, tail = run_case(root, mutant['case'], files)
+        # One pytest per node: run together under the selector, the summary line said some
+        # test failed and not which, and a vacuous changed test was credited with what an
+        # older test of the same name in another file caught.
+        runs = [(node, run_case(root, None, [node])[1]) for node in nodes_of_case]
     finally:
         path.write_text(original)
         caches(root)
-    how = outcome(tail)
-    if how == 'error':
+    failed, saw = judged(mutant, runs)
+    # The whole identity travels with the result, so a record's results can be told apart
+    # the way the spec's mutants are: a result repeated to match a forged count is not two.
+    # With it the files whose node failed: what caught the mutant, not what was collected.
+    return {'case': mutant['case'], 'file': mutant['file'], 'anchor': mutant['anchor'],
+            'becomes': mutant['becomes'], 'caught': bool(failed), 'saw': saw,
+            'tests': sorted({Path(node.split('::')[0]).as_posix() for node in failed})}
+
+
+def judged(mutant, runs):
+    """The nodes whose own run FAILED, and the line that said so. A run that errored is a
+    crash and not a measurement, whatever the other nodes did."""
+    errored = [tail for node, tail in runs if outcome(tail) == 'error']
+    if errored:
         bail('Mutant for %r stopped the tree from loading rather than failing the case (%s). '
              'That is a crash, not a measurement: the case never ran, and every case would '
              'report the same. Mutate what the gate reads, not what the module needs to '
-             'import.' % (mutant['case'], tail))
-    # The whole identity travels with the result, so a record's results can be told apart
-    # the way the spec's mutants are: a result repeated to match a forged count is not two.
-    return {'case': mutant['case'], 'file': mutant['file'], 'anchor': mutant['anchor'],
-            'becomes': mutant['becomes'], 'caught': how == 'failed', 'saw': tail}
+             'import.' % (mutant['case'], errored[0]))
+    failed = [node for node, tail in runs if outcome(tail) == 'failed']
+    saw = dict(runs)[failed[0]] if failed else (runs[-1][1] if runs else 'no node collected for the case')
+    return failed, saw
 
 
 def shaped(rule):
@@ -371,24 +387,32 @@ def arguments(root, files):
     return out
 
 
-def collected(root, files, cases):
+def collected(root, files, results):
     """Per test file pytest collects under these paths, spelled as pytest spells it, the spec's
-    cases it collected there. Asked of pytest rather than read from the text: a case named in
-    a comment, a string or a class pytest skips is not a case that ran, and a directory holds
-    whatever python_files says it holds — test_*.py, *_test.py, or a project's own rule — none
-    of which a substring search could know. One collect over the paths names the files; one
-    under each case's selector says which of them held it."""
-    out = {name: [] for name in nodes(root, files)}
-    for case in sorted(cases):
-        for name in nodes(root, files, case):
-            out.setdefault(name, []).append(case)
-    return out
+    cases a test there failed under a mutant. The files are asked of pytest rather than read
+    from the text: a case named in a comment, a string or a class pytest skips is not a case
+    that ran, and a directory holds whatever python_files says it holds — test_*.py, *_test.py,
+    or a project's own rule — none of which a substring search could know. The cases come from
+    the results, each naming the files whose node failed alone under its mutant: collected is
+    not run, and run is not failed — a file whose selected tests passed under every mutant
+    discriminated nothing, whatever it defines."""
+    out = {name: set() for name in nodes(root, files)}
+    for result in results:
+        for name in result['tests']:
+            out.setdefault(name, set()).add(result['case'])
+    return {name: sorted(cases) for name, cases in out.items()}
 
 
 def nodes(root, files, selector=None):
-    """The files of the node ids pytest collects under these paths, and under a selector
-    when one is given. A collect that fails for any reason but finding nothing is refused,
-    since a record built from a broken collect would name nothing and prove the same."""
+    """The files of the node ids pytest collects under these paths, and under a selector when
+    one is given, each spelled as pytest spells it."""
+    return sorted({Path(node.split('::')[0]).as_posix() for node in ids(root, files, selector)})
+
+
+def ids(root, files, selector=None):
+    """The node ids pytest collects under these paths, and under a selector when one is given.
+    A collect that fails for any reason but finding nothing is refused, since a record built
+    from a broken collect would name nothing and prove the same."""
     # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
     # every id against the argument's own directory instead — a bare name for a file under
     # tests/ — and the cwd is spelled the same so the two agree.
@@ -398,7 +422,7 @@ def nodes(root, files, selector=None):
     if done.returncode not in (0, 5):
         bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
              ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
-    return sorted({Path(line.split('::')[0]).as_posix() for line in done.stdout.splitlines() if '::' in line})
+    return sorted({line.strip() for line in done.stdout.splitlines() if '::' in line})
 
 
 def record(root, spec_path, files, out=None):
@@ -407,18 +431,14 @@ def record(root, spec_path, files, out=None):
     if not isinstance(spec, list) or not spec:
         bail('A matrix is a non-empty list of rules.')
     results = matrix(root, spec, files)
-    # Each result names the files its case was collected in, so the record's mapping is
-    # what the results add up to and a reader can check it against them file by file.
-    where = {case: nodes(root, files, case) for case in {r['case'] for r in results}}
-    for result in results:
-        result['tests'] = where[result['case']]
     survivors = [r for r in results if not r['caught']]
     head, names, tree = fingerprint(root, spec)
-    # The test paths it ran travel with the record: whether a given test was among those
-    # the matrix ran is a question nothing else in the record answers.
+    # The test files it ran travel with the record, each with the cases a test of it failed
+    # under a mutant: each result names the files whose node failed, so the mapping is what
+    # the results add up to, and a reader can check it against them file by file.
     payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
                'mutants': len(results), 'survivors': [r['case'] for r in survivors],
-               'tests': collected(root, files, {m['case'] for rule in spec for m in rule['mutants']}),
+               'tests': collected(root, files, results),
                'results': results}
     if out:
         Path(out).write_text(json.dumps(payload, indent=2) + '\n')

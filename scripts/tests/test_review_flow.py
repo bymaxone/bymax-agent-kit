@@ -1570,7 +1570,7 @@ class ReviewFlowTests(unittest.TestCase):
         record, measured = self.measured_record()
         self.refused_with(record, measured, 'did not run tests/test_g.py', tests={'tests/test_other.py': ['test_g']})
         # Named is not run: the file on the command line with none of its own cases selected.
-        self.refused_with(record, measured, 'ran no case of tests/test_g.py', tests={'tests/test_g.py': []})
+        self.refused_with(record, measured, 'caught nothing in tests/test_g.py', tests={'tests/test_g.py': []})
         # A summary no result backs: the file said to hold a case nothing measured.
         self.refused_with(record, measured, 'says tests/test_g.py held nothing_measured, test_g, which its results do not',
                           tests={'tests/test_g.py': ['nothing_measured']})
@@ -1581,7 +1581,7 @@ class ReviewFlowTests(unittest.TestCase):
         forged = json.loads(json.dumps(measured))
         forged['results'][0]['tests'] = ['tests/omitted.py', 'tests/test_g.py']
         record.write_text(json.dumps(forged))
-        self.assertIn('collected in tests/omitted.py, which its tests mapping never names',
+        self.assertIn('caught in tests/omitted.py, which its tests mapping never names',
                       self.start(ok=False, correction=True, reason='').stderr)
         record.write_text(json.dumps(measured))
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
@@ -1602,46 +1602,51 @@ class ReviewFlowTests(unittest.TestCase):
         directory = Path(self.flow('status')['directory'])
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_g.py': ['test_g'], 'tests/test_h.py': []})
-        self.assertIn('ran no case of tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
+        self.assertIn('caught nothing in tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
         self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_h.py',))
-        self.assertIn('ran no case of tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
+        self.assertIn('caught nothing in tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
         # A directory on the command line runs whatever pytest collects under it, by pytest's
         # own rules: the record names both files, and the one no case of the spec lives in
         # is refused.
         self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_g.py': ['test_g'], 'tests/test_h.py': []})
-        self.assertIn('ran no case of tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
+        self.assertIn('caught nothing in tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
 
     def test_a_case_is_what_pytest_collected_not_what_the_text_says(self):
         """Found by a reviewer: a case named only in a comment of the changed file was credited
         to it, and a file pytest collects as *_test.py under a directory was not named at all.
-        The record asks pytest, so the comment counts for nothing and the file is named."""
+        The record asks pytest, so the comment counts for nothing and the file is named — and
+        a test of it the selector never chose does not run under the mutant, though it would
+        fail there."""
         self.start()
         self.report('claude')
         self.report('codex')
         self.triage()
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
-        (self.repo / 'tests/quiet_test.py').write_text('# def test_g(): a comment, not a case\ndef test_q(): assert 3 == 3\n')
+        (self.repo / 'tests/quiet_test.py').write_text('# def test_g(): a comment, not a case\n'
+                                                       'from test_g import test_g as g\ndef test_q(): g()\n')
         self.commit('a correction that changes two tests')
         self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
         directory = Path(self.flow('status')['directory'])
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/quiet_test.py': [], 'tests/test_g.py': ['test_g']})
-        self.assertIn('ran no case of tests/quiet_test.py', self.start(ok=False, correction=True, reason='').stderr)
+        self.assertIn('caught nothing in tests/quiet_test.py', self.start(ok=False, correction=True, reason='').stderr)
 
     def test_a_node_id_selects_for_the_collect_what_it_selects_for_the_run(self):
         """Found by a reviewer: the collect stripped a node id to its file while the run kept
         the node, so a second file defining a case of the same name was credited with it though
-        the run never selected it there. Both take the same arguments now."""
+        the run never selected it there. Both take the same arguments now; the second file's
+        case fails with the first's, so selecting it is what the record shows."""
         self.start()
         self.report('claude')
         self.report('codex')
         self.triage()
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
-        (self.repo / 'tests/test_b.py').write_text('def test_g(): assert 2 == 2\ndef test_other(): assert 3 == 3\n')
+        (self.repo / 'tests/test_b.py').write_text('from test_g import test_g as g\ndef test_g(): g()\n'
+                                                   'def test_other(): assert 3 == 3\n')
         self.commit('a correction that changes two tests')
         self.matrix('tests/test_g.py::test_g', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_b.py::test_g',), where='tests/test_g.py')
         directory = Path(self.flow('status')['directory'])
@@ -1651,7 +1656,36 @@ class ReviewFlowTests(unittest.TestCase):
         self.matrix('tests/test_g.py::test_g', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_b.py::test_other',), where='tests/test_g.py')
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_b.py': [], 'tests/test_g.py': ['test_g']})
-        self.assertIn('ran no case of tests/test_b.py', self.start(ok=False, correction=True, reason='').stderr)
+        self.assertIn('caught nothing in tests/test_b.py', self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_a_changed_test_is_credited_only_with_the_mutant_it_fails(self):
+        """Found by a reviewer: the run put every selected test in one pytest and read one
+        summary line, so a vacuous changed test sharing its name with an older test in another
+        file was credited with the older one's catch, and matrix_first accepted a correction
+        whose test exercised nothing. Each collected node runs alone under the mutant, and a
+        file is credited with a case only when a test of it failed."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        self.commit('an older test that discriminates')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_changed.py').write_text('def test_g(): assert True\n')
+        self.commit('a correction that adds a vacuous test of the same name')
+        self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
+        directory = Path(self.flow('status')['directory'])
+        record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
+        self.assertEqual(record['results'][0]['tests'], ['tests/test_g.py'])
+        self.assertEqual(record['tests'], {'tests/test_changed.py': [], 'tests/test_g.py': ['test_g']})
+        self.assertIn('caught nothing in tests/test_changed.py', self.start(ok=False, correction=True, reason='').stderr)
+        # The same test made to fail with the older one is credited, and the correction opens.
+        (self.repo / 'tests/test_changed.py').write_text('from test_g import test_g as g\ndef test_g(): g()\n')
+        self.commit('a correction whose test fails with the fix reverted')
+        self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
+        record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
+        self.assertEqual(record['tests'], {'tests/test_changed.py': ['test_g'], 'tests/test_g.py': ['test_g']})
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_the_runtime_runs_pytest_without_the_project_addopts(self):
         """Found by a reviewer: a project's addopts reached every pytest the runtime starts, and
