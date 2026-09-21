@@ -1529,12 +1529,12 @@ class ReviewFlowTests(unittest.TestCase):
         forged['mutants'] = 2
         record.write_text(json.dumps(forged))
         self.assertIn('carries 1 results', self.start(ok=False, correction=True, reason='').stderr)
-        # JSON an author can edit: the string "false" is truthy and read as caught.
         forged = json.loads(json.dumps(measured))
         forged['mutants'] = 2
         forged['results'].append(dict(forged['results'][0]))
         record.write_text(json.dumps(forged))
         self.assertIn('repeats a result', self.start(ok=False, correction=True, reason='').stderr)
+        # JSON an author can edit: the string "false" is truthy and read as caught.
         forged = json.loads(json.dumps(measured))
         forged['results'][0]['caught'] = 'false'
         record.write_text(json.dumps(forged))
