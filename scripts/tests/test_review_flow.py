@@ -1571,6 +1571,9 @@ class ReviewFlowTests(unittest.TestCase):
         self.refused_with(record, measured, 'did not run tests/test_g.py', tests={'tests/test_other.py': ['test_g']})
         # Named is not run: the file on the command line with none of its own cases selected.
         self.refused_with(record, measured, 'ran no case of tests/test_g.py', tests={'tests/test_g.py': []})
+        # A summary no result backs: the file said to hold a case nothing measured.
+        self.refused_with(record, measured, 'held nothing_measured, which no result measured',
+                          tests={'tests/test_g.py': ['nothing_measured']})
         record.write_text(json.dumps(measured))
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
@@ -1593,12 +1596,31 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('ran no case of tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
         self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_h.py',))
         self.assertIn('ran no case of tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
-        # A directory on the command line runs every test file under it, as pytest reads it:
-        # the record names both files, and the one no case of the spec lives in is refused.
+        # A directory on the command line runs whatever pytest collects under it, by pytest's
+        # own rules: the record names both files, and the one no case of the spec lives in
+        # is refused.
         self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_g.py': ['test_g'], 'tests/test_h.py': []})
         self.assertIn('ran no case of tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_a_case_is_what_pytest_collected_not_what_the_text_says(self):
+        """Found by a reviewer: a case named only in a comment of the changed file was credited
+        to it, and a file pytest collects as *_test.py under a directory was not named at all.
+        The record asks pytest, so the comment counts for nothing and the file is named."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/quiet_test.py').write_text('# def test_g(): a comment, not a case\ndef test_q(): assert 3 == 3\n')
+        self.commit('a correction that changes two tests')
+        self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
+        directory = Path(self.flow('status')['directory'])
+        record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
+        self.assertEqual(record['tests'], {'tests/quiet_test.py': [], 'tests/test_g.py': ['test_g']})
+        self.assertIn('ran no case of tests/quiet_test.py', self.start(ok=False, correction=True, reason='').stderr)
 
     def test_a_correction_that_changes_no_test_needs_no_matrix(self):
         """The scope, asserted: a correction with no gate to mutate is exempt, and saying so

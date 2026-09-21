@@ -346,23 +346,36 @@ def fingerprint(root, spec):
     return head, names, digest(root, names)
 
 
-def held(root, files, cases):
-    """Per test file the matrix ran, spelled relative to the root, the spec's cases that file
-    defines. A path alone proved nothing: pytest takes every path and one -k selector, so a
-    file could be named on the command line while every case ran belonged to another file
-    and its own were deselected. The spelling is the root-relative one whatever the command
-    line said, since that is how the runtime names a changed test."""
-    out = {}
-    for f in files:
-        # A directory runs every test file under it, and a node id its file: pytest reads
-        # both, so the record reads them too.
-        path = Path(root) / str(f).split('::')[0]
-        for each in (sorted(path.rglob('test_*.py')) if path.is_dir() else [path]):
-            text = each.read_text() if each.is_file() else ''
-            name = Path(os.path.relpath(each.resolve(), Path(root).resolve())).as_posix()
-            # A case is a -k selector: the name after test_, or the whole name.
-            out[name] = sorted(c for c in cases if ('def test_%s(' % c) in text or ('def %s(' % c) in text)
+def collected(root, files, cases):
+    """Per test file pytest collects under these paths, spelled as pytest spells it, the spec's
+    cases it collected there. Asked of pytest rather than read from the text: a case named in
+    a comment, a string or a class pytest skips is not a case that ran, and a directory holds
+    whatever python_files says it holds — test_*.py, *_test.py, or a project's own rule — none
+    of which a substring search could know. One collect over the paths names the files; one
+    under each case's selector says which of them held it."""
+    out = {name: [] for name in nodes(root, files)}
+    for case in sorted(cases):
+        for name in nodes(root, files, case):
+            out.setdefault(name, []).append(case)
     return out
+
+
+def nodes(root, files, selector=None):
+    """The files of the node ids pytest collects under these paths, and under a selector
+    when one is given. A collect that fails for any reason but finding nothing is refused,
+    since a record built from a broken collect would name nothing and prove the same."""
+    # The arguments go in spelled relative to the root — an absolute path made relative, a
+    # node id stripped to its file — because pytest spells a node id against the argument
+    # it collected it from, and a root-relative argument yields a root-relative id.
+    real = os.path.realpath(root)
+    paths = [os.path.relpath(os.path.realpath(os.path.join(root, str(f).split('::')[0])), real) for f in files]
+    args = [*PYTEST, '--collect-only', '--rootdir', root, *paths] + (['-k', selector] if selector else [])
+    done = subprocess.run(args, cwd=root, capture_output=True, text=True,
+                          env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
+    if done.returncode not in (0, 5):
+        bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
+             (done.stdout + done.stderr).strip().splitlines()[-1:] or ['no output']))
+    return sorted({Path(line.split('::')[0]).as_posix() for line in done.stdout.splitlines() if '::' in line})
 
 
 def record(root, spec_path, files, out=None):
@@ -377,7 +390,7 @@ def record(root, spec_path, files, out=None):
     # the matrix ran is a question nothing else in the record answers.
     payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
                'mutants': len(results), 'survivors': [r['case'] for r in survivors],
-               'tests': held(root, files, {m['case'] for rule in spec for m in rule['mutants']}),
+               'tests': collected(root, files, {m['case'] for rule in spec for m in rule['mutants']}),
                'results': results}
     if out:
         Path(out).write_text(json.dumps(payload, indent=2) + '\n')

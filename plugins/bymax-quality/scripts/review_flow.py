@@ -1033,6 +1033,12 @@ def results_agree(kept, names):
     require(not uncaught, 'The recorded matrix has results it did not catch: %s. Its survivor '
             'list said otherwise; the results are what was measured.'
             % ', '.join(uncaught))
+    # The tests mapping too: a case a file is said to hold must be a case some result
+    # measured, or the mapping is a summary saying so.
+    unmeasured = sorted({c for cases in (kept.get('tests') or {}).values() for c in cases}
+                        - {r.get('case') for r in results})
+    require(not unmeasured, 'The recorded matrix says a file held %s, which no result measured. '
+            'Re-run `review_flow.py matrix`.' % ', '.join(unmeasured))
 
 
 def code_view(state):
