@@ -1,4 +1,5 @@
 """The prose pass's envelope: what a correction may leave behind, and what it may not."""
+import ast
 import os
 import subprocess
 import sys
@@ -331,6 +332,28 @@ class EnvelopeTests(unittest.TestCase):
         bench = Bench(self)
         os.mkfifo(bench.where / 'pipe')
         self.assertTrue(prose.identity(bench.where / 'pipe').startswith('special:'))
+
+    def test_an_ignored_file_under_an_unsearchable_directory_is_recorded_not_refused(self):
+        """git reads a directory it can list, so the file is named; the lstat on it fails
+        with the directory's errno. The residue of the unreadable case: an lstat outside the
+        guard raised where an open inside it did not."""
+        bench = Bench(self, {'thing.py': START, '.gitignore': 'nosearch/\n'})
+        (bench.where / 'nosearch').mkdir()
+        (bench.where / 'nosearch' / 'b.txt').write_text('b\n')
+        os.chmod(bench.where / 'nosearch', 0o444)
+        self.addCleanup(os.chmod, bench.where / 'nosearch', 0o755)
+        before = prose.ignored(cwd=str(bench.where))
+        self.assertTrue(before['nosearch/b.txt'].startswith('unreadable:'))
+        self.assertEqual(prose.offences(cwd=str(bench.where), ignored_before=before), [])
+
+    def test_the_snapshot_names_nothing_newer_than_the_documented_floor(self):
+        """README.md declares Python 3.10 load-bearing for the runtime, and no 3.10 is
+        installed to run the module on; the syntax tree stands in for the interpreter.
+        hashlib.file_digest arrived in 3.11 and was the one name in the runtime past the
+        floor."""
+        tree = ast.parse(Path(prose.__file__).read_text(encoding='utf-8'))
+        named = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+        self.assertNotIn('file_digest', named)
 
     def test_an_unreadable_ignored_file_is_recorded_not_refused(self):
         """A file the user cannot read raised a bare errno out of the snapshot on a tree the

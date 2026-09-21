@@ -154,21 +154,31 @@ def identity(path):
     """What an ignored entry is, as far as bytes go: a digest for a regular file, and no
     digest for anything else. Only a regular file is opened — an lstat costs less than
     trusting the listing to hold no pipe, and opening a pipe with no writer waits forever.
-    A file that cannot be read is recorded as such: a reader with Edit alone cannot alter what
-    it cannot read either, and a refusal there protected nothing. The digest streams, so a
+    A file that cannot be read, or cannot be reached through its directory, is recorded as
+    such: a reader with Edit alone cannot alter what it cannot read either, and a refusal
+    there protected nothing. The digest streams, so a
     file larger than memory costs time and not a MemoryError."""
-    stat = os.lstat(path)
-    if S_ISLNK(stat.st_mode):
-        return 'link:' + os.readlink(path)
-    if S_ISDIR(stat.st_mode):
-        return 'dir'
-    if not S_ISREG(stat.st_mode):
-        return 'special:%o' % S_IFMT(stat.st_mode)
     try:
+        stat = os.lstat(path)
+        if S_ISLNK(stat.st_mode):
+            return 'link:' + os.readlink(path)
+        if S_ISDIR(stat.st_mode):
+            return 'dir'
+        if not S_ISREG(stat.st_mode):
+            return 'special:%o' % S_IFMT(stat.st_mode)
         with open(path, 'rb') as handle:
-            return hashlib.file_digest(handle, 'sha256').hexdigest()
+            return digest_of(handle)
     except OSError as error:
         return 'unreadable:%d' % (error.errno or 0)
+
+
+def digest_of(handle):
+    """sha256 of an open binary file, fed in chunks: the documented floor for the runtime
+    is Python 3.10, which has no hashlib.file_digest."""
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: handle.read(1 << 20), b''):
+        digest.update(chunk)
+    return digest.hexdigest()
 
 
 def sides(name, cwd=None):
