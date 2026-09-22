@@ -264,9 +264,9 @@ def baseline(root, files, case):
 
 
 def ran_alone(root, nodes):
-    """Of these nodes, the ones that PASSED alone in this tree. A failure and an error are
-    excluded with the skips, since a test that did not run cannot be among those that failed
-    and asking it to would be a demand nobody could satisfy.
+    """Of these nodes, the ones that PASSED alone in this tree. A failure, an error and a skip
+    are each excluded, since a test that did not run cannot be among those that failed and
+    asking it to would be a demand nobody could satisfy.
 
     Asked of the nodes themselves rather than taken from what the matrix ran: the matrix runs
     what its cases select, and a test the author's selector passes over would have left the
