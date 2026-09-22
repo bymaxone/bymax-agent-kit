@@ -456,6 +456,37 @@ class CollectTests(unittest.TestCase):
         self.assertIn('commit dates', data['coverage']['shipped'])
         self.assertNotIn('reflog', data['coverage']['shipped'])
 
+    def repo_that_delivers_by_pushing(self):
+        """A repository whose delivery ref is the remote one and whose only moves of it are
+        pushes: `update by push` is the delivery itself, so that reflog is a record of
+        landing and not of syncing, whatever the ref is called."""
+        root = self.tmp / 'pusher'; root.mkdir(parents=True)
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(where, *args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
+        up, work = root / 'up.git', root / 'work'
+        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
+        git(work, 'remote', 'add', 'origin', str(up))
+        git(work, 'push', '-q', '-u', 'origin', 'main', when='2026-09-10T12:05:00Z')
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'feat(x): written in the week, pushed after it', when='2026-09-19T12:00:00Z')
+        git(work, 'push', '-q', 'origin', 'main', when='2026-09-25T12:00:00Z')
+        return work.resolve()
+
+    def test_a_push_to_the_delivery_ref_is_the_delivery(self):
+        """A remote-tracking reflog is a syncing log only when the moves are fetches. A push
+        moves it because the work landed, so that entry is the record this question wants —
+        and deciding by the ref's name threw it away, reporting work pushed after the period
+        as delivered inside it."""
+        data = self.m.collect(self.repo_that_delivers_by_pushing(), self.since, self.until, self.home, use_gh=False)
+        self.assertEqual([(c['subject'], c['shipped']) for c in data['commits']],
+                         [('feat(x): written in the week, pushed after it', False)])
+        self.assertEqual(data['coverage']['delivery_ref'], 'origin/main')
+        self.assertIn('reflog', data['coverage']['shipped'])
+
     def test_a_fast_forward_after_the_period_did_not_ship_in_it(self):
         """A fast-forward moves a branch without creating an object or stamping a date, so the
         branch's position cannot be reconstructed from commit dates: the commit still looks like
@@ -544,6 +575,9 @@ class CollectTests(unittest.TestCase):
         shipped, data = self.shipped_by_subject()
         self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
         self.assertEqual(data['coverage']['delivery_ref'], 'main')
+        # Which record answered is the half this case used to leave unasserted, and a call
+        # that dies on the ambiguous name falls back without a word.
+        self.assertIn('reflog', data['coverage']['shipped'])
 
     def collect_with_git_refusing(self, repo, refuse_when):
         """Run a collect where git refuses the calls this predicate picks, and nothing else."""

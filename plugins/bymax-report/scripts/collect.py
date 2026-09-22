@@ -43,6 +43,10 @@ from pathlib import Path
 
 CONVENTIONAL = re.compile(r'^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<summary>.+)$')
 REFLOG_STAMP = re.compile(r'@\{(\d+)\}')
+# The action a reflog entry records, which is the word before its first colon. `fetch`,
+# `pull` and `clone` move a ref because we synced; `update by push`, `commit`, `merge` and
+# `reset` move it because the work arrived here.
+SYNCED = ('fetch', 'pull', 'clone')
 PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
@@ -198,7 +202,7 @@ def reflog_reaches(repo: Path, ref: str, cutoff: float) -> bool:
     depend on the language the machine speaks. Out of range git still answers, and with exit
     zero: the tip from before its oldest entry, which may be later than the period's.
     """
-    code, out, _ = git_out(repo, 'reflog', 'show', '--date=unix', '--format=%gd', ref)
+    code, out, _ = git_out(repo, 'reflog', 'show', '--date=unix', '--format=%gd', ref, '--')
     lines = [line for line in out.splitlines() if line.strip()]
     if code != 0 or not lines:
         return False
@@ -206,25 +210,28 @@ def reflog_reaches(repo: Path, ref: str, cutoff: float) -> bool:
     return bool(oldest) and int(oldest.group(1)) <= cutoff
 
 
-def our_own_ref(repo: Path, ref: str) -> bool:
-    """Whether this repository is what moves that ref, which is what makes its reflog a
-    record of delivery rather than of syncing.
+def moved_by_syncing(repo: Path, ref: str) -> bool:
+    """Whether any move of that ref was this repository catching up with another one.
 
-    A reflog says when the ref moved *here*. For a remote-tracking ref that is when we
-    fetched, so a clone whose last fetch before the period predates the week reports the
-    week's work as still in flight — measured, and the workflow is the ordinary one: merge
-    on Friday, pull on Monday. A local branch we merge into is the other case, where the
-    move and the delivery are the same event.
+    A reflog says when the ref moved *here*, so it is a record of delivery only where the
+    move and the delivery are the same event. That is not a property of the ref's name: a
+    remote-tracking ref moved by ``update by push`` moved because the work landed, and a
+    local branch moved by ``pull`` moved because we caught up. Deciding by the name threw
+    the first away, and a clone whose last fetch before the period predated the week
+    reported the week's work as still in flight — both measured.
+
+    So the entries answer. Their action is the word before the first colon; a message with
+    no colon, ``update by push``, is one word. Measured on this machine: ``origin/main``
+    carries only fetches and pulls in all three repositories here, a local branch carries
+    ``commit`` and ``reset``, and a repository that delivers by pushing carries nothing but
+    ``update by push``. These words are written into the file by the command that moved the
+    ref, not rendered at read time, so they do not follow the reader's language.
     """
-    return not ref.startswith(tuple(f'{name}/' for name in remotes(repo)))
-
-
-def remotes(repo: Path) -> list[str]:
-    """The remote names this repository knows, so a ref can be told from a tracking copy."""
-    try:
-        return [name for name in git(repo, 'remote').split() if name]
-    except RuntimeError:
-        return []
+    code, out, _ = git_out(repo, 'reflog', 'show', '--format=%gs', ref, '--')
+    if code != 0:
+        return True
+    actions = [line.split(':', 1)[0].split()[0] for line in out.splitlines() if line.strip()]
+    return any(action in SYNCED for action in actions)
 
 
 def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]:
@@ -234,12 +241,12 @@ def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]
     report asks: a branch merged the week after is reachable today and shipped in no week
     under review.
 
-    For a ref this repository moves itself, the reflog is that record and the only thing
-    that sees a fast-forward, which creates no object and stamps no date. For a
-    remote-tracking ref the reflog logs fetches instead, so the commit dates answer — and
-    they carry the upstream merge time, which is what the question is about. Neither sees a
-    fast-forward that happened elsewhere; coverage names the record so the reader knows
-    which question was answered.
+    Where every move of the ref was delivery rather than syncing, the reflog is that record
+    and the only thing that sees a fast-forward, which creates no object and stamps no date.
+    Where any move was a fetch, a pull or a clone, the reflog says when this repository
+    caught up, so the commit dates answer instead — and they carry the upstream merge time,
+    which is what the question is about. Neither sees a fast-forward performed elsewhere;
+    coverage names the record so the reader knows which question was answered.
 
     The date walk goes by first parent: it otherwise descends into a merge's second parent
     and returns a commit that was never on the delivery branch, which then marks itself
@@ -247,7 +254,7 @@ def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]
     like the ref, or like a commit's twelve hex digits, otherwise makes git refuse.
     """
     when = f'{until.isoformat()}T23:59:59'
-    if our_own_ref(repo, ref) and reflog_reaches(repo, ref, dt.datetime.fromisoformat(when).timestamp()):
+    if not moved_by_syncing(repo, ref) and reflog_reaches(repo, ref, dt.datetime.fromisoformat(when).timestamp()):
         code, out, _ = git_out(repo, 'rev-parse', '--verify', f'{ref}@{{{when}}}')
         if code == 0 and out.strip():
             return out.strip(), f'the reflog of {ref} on {until.isoformat()}'
