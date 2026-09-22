@@ -2436,10 +2436,9 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
                               capture_output=True, text=True).stdout.strip()
 
     def test_what_a_merge_carried_in_is_told_from_what_this_delta_wrote(self):
-        """Asking whether head's bytes match a side the merge brought in got both answers
-        wrong: a test this delta wrote that the other side wrote identically vanished, and
-        `git merge --no-ff` puts the delta's OWN commits on the second parent, which emptied
-        the list and skipped the matrix gate in silence. The question is provenance."""
+        """Asking whether head's bytes match a side the merge brought in got this wrong: a
+        test this delta wrote that the other side wrote identically vanished from the list,
+        and the matrix gate went silent about it. The question is provenance."""
         run = lambda *args: subprocess.run(['git', '-C', str(self.where), *args], check=True,
                                            capture_output=True)
         head = lambda: subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],

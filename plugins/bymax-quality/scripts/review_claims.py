@@ -66,7 +66,7 @@ def git(*args, cwd=None):
 
 
 def columns(line):
-    """How far this line is indented, a leading tab counted as the four columns it stands for."""
+    """How far this line is indented, a tab advancing to the next four-column stop."""
     width = 0
     for char in line:
         if char == ' ':
@@ -81,12 +81,10 @@ def columns(line):
 def outside_code(text):
     """Every Markdown code block blanked, and nothing else.
 
-    A regex was spelled three ways here and each fixed one shape while breaking another: a
-    tilde fence, a fence indented inside a list item, an indented block, and four spaces under
-    a list marker, which is the item's own prose. The question needs state a regex has no way
-    to carry, so the lines are walked once with it: the fence that is open, and the column the
-    innermost list item's content starts at. Inside a block a name is an example about somebody
-    else's repository; outside one it is what this file asserts, which is what the checks read.
+    Every regex spelling tried here fixed one shape while breaking another. The question needs
+    state a regex has no way to carry, so the lines are walked once with it: the fence that is
+    open, and the column the innermost list item's content starts at. Inside a block a name is
+    an example about somebody else's repository; outside one it is what this file asserts.
     """
     out, fence, content, blank, code = [], None, 0, True, False
     for line in text.split('\n'):

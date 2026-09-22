@@ -362,10 +362,9 @@ class OpaqueFileTests(unittest.TestCase):
     )
 
     def test_a_name_inside_a_code_block_is_an_example(self):
-        """Three spellings of one regex each fixed a shape and broke another — a tilde fence, a
-        fence indented inside a list item, and four spaces under a list marker, which is the
-        item's own prose and not code. The shapes are listed here and walked, so a fourth
-        spelling has to answer all of them at once."""
+        """Every regex spelling tried for this fixed a shape and broke another. The shapes are
+        listed in EXAMPLES and ASSERTIONS above and walked here, so a new spelling has to
+        answer all of them at once."""
         for name, shown in self.EXAMPLES:
             with self.subTest(name):
                 self.assertNotIn('OLD_HELPER', claims.prose('README.md', '# doc\n\n' + shown + '\n'))

@@ -974,9 +974,8 @@ def matrix_first(state, directory):
     # could never be produced and the correction was blocked for good. Asked of pytest: what
     # it collects no test from is not a gate this runtime can mutate.
     answered = [(path, collects_a_test(path)) for path in state['regression_tests']]
-    # An unanswerable collect is not an answer. Read as "no test here" it emptied the list and
-    # returned, so a conftest that fails to import anywhere near a changed test skipped the
-    # whole gate without a word — the one failure this gate exists to make impossible.
+    # An unanswerable collect is not an answer: read as "no test here" it emptied the list and
+    # returned, skipping the whole gate without a word.
     unanswered = [path for path, said in answered if said is None]
     require(not unanswered, 'pytest could not say whether %s holds a test, so nothing here can '
             'say whether this correction needs a matrix. Fix the collect, then run '
@@ -1061,9 +1060,8 @@ def ran_the_changed_tests(kept, changed):
 
 def collects_a_test(path):
     """Whether pytest collects a test from this file when it collects the directory it sits
-    in, which is the question the record answers: a matrix runs over paths, and its mapping
-    names the files pytest found under them. Named directly, pytest collects a file whatever
-    it is called, so asking about the file alone would call every helper a test.
+    in. Named directly, pytest collects a file whatever it is called, so asking about the
+    file alone would call every helper a test.
 
     A file it collects nothing from can carry no case, and a file gone from the tree carries
     none either. A collect that cannot answer at all — a conftest that will not import — is
