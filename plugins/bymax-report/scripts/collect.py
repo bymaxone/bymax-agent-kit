@@ -212,7 +212,7 @@ def reflog_reaches(repo: Path, ref: str, cutoff: float) -> bool:
     return bool(oldest) and int(oldest.group(1)) <= cutoff
 
 
-def moved_by_syncing(repo: Path, message: str) -> bool:
+def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
     """Whether one reflog entry records this repository catching up with another one.
 
     Read from the message, because that is where git puts what it did. An entry's action is
@@ -239,15 +239,20 @@ def moved_by_syncing(repo: Path, message: str) -> bool:
     shipped.
 
     Anything left over is read as local, because the actions that are not on either list —
-    ``commit``, ``update by push``, ``am``, ``rebase`` — move a ref because the work
-    landed here. The exception is an entry carrying no action at all, which ``GIT_REFLOG_ACTION=``
-    produces on any command, a fetch included: that is not a third kind of move but an
-    unanswered question, and this file answers those with the commit dates.
+    ``commit``, ``update by push``, ``am``, ``rebase`` — move a ref because the work landed
+    here.
+
+    An entry carrying no action at all is the one ``GIT_REFLOG_ACTION=`` produces, and what
+    it hides depends on which ref moved. A push writes ``update by push`` on the tracking ref
+    whatever that variable says, so on a ref under ``refs/remotes/`` a blank entry is a fetch,
+    and a catch-up. On a local branch it is our own merge or reset — or a pull, which is a
+    catch-up this cannot see; that residual under-reports, and reading every blank entry as a
+    catch-up instead reported work merged locally after the period as shipped.
     """
     words = message.partition(':')[0].split()
     action = words[0] if words else ''
     if not action:
-        return True
+        return tracking
     if action in SYNCED:
         return True
     if action not in TOWARD:
@@ -278,12 +283,14 @@ def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
     code, out, _ = git_out(repo, 'reflog', 'show', '--date=unix', '--format=%gd%x1f%gs', ref, '--')
     if code != 0:
         return True
+    named = git_out(repo, 'rev-parse', '--symbolic-full-name', ref)
+    tracking = named[0] == 0 and named[1].strip().startswith('refs/remotes/')
     for line in out.splitlines():
         stamp, _, message = line.partition('\x1f')
         at = REFLOG_STAMP.search(stamp)
         if not at or int(at.group(1)) <= cutoff:
             continue
-        if moved_by_syncing(repo, message):
+        if moved_by_syncing(repo, message, tracking):
             return True
     return False
 

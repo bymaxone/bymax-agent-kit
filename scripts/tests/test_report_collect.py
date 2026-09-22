@@ -710,6 +710,33 @@ class CollectTests(unittest.TestCase):
         self.assertIs(shipped['feat(a): the work of the week'], False)
         self.assertIn('reflog', data['coverage']['shipped'])
 
+    def test_a_blank_action_on_our_own_branch_is_our_own_work(self):
+        """`GIT_REFLOG_ACTION=` hides the command on any ref, but not the same commands on
+        every ref: a push writes `update by push` on the tracking ref whatever that variable
+        says, so a blank entry there is a fetch. On a local branch it is our own merge.
+        Reading every blank entry as a catch-up sent this repository to the commit
+        dates, which date the commit and not the move, and called work that only reached
+        main after the period shipped inside it."""
+        repo = self.tmp / 'blank-local' / 'app'; repo.mkdir(parents=True)
+        def git(*args, when=None, action=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            if action is not None:
+                extra['GIT_REFLOG_ACTION'] = action
+            subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True,
+                           env={**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+                                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x', **extra})
+        git('init', '-q', '-b', 'main')
+        git('commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
+        git('checkout', '-q', '-b', 'feat/x')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(x): written in the week',
+            when='2026-09-16T12:00:00Z')
+        git('checkout', '-q', 'main')
+        git('merge', '-q', '--ff-only', 'feat/x', action='')
+        data = self.m.collect(repo.resolve(), self.since, self.until, self.home, use_gh=False)
+        shipped = {c['subject']: c['shipped'] for c in data['commits']}
+        self.assertIs(shipped['feat(x): written in the week'], False)
+        self.assertIn('reflog', data['coverage']['shipped'])
+
     def test_a_blank_action_fetch_after_the_period_is_still_a_sync(self):
         """`GIT_REFLOG_ACTION= git fetch` writes an entry with nothing before its colon, which
         is a real sync wearing no name. Reading the unreadable action as proof that no sync
