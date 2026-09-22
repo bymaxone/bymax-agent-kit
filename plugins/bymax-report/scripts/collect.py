@@ -42,6 +42,7 @@ import sys
 from pathlib import Path
 
 CONVENTIONAL = re.compile(r'^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<summary>.+)$')
+REFLOG_STAMP = re.compile(r'@\{(\d+)\}')
 PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
@@ -189,6 +190,43 @@ def git_out(repo: Path, *args: str) -> tuple[int, str, str]:
     return done.returncode, done.stdout, done.stderr
 
 
+def reflog_reaches(repo: Path, ref: str, cutoff: float) -> bool:
+    """Whether the ref's reflog goes back far enough to answer for that moment.
+
+    Asked of the entries' own timestamps, not of git's warning: that warning is a sentence
+    git translates where catalogues are installed, so reading it would make the answer
+    depend on the language the machine speaks. Out of range git answers anyway, with the
+    oldest entry it kept, which is a later tip than the period had.
+    """
+    code, out, _ = git_out(repo, 'reflog', 'show', '--date=unix', '--format=%gd', ref)
+    lines = [line for line in out.splitlines() if line.strip()]
+    if code != 0 or not lines:
+        return False
+    oldest = REFLOG_STAMP.search(lines[-1])
+    return bool(oldest) and int(oldest.group(1)) <= cutoff
+
+
+def our_own_ref(repo: Path, ref: str) -> bool:
+    """Whether this repository is what moves that ref, which is what makes its reflog a
+    record of delivery rather than of syncing.
+
+    A reflog says when the ref moved *here*. For a remote-tracking ref that is when we
+    fetched, so a clone whose last fetch before the period predates the week reports the
+    week's work as still in flight — measured, and the workflow is the ordinary one: merge
+    on Friday, pull on Monday. A local branch we merge into is the other case, where the
+    move and the delivery are the same event.
+    """
+    return not ref.startswith(tuple(f'{name}/' for name in remotes(repo)))
+
+
+def remotes(repo: Path) -> list[str]:
+    """The remote names this repository knows, so a ref can be told from a tracking copy."""
+    try:
+        return [name for name in git(repo, 'remote').split() if name]
+    except RuntimeError:
+        return []
+
+
 def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]:
     """Where the delivery ref stood at the end of the period, and which record answered.
 
@@ -196,24 +234,23 @@ def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]
     report asks: a branch merged the week after is reachable today and shipped in no week
     under review.
 
-    Git records when a ref moved in its reflog, and ``<ref>@{<date>}`` is that record. It is
-    the only thing that sees a fast-forward, which creates no object and stamps no date, so
-    without it a commit written inside the period and fast-forwarded afterwards still looks
-    like the branch's tip. The reflog is local and expires, so where it does not reach the
-    date git says so on stderr and the answer falls back to the commit dates, which is a
-    weaker question honestly named rather than a stronger one implied.
+    For a ref this repository moves itself, the reflog is that record and the only thing
+    that sees a fast-forward, which creates no object and stamps no date. For a
+    remote-tracking ref the reflog logs fetches instead, so the commit dates answer — and
+    they carry the upstream merge time, which is what the question is about. Neither sees a
+    fast-forward that happened elsewhere; coverage names the record so the reader knows
+    which question was answered.
 
-    That fallback walks by first parent: a date walk descends into a merge's second parent
+    The date walk goes by first parent: it otherwise descends into a merge's second parent
     and returns a commit that was never on the delivery branch, which then marks itself
-    shipped. ``--`` ends the revisions of that fallback and of the ancestry query: an
-    untracked path spelled like the ref, or like a commit's twelve hex digits, otherwise
-    makes git refuse. The reflog question needs none — measured, a path of the same name
-    does not touch it.
+    shipped. ``--`` ends its revisions, and the ancestry query's: an untracked path spelled
+    like the ref, or like a commit's twelve hex digits, otherwise makes git refuse.
     """
     when = f'{until.isoformat()}T23:59:59'
-    code, out, err = git_out(repo, 'rev-parse', '--verify', f'{ref}@{{{when}}}')
-    if code == 0 and out.strip() and 'only goes back to' not in err:
-        return out.strip(), f'the reflog of {ref} on {until.isoformat()}'
+    if our_own_ref(repo, ref) and reflog_reaches(repo, ref, dt.datetime.fromisoformat(when).timestamp()):
+        code, out, _ = git_out(repo, 'rev-parse', '--verify', f'{ref}@{{{when}}}')
+        if code == 0 and out.strip():
+            return out.strip(), f'the reflog of {ref} on {until.isoformat()}'
     out = git(repo, 'rev-list', '-1', '--first-parent', f'--before={when}', ref, '--')
     return out.strip() or None, f'the commit dates on {ref} up to {until.isoformat()}'
 

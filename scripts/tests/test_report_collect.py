@@ -405,6 +405,57 @@ class CollectTests(unittest.TestCase):
                     log.unlink()
         return repo.resolve()
 
+    def clone_that_fetched_late(self):
+        """A clone whose last fetch before the period is older than the week's work, which is
+        what a Friday merge and a Monday pull look like. Its origin/main reflog is a log of
+        fetches, so asking it where the branch stood answers where this clone stood."""
+        root = self.tmp / 'clone'; root.mkdir(parents=True)
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(where, *args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
+        up, work, app = root / 'up.git', root / 'work', root / 'app'
+        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
+        git(work, 'remote', 'add', 'origin', str(up))
+        git(work, 'push', '-q', '-u', 'origin', 'main')
+        subprocess.run(['git', 'clone', '-q', str(up), str(app)], check=True, capture_output=True, env=env)
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: before the week', when='2026-09-12T08:00:00Z')
+        git(work, 'push', '-q', 'origin', 'main')
+        git(app, 'fetch', '-q', 'origin', when='2026-09-12T09:00:00Z')
+        git(work, 'checkout', '-q', '-b', 'feat/a')
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'feat(a): the work of the week', when='2026-09-16T12:00:00Z')
+        git(work, 'checkout', '-q', 'main')
+        git(work, 'merge', '-q', '--no-ff', 'feat/a', '-m', 'Merge pull request #1', when='2026-09-17T12:00:00Z')
+        git(work, 'push', '-q', 'origin', 'main')
+        # A second branch written inside the week and merged after it, so the branch's tip is
+        # later than the period and the date walk has to descend. By first parent it lands on
+        # the merge of the week; without it, on this commit, which was never on the branch then.
+        git(work, 'checkout', '-q', '-b', 'feat/b')
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'feat(b): merged the week after', when='2026-09-19T12:00:00Z')
+        git(work, 'checkout', '-q', 'main')
+        git(work, 'merge', '-q', '--no-ff', 'feat/b', '-m', 'Merge pull request #2', when='2026-09-25T12:00:00Z')
+        git(work, 'push', '-q', 'origin', 'main')
+        git(app, 'fetch', '-q', 'origin')
+        return app.resolve()
+
+    def test_a_clone_reads_the_dates_because_its_reflog_logs_fetches(self):
+        """A reflog records when THIS repository moved the ref, so for a remote-tracking ref it
+        is a log of fetches: asking it where the delivery branch stood answers where this clone
+        stood, and a Friday merge pulled on Monday comes back as work still in flight. The
+        commit dates carry the upstream merge time instead, which is the right answer here.
+        The same fixture is the only one with a merge on the fallback, so it also pins the
+        first-parent walk: without it the date walk returns the merge's second parent."""
+        data = self.m.collect(self.clone_that_fetched_late(), self.since, self.until, self.home, use_gh=False)
+        shipped = {c['subject']: c['shipped'] for c in data['commits']}
+        self.assertIs(shipped['feat(a): the work of the week'], True)
+        self.assertIs(shipped['feat(b): merged the week after'], False)
+        self.assertEqual(data['coverage']['delivery_ref'], 'origin/main')
+        self.assertIn('commit dates', data['coverage']['shipped'])
+        self.assertNotIn('reflog', data['coverage']['shipped'])
+
     def test_a_fast_forward_after_the_period_did_not_ship_in_it(self):
         """A fast-forward moves a branch without creating an object or stamping a date, so the
         branch's position cannot be reconstructed from commit dates: the commit still looks like
