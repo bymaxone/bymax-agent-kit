@@ -892,41 +892,27 @@ def tests_changed(base, head):
 def written_here(base, head):
     """Every path a commit of this delta's own line wrote.
 
-    Provenance and not content. Asking whether the bytes match a side the merge brought in got
-    both answers wrong: a test this delta wrote that the other side wrote identically vanished,
-    and `git merge --no-ff` puts the delta's OWN commits on the second parent, so the whole
-    matrix gate fell silent. Asking the shape of the graph got it wrong too, because a merge of
-    the base branch and a merge of a topic branch are the same shape, and descending from the
-    base is not the same question whenever the base is a merge-base, which is the documented
-    one. So the base branch is asked what it already holds, and what it holds was not written
-    here however the graph carries it in.
+    Provenance, and read from the first-parent line, because nothing in the graph distinguishes
+    the two merges that matter: merging the base branch in and merging a branch of one's own
+    have the same shape. Telling them apart by content dropped a test this delta wrote that the
+    other side wrote identically; by descent, it kept what the base branch added after the
+    merge-base; by naming a ref, it kept what a sibling branch's own base wrote and dropped what
+    a branch already merged upstream had written. Each was wrong in both directions, so the
+    question stops being asked of the shape.
 
-    A merge of this line is read by its combined diff, which names only what differs from every
+    A merge on that line is read by its combined diff, which names only what differs from every
     parent: the resolution somebody typed, and never the files the other side carried over.
+
+    The limit, stated because it is one: work merged in with `--no-ff` from a side branch sits
+    off the first-parent line, so only the resolution counts as written here. The round does not
+    pass on that — it refuses for having no changed test, which the author answers on the record.
     """
     written = set()
-    for row in git('rev-list', '--parents', '%s..%s' % (base, head), *elsewhere()).splitlines():
+    for row in git('rev-list', '--first-parent', '--parents', '%s..%s' % (base, head)).splitlines():
         shape = ['-c'] if len(row.split()) > 2 else ['--root']
         written.update(git_raw('diff-tree', '-r', '--no-commit-id', '--name-only', '--no-renames',
                                *shape, row.split()[0]).splitlines())
     return written
-
-
-def elsewhere():
-    """`--not <the base branch>`, where this repository has one to name.
-
-    Without it the answer is the whole range, which asks for a matrix over more tests rather
-    than fewer — the direction that refuses work instead of passing it. A repository with no
-    such ref, a fixture most of all, is exactly where every commit in the range really is the
-    delta's own.
-    """
-    for ref in ('refs/remotes/origin/HEAD', 'refs/remotes/origin/main', 'refs/remotes/origin/master'):
-        try:
-            git('rev-parse', '--verify', '--quiet', ref)
-            return ['--not', ref]
-        except subprocess.CalledProcessError:
-            continue
-    return []
 
 
 def regression_note(state):
@@ -1086,24 +1072,28 @@ def collects_a_test(path):
     none either. A collect that cannot answer at all is None and never False: read as "no test
     here" it let the caller skip the gate in silence.
 
-    Asked of the file where the directory cannot answer: a neighbour with a broken import is
-    enough to stop it, and refusing the round for a file that is not implicated is the
-    blocked-for-good shape this gate exists to remove. The file alone is how the matrix runs it,
-    so pytest finding a test there means the matrix can measure it; only a file that answers
-    neither way is None.
+    A neighbour with a broken import is enough to stop the directory answering, and refusing the
+    round for a file that is not implicated is the blocked-for-good shape this gate exists to
+    remove. So the directory is asked a second time tolerantly, which is the same question with
+    the neighbour's failure no longer fatal. The file alone is asked only to tell "not a test
+    module" from "this file is what failed".
     """
     import review_matrix
     root = git('rev-parse', '--show-toplevel')
     if not path.endswith('.py') or not Path(root, path).is_file():
         return False
+    where = [str(Path(path).parent) or '.']
     try:
-        return path in review_matrix.nodes(root, [str(Path(path).parent) or '.'])
+        return path in review_matrix.nodes(root, where)
     except SystemExit:
         pass
+    if path in review_matrix.nodes(root, where, tolerant=True):
+        return True
     try:
-        return bool(review_matrix.nodes(root, [path]))
+        review_matrix.ids(root, [path])
     except SystemExit:
         return None
+    return False
 
 
 def tests_added(base, names):
