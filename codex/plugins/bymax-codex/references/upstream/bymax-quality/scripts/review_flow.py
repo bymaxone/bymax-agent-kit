@@ -975,7 +975,7 @@ def matrix_first(state, directory):
     # and a record whose results are not a list crashed there rather than refused by name.
     results_agree(kept, names)
     caught_with_the_changed_test(kept, review_claims.changed_tests(
-        state['review_base'], state['head'], state['regression_tests']))
+        state['review_base'], state['head'], [p for p in state['regression_tests'] if collects_a_test(p)]))
 
 
 def ran_the_changed_tests(kept, changed):
@@ -1008,16 +1008,24 @@ def ran_the_changed_tests(kept, changed):
 
 
 def collects_a_test(path):
-    """Whether pytest collects any test from this file, asked of pytest rather than guessed
-    from the name: a file it collects nothing from can carry no case, and a file that is gone
-    from the tree carries none either. Only a python source is asked about — pytest reads a
-    path that is not one as a usage error, and a fixture file is a test path this repository
-    counts and pytest never collects."""
+    """Whether pytest collects a test from this file when it collects the directory it sits
+    in, which is the question the record answers: a matrix runs over paths, and its mapping
+    names the files pytest found under them. Named directly, pytest collects a file whatever
+    it is called, so asking about the file alone would call every helper a test.
+
+    A file it collects nothing from can carry no case, and a file gone from the tree carries
+    none either. A collect that cannot answer at all — a source that will not parse — is read
+    as none rather than raised: the matrix refuses what it cannot read, and raising that from
+    here would end a campaign at another tier than the one this question belongs to.
+    """
     import review_matrix
     root = git('rev-parse', '--show-toplevel')
     if not path.endswith('.py') or not Path(root, path).is_file():
         return False
-    return bool(review_matrix.nodes(root, [path]))
+    try:
+        return path in review_matrix.nodes(root, [str(Path(path).parent) or '.'])
+    except SystemExit:
+        return False
 
 
 def caught_with_the_changed_test(kept, wanted):

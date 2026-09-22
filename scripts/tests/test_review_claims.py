@@ -566,6 +566,33 @@ class ChangedTestTests(unittest.TestCase):
         self.assertEqual(sorted(claims.definitions(mark % 'parametrize("v", [1])')), ['test_one'])
         self.assertEqual(sorted(claims.definitions('def test_one(): assert 1\n')), ['test_one'])
 
+    def test_a_name_is_resolved_where_the_class_that_uses_it_was_written(self):
+        """Found by a reviewer: a name bound in a class body is an attribute of that class and
+        not a module name, so a nested Base standing in for the module's erased a collected
+        class; and a name rebound and then defined again crashed the reader outright."""
+        case = 'import unittest\nclass Base(unittest.TestCase): pass\n'
+        sub = 'class Cases(Base):\n    def test_added(self): assert 1\n'
+        self.assertEqual(sorted(claims.definitions(case + 'class Namespace:\n    class Base: pass\n' + sub)),
+                         ['Cases::test_added'])
+        # And inside a class the reader does enter: a name bound there is that class's, so the
+        # class beside it inherits from what the body holds and not from the module's.
+        inner = (case + 'class TestOuter:\n    class Base: pass\n'
+                 '    class Cases(Base):\n        def test_one(self): assert 1\n')
+        self.assertEqual(sorted(claims.definitions(inner)), [])
+        self.assertEqual(sorted(claims.definitions(case + 'Base = int\n' + case.split(chr(10), 1)[1] + sub)),
+                         ['Cases::test_added'])
+
+    def test_a_class_pytest_is_told_to_skip_holds_no_test_that_can_fail(self):
+        """Found by a reviewer: the mark was read on a function and never on the class whose
+        methods it skips, and a condition written out is read — skipif(False) runs."""
+        marked = 'import pytest\n@pytest.mark.%s\nclass TestX:\n    def test_one(self): assert 1\n'
+        self.assertEqual(sorted(claims.definitions(marked % 'skip')), [])
+        self.assertEqual(sorted(claims.definitions(marked % 'skipif(True, reason="x")')), [])
+        self.assertEqual(sorted(claims.definitions(marked % 'skipif(False, reason="x")')), ['TestX::test_one'])
+        run = 'import pytest\n@pytest.mark.skipif(False, reason="x")\ndef test_one(): assert 1\n'
+        self.assertEqual(sorted(claims.definitions(run)), ['test_one'])
+        self.assertEqual(sorted(claims.definitions(run.replace('False', 'True'))), [])
+
     def test_a_class_inside_a_function_is_not_a_class_pytest_collects(self):
         """A name is gathered from a module body and from class bodies, never from a
         function's — because a class defined inside a function is a name nothing collects,

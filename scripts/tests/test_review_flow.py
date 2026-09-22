@@ -1765,11 +1765,16 @@ class ReviewFlowTests(unittest.TestCase):
 
     def test_a_file_pytest_collects_no_test_from_is_not_asked_for_a_case(self):
         """A conftest, a fixture and a helper module are test paths the scope rule counts as
-        part of the correction, and no matrix can ever name a case that ran in one: asking
-        was a refusal nobody could satisfy. Asked of pytest, not guessed from the name."""
+        part of the correction, and no matrix can ever name a case that ran in one: asking was
+        a refusal nobody could satisfy. Asked of pytest, not guessed from the name — a helper
+        may define a test-shaped function pytest never collects, and a file whose collect
+        cannot answer at all is read as collecting none rather than ending the campaign at
+        another tier."""
         self.a_guard_and_its_older_test()
         (self.repo / 'tests/conftest.py').write_text('import pytest\n\n\n@pytest.fixture\ndef spare(): return 1\n')
-        (self.repo / 'tests/helpers.py').write_text('def build(v): return v\n')
+        (self.repo / 'tests/helpers.py').write_text('def build(v): return v\n\n\ndef test_added(): assert 1\n')
+        (self.repo / 'src/__tests__').mkdir(parents=True, exist_ok=True)
+        (self.repo / 'src/__tests__/test_broken.py').write_text('def test_added(: assert 1\n')
         (self.repo / 'tests/fixtures.json').parent.mkdir(exist_ok=True)
         (self.repo / 'tests/fixtures.json').write_text('{"v": 1}\n')
         self.commit('a correction that repairs a fixture the tests share')

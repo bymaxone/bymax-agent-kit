@@ -274,21 +274,52 @@ def definitions(source):
     under `Class::`. Read from the text: a file that cannot be parsed defines nothing here,
     which leaves the caller its own answer rather than a crash."""
     try:
-        return set(defined_under(ast.parse(source), '', test_classes(source)))
+        return set(defined_under(ast.parse(source), '', set()))
     except SyntaxError:
         return set()
 
 
-def defined_under(node, prefix, classes):
+def defined_under(node, prefix, outer):
     """The tests this body defines, and those its test classes do, prefixed as pytest spells
     them. Only a test that can fail is named, because only such a test can be demanded of a
-    correction: a helper or a fixture is never collected, and an async test is never named —
-    a stated gap where a plugin runs one. Nested functions are not descended into."""
+    correction: a name nothing collects — a helper, a fixture — could never appear among the
+    nodes that failed, and neither could an async test, which is never named here, a stated
+    gap where a plugin runs one. Nested functions are not descended into."""
+    scope = collected_here(node, outer)
     for child in getattr(node, 'body', []):
-        if isinstance(child, ast.ClassDef) and child.name in classes:
-            yield from defined_under(child, prefix + child.name + '::', classes)
+        if isinstance(child, ast.ClassDef) and child.name in scope and runs(child):
+            yield from defined_under(child, prefix + child.name + '::', scope)
         elif isinstance(child, ast.FunctionDef) and child.name.startswith('test') and runs(child):
             yield prefix + child.name
+
+
+def collected_here(node, outer):
+    """The class names visible in this body whose tests pytest collects: named as
+    python_classes has it, or carrying a TestCase base, or a base bound here or outside that
+    carries one itself. Resolved per body, as Python resolves a base when the class is
+    created — a name bound in one class body is not the name a class beside it inherits — and
+    the last binding of a name is the one that answers, since a module that reuses a case
+    class's name has no case class by then. A base is read by its last name and followed no
+    further, so a subclass of an imported base not called TestCase is left to the file rule.
+    """
+    held = {}
+    for child in getattr(node, 'body', []):
+        if isinstance(child, ast.ClassDef):
+            held[child.name] = max(held.get(child.name) or child, child, key=lambda n: n.lineno)
+        for target in getattr(child, 'targets', []) + [getattr(child, 'target', None)]:
+            if isinstance(target, ast.Name) and held.get(target.id) and target.lineno > held[target.id].lineno:
+                held[target.id] = None
+    found, again = {n for n in outer if n not in held}, True
+    while again:
+        again = False
+        for name, child in held.items():
+            if child is None or name in found:
+                continue
+            named = [b.attr if isinstance(b, ast.Attribute) else getattr(b, 'id', '') for b in child.bases]
+            if name.startswith('Test') or any(n == 'TestCase' or n in found for n in named):
+                found.add(name)
+                again = True
+    return found
 
 
 SKIPPED = ('skip', 'skipif', 'xfail')
@@ -297,50 +328,29 @@ SKIPPED = ('skip', 'skipif', 'xfail')
 def runs(node):
     """Whether this test can fail, which is all that may be demanded of it: a test whose
     decorator marks it skipped or expected to fail is never counted among the nodes that
-    failed, so demanding it refuses a correction nobody could satisfy. Nothing else is read."""
+    failed, so demanding it refuses a correction nobody could satisfy. Nothing else is read.
+
+    A condition is read only where it is written out: skipif(False) runs and is named, while
+    anything this cannot evaluate — a platform test, a name from elsewhere — is read as
+    skipped, since being wrong that way is a weaker demand and the other way is a refusal
+    nobody can satisfy.
+    """
     for mark in node.decorator_list:
+        call = mark if isinstance(mark, ast.Call) else None
         while isinstance(mark, ast.Call):
             mark = mark.func
         if isinstance(mark, ast.Attribute) and mark.attr in SKIPPED:
-            return False
+            if mark.attr == 'skip' or stated(call) is not False:
+                return False
     return True
 
 
-def test_classes(source):
-    """The classes of this source whose tests pytest collects: named as python_classes has
-    it, or carrying a TestCase base, which the unittest plugin collects whatever the class is
-    called — including through a base this file defines that carries one itself. A base is
-    read by its last name and followed no further, so a subclass of an imported base not
-    called TestCase is not named here and its tests are left to the file rule."""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return set()
-    # The last binding of a name is the one a base of that name resolves to: a module that
-    # defines a case class and then reuses its name has no case class by then, and reading
-    # every binding at once named a class pytest cannot collect, which nothing could satisfy.
-    held = {}
-    # Gathered from a module body and from class bodies, never from a function's, because a
-    # class defined inside a function is a name nothing collects, and matching by name alone
-    # let one stand in for a module-level class it happens to share a name with.
-    for parent in [tree] + [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
-        for node in getattr(parent, 'body', []):
-            if isinstance(node, ast.ClassDef):
-                held[node.name] = max(held.get(node.name, node), node, key=lambda n: n.lineno)
-            for target in getattr(node, 'targets', []) + [getattr(node, 'target', None)]:
-                if isinstance(target, ast.Name) and held.get(target.id) and target.lineno > held[target.id].lineno:
-                    held[target.id] = None
-    found, again = set(), True
-    while again:
-        again = False
-        for name, node in held.items():
-            if node is None or name in found:
-                continue
-            named = [b.attr if isinstance(b, ast.Attribute) else getattr(b, 'id', '') for b in node.bases]
-            if name.startswith('Test') or any(n == 'TestCase' or n in found for n in named):
-                found.add(name)
-                again = True
-    return found
+def stated(call):
+    """What a mark's condition says where it says it outright, and None where it does not:
+    only a literal answers, since nothing here can evaluate a name or a platform test."""
+    first = (call.args or [None])[0] if call else None
+    return first.value if isinstance(first, ast.Constant) and isinstance(first.value, bool) else None
+
 
 
 def changed_tests(base, head, names, cwd=None):
