@@ -935,21 +935,23 @@ def regression_note(state):
     brief so that round one would stop being blind. The input has one source now.
     """
     tests, _ = tests_changed(state['review_base'], state['head'])
+    # Named in every branch, because the diff shown beside this note holds those files: silence
+    # here while a changed test is visible there is the brief contradicting itself in one
+    # message, and it stayed silent whenever the correction had changed a test of its own.
+    carried = merged_in_tests(state['review_base'], state['head'])
+    also = ('' if not carried else
+            ' This delta also changes ' + ', '.join(carried) + ', none of it on its own '
+            'first-parent line, so nothing here can say whose work it is and no matrix is asked '
+            'for it. Judge those changes as a merge carried them.')
     if tests:
         return ('Tests changed in this delta: ' + ', '.join(tests)
                 + '. A test whose expectation was flipped rather than added must be justified '
-                'in the triage evidence; report an unjustified flip.')
-    # Said plainly, because the diff shown beside this note holds those files: silence here
-    # while a changed test is visible there is the brief contradicting itself in one message.
-    carried = merged_in_tests(state['review_base'], state['head'])
-    if carried:
-        return ('This delta changes ' + ', '.join(carried) + ', none of it on its own '
-                'first-parent line, so nothing here can say whose work it is. Judge those '
-                'changes as a merge carried them, not as a regression this correction wrote.')
+                'in the triage evidence; report an unjustified flip.' + also)
     reason = state.get('no_regression_reason', '')
     if reason:
-        return 'No test changed in this delta. Recorded reason: ' + reason + '. Judge whether that is justified.'
-    return 'No test changed in this delta. Judge whether a delta this size can carry no case.'
+        return ('No test changed in this delta. Recorded reason: ' + reason
+                + '. Judge whether that is justified.' + also)
+    return 'No test changed in this delta. Judge whether a delta this size can carry no case.' + also
 
 
 def matrix_run(args, directory, state):
@@ -1104,8 +1106,11 @@ def collects_a_test(path):
         return path in review_matrix.nodes(root, where)
     except SystemExit:
         pass
-    if path in review_matrix.nodes(root, where, tolerant=True):
-        return True
+    try:
+        if path in review_matrix.nodes(root, where, tolerant=True):
+            return True
+    except SystemExit:
+        pass
     try:
         review_matrix.ids(root, [path])
     except SystemExit:
@@ -1450,29 +1455,24 @@ def correction_contract(args, old, head):
             'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
     tests, removed = tests_changed(old['head'], head)
     reason = (args.no_regression_reason or '').strip()
-    a_regression_or_a_reason(old['head'], head, tests, reason, probe)
+    a_regression_or_a_reason(tests, reason, probe)
     return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
                 regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
 
 
-def a_regression_or_a_reason(base, head, tests, reason, probe):
+def a_regression_or_a_reason(tests, reason, probe):
     """What a correction owes about the tests it changed, or about changing none.
 
-    A reason answers "this correction has no test to add". It must not answer "this delta has
-    tests the runtime cannot attribute", which is a different sentence and was satisfied by the
-    same flag.
+    Nothing here is owed about a test a merge carried in. Refusing on one fired on an ordinary
+    merge of the base branch, and letting it through when the correction changed a test of its
+    own let the other shape pass in silence — one condition wrong in both directions, because a
+    carried test is exactly as unattributable either way. What the runtime cannot know it says
+    to both reviewers instead of enforcing: the note names those files in every branch.
 
-    Nor does believing a case exercises the fix make it evidence. Reverting the change and
+    Believing a case exercises the fix does not make it evidence. Reverting the change and
     watching the case fail costs seconds, so the round asks for that output rather than for
     the belief.
     """
-    carried = merged_in_tests(base, head)
-    require(tests or not carried,
-            'This delta changes %s, and none of it is on its own first-parent line, so nothing '
-            'here can say whether it is this correction\'s work or the side a merge brought in. '
-            'A recorded reason does not answer that. Put the correction on the branch\'s own line '
-            '— commit it there, or merge with --ff-only — and run `review_flow.py matrix` over it.'
-            % ', '.join(carried))
     require(tests or reason,
             'This correction touches no test. Add the failing regression first, or record why '
             'that is infeasible with --no-regression-reason "<why>".')

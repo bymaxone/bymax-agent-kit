@@ -1771,53 +1771,51 @@ class ReviewFlowTests(unittest.TestCase):
         self.guard_matrix()
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
-    def test_a_test_merged_in_off_the_first_parent_line_refuses_the_round(self):
-        """Found by a reviewer: the limit was documented as a refusal for having no changed
-        test, and a recorded reason answers that sentence — so the round opened with the matrix
-        gate skipped while the diff beside the brief plainly held a changed test. The shape is
-        refused by name now, and a reason does not answer it, because the question is not
-        whether a test exists but whether anything here can say whose it is."""
+    def test_a_test_a_merge_carried_in_is_named_to_both_reviewers(self):
+        """Refusing on a test the runtime cannot attribute was wrong in both directions: it
+        fired on an ordinary merge of the base branch, and it stayed quiet when the correction
+        had changed a test of its own, which is the shape it was written for. A carried test is
+        exactly as unattributable either way, so it is named rather than enforced — in every
+        branch of the note, because the diff shown beside it holds those files."""
         self.a_guard_and_its_older_test()
         run = lambda *args: subprocess.run(['git', '-C', str(self.repo), *args], check=True,
                                            capture_output=True)
         run('checkout', '-q', '-b', 'topic')
-        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert LIMIT == 7\n')
-        self.commit('a correction on a side branch')
+        (self.repo / 'tests/test_topic.py').write_text('def test_topic(): assert 1\n')
+        self.commit('a test on a side branch')
         run('checkout', '-q', '-')
         run('merge', '-q', '--no-ff', '--no-edit', 'topic')
-        said = self.start(correction=True, reason='', ok=False)
-        self.assertIn('none of it is on its own first-parent line', said.stdout + said.stderr)
-        with_reason = self.start(correction=True, reason='the runner cannot produce one', ok=False)
-        self.assertIn('A recorded reason does not answer that',
-                      with_reason.stdout + with_reason.stderr)
+        # And the correction changes a test of its own, which is the half that stayed silent.
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert LIMIT == 7\n')
+        self.commit('a correction that also changes a test of its own')
+        self.guard_matrix()
+        state = self.start(correction=True, reason='')
+        self.assertEqual(state['regression_tests'], ['tests/test_calc.py'])
+        self.checks()
+        said = self.flow('prompt').stdout
+        self.assertIn('Tests changed in this delta: tests/test_calc.py', said)
+        self.assertIn('tests/test_topic.py', said)
+        self.assertIn('nothing here can say whose work it is', said)
 
-    def test_a_neighbour_that_cannot_be_collected_does_not_refuse_the_round(self):
-        """Found by a reviewer: the directory is what pytest is asked about, so any neighbour
-        with a broken import stopped it answering and the round was refused for a changed test
-        that is not implicated — the blocked-for-good shape this gate exists to remove. The
-        file alone is how the matrix runs it, and it answers."""
+    def test_a_conftest_that_fails_before_collection_answers_nothing(self):
+        """Found by a reviewer: a conftest that will not import makes pytest write the captured
+        output of the module that failed and stop before collecting anything, so the only line
+        on stdout is that output — no banner to cut at. A run that never reached collection
+        answers nothing, and a directory like that has nothing the matrix could measure."""
         (self.repo / 'guard.py').write_text('LIMIT = 7\n')
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)
-        # The neighbour is already there and this correction does not touch it, which is what
-        # makes refusing on its account a refusal about somebody else's file.
-        (self.repo / 'tests/test_absent.py').write_text('import totally_absent_dependency\n')
-        self.commit('a guard, its test, and a neighbour whose import is not installed')
+        (self.repo / 'tests/conftest.py').write_text(
+            'print("tests/helpers.py::test_shape")\nimport totally_absent_dependency\n')
+        self.commit('a guard, its test, and a conftest that will not import')
         self.start()
         self.report('claude')
         self.report('codex')
         self.triage()
-        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert LIMIT == 7\n')
-        self.commit('a correction beside a test whose import is not installed')
-        # Still demanded, which is what says the gate is live rather than merely unrefused:
-        # read as "no test here" the changed test would drop out of scope and nothing would
-        # be asked of it at all.
+        (self.repo / 'tests/helpers.py').write_text('def build(v): return v\n')
+        self.commit('a correction that changes a helper the conftest names')
         said = self.start(correction=True, reason='', ok=False)
-        self.assertIn('no measured mutation matrix exists', said.stdout + said.stderr)
-        # Over the changed file, because the directory is what the broken neighbour stops.
-        self.matrix('tests/test_calc.py', [('LIMIT = 7', 'LIMIT = 8', 'test_calc')],
-                    where='guard.py', enumeration='echo 1')
-        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+        self.assertIn('pytest could not say whether', said.stdout + said.stderr)
 
     def test_a_neighbour_that_prints_a_node_id_while_failing_names_nothing(self):
         """Found by both reviewers independently: with the exit code ignored, every line holding
