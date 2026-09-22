@@ -318,9 +318,8 @@ def collected_here(node, outer):
 
 def bound_by(child):
     """Every name this statement binds in the body that holds it. Asked of the statement
-    rather than enumerated as a list of statement kinds: a name is rebound by a def, a del,
-    an augmented or unpacking assignment, a for target and an import too, and a list of the
-    kinds that were thought of missed each of those in turn.
+    rather than enumerated as a list of statement kinds: a list of the kinds thought of
+    missed, one after another, each of the rebindings the test names.
 
     Read through an if, a for or a try, which bind in the body that holds them, and never
     into a definition, whose own body is a scope of its own.
