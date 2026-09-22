@@ -1787,7 +1787,6 @@ class ReviewFlowTests(unittest.TestCase):
         run('merge', '-q', '--no-ff', '--no-edit', 'topic')
         said = self.start(correction=True, reason='', ok=False)
         self.assertIn('none of it is on its own first-parent line', said.stdout + said.stderr)
-        # And a reason does not answer it, which is the half that was missing.
         with_reason = self.start(correction=True, reason='the runner cannot produce one', ok=False)
         self.assertIn('A recorded reason does not answer that',
                       with_reason.stdout + with_reason.stderr)
@@ -1822,7 +1821,7 @@ class ReviewFlowTests(unittest.TestCase):
 
     def test_a_neighbour_that_prints_a_node_id_while_failing_names_nothing(self):
         """Found by both reviewers independently: with the exit code ignored, every line holding
-        two colons was read as a node id, and pytest captures what a module printed while it
+        `::` was read as a node id, and pytest captures what a module printed while it
         failed to import. A broken neighbour could name any file it liked and make a helper a
         test, which demands a matrix over a file the matrix can never measure."""
         (self.repo / 'guard.py').write_text('LIMIT = 7\n')

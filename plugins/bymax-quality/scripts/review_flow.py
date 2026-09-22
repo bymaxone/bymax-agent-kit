@@ -893,8 +893,7 @@ def merged_in_tests(base, head):
     """The test files this delta changed that no commit of its own first-parent line wrote.
 
     A merge of the base branch and a merge of a branch of one's own put work here the same way,
-    so this names it rather than guessing: the caller refuses instead of demanding a matrix
-    nobody can produce, or of accepting a reason for a delta whose diff plainly holds a test.
+    so this names it rather than guessing.
     """
     changed = git_raw('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
     mine = written_here(base, head)
@@ -916,8 +915,7 @@ def written_here(base, head):
     parent: the resolution somebody typed, and never the files the other side carried over.
 
     The limit, stated because it is one: work merged in with `--no-ff` from a side branch sits
-    off the first-parent line, so only the resolution counts as written here. The round does not
-    pass on that — it refuses for having no changed test, which the author answers on the record.
+    off the first-parent line, so only the resolution counts as written here.
     """
     written = set()
     for row in git('rev-list', '--first-parent', '--parents', '%s..%s' % (base, head)).splitlines():
@@ -1453,8 +1451,7 @@ def correction_contract(args, old, head):
     tests, removed = tests_changed(old['head'], head)
     # A reason answers "this correction has no test to add". It must not answer "this delta has
     # tests the runtime cannot attribute", which is a different sentence and was satisfied by
-    # the same flag: the round then opened with the matrix gate skipped and told both reviewers
-    # no test had changed while the diff beside it showed one.
+    # the same flag.
     carried = merged_in_tests(old['head'], head)
     require(tests or not carried,
             'This delta changes %s, and none of it is on its own first-parent line, so nothing '
