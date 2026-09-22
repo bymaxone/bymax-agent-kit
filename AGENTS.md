@@ -27,7 +27,7 @@ Claude adapter), `plugins/*/hooks/*.sh`, and `codex/{scripts,tests}/**` plus
 
 ```bash
 ./scripts/validate.sh        # manifests, +x, shellcheck, frontmatter, files + scripts/tests
-./scripts/validate-codex.sh  # drift, 27 entrypoints, links, manifests + codex/tests
+./scripts/validate-codex.sh  # drift, 28 entrypoints, links, manifests + codex/tests
 ```
 
 Each script ends with its behavioral suite, so those two commands are the whole gate; running

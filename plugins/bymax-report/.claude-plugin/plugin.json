@@ -1,0 +1,21 @@
+{
+  "name": "bymax-report",
+  "description": "The weekly silent-standup report for one repository, written from evidence. /bymax-report:standup collects what shipped in a period (pull requests via gh, commits via git) and what was asked (what a person typed into Claude Code or Codex sessions on that repository, worktree sessions included, pasted third-party requests included), then writes the two sections the team reads: a PROGRESS list of the asks as outcome sentences, undelivered ones marked in progress, and UPDATES grouped by product area saying what changed and what it replaced. No hashes, PR numbers or file names reach the report; an evidence block under it maps every line back to its PR, commit and request for the author. Plain text printed to paste, no Markdown, no file left on disk, English by default; --author keeps one git author. Depends on git; gh is used when present and its absence is reported, never hidden.",
+  "version": "1.0.1",
+  "author": {
+    "name": "Bymax One",
+    "email": "support@bymax.one",
+    "url": "https://github.com/bymaxone"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/bymaxone/bymax-agent-kit/tree/main/plugins/bymax-report",
+  "keywords": [
+    "standup",
+    "report",
+    "weekly",
+    "changelog",
+    "progress",
+    "git",
+    "gh-cli"
+  ]
+}

@@ -52,7 +52,7 @@ the standard library, Git, and the supported Codex CLI. The installer uses
 
 The integration test uses a temporary CODEX_HOME exclusively for the test process;
 it does not replace the user's actual settings or install anything in their
-normal profile. It checks installation, idempotence, enabled state, all 27 skills through the real app-server loader, and the cached
+normal profile. It checks installation, idempotence, enabled state, all 28 skills through the real app-server loader, and the cached
 review helper from a different repository. To require this test locally, use:
 
 ```bash
