@@ -488,7 +488,23 @@ def ids(root, files, selector=None, tolerant=False):
     if not tolerant and done.returncode not in (0, 5):
         bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
              ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
-    return sorted({line.strip() for line in done.stdout.splitlines() if '::' in line})
+    return sorted({line.strip() for line in collected_lines(done.stdout) if '::' in line})
+
+
+def collected_lines(text):
+    """The lines a collect prints before its own report banner.
+
+    Everything after that banner is pytest describing what went wrong, and a module that printed
+    while it failed to import has its output captured there. Read as node ids, such a module
+    could name any file it liked, and a caller would take the name for a collected test. The
+    banner is a marker pytest emits, not a guess about what a line holds.
+    """
+    out = []
+    for line in text.splitlines():
+        if line.startswith('==='):
+            break
+        out.append(line)
+    return out
 
 
 def record(root, spec_path, files, out=None):

@@ -1772,9 +1772,11 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_test_merged_in_off_the_first_parent_line_refuses_the_round(self):
-        """The other half of the stated limit: work merged in with `--no-ff` is not read as
-        written here, and the round does not pass on that. It refuses for having no changed
-        test, which is an answer the author has to put on the record."""
+        """Found by a reviewer: the limit was documented as a refusal for having no changed
+        test, and a recorded reason answers that sentence — so the round opened with the matrix
+        gate skipped while the diff beside the brief plainly held a changed test. The shape is
+        refused by name now, and a reason does not answer it, because the question is not
+        whether a test exists but whether anything here can say whose it is."""
         self.a_guard_and_its_older_test()
         run = lambda *args: subprocess.run(['git', '-C', str(self.repo), *args], check=True,
                                            capture_output=True)
@@ -1784,7 +1786,11 @@ class ReviewFlowTests(unittest.TestCase):
         run('checkout', '-q', '-')
         run('merge', '-q', '--no-ff', '--no-edit', 'topic')
         said = self.start(correction=True, reason='', ok=False)
-        self.assertIn('This correction touches no test', said.stdout + said.stderr)
+        self.assertIn('none of it is on its own first-parent line', said.stdout + said.stderr)
+        # And a reason does not answer it, which is the half that was missing.
+        with_reason = self.start(correction=True, reason='the runner cannot produce one', ok=False)
+        self.assertIn('A recorded reason does not answer that',
+                      with_reason.stdout + with_reason.stderr)
 
     def test_a_neighbour_that_cannot_be_collected_does_not_refuse_the_round(self):
         """Found by a reviewer: the directory is what pytest is asked about, so any neighbour
@@ -1812,6 +1818,25 @@ class ReviewFlowTests(unittest.TestCase):
         # Over the changed file, because the directory is what the broken neighbour stops.
         self.matrix('tests/test_calc.py', [('LIMIT = 7', 'LIMIT = 8', 'test_calc')],
                     where='guard.py', enumeration='echo 1')
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_neighbour_that_prints_a_node_id_while_failing_names_nothing(self):
+        """Found by both reviewers independently: with the exit code ignored, every line holding
+        two colons was read as a node id, and pytest captures what a module printed while it
+        failed to import. A broken neighbour could name any file it liked and make a helper a
+        test, which demands a matrix over a file the matrix can never measure."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)
+        (self.repo / 'tests/test_absent.py').write_text(
+            'print("tests/helpers.py::test_shape")\nimport totally_absent_dependency\n')
+        self.commit('a guard, its test, and a neighbour that prints while it fails to import')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/helpers.py').write_text('def build(v): return v\n\n\ndef test_shape(v): assert v\n')
+        self.commit('a correction that changes a helper the neighbour names')
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_helper_beside_a_broken_neighbour_is_still_not_asked_for_a_case(self):

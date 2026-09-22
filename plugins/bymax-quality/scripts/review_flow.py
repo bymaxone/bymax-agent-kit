@@ -889,6 +889,18 @@ def tests_changed(base, head):
             [name for name in removed if is_test_path(name)])
 
 
+def merged_in_tests(base, head):
+    """The test files this delta changed that no commit of its own first-parent line wrote.
+
+    A merge of the base branch and a merge of a branch of one's own put work here the same way,
+    so this names it rather than guessing: the caller refuses instead of demanding a matrix
+    nobody can produce, or of accepting a reason for a delta whose diff plainly holds a test.
+    """
+    changed = git_raw('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
+    mine = written_here(base, head)
+    return [name for name in changed if is_test_path(name) and name not in mine]
+
+
 def written_here(base, head):
     """Every path a commit of this delta's own line wrote.
 
@@ -929,6 +941,13 @@ def regression_note(state):
         return ('Tests changed in this delta: ' + ', '.join(tests)
                 + '. A test whose expectation was flipped rather than added must be justified '
                 'in the triage evidence; report an unjustified flip.')
+    # Said plainly, because the diff shown beside this note holds those files: silence here
+    # while a changed test is visible there is the brief contradicting itself in one message.
+    carried = merged_in_tests(state['review_base'], state['head'])
+    if carried:
+        return ('This delta changes ' + ', '.join(carried) + ', none of it on its own '
+                'first-parent line, so nothing here can say whose work it is. Judge those '
+                'changes as a merge carried them, not as a regression this correction wrote.')
     reason = state.get('no_regression_reason', '')
     if reason:
         return 'No test changed in this delta. Recorded reason: ' + reason + '. Judge whether that is justified.'
@@ -1432,6 +1451,17 @@ def correction_contract(args, old, head):
             + ', '.join(uncovered) + '. Add a probe entry per finding with "covers": "<id>", '
             'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
     tests, removed = tests_changed(old['head'], head)
+    # A reason answers "this correction has no test to add". It must not answer "this delta has
+    # tests the runtime cannot attribute", which is a different sentence and was satisfied by
+    # the same flag: the round then opened with the matrix gate skipped and told both reviewers
+    # no test had changed while the diff beside it showed one.
+    carried = merged_in_tests(old['head'], head)
+    require(tests or not carried,
+            'This delta changes %s, and none of it is on its own first-parent line, so nothing '
+            'here can say whether it is this correction\'s work or the side a merge brought in. '
+            'A recorded reason does not answer that. Put the correction on the branch\'s own line '
+            '— commit it there, or merge with --ff-only — and run `review_flow.py matrix` over it.'
+            % ', '.join(carried))
     reason = (args.no_regression_reason or '').strip()
     require(tests or reason,
             'This correction touches no test. Add the failing regression first, or record why '
