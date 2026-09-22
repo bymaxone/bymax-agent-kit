@@ -1462,10 +1462,9 @@ def a_regression_or_a_reason(base, head, tests, reason, probe):
     tests the runtime cannot attribute", which is a different sentence and was satisfied by the
     same flag.
 
-    Nor does believing a case exercises the fix make it evidence. Measured across two campaigns
-    on two repositories: every such belief that was checked turned out wrong, and a reviewer
-    checked it every time. Reverting the change and watching the case fail costs seconds, so the
-    round asks for that output rather than for the belief.
+    Nor does believing a case exercises the fix make it evidence. Reverting the change and
+    watching the case fail costs seconds, so the round asks for that output rather than for
+    the belief.
     """
     carried = merged_in_tests(base, head)
     require(tests or not carried,
