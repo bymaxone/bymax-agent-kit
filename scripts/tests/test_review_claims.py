@@ -587,13 +587,20 @@ class ChangedTestTests(unittest.TestCase):
         self.assertEqual(sorted(claims.definitions(case + 'class Base: pass\n' + sub)), [])
         # A rebinding is asked of the statement rather than listed: each of these was a
         # demand for a node pytest cannot collect, which nothing could satisfy.
-        for rebinding in ('def Base(): pass', 'Base, other = int, str', '*Base, = [int]',
-                          'del Base', 'Base += 1', 'for Base in []:\n    pass',
-                          'from x import Base', 'if True:\n    Base = int'):
+        for rebinding in ('def Base(): pass', 'async def Base(): pass', 'Base = int',
+                          'Base: type = int', 'Base += 1', 'Base, other = int, str',
+                          '*Base, = [int]', 'del Base', 'for Base in []:\n    pass',
+                          'import contextlib\nwith contextlib.suppress(Exception) as Base:\n    pass',
+                          'try:\n    pass\nexcept Exception as Base:\n    pass',
+                          'if (Base := int):\n    pass', 'from x import Base', 'import x as Base',
+                          'if True:\n    Base = int', 'try:\n    Base = int\nexcept Exception:\n    pass',
+                          'if True:\n    class Base: pass', 'match 1:\n    case Base:\n        pass'):
             self.assertEqual(sorted(claims.definitions(case + rebinding + '\n' + sub)), [], rebinding)
-        # And a name bound only inside another class body is that class's, not this one's.
-        self.assertEqual(sorted(claims.definitions(case + 'class Namespace:\n    Base = int\n' + sub)),
-                         ['Cases::test_added'])
+        # And a name bound in a scope of its own — another class's body, a function's — is
+        # that scope's, so the base this one inherits is still the collected class.
+        for elsewhere in ('class Namespace:\n    Base = int', 'def outer():\n    Base = int'):
+            self.assertEqual(sorted(claims.definitions(case + elsewhere + '\n' + sub)),
+                             ['Cases::test_added'], elsewhere)
 
     def test_a_class_pytest_is_told_to_skip_holds_no_test_that_can_fail(self):
         """Found by a reviewer: the mark was read on a function and never on the class whose
