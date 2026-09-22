@@ -688,7 +688,7 @@ def collect(repo: Path, since: dt.date, until: dt.date, home: Path, use_gh: bool
         'coverage': {
             'commits': len(commits), 'commits_without_pr': sum(1 for c in commits if c['pr'] is None),
             'commits_shipped': sum(1 for c in commits if c['shipped']),
-            'delivery_ref': ref, 'shipped': shipped_note,
+            'repo': str(repo), 'delivery_ref': ref, 'shipped': shipped_note,
             'prs': len(prs), 'prs_shipped': sum(1 for p in prs if p['shipped']),
             'requests': len(requests),
             'gh': gh_note, 'claude': claude_cov, 'codex': codex_cov,
@@ -756,7 +756,7 @@ def main(argv: list[str] | None = None) -> int:
         out.write_text(text, encoding='utf-8')
         cov = data['coverage']
         print(f"wrote {out}: {cov['commits']} commits, {cov['prs']} PRs, {cov['requests']} requests "
-              f"({since} .. {until})")
+              f"({since} .. {until}) on {repo}")
     else:
         sys.stdout.write(text)
     return 0

@@ -338,6 +338,28 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(prs[0]['shas'], ['f' * 12])
         self.assertNotIn('could not read the commits', note)
 
+    def test_a_pull_request_whose_commits_gh_refuses_is_named_in_coverage(self):
+        """The commits are a second call per pull request, and a second call is a second way to
+        fail: signed out, rate limited, or a pull request the token cannot see. The evidence block
+        has to say so, because a pull request with no commit list silently links nothing and its
+        commits are then written up as work with no pull request."""
+        rows = [{'number': 5, 'title': 'feat: a', 'createdAt': noon('2026-09-17'), 'author': {'login': 'x'}},
+                {'number': 6, 'title': 'feat: b', 'createdAt': noon('2026-09-18'), 'author': {'login': 'x'}}]
+        def fake_gh(cmd, **kwargs):
+            if 'view' in cmd:
+                if cmd[cmd.index('view') + 1] == '5':
+                    return subprocess.CompletedProcess(cmd, 1, stdout='', stderr='gh: not logged in')
+                body = json.dumps({'commits': [{'oid': 'a' * 40}]})
+                return subprocess.CompletedProcess(cmd, 0, stdout=body, stderr='')
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows), stderr='')
+        with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
+            prs, note = self.m.collect_prs(self.repo, self.since, self.until)
+        self.assertIn('could not read the commits of 1', note)
+        byn = {pr['number']: pr for pr in prs}
+        self.assertEqual(byn[5]['shas'], [])
+        self.assertEqual(byn[5]['title'], 'feat: a', 'the refusal cost the pull request its evidence')
+        self.assertEqual(byn[6]['shas'], ['a' * 12])
+
     def test_gh_reaching_its_cap_is_said_in_coverage(self):
         """gh pr list has no pagination: a read that returns exactly the cap may have dropped older
         PRs, and the evidence block must say so rather than read as complete."""
@@ -441,6 +463,8 @@ class CollectTests(unittest.TestCase):
         work = with_file.stdout.strip().splitlines()[-1]
         self.assertTrue((Path(work) / 'collect.json').exists(), with_file.stdout)
         self.assertIn('(2026-09-14 .. 2026-09-20)', with_file.stdout)
+        # Without the repository here a run cannot check what it read against what it asked for.
+        self.assertIn(str(self.repo), with_file.stdout)
 
     def git_in_repo(self, *args, **env):
         base = {**isolated(), 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',

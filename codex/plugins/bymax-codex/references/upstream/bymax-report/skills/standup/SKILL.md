@@ -58,9 +58,11 @@ First write the arguments to a file with the file tool, three lines, so a value 
 user typed never becomes shell source: line 1 the period token (`last-week` when none
 was given), line 2 the repository path (`.` when none was given), line 3 the author
 text (an empty line when none was given). The file is `.claude/bymax-report-args` in
-the home directory; the block below claims it with a rename, reads the copy only it
-holds, and refuses to run without one, so a run never falls back to defaults the user
-did not choose and two runs at once cannot read each other's arguments. Then run:
+the home directory. **Create it only when it is absent.** A file already there may
+be another standup in flight: wait for it rather than overwriting it, or you take
+arguments that run is about to read. The block below then claims that file with a
+rename and reads the copy only it holds, and refuses to run without one, so a run
+never falls back to defaults the user did not choose. Then run:
 
 ```bash
 ARGS="${HOME}/.claude/bymax-report-args"
@@ -97,7 +99,12 @@ It also stops when there is no temporary directory to make, because an unchecked
 leaves the variable empty and the collector is then told to write `/collect.json`, outside
 the run's own directory and outside its cleanup.
 The collect's own line says how many commits, pull requests and requests it found and
-the dates it resolved. **Read that line before anything else.** Then read
+the dates it resolved and the repository it read. **Read that line before anything
+else, and check the period and the repository against what you were asked for.** The
+create-only-when-absent rule above is prose, not a gate, so a run that ignores it can
+still take your arguments; a period or a repository that is not the one you were asked
+about is what that looks like. Write the arguments again and run the block again rather
+than reporting on the wrong repository. Then read
 `collect.json`; it is one record per line, so read it whole with the file tool.
 
 What the file holds:
