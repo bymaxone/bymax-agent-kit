@@ -974,9 +974,9 @@ def matrix_first(state, directory):
     # Before caught_with_the_changed_test, never after: the nodes it reads are the results,
     # and a record whose results are not a list crashed there rather than refused by name.
     results_agree(kept, names)
-    ran = [node for node in (kept.get('ran') or []) if isinstance(node, str)]
+    import review_matrix
     added = tests_added(state['review_base'], [p for p in state['regression_tests'] if collects_a_test(p)])
-    caught_with_the_changed_test(kept, [node for node in added if node in ran])
+    caught_with_the_changed_test(kept, review_matrix.ran_alone(git('rev-parse', '--show-toplevel'), added))
 
 
 def ran_the_changed_tests(kept, changed):

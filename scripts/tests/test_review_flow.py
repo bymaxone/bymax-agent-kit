@@ -1790,6 +1790,12 @@ class ReviewFlowTests(unittest.TestCase):
         self.guard_matrix()
         self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
                       self.start(ok=False, correction=True, reason='').stderr)
+        # And the matrix's own selector is not the exemption: a case that names only the
+        # older test leaves the added one unrun by the matrix, and it is still asked for.
+        self.matrix('tests', [('LIMIT = 7', 'LIMIT = 8', 'test_calc_old')],
+                    where='guard.py', enumeration='echo 1')
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
+                      self.start(ok=False, correction=True, reason='').stderr)
 
     def test_every_test_the_delta_changed_must_catch_not_one_of_them(self):
         """Found by a reviewer: the demand was an intersection, so one test that caught

@@ -224,7 +224,7 @@ def one(root, mutant, files, clean=None):
     seen = clean if clean is not None else {}
     if mutant['case'] not in seen:
         seen[mutant['case']] = baseline(root, files, mutant['case'])
-    nodes_of_case = seen[mutant['case']][0]
+    nodes_of_case = seen[mutant['case']]
     path, original = apply_mutant(root, mutant)
     try:
         # One pytest per node: run together under the selector, the summary line said some
@@ -260,15 +260,24 @@ def baseline(root, files, case):
     if not nodes:
         bail('Case %r collects no test under %s. A case pytest cannot find measures nothing.'
              % (case, ' '.join(files)))
-    ran = []
     for node in nodes:
         clean_code, clean_tail = run_case(root, None, [node])
         if clean_code != 0:
             bail('Case %r does not pass on the clean tree (%s: %s). A mutant that fails a case '
                  'which already fails measures nothing.' % (case, node, clean_tail))
-        if re.search(r'\d+ passed', clean_tail):
-            ran.append(node)
-    return nodes, ran
+    return nodes
+
+
+def ran_alone(root, nodes):
+    """Of these nodes, the ones pytest RAN, each on its own in this tree. It writes `1 passed`
+    for a test it ran and `1 skipped` for one it did not, and a test that does not run can
+    never be among those that failed, so asking it to would be a demand nobody could satisfy.
+
+    Asked of the nodes themselves rather than taken from what the matrix ran: the matrix runs
+    what its cases select, and a test the author's selector passes over would have left the
+    demand with nothing to ask about — which is the correction writing its own exemption.
+    """
+    return [node for node in nodes if re.search(r'\d+ passed', run_case(root, None, [node])[1])]
 
 
 def judged(mutant, runs):
@@ -354,10 +363,9 @@ def sites(root, mutants):
     return landed
 
 
-def matrix(root, spec, files, clean=None):
-    """Every rule, every mutant, with a survivor stopping the run. `clean` carries back what
-    each case's nodes did on the clean tree, which the record keeps beside the results."""
-    results, clean = [], clean if clean is not None else {}
+def matrix(root, spec, files):
+    """Every rule, every mutant, with a survivor stopping the run."""
+    results, clean = [], {}
     for rule in spec:
         shaped(rule)
     names = [r['rule'] for r in spec]
@@ -479,8 +487,7 @@ def record(root, spec_path, files, out=None):
     spec = json.loads(Path(spec_path).read_text())
     if not isinstance(spec, list) or not spec:
         bail('A matrix is a non-empty list of rules.')
-    clean = {}
-    results = matrix(root, spec, files, clean)
+    results = matrix(root, spec, files)
     survivors = [r for r in results if not r['caught']]
     head, names, tree = fingerprint(root, spec)
     # The test files pytest collected travel with the record, each with the cases a test of
@@ -489,8 +496,6 @@ def record(root, spec_path, files, out=None):
     payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
                'mutants': len(results), 'survivors': [r['case'] for r in survivors],
                'tests': collected(root, files, results),
-               # The nodes pytest ran on the clean tree, as opposed to those it collected.
-               'ran': sorted({node for _, ran in clean.values() for node in ran}),
                'results': results}
     if out:
         Path(out).write_text(json.dumps(payload, indent=2) + '\n')
