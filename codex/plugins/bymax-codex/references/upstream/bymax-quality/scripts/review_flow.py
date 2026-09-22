@@ -882,39 +882,32 @@ def tests_changed(base, head):
     other side ever wrote into this diff — which asked the matrix for a case inside suites the
     correction never touched, a demand nobody can satisfy.
     """
-    changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
-    removed = git('diff', '--name-only', '--no-renames', '--diff-filter=D', base, head).splitlines()
-    carried = carried_by_a_merge(base, head, changed)
-    return ([name for name in changed if is_test_path(name) and name not in carried],
+    changed = git_raw('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
+    removed = git_raw('diff', '--name-only', '--no-renames', '--diff-filter=D', base, head).splitlines()
+    mine = written_here(base, head)
+    return ([name for name in changed if is_test_path(name) and name in mine],
             [name for name in removed if is_test_path(name)])
 
 
-def carried_by_a_merge(base, head, paths):
-    """Of these paths, the ones a merge in this range brought in exactly as the other side had.
+def written_here(base, head):
+    """Every path a commit of this delta's own line wrote.
 
-    Compared by object id against the merged-in parents, so the question is what the tree holds
-    now rather than what the merge once wrote: a file edited after the merge no longer matches
-    the side it came from and is this delta's again. The first parent is never one of them —
-    it is this delta's own line, and every file it carries is the delta.
+    Provenance and not content. Asking instead whether the bytes match a side the merge brought
+    in got both answers wrong: a test this delta wrote that the other side wrote identically
+    vanished, and `git merge --no-ff` puts the delta's OWN commits on the second parent, so the
+    whole matrix gate fell silent. `--ancestry-path` keeps the commits that descend from the
+    base, which is what "this delta wrote" means — a branch merged into this one descends from
+    it and counts; the base branch merged into this one does not.
+
+    A merge on that line is read by its combined diff, which names only what differs from every
+    parent: the resolution somebody typed, and never the files the other side carried over.
     """
-    others = []
-    for row in git('rev-list', '--merges', '--parents', '%s..%s' % (base, head)).split('\n'):
-        others.extend(row.split()[2:])
-    here = {name: blob(head, name) for name in paths}
-    carried = set()
-    for parent in others:
-        for name, digest in here.items():
-            if digest and blob(parent, name) == digest:
-                carried.add(name)
-    return carried
-
-
-def blob(revision, path):
-    """The object id this revision holds at this path, or '' where it holds none."""
-    try:
-        return git('rev-parse', '--verify', '--quiet', '%s:%s' % (revision, path))
-    except subprocess.CalledProcessError:
-        return ''
+    written = set()
+    for sha in git('rev-list', '--ancestry-path', '%s..%s' % (base, head)).split():
+        shape = ['-c'] if len(git('rev-parse', sha + '^@').split()) > 1 else ['--root']
+        written.update(git_raw('diff-tree', '-r', '--no-commit-id', '--name-only', '--no-renames',
+                               *shape, sha).splitlines())
+    return written
 
 
 def regression_note(state):
@@ -980,7 +973,14 @@ def matrix_first(state, directory):
     # is any repository's, so on a project whose suite is Jest or Cargo the record demanded
     # could never be produced and the correction was blocked for good. Asked of pytest: what
     # it collects no test from is not a gate this runtime can mutate.
-    runnable = [path for path in state['regression_tests'] if collects_a_test(path)]
+    answered = [(path, collects_a_test(path)) for path in state['regression_tests']]
+    # An unanswerable collect is not an answer: read as "no test here" it emptied the list and
+    # returned, skipping the whole gate without a word.
+    unanswered = [path for path, said in answered if said is None]
+    require(not unanswered, 'pytest could not say whether %s holds a test, so nothing here can '
+            'say whether this correction needs a matrix. Fix the collect, then run '
+            '`review_flow.py matrix`.' % ', '.join(unanswered))
+    runnable = [path for path, said in answered if said]
     if not runnable:
         return
     where = directory / ('matrix-' + state['head'] + '.json')
@@ -1060,14 +1060,13 @@ def ran_the_changed_tests(kept, changed):
 
 def collects_a_test(path):
     """Whether pytest collects a test from this file when it collects the directory it sits
-    in, which is the question the record answers: a matrix runs over paths, and its mapping
-    names the files pytest found under them. Named directly, pytest collects a file whatever
-    it is called, so asking about the file alone would call every helper a test.
+    in. Named directly, pytest collects a file whatever it is called, so asking about the
+    file alone would call every helper a test.
 
     A file it collects nothing from can carry no case, and a file gone from the tree carries
-    none either. A collect that cannot answer at all — a source that will not parse — is read
-    as none rather than raised: the matrix refuses what it cannot read, and raising that from
-    here would end a campaign at another tier than the one this question belongs to.
+    none either. A collect that cannot answer at all — a conftest that will not import — is
+    None and never False: read as "no test here" it let the caller skip the gate in silence,
+    which is the one failure this gate exists to make impossible.
     """
     import review_matrix
     root = git('rev-parse', '--show-toplevel')
@@ -1076,7 +1075,7 @@ def collects_a_test(path):
     try:
         return path in review_matrix.nodes(root, [str(Path(path).parent) or '.'])
     except SystemExit:
-        return False
+        return None
 
 
 def tests_added(base, names):

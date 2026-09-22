@@ -36,11 +36,10 @@ import sys
 import tokenize
 from pathlib import Path
 
-# A fence, and the indented block too: a name inside one is an example
-# about somebody else's repository, and reading it as an assertion refused a candidate
-# whose README merely showed the call.
-FENCED = re.compile(r'^(```|~~~).*?^\1', re.DOTALL | re.MULTILINE)
-INDENTED = re.compile(r'^(?: {4}|\t).*$', re.MULTILINE)
+# A name inside a code block is an example about somebody else's repository, and reading it
+# as an assertion refused a candidate whose README merely showed the call.
+FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
+ITEM = re.compile(r'^(?P<lead> *)(?:[-*+]|\d{1,9}[.)])(?P<gap> +)')
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
@@ -65,6 +64,82 @@ def git(*args, cwd=None):
     return done.stdout if done.returncode == 0 else ''
 
 
+
+def columns(line):
+    """How far this line is indented, a tab advancing to the next four-column stop."""
+    width = 0
+    for char in line:
+        if char == ' ':
+            width += 1
+        elif char == '\t':
+            width += 4 - width % 4
+        else:
+            break
+    return width
+
+
+def outside_code(text):
+    """Every Markdown code block blanked, and nothing else.
+
+    Every regex spelling tried here fixed one shape while breaking another. The question needs
+    state a regex has no way to carry, so the lines are walked once with it: the fence that is
+    open, and the column the innermost list item's content starts at. Inside a block a name is
+    an example about somebody else's repository; outside one it is what this file asserts.
+    """
+    out, fence, content, blank, code = [], None, 0, True, False
+    for line in text.split('\n'):
+        stripped = line.strip()
+        indent = columns(line)
+        if fence is not None:
+            out.append(' ' if stripped else line)
+            if closes(line, fence):
+                fence = None
+            continue
+        if code:
+            # A block runs on over its own blank lines and ends at the first line that leaves it.
+            if not stripped or indent >= content + 4:
+                out.append(' ' if stripped else line)
+                blank = not stripped
+                continue
+            code = False
+        if not stripped:
+            out.append(line)
+            blank = True
+            continue
+        item = ITEM.match(line)
+        if item:
+            content = len(item.group(0))
+            out.append(line)
+            blank = False
+            continue
+        if indent < content:
+            content = 0
+        found = FENCE.match(line)
+        if found:
+            fence = (found['run'][0], len(found['run']))
+            out.append(' ')
+            blank = False
+            continue
+        # An indented block cannot interrupt a paragraph, so the blank line before it is part
+        # of what makes it one: without that, the wrapped second line of a sentence is code.
+        if blank and indent >= content + 4:
+            code = True
+            out.append(' ')
+            blank = False
+            continue
+        out.append(line)
+        blank = False
+    return '\n'.join(out)
+
+
+def closes(line, fence):
+    """Whether this line ends the open fence: the same character, at least as long, and nothing
+    after it — an info string is allowed where a fence opens and nowhere else."""
+    found = FENCE.match(line)
+    return bool(found and found['run'][0] == fence[0] and len(found['run']) >= fence[1]
+                and not found['info'].strip())
+
+
 def prose(name, text):
     """What a file asserts in words: markdown minus its examples, or docstrings and comments.
 
@@ -73,7 +148,7 @@ def prose(name, text):
     and counting them as assertions was measured to produce false positives on this tree.
     """
     if name.endswith('.md'):
-        return INDENTED.sub(' ', FENCED.sub(' ', text))
+        return outside_code(text)
     if not name.endswith('.py'):
         return ''
     lines = text.split('\n')
