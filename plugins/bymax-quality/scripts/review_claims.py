@@ -102,9 +102,16 @@ def outside_code(text):
             out.append(line)
             blank = True
             continue
+        # This far past the open item's content the line is an indented block, so it is neither
+        # a marker nor a fence: decided after them, a ``` four spaces in opened a fence and
+        # blanked the rest of the file, and a `- x` inside a block reopened a list.
+        if blank and indent >= content + 4:
+            out.append(' ')
+            code, blank = True, False
+            continue
         content = listing(line, indent, content)
-        fence, code = opens(line, indent, content, blank)
-        out.append(' ' if fence or code else line)
+        fence = opens(line)
+        out.append(' ' if fence else line)
         blank = False
     return '\n'.join(out)
 
@@ -121,16 +128,10 @@ def listing(line, indent, content):
     return 0 if indent < content else content
 
 
-def opens(line, indent, content, blank):
-    """The fence this line opens, and whether it opens an indented block.
-
-    An indented block cannot interrupt a paragraph, so the blank line before it is part of what
-    makes it one: without that, the wrapped second line of a sentence reads as code.
-    """
+def opens(line):
+    """The fence this line opens, as its character and its length, or None where it opens none."""
     found = FENCE.match(line)
-    if found:
-        return (found['run'][0], len(found['run'])), False
-    return None, bool(blank and indent >= content + 4)
+    return (found['run'][0], len(found['run'])) if found else None
 
 
 def closes(line, fence):

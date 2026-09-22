@@ -350,6 +350,10 @@ class OpaqueFileTests(unittest.TestCase):
         ('an indented block after a list closed', '- Status\n\nDone.\n\n    OLD_HELPER()'),
         ('a block indented with a tab', '\tOLD_HELPER()'),
         ('a fence a line with an info string does not close', '```\n``` still open\nOLD_HELPER()\n```'),
+        ('a fence four spaces in, which is an indented line and opens nothing',
+         '    ```\n    OLD_HELPER()'),
+        ('a marker inside an indented block, which opens no list', '    - OLD_HELPER: yes'),
+        ('a numbered marker inside an indented block', '    1. OLD_HELPER()'),
     )
 
     ASSERTIONS = (
@@ -359,6 +363,8 @@ class OpaqueFileTests(unittest.TestCase):
         ('a nested list item', '- Status\n    - and OLD_HELPER went with it'),
         ('the wrapped second line of a sentence',
          'A paragraph about it\n    that says OLD_HELPER is gone.'),
+        ('the prose after a fence four spaces in, which never opened',
+         '    ```\nWe removed OLD_HELPER from the API.'),
     )
 
     def test_a_name_inside_a_code_block_is_an_example(self):

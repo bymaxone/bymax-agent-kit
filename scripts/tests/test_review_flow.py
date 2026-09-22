@@ -1771,6 +1771,29 @@ class ReviewFlowTests(unittest.TestCase):
         self.guard_matrix()
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
+    def test_a_neighbour_that_cannot_be_collected_does_not_refuse_the_round(self):
+        """Found by a reviewer: the directory is what pytest is asked about, so any neighbour
+        with a broken import stopped it answering and the round was refused for a changed test
+        that is not implicated — the blocked-for-good shape this gate exists to remove. The
+        file alone is how the matrix runs it, and it answers."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)
+        # The neighbour is already there and this correction does not touch it, which is what
+        # makes refusing on its account a refusal about somebody else's file.
+        (self.repo / 'tests/test_absent.py').write_text('import totally_absent_dependency\n')
+        self.commit('a guard, its test, and a neighbour whose import is not installed')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert LIMIT == 7\n')
+        self.commit('a correction beside a test whose import is not installed')
+        # Over the changed file, because the directory is what the broken neighbour stops.
+        self.matrix('tests/test_calc.py', [('LIMIT = 7', 'LIMIT = 8', 'test_calc')],
+                    where='guard.py', enumeration='echo 1')
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
     def test_a_collect_that_cannot_answer_refuses_instead_of_skipping_the_gate(self):
         """Found by a reviewer: a collect that errors was read as "no test here", which emptied
         the list the gate is scoped by and returned before the gate demanded anything. A
@@ -2445,12 +2468,12 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
                                       capture_output=True, text=True).stdout.strip()
         shared = {'test_shared.py': 'def test_shared():\n    assert True\n'}
         start = self.commit(dict(shared))
-        # The other side is a branch this one does not descend from, which is what the base
-        # branch is: no commit of it has the previous candidate as an ancestor. It adds a test
-        # of its own, and one whose bytes match what this delta writes below.
+        # The other side is the base branch, named by the ref this repository has for it. It
+        # adds a test of its own, and one whose bytes match what this delta writes below.
         run('checkout', '-q', '-b', 'other', start)
-        self.commit(dict(shared, **{'test_theirs.py': 'def test_theirs():\n    assert True\n',
-                                    'test_same.py': 'def test_same():\n    assert True\n'}))
+        theirs = self.commit(dict(shared, **{'test_theirs.py': 'def test_theirs():\n    assert True\n',
+                                             'test_same.py': 'def test_same():\n    assert True\n'}))
+        run('update-ref', 'refs/remotes/origin/main', theirs)
         run('checkout', '-q', '-')
         base = self.commit(dict(shared))
         self.commit(dict(shared, **{'test_mine.py': 'def test_mine():\n    assert True\n',
@@ -2470,6 +2493,24 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
         self.commit({'test_theirs.py': 'def test_theirs():\n    assert 1\n'})
         self.assertEqual(self.flow.tests_changed(base, head())[0],
                          ['test_mine.py', 'test_same.py', 'test_shared.py', 'test_theirs.py'])
+
+    def test_without_a_base_branch_ref_the_whole_range_is_this_delta_s(self):
+        """No ref names the base branch — a fixture, a repository with no remote — and then
+        every commit in the range really is this delta's own. Answering the other way would
+        drop work; this asks for a matrix over more tests rather than fewer, which is the
+        direction that stops a correction rather than waving it through."""
+        run = lambda *args: subprocess.run(['git', '-C', str(self.where), *args], check=True,
+                                           capture_output=True)
+        start = self.commit({'test_a.py': 'def test_a():\n    assert 1\n'})
+        run('checkout', '-q', '-b', 'side', start)
+        self.commit({'test_a.py': 'def test_a():\n    assert 1\n',
+                     'test_side.py': 'def test_side():\n    assert 1\n'})
+        run('checkout', '-q', '-')
+        base = self.commit({'test_a.py': 'def test_a():\n    assert 1\n'})
+        run('merge', '-q', '--no-edit', 'side')
+        head = subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True).stdout.strip()
+        self.assertEqual(self.flow.tests_changed(base, head)[0], ['test_side.py'])
 
     def test_a_no_ff_merge_of_this_delta_s_own_branch_is_this_delta(self):
         """`git merge --no-ff topic` makes the correction's own commits the second parent. Read
