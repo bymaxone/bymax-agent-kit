@@ -43,9 +43,8 @@ from pathlib import Path
 
 CONVENTIONAL = re.compile(r'^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<summary>.+)$')
 REFLOG_STAMP = re.compile(r'@\{(\d+)\}')
-# The action a reflog entry records, which is the word before its first colon. `fetch`,
-# `pull` and `clone` move a ref because we synced; `update by push`, `commit`, `merge` and
-# `reset` move it because the work arrived here.
+# The reflog actions that mean a ref moved because this repository caught up with another
+# one; a ref moved by anything else moved because the work arrived here.
 SYNCED = ('fetch', 'pull', 'clone')
 PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
@@ -220,12 +219,11 @@ def moved_by_syncing(repo: Path, ref: str) -> bool:
     the first away, and a clone whose last fetch before the period predated the week
     reported the week's work as still in flight — both measured.
 
-    So the entries answer. Their action is the word before the first colon; a message with
-    no colon, ``update by push``, is one word. Measured on this machine: ``origin/main``
-    carries only fetches and pulls in all three repositories here, a local branch carries
-    ``commit`` and ``reset``, and a repository that delivers by pushing carries nothing but
-    ``update by push``. These words are written into the file by the command that moved the
-    ref, not rendered at read time, so they do not follow the reader's language.
+    So the entries answer. An entry's action is the first word of its message once anything
+    from the first colon is cut off: ``clone:`` would otherwise keep its colon, and
+    ``pull --tags origin main:`` its arguments, while ``update by push`` has no colon at all.
+    These words are written into the file by the command that moved the ref, not rendered at
+    read time, so they do not follow the reader's language.
     """
     code, out, _ = git_out(repo, 'reflog', 'show', '--format=%gs', ref, '--')
     if code != 0:
@@ -243,8 +241,8 @@ def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]
 
     Where every move of the ref was delivery rather than syncing, the reflog is that record
     and the only thing that sees a fast-forward, which creates no object and stamps no date.
-    Where any move was a fetch, a pull or a clone, the reflog says when this repository
-    caught up, so the commit dates answer instead — and they carry the upstream merge time,
+    Where any move was this repository catching up, the reflog says when that happened, so
+    the commit dates answer instead — and they carry the upstream merge time,
     which is what the question is about. Neither sees a fast-forward performed elsewhere;
     coverage names the record so the reader knows which question was answered.
 

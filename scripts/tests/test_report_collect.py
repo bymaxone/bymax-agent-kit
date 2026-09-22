@@ -477,7 +477,7 @@ class CollectTests(unittest.TestCase):
         return work.resolve()
 
     def test_a_push_to_the_delivery_ref_is_the_delivery(self):
-        """A remote-tracking reflog is a syncing log only when the moves are fetches. A push
+        """A remote-tracking reflog is a syncing log only where catching up moved the ref. A push
         moves it because the work landed, so that entry is the record this question wants —
         and deciding by the ref's name threw it away, reporting work pushed after the period
         as delivered inside it."""
