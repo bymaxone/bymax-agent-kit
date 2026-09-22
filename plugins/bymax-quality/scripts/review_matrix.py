@@ -480,8 +480,8 @@ def ids(root, files, selector=None, tolerant=False):
     collection: a conftest that will not import makes pytest write the captured output of the
     module that failed and stop before collecting anything, so the only line on stdout is that
     output. Measured in one tree — a broken test module exits 2 and prints the real ids with the
-    report after them, a broken conftest exits 4 and prints nothing but the injected line — and
-    a directory whose conftest will not import has nothing the matrix could measure anyway.
+    report after them, a broken conftest exits 4 before any id is collected — and a directory
+    whose conftest will not import has nothing the matrix could measure anyway.
     """
     # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
     # every id against the argument's own directory instead — a bare name for a file under
@@ -506,8 +506,8 @@ def collected_lines(text):
     could name any file it liked, and a caller would take the name for a collected test.
 
     Matched by the banner's shape and not by its first characters: a path may begin with those
-    same characters, and a node id under it was cut, which emptied the answer and let the gate
-    be skipped. A banner ends where it began; an id ends in a test's name.
+    same characters, and a node id under it was cut, which emptied the answer. A banner ends
+    where it began; an id ends in a test's name.
     """
     out = []
     for line in text.splitlines():

@@ -1775,8 +1775,8 @@ class ReviewFlowTests(unittest.TestCase):
         """Refusing on a test the runtime cannot attribute was wrong in both directions: it
         fired on an ordinary merge of the base branch, and it stayed quiet when the correction
         had changed a test of its own, which is the shape it was written for. A carried test is
-        exactly as unattributable either way, so it is named rather than enforced — in every
-        branch of the note, because the diff shown beside it holds those files."""
+        exactly as unattributable either way, so it is named rather than enforced, because the
+        diff shown beside it holds those files."""
         self.a_guard_and_its_older_test()
         run = lambda *args: subprocess.run(['git', '-C', str(self.repo), *args], check=True,
                                            capture_output=True)

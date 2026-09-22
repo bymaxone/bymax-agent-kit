@@ -936,8 +936,7 @@ def regression_note(state):
     """
     tests, _ = tests_changed(state['review_base'], state['head'])
     # Named in every branch, because the diff shown beside this note holds those files: silence
-    # here while a changed test is visible there is the brief contradicting itself in one
-    # message, and it stayed silent whenever the correction had changed a test of its own.
+    # here while a changed test is visible there is the brief contradicting itself in one message.
     carried = merged_in_tests(state['review_base'], state['head'])
     also = ('' if not carried else
             ' This delta also changes ' + ', '.join(carried) + ', none of it on its own '
@@ -1467,7 +1466,7 @@ def a_regression_or_a_reason(tests, reason, probe):
     merge of the base branch, and letting it through when the correction changed a test of its
     own let the other shape pass in silence — one condition wrong in both directions, because a
     carried test is exactly as unattributable either way. What the runtime cannot know it says
-    to both reviewers instead of enforcing: the note names those files in every branch.
+    to both reviewers instead of enforcing.
 
     Believing a case exercises the fix does not make it evidence. Reverting the change and
     watching the case fail costs seconds, so the round asks for that output rather than for
