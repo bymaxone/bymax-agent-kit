@@ -163,9 +163,8 @@ class MeaningTests(unittest.TestCase):
 
     def test_only_a_node_that_ran_clean_can_be_asked_to_have_failed(self):
         """Found by a reviewer: a test whose body passes and whose teardown raises reads
-        `1 passed, 1 error`, and a mutant run that errors is refused as a crash rather than
-        counted as a catch — so asking that node to have failed is a demand nobody could
-        satisfy. Clean, not merely passing: the exit status and the summary must agree."""
+        `1 passed, 1 error` — so asking that node to have failed is a demand nobody could
+        satisfy."""
         bench = Bench(self, test=(
             'import pytest\n\n\n@pytest.fixture\ndef leaky():\n    yield 1\n    raise RuntimeError\n\n\n'
             'def test_over_the_limit(leaky): assert True\n\n\ndef test_over_again(): assert True\n'))
