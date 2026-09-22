@@ -596,10 +596,9 @@ class ChangedTestTests(unittest.TestCase):
                           'if True:\n    Base = int', 'try:\n    Base = int\nexcept Exception:\n    pass',
                           'if True:\n    class Base: pass', 'match 1:\n    case Base:\n        pass'):
             self.assertEqual(sorted(claims.definitions(case + rebinding + '\n' + sub)), [], rebinding)
-        # And a name bound in a scope of its own — another class's body, a function's, a
-        # comprehension's target — is that scope's, so the base this one inherits is still
-        # the collected class. A walrus written inside a comprehension is not: it binds out
-        # here, which is why the targets are stepped over and everything else is read.
+        # And a name bound in a scope of its own is that scope's, so the base this one
+        # inherits is still the collected class. A walrus written inside a comprehension is
+        # not: it binds out here.
         for walrus in ('[x for x in () if (Base := x)]', '[(Base := x) for x in ()]',
                        '{(Base := x): 1 for x in ()}'):
             self.assertEqual(sorted(claims.definitions(case + walrus + '\n' + sub)), [], walrus)
