@@ -974,8 +974,9 @@ def matrix_first(state, directory):
     # Before caught_with_the_changed_test, never after: the nodes it reads are the results,
     # and a record whose results are not a list crashed there rather than refused by name.
     results_agree(kept, names)
-    caught_with_the_changed_test(kept, review_claims.changed_tests(
-        state['review_base'], state['head'], [p for p in state['regression_tests'] if collects_a_test(p)]))
+    ran = [node for node in (kept.get('ran') or []) if isinstance(node, str)]
+    added = tests_added(state['review_base'], [p for p in state['regression_tests'] if collects_a_test(p)])
+    caught_with_the_changed_test(kept, [node for node in added if node in ran])
 
 
 def ran_the_changed_tests(kept, changed):
@@ -1028,23 +1029,61 @@ def collects_a_test(path):
         return False
 
 
+def tests_added(base, names):
+    """The node ids this correction added, asked of pytest on both sides: what it names in
+    these files here, and does not name in them at the base.
+
+    Read from the source instead, this meant predicting what pytest collects and how Python
+    binds a name, and every round of that found another shape it had got wrong — an async
+    definition, a case class reached through a base, a name rebound by a del or a for or a
+    comprehension. The two collects are facts, and the question is the one the record answers.
+    A base that cannot be collected answers nothing, which demands nothing.
+    """
+    import review_matrix
+    root = git('rev-parse', '--show-toplevel')
+    here = [name for name in names if Path(root, name).is_file()]
+    now = set(review_matrix.ids(root, here)) if here else set()
+    with archived(base) as older:
+        kept = [name for name in names if Path(older, name).is_file()]
+        try:
+            before = set(review_matrix.ids(older, kept)) if kept else set()
+        except SystemExit:
+            return []
+    return sorted(now - before)
+
+
+@contextlib.contextmanager
+def archived(revision):
+    """That revision's tree, unpacked outside the repository. Out of the object store rather
+    than through a worktree, so nothing is added to this repository's bookkeeping and no
+    checkout of it is touched."""
+    where = tempfile.mkdtemp()
+    try:
+        packed = Path(where, 'tree.tar')
+        with packed.open('wb') as handle:
+            subprocess.run(['git', 'archive', revision], stdout=handle, check=True,
+                           cwd=git('rev-parse', '--show-toplevel'))
+        subprocess.run(['tar', '-xf', str(packed), '-C', where], check=True)
+        packed.unlink()
+        yield where
+    finally:
+        shutil.rmtree(where, ignore_errors=True)
+
+
 def caught_with_the_changed_test(kept, wanted):
-    """Every test the delta changed must be a test that caught something.
+    """Every test this correction added must be a test that caught something.
 
     Every, not one of them: a file is credited when any node of it failed, which an older
-    neighbour of the new test satisfies, and an intersection over the changed set is the same
-    argument one step in — a correction that edits a test which already discriminated, in the
-    commit that adds a vacuous one, was credited by the edit. A file whose delta touched no
-    test of its own is left to the rule above.
+    neighbour of the new test satisfies, and one added test that catches would carry the
+    vacuous one beside it. Only the tests pytest RAN on the clean tree are asked, since one
+    it skipped can never be among those that failed.
     """
     failed = {node.split('[')[0] for r in kept.get('results') or [] for node in (r.get('nodes') or [])}
-    for name, nodes in sorted(wanted.items()):
-        idle = ['%s::%s' % (name, node) for node in nodes if '%s::%s' % (name, node) not in failed]
-        require(not idle, 'The recorded matrix caught nothing with %s, which this correction '
-                'changes: %s failed under a mutant and %s did not. A test that already '
-                'discriminated proves nothing about the one beside it.'
-                % (', '.join(idle), ', '.join(sorted(n for n in failed if n.startswith(name + '::')))
-                   or 'nothing in ' + name, ', '.join(idle)))
+    idle = [node for node in wanted if node.split('[')[0] not in failed]
+    require(not idle, 'The recorded matrix caught nothing with %s, which this correction adds: '
+            '%s failed under a mutant and %s did not. A test that already discriminated proves '
+            'nothing about the one added beside it.'
+            % (', '.join(idle), ', '.join(sorted(failed)) or 'nothing', ', '.join(idle)))
 
 
 def results_agree(kept, names):

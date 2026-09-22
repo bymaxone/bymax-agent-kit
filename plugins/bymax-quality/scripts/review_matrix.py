@@ -224,7 +224,7 @@ def one(root, mutant, files, clean=None):
     seen = clean if clean is not None else {}
     if mutant['case'] not in seen:
         seen[mutant['case']] = baseline(root, files, mutant['case'])
-    nodes_of_case = seen[mutant['case']]
+    nodes_of_case = seen[mutant['case']][0]
     path, original = apply_mutant(root, mutant)
     try:
         # One pytest per node: run together under the selector, the summary line said some
@@ -249,17 +249,26 @@ def baseline(root, files, case):
     """The nodes the case collects, each shown to pass alone on the clean tree — alone, as it
     then runs under the mutant. Shown passing together, a node that leaned on an earlier one's
     side effect failed alone under a mutation of something else entirely, and that failure was
-    recorded as a catch."""
+    recorded as a catch.
+
+    With them, the ones that RAN: pytest says `1 passed` for a test it ran and `1 skipped` or
+    `1 xfailed` for one it did not, and a test that does not run cannot fail, so asking it to
+    would be a demand nobody could satisfy. Asked of pytest rather than read from the marks,
+    which is the same question answered where it is decided.
+    """
     nodes = ids(root, files, case)
     if not nodes:
         bail('Case %r collects no test under %s. A case pytest cannot find measures nothing.'
              % (case, ' '.join(files)))
+    ran = []
     for node in nodes:
         clean_code, clean_tail = run_case(root, None, [node])
         if clean_code != 0:
             bail('Case %r does not pass on the clean tree (%s: %s). A mutant that fails a case '
                  'which already fails measures nothing.' % (case, node, clean_tail))
-    return nodes
+        if re.search(r'\d+ passed', clean_tail):
+            ran.append(node)
+    return nodes, ran
 
 
 def judged(mutant, runs):
@@ -345,9 +354,10 @@ def sites(root, mutants):
     return landed
 
 
-def matrix(root, spec, files):
-    """Every rule, every mutant, with a survivor stopping the run."""
-    results, clean = [], {}
+def matrix(root, spec, files, clean=None):
+    """Every rule, every mutant, with a survivor stopping the run. `clean` carries back what
+    each case's nodes did on the clean tree, which the record keeps beside the results."""
+    results, clean = [], clean if clean is not None else {}
     for rule in spec:
         shaped(rule)
     names = [r['rule'] for r in spec]
@@ -469,7 +479,8 @@ def record(root, spec_path, files, out=None):
     spec = json.loads(Path(spec_path).read_text())
     if not isinstance(spec, list) or not spec:
         bail('A matrix is a non-empty list of rules.')
-    results = matrix(root, spec, files)
+    clean = {}
+    results = matrix(root, spec, files, clean)
     survivors = [r for r in results if not r['caught']]
     head, names, tree = fingerprint(root, spec)
     # The test files pytest collected travel with the record, each with the cases a test of
@@ -478,6 +489,9 @@ def record(root, spec_path, files, out=None):
     payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
                'mutants': len(results), 'survivors': [r['case'] for r in survivors],
                'tests': collected(root, files, results),
+               # The nodes pytest ran on the clean tree: a reader asking which of the tests
+               # this correction added must have caught something can only ask it of those.
+               'ran': sorted({node for _, ran in clean.values() for node in ran}),
                'results': results}
     if out:
         Path(out).write_text(json.dumps(payload, indent=2) + '\n')

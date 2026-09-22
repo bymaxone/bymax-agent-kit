@@ -1743,26 +1743,6 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('tests/test_calc.py::TestCalc::test_calc_new[7]', record['results'][0]['nodes'])
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
-    def test_a_delta_that_changed_no_test_of_its_own_keeps_the_file_rule(self):
-        """A correction that changes a line no test of the file occupies has no changed test
-        to demand: the file rule stands there, and some test of it must catch. What pytest
-        does not collect is not a test here — a helper the tests share, a method of a class
-        pytest passes over — or the correction that changed one would be refused for a node
-        that can never appear among those that failed."""
-        self.a_guard_and_its_older_test()
-        (self.repo / 'tests/test_calc.py').write_text('SPARE = 1\n' + OLD_TEST)
-        self.commit('a correction that changes no test of its own')
-        self.guard_matrix()
-        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
-        self.report('claude')
-        self.report('codex')
-        self.triage()
-        (self.repo / 'tests/test_calc.py').write_text(
-            OLD_TEST + 'def helper(v): return v\n\n\nclass Helpers:\n    def test_spare(self): return 1\n')
-        self.commit('a correction that changes a helper and a method nothing collects')
-        self.guard_matrix()
-        self.assertEqual(self.start(correction=True, reason='')['round'], 3)
-
     def test_a_file_pytest_collects_no_test_from_is_not_asked_for_a_case(self):
         """A conftest, a fixture and a helper module are test paths the scope rule counts as
         part of the correction, and no matrix can ever name a case that ran in one: asking was
@@ -1781,6 +1761,38 @@ class ReviewFlowTests(unittest.TestCase):
         self.guard_matrix()
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
+    def test_a_test_the_correction_added_is_what_must_have_caught(self):
+        """What a correction adds is a gate it asserts, and which tests it added is asked of
+        pytest on both sides — what it names here and does not name at the base — because
+        reading it from the source meant predicting pytest's collection and Python's scoping,
+        and every round of that found another shape it had got wrong. A test pytest skips is
+        not asked for: it can never be among those that failed. What the base already held is
+        not asked for either, however little it discriminates — the vacuous neighbour here is
+        the correction's to answer for only if the correction wrote it."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_quiet(): assert True\n')
+        self.commit('a guard, the test that discriminates it and a vacuous neighbour')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(
+            OLD_TEST + 'def test_calc_quiet(): assert True\n'
+            'import pytest\n\n\n@pytest.mark.skip\ndef test_calc_skipped(): assert LIMIT == 7\n')
+        self.commit('a correction that adds a test pytest skips')
+        self.guard_matrix()
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(
+            OLD_TEST + 'def test_calc_quiet(): assert True\ndef test_calc_new(): assert True\n')
+        self.commit('a correction that adds a vacuous test beside the older one')
+        self.guard_matrix()
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
+                      self.start(ok=False, correction=True, reason='').stderr)
+
     def test_every_test_the_delta_changed_must_catch_not_one_of_them(self):
         """Found by a reviewer: the demand was an intersection, so one test that caught
         carried every other — a correction adding a test that discriminates, in the commit
@@ -1791,37 +1803,6 @@ class ReviewFlowTests(unittest.TestCase):
         self.commit('a correction that adds a discriminating test and a vacuous one')
         self.guard_matrix()
         self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
-                      self.start(ok=False, correction=True, reason='').stderr)
-
-    def test_an_edited_test_is_left_to_the_file_rule(self):
-        """What a correction adds is a gate it asserts, and a name absent before and present
-        now is a fact of the two trees. Whether an edit changed what a test measures is not
-        one, so an edited test is left to the rule that its file must catch."""
-        self.a_guard_and_its_older_test()
-        (self.repo / 'tests/test_calc.py').write_text(
-            'from guard import LIMIT\n\n\ndef test_calc_old():\n    """Rewrapped."""\n'
-            '    assert LIMIT == 7, "seven"\n')
-        self.commit('a correction that edits the older test and adds nothing')
-        self.guard_matrix()
-        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
-
-    def test_a_test_of_a_unittest_class_is_a_test_pytest_collects(self):
-        """Found by a reviewer: pytest collects a TestCase subclass whatever the class is
-        called, and this repository's own tests are those, so reading the name alone passed
-        over every one of them and the demand fell back to the file rule exactly where the
-        correction it guards would be written."""
-        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
-        (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_calc.py').write_text(UNITTEST_TEST)
-        self.commit('a guard and the unittest class that discriminates it')
-        self.start()
-        self.report('claude')
-        self.report('codex')
-        self.triage()
-        (self.repo / 'tests/test_calc.py').write_text(UNITTEST_TEST + '    def test_calc_new(self): assert True\n')
-        self.commit('a correction that adds a vacuous method beside the older one')
-        self.guard_matrix()
-        self.assertIn('caught nothing with tests/test_calc.py::CalcTests::test_calc_new',
                       self.start(ok=False, correction=True, reason='').stderr)
 
     def test_the_runtime_runs_pytest_without_the_project_addopts(self):
