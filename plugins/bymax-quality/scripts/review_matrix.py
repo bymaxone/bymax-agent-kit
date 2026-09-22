@@ -463,23 +463,30 @@ def collected(root, files, results):
     return {name: sorted(cases) for name, cases in out.items()}
 
 
-def nodes(root, files, selector=None):
+def nodes(root, files, selector=None, tolerant=False):
     """The files of the node ids pytest collects under these paths, and under a selector when
     one is given, each spelled as pytest spells it."""
-    return sorted({Path(node.split('::')[0]).as_posix() for node in ids(root, files, selector)})
+    return sorted({Path(node.split('::')[0]).as_posix()
+                   for node in ids(root, files, selector, tolerant)})
 
 
-def ids(root, files, selector=None):
+def ids(root, files, selector=None, tolerant=False):
     """The node ids pytest collects under these paths, and under a selector when one is given.
     A collect that fails for any reason but finding nothing is refused, since a record built
-    from a broken collect would name nothing and prove the same."""
+    from a broken collect would name nothing and prove the same.
+
+    Tolerantly, the exit code stops being fatal and what was collected is returned, which is how
+    a caller asks about one file in a directory another file has broken: the question is the
+    same one, asked where a neighbour would otherwise answer it. Measured, `--collect-only`
+    already reports every id it reached beside the errors, so nothing else is needed to see them.
+    """
     # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
     # every id against the argument's own directory instead — a bare name for a file under
     # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
     args = [*PYTEST, '--collect-only', '--rootdir', real, *arguments(root, files)] + (['-k', selector] if selector else [])
     done = subprocess.run(args, cwd=real, capture_output=True, text=True, env=pytest_env())
-    if done.returncode not in (0, 5):
+    if not tolerant and done.returncode not in (0, 5):
         bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
              ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
     return sorted({line.strip() for line in done.stdout.splitlines() if '::' in line})
