@@ -578,9 +578,36 @@ class CollectTests(unittest.TestCase):
             git(app, 'merge', '-q', '--ff-only', 'upstream/main')
         if how == 'pruned':
             # The message still names upstream/main, but the ref is gone, so git can no
-            # longer say what it was. Its first segment is a configured remote, which is
-            # the only thing left that distinguishes it from a local branch of that name.
+            # longer say what it was — and neither can anyone else: a deleted local branch
+            # called upstream/mine leaves a message of exactly the same shape.
             git(app, 'branch', '-q', '-rd', 'upstream/main')
+        return app.resolve()
+
+    def repo_whose_own_branch_was_named_like_the_remote(self):
+        """Our own work, merged from a local branch whose name begins with the remote's, and
+        that branch deleted afterwards. Reading the remote out of the name reported a commit
+        that was never pushed anywhere as shipped."""
+        root = self.tmp / 'named-like-the-remote'; root.mkdir(parents=True)
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(where, *args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
+        up, work, app = root / 'up.git', root / 'work', root / 'app'
+        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
+        git(work, 'remote', 'add', 'origin', str(up))
+        git(work, 'push', '-q', '-u', 'origin', 'main')
+        subprocess.run(['git', 'clone', '-q', '--origin', 'upstream', str(up), str(app)],
+                       check=True, capture_output=True,
+                       env={**env, 'GIT_COMMITTER_DATE': '2026-09-11T12:00:00Z'})
+        git(app, 'checkout', '-q', '-b', 'upstream/mine')
+        git(app, 'commit', '-q', '--allow-empty', '-m', 'feat(a): the work of the week',
+            when='2026-09-16T12:00:00Z')
+        git(app, 'checkout', '-q', 'main')
+        git(app, 'merge', '-q', '--ff-only', 'upstream/mine')
+        git(app, 'branch', '-q', '-D', 'upstream/mine')
         return app.resolve()
 
     def test_a_catch_up_after_the_period_is_a_sync_whatever_moved_the_ref(self):
@@ -588,9 +615,8 @@ class CollectTests(unittest.TestCase):
         words as `merge feat/x` and `reset: moving to HEAD~1`, which are local work, so the
         word alone sent both here down the delivery path: the reflog was trusted, it stood
         where we were before the catch-up, and the week's work came back unshipped. Where the
-        ref was sent is what separates them, and git records that in the same message. Where
-        the ref it names has since been pruned, only the remote it belonged to is left."""
-        for how in ('merge', 'reset', 'pruned'):
+        ref was sent is what separates them, and git records that in the same message."""
+        for how in ('merge', 'reset'):
             with self.subTest(how=how):
                 data = self.m.collect(self.repo_that_caught_up_after_the_period(how),
                                       self.since, self.until, self.home, use_gh=False)
@@ -604,14 +630,29 @@ class CollectTests(unittest.TestCase):
         branch, so the reflog is still the record of where that branch stood in the week.
         The operand is the only thing separating them from the catch-up above, and git
         writes it in two places: before the colon for a merge, after `moving to` for a
-        reset."""
-        for how in ('local-merge', 'local-reset'):
+        reset. A name git can no longer resolve stays here too: `pruned` is a catch-up read
+        as local, which under-reports, and the case below is the same message shape read the
+        other way, which reported work that was never pushed as shipped."""
+        for how in ('local-merge', 'local-reset', 'pruned'):
             with self.subTest(how=how):
                 data = self.m.collect(self.repo_that_caught_up_after_the_period(how),
                                       self.since, self.until, self.home, use_gh=False)
                 shipped = {c['subject']: c['shipped'] for c in data['commits']}
                 self.assertIs(shipped['feat(a): the work of the week'], False)
                 self.assertIn('reflog', data['coverage']['shipped'])
+
+    def test_a_deleted_branch_named_like_the_remote_is_still_our_own_work(self):
+        """The operand is a name, and a name outlives what it pointed at. Deciding from
+        the remote its first segment matches made the same repository, with the same
+        history and the same reflog message, answer differently once a branch was
+        deleted: work committed in the week and never pushed anywhere came back
+        shipped. Git is the only thing asked now, and a name it cannot resolve is not
+        evidence of a catch-up."""
+        data = self.m.collect(self.repo_whose_own_branch_was_named_like_the_remote(),
+                              self.since, self.until, self.home, use_gh=False)
+        shipped = {c['subject']: c['shipped'] for c in data['commits']}
+        self.assertIs(shipped['feat(a): the work of the week'], False)
+        self.assertIn('reflog', data['coverage']['shipped'])
 
     def test_a_blank_action_fetch_after_the_period_is_still_a_sync(self):
         """`GIT_REFLOG_ACTION= git fetch` writes an entry with nothing before its colon, which

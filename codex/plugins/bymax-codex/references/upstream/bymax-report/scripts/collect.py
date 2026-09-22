@@ -230,10 +230,13 @@ def moved_by_syncing(repo: Path, message: str) -> bool:
     sent, and the action word cannot tell: the operand can. It sits before the colon for a
     merge and after ``moving to`` for a reset. A ref under ``refs/remotes/`` belongs to
     another repository, so moving to it is catching up; a local ref or a plain revision such
-    as ``HEAD~1`` is our own doing. ``rev-parse`` exits 128 and echoes back a name it cannot
-    resolve, and answers a plain revision with nothing at all, so an answer is a zero status
-    with a name in it. A pruned remote-tracking ref gets none, and then only the remote its
-    name begins with is left, which is why git is asked before the string is.
+    as ``HEAD~1`` is our own doing. Only git is asked: it exits 128 and echoes back a name it
+    cannot resolve, and answers a plain revision with nothing at all, so a catch-up is a zero
+    status naming a ref under ``refs/remotes/`` and nothing else is. A name git can no longer
+    resolve stays local, which under-reports a pruned tracking ref and is the safe direction:
+    reading the remote its name begins with instead turned a local merge into a catch-up as
+    soon as a deleted branch's name began with a remote's, and reported work never pushed as
+    shipped.
 
     Anything left over is read as local, because the actions that are not on either list —
     ``commit``, ``update by push``, ``am``, ``rebase`` — move a ref because the work
@@ -256,10 +259,7 @@ def moved_by_syncing(repo: Path, message: str) -> bool:
     else:
         return True
     code, named, _ = git_out(repo, 'rev-parse', '--symbolic-full-name', operand)
-    if code == 0 and named.strip():
-        return named.strip().startswith('refs/remotes/')
-    code, out, _ = git_out(repo, 'remote')
-    return code == 0 and operand.partition('/')[0] in out.split()
+    return code == 0 and named.strip().startswith('refs/remotes/')
 
 
 def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
