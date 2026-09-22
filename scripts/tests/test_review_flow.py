@@ -2428,6 +2428,29 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
         return subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],
                               capture_output=True, text=True).stdout.strip()
 
+    def test_a_test_a_merge_carried_in_is_not_this_delta_s(self):
+        """Found on a branch that could not be rebased: merging the base branch in put every
+        test the other side had ever written into the diff, and the matrix was then asked for a
+        case inside suites this correction never touched. What the merge carried over unchanged
+        is subtracted; what this delta wrote, and what it edited after the merge, stays."""
+        run = lambda *args: subprocess.run(['git', '-C', str(self.where), *args], check=True,
+                                           capture_output=True)
+        base = self.commit({'test_shared.py': 'def test_shared():\n    assert True\n'})
+        mine = self.commit({'test_shared.py': 'def test_shared():\n    assert True\n',
+                            'test_mine.py': 'def test_mine():\n    assert True\n'})
+        run('checkout', '-q', '-b', 'other', base)
+        self.commit({'test_shared.py': 'def test_shared():\n    assert True\n',
+                     'test_theirs.py': 'def test_theirs():\n    assert True\n'})
+        run('checkout', '-q', '-')
+        run('merge', '-q', '--no-edit', 'other')
+        head = subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True).stdout.strip()
+        self.assertEqual(self.flow.tests_changed(base, head)[0], ['test_mine.py'])
+        # And a file edited after the merge is this delta's again, however it arrived.
+        after = self.commit({'test_theirs.py': 'def test_theirs():\n    assert 1\n'})
+        self.assertEqual(self.flow.tests_changed(base, after)[0],
+                         ['test_mine.py', 'test_theirs.py'])
+
     def test_the_brief_shows_a_removal_claim_the_check_only_reports(self):
         """An independent reviewer found that nothing on the flow path executed the removal check, so its rows
         reached nobody while the brief said they did. The fix was to RUN it; this is what
