@@ -303,24 +303,40 @@ def collected_here(node, outer):
     an imported base not called TestCase is left to the file rule.
     """
     found = set(outer)
-    for child in sorted(bound_in(node), key=lambda n: n.lineno):
-        if not isinstance(child, ast.ClassDef):
-            for target in getattr(child, 'targets', []) + [getattr(child, 'target', None)]:
-                if isinstance(target, ast.Name):
-                    found.discard(target.id)
+    for child in getattr(node, 'body', []):
+        if isinstance(child, ast.ClassDef):
+            named = [b.attr if isinstance(b, ast.Attribute) else getattr(b, 'id', '') for b in child.bases]
+            if child.name.startswith('Test') or any(n == 'TestCase' or n in found for n in named):
+                found.add(child.name)
+            else:
+                found.discard(child.name)
             continue
-        named = [b.attr if isinstance(b, ast.Attribute) else getattr(b, 'id', '') for b in child.bases]
-        if child.name.startswith('Test') or any(n == 'TestCase' or n in found for n in named):
-            found.add(child.name)
-        else:
-            found.discard(child.name)
+        for name in bound_by(child):
+            found.discard(name)
     return found
 
 
-def bound_in(node):
-    """The children of this body that bind a name: a class, or an assignment to one."""
-    return [child for child in getattr(node, 'body', [])
-            if isinstance(child, (ast.ClassDef, ast.Assign, ast.AnnAssign))]
+def bound_by(child):
+    """Every name this statement binds in the body that holds it. Asked of the statement
+    rather than enumerated as a list of statement kinds: a name is rebound by a def, a del,
+    an augmented or unpacking assignment, a for target and an import too, and a list of the
+    kinds that were thought of missed each of those in turn.
+
+    Read through an if, a for or a try, which bind in the body that holds them, and never
+    into a definition, whose own body is a scope of its own.
+    """
+    found, rest = [], [child]
+    while rest:
+        node = rest.pop()
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            found.append(node.name)
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            found.append(node.id)
+        if isinstance(node, ast.alias):
+            found.append(node.asname or node.name.split('.')[0])
+        rest.extend(ast.iter_child_nodes(node))
+    return found
 
 
 SKIPPED = ('skip', 'skipif', 'xfail')
