@@ -298,11 +298,9 @@ def collected_here(node, outer):
     python_classes has it, or carrying a TestCase base, or a base bound here or outside that
     carries one itself. Read in the order the body binds them, as Python binds a base when
     the class is created: a class written above a rebinding of its base keeps the base it was
-    given, and one written below it does not. A name rebound to anything else stops
-    answering, which is what pytest sees too — it collects what the module holds at the end,
-    so a class a later binding shadows is collected from nowhere. A base is read by its last
-    name and followed no further, so a subclass of an imported base not called TestCase is
-    left to the file rule.
+    given, and one written below it does not. A name rebound to anything not itself collected
+    stops answering. A base is read by its last name and followed no further, so a subclass of
+    an imported base not called TestCase is left to the file rule.
     """
     found = set(outer)
     for child in sorted(bound_in(node), key=lambda n: n.lineno):
@@ -352,7 +350,7 @@ def stated(call):
     """What a mark's conditions say where they say it outright, and None where they do not:
     only a literal answers, since nothing here can evaluate a name or a platform test. pytest
     reads them positionally or as `condition=`, and skips when any one of them is true, so
-    False is the answer only where every condition it states is written out as false."""
+    False is the answer only where it states conditions and all are written out as false."""
     if not call:
         return None
     given = list(call.args) + [word.value for word in call.keywords if word.arg == 'condition']
