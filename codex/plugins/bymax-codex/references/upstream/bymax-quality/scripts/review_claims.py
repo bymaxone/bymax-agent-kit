@@ -296,30 +296,33 @@ def defined_under(node, prefix, outer):
 def collected_here(node, outer):
     """The class names visible in this body whose tests pytest collects: named as
     python_classes has it, or carrying a TestCase base, or a base bound here or outside that
-    carries one itself. Resolved per body, as Python resolves a base when the class is
-    created — a class bound in one body is the base a class beside it inherits — and
-    the last binding of a name is the one that answers, since a module that reuses a case
-    class's name has no case class by then. A base is read by its last name and followed no
-    further, so a subclass of an imported base not called TestCase is left to the file rule.
+    carries one itself. Read in the order the body binds them, as Python binds a base when
+    the class is created: a class written above a rebinding of its base keeps the base it was
+    given, and one written below it does not. A name rebound to anything else stops
+    answering, which is what pytest sees too — it collects what the module holds at the end,
+    so a class a later binding shadows is collected from nowhere. A base is read by its last
+    name and followed no further, so a subclass of an imported base not called TestCase is
+    left to the file rule.
     """
-    held = {}
-    for child in getattr(node, 'body', []):
-        if isinstance(child, ast.ClassDef):
-            held[child.name] = max(held.get(child.name) or child, child, key=lambda n: n.lineno)
-        for target in getattr(child, 'targets', []) + [getattr(child, 'target', None)]:
-            if isinstance(target, ast.Name) and held.get(target.id) and target.lineno > held[target.id].lineno:
-                held[target.id] = None
-    found, again = {n for n in outer if n not in held}, True
-    while again:
-        again = False
-        for name, child in held.items():
-            if child is None or name in found:
-                continue
-            named = [b.attr if isinstance(b, ast.Attribute) else getattr(b, 'id', '') for b in child.bases]
-            if name.startswith('Test') or any(n == 'TestCase' or n in found for n in named):
-                found.add(name)
-                again = True
+    found = set(outer)
+    for child in sorted(bound_in(node), key=lambda n: n.lineno):
+        if not isinstance(child, ast.ClassDef):
+            for target in getattr(child, 'targets', []) + [getattr(child, 'target', None)]:
+                if isinstance(target, ast.Name):
+                    found.discard(target.id)
+            continue
+        named = [b.attr if isinstance(b, ast.Attribute) else getattr(b, 'id', '') for b in child.bases]
+        if child.name.startswith('Test') or any(n == 'TestCase' or n in found for n in named):
+            found.add(child.name)
+        else:
+            found.discard(child.name)
     return found
+
+
+def bound_in(node):
+    """The children of this body that bind a name: a class, or an assignment to one."""
+    return [child for child in getattr(node, 'body', [])
+            if isinstance(child, (ast.ClassDef, ast.Assign, ast.AnnAssign))]
 
 
 SKIPPED = ('skip', 'skipif', 'xfail')
@@ -346,10 +349,15 @@ def runs(node):
 
 
 def stated(call):
-    """What a mark's condition says where it says it outright, and None where it does not:
-    only a literal answers, since nothing here can evaluate a name or a platform test."""
-    first = (call.args or [None])[0] if call else None
-    return first.value if isinstance(first, ast.Constant) and isinstance(first.value, bool) else None
+    """What a mark's conditions say where they say it outright, and None where they do not:
+    only a literal answers, since nothing here can evaluate a name or a platform test. pytest
+    reads them positionally or as `condition=`, and skips when any one of them is true, so
+    False is the answer only where every condition it states is written out as false."""
+    if not call:
+        return None
+    given = list(call.args) + [word.value for word in call.keywords if word.arg == 'condition']
+    said = [c.value for c in given if isinstance(c, ast.Constant) and isinstance(c.value, bool)]
+    return any(said) if given and len(said) == len(given) else None
 
 
 

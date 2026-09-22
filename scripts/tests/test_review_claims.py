@@ -581,6 +581,10 @@ class ChangedTestTests(unittest.TestCase):
         self.assertEqual(sorted(claims.definitions(inner)), [])
         self.assertEqual(sorted(claims.definitions(case + 'Base = int\n' + case.split(chr(10), 1)[1] + sub)),
                          ['Cases::test_added'])
+        # And in the order the body binds them: a class written above a rebinding of its base
+        # keeps the base it was given, and one written below it does not.
+        self.assertEqual(sorted(claims.definitions(case + sub + 'class Base: pass\n')), ['Cases::test_added'])
+        self.assertEqual(sorted(claims.definitions(case + 'class Base: pass\n' + sub)), [])
 
     def test_a_class_pytest_is_told_to_skip_holds_no_test_that_can_fail(self):
         """Found by a reviewer: the mark was read on a function and never on the class whose
@@ -589,6 +593,11 @@ class ChangedTestTests(unittest.TestCase):
         self.assertEqual(sorted(claims.definitions(marked % 'skip')), [])
         self.assertEqual(sorted(claims.definitions(marked % 'skipif(True, reason="x")')), [])
         self.assertEqual(sorted(claims.definitions(marked % 'skipif(False, reason="x")')), ['TestX::test_one'])
+        # pytest takes a condition positionally or by keyword, and skips when any one of them
+        # is true, so only conditions all written out as false say the test runs.
+        self.assertEqual(sorted(claims.definitions(marked % 'skipif(condition=False, reason="x")')), ['TestX::test_one'])
+        self.assertEqual(sorted(claims.definitions(marked % 'skipif(condition=True, reason="x")')), [])
+        self.assertEqual(sorted(claims.definitions(marked % 'skipif(False, True)')), [])
         run = 'import pytest\n@pytest.mark.skipif(False, reason="x")\ndef test_one(): assert 1\n'
         self.assertEqual(sorted(claims.definitions(run)), ['test_one'])
         self.assertEqual(sorted(claims.definitions(run.replace('False', 'True'))), [])
