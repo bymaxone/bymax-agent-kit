@@ -6,6 +6,7 @@ Each case names a line shape that exists in a real session file on the machine t
 was built on. A collector that admitted any of them would write a PROGRESS item
 nobody asked for.
 """
+import ast
 import datetime as dt
 import importlib.util
 import inspect
@@ -15,6 +16,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 import unittest.mock
 
@@ -340,12 +342,21 @@ class CollectTests(unittest.TestCase):
         self.assertNotIn('could not read the commits', note)
 
     def counting_branches(self):
-        """The lines of commit_shas that count a refusal, asked of the source rather than listed
-        here. A list written by hand says what its author meant to cover, which is not what the
-        code counts. Asking the function means a branch added later with no case below fails this
-        gate instead of being covered by a sentence."""
+        """The lines of commit_shas that store to `unread`, asked of the parsed function rather
+        than listed here. Two narrower questions were tried first and both read a spelling: the
+        line `unread += 1` missed the same statement with a comment after it, and matching `+=`
+        or an assignment mentioning `unread` missed a tuple target. A store to the name catches
+        both spellings, so that is what is asked. The initialisation is a store too and is
+        always reached, which costs nothing and is why it needs no exception.
+
+        What this cannot see is a store sharing a line with something that short-circuits before
+        it: measured, `if payload.get('commits') is None and (unread := unread + 1):` leaves the
+        gate green, because the line ran and the store did not. Line numbers are the granularity
+        of the trace, so that shape is the one a reader has to catch."""
         lines, first = inspect.getsourcelines(self.m.commit_shas)
-        return {first + n for n, line in enumerate(lines) if line.strip() == 'unread += 1'}
+        parsed = ast.parse(textwrap.dedent(''.join(lines)))
+        return {first + node.lineno - 1 for node in ast.walk(parsed)
+                if isinstance(node, ast.Name) and node.id == 'unread' and isinstance(node.ctx, ast.Store)}
 
     def lines_reached_in_collect(self, run):
         """Which lines of the collector `run` actually executed. The counters are one statement
@@ -379,7 +390,7 @@ class CollectTests(unittest.TestCase):
         # Each refusal below is a separate way the call can fail. A probe that removes them all at
         # once shows a gate exists; it does not show the gate covers each cause. Nor does a table
         # of causes, since a cause can share an `except` with another: the assertion under the
-        # loop is what holds every counting branch to a case here.
+        # loop is what holds each line that writes the count to a case here.
         refusals = {
             'no gh at all': FileNotFoundError('gh'),
             'gh that never answers': subprocess.TimeoutExpired('gh', 30),
@@ -559,7 +570,13 @@ class CollectTests(unittest.TestCase):
         self.assertIn('directory above it', done.stderr,
                       'the message names only the waiting directory, which here is the writable one')
         self.assertEqual(done.stdout.strip(), '', done.stdout)
+        # The rename failed, so the arguments are still there. Telling the reader to write them
+        # again here puts a second entry in the directory, after which the count refuses every
+        # run until someone removes one -- so the advice has to say which of the two causes it
+        # is for.
         self.assertTrue((waiting / 'a-run').exists(), 'the refusal cost the run its arguments')
+        self.assertIn('If yours is still waiting, run this block again', done.stderr)
+        self.assertNotIn('Check both, write yours again', done.stderr)
 
     def test_the_skill_block_stops_when_there_is_no_temporary_directory(self):
         """An unchecked `mktemp -d` leaves the variable empty, and the collector is then

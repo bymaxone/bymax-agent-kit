@@ -84,7 +84,8 @@ mv "$1" "$MINE" 2>/dev/null || MINE=''
 if [ -z "$MINE" ]; then
   echo "Could not claim the arguments: another run took them first, or $ARGS_DIR or the" >&2
   echo "directory above it cannot be written -- the claim moves the file from one into the" >&2
-  echo "other. Check both, write yours again, and run this block again." >&2
+  echo "other. Check both. If yours is still waiting, run this block again once they can be" >&2
+  echo "written; if another run took it, write it again first." >&2
   exit 1
 fi
 echo "claimed $(basename "$1")"
