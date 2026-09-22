@@ -585,8 +585,8 @@ class ChangedTestTests(unittest.TestCase):
         # keeps the base it was given, and one written below it does not.
         self.assertEqual(sorted(claims.definitions(case + sub + 'class Base: pass\n')), ['Cases::test_added'])
         self.assertEqual(sorted(claims.definitions(case + 'class Base: pass\n' + sub)), [])
-        # A rebinding is asked of the statement rather than listed: each of these was a
-        # demand for a node pytest cannot collect, which nothing could satisfy.
+        # A rebinding is asked of the statement rather than listed: a kind the list missed
+        # demanded a node pytest cannot collect, which nothing could satisfy.
         for rebinding in ('def Base(): pass', 'async def Base(): pass', 'Base = int',
                           'Base: type = int', 'Base += 1', 'Base, other = int, str',
                           '*Base, = [int]', 'del Base', 'for Base in []:\n    pass',

@@ -318,8 +318,7 @@ def collected_here(node, outer):
 
 def bound_by(child):
     """Every name this statement binds in the body that holds it. Asked of the statement
-    rather than enumerated as a list of statement kinds: a list of the kinds thought of
-    missed, one after another, each of the rebindings the test names.
+    rather than enumerated as a list of statement kinds, which missed one kind after another.
 
     Read through an if, a for or a try, which bind in the body that holds them, and never
     into a definition, whose own body is a scope of its own.
@@ -334,8 +333,8 @@ def bound_by(child):
             found.append(node.id)
         if isinstance(node, ast.alias):
             found.append(node.asname or node.name.split('.')[0])
-        # A name the grammar carries as text rather than as a node: an except's target, a
-        # match pattern's capture. A walk that reads only Name nodes passes over every one.
+        # A name the grammar carries as text rather than as a node, in the types below. A walk
+        # that reads only Name nodes passes over every one.
         if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar, ast.MatchMapping)):
             found += [held for held in (getattr(node, 'name', None), getattr(node, 'rest', None))
                       if isinstance(held, str)]
