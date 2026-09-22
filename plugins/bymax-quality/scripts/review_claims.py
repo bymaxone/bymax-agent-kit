@@ -88,12 +88,10 @@ def outside_code(text):
     """
     out, fence, content, blank, code = [], None, 0, True, False
     for line in text.split('\n'):
-        stripped = line.strip()
-        indent = columns(line)
+        stripped, indent = line.strip(), columns(line)
         if fence is not None:
             out.append(' ' if stripped else line)
-            if closes(line, fence):
-                fence = None
+            fence = None if closes(line, fence) else fence
             continue
         if code:
             # A block runs on over its own blank lines and ends at the first line that leaves it.
@@ -106,30 +104,35 @@ def outside_code(text):
             out.append(line)
             blank = True
             continue
-        item = ITEM.match(line)
-        if item:
-            content = len(item.group(0))
-            out.append(line)
-            blank = False
-            continue
-        if indent < content:
-            content = 0
-        found = FENCE.match(line)
-        if found:
-            fence = (found['run'][0], len(found['run']))
-            out.append(' ')
-            blank = False
-            continue
-        # An indented block cannot interrupt a paragraph, so the blank line before it is part
-        # of what makes it one: without that, the wrapped second line of a sentence is code.
-        if blank and indent >= content + 4:
-            code = True
-            out.append(' ')
-            blank = False
-            continue
-        out.append(line)
+        content = listing(line, indent, content)
+        fence, code = opens(line, indent, content, blank)
+        out.append(' ' if fence or code else line)
         blank = False
     return '\n'.join(out)
+
+
+def listing(line, indent, content):
+    """The column the innermost open list item's content starts at, once this line is read.
+
+    A marker opens an item and a line indented less than its content closes it, which is what
+    tells an indented code block from the item's own prose four spaces in.
+    """
+    item = ITEM.match(line)
+    if item:
+        return len(item.group(0))
+    return 0 if indent < content else content
+
+
+def opens(line, indent, content, blank):
+    """The fence this line opens, and whether it opens an indented block.
+
+    An indented block cannot interrupt a paragraph, so the blank line before it is part of what
+    makes it one: without that, the wrapped second line of a sentence reads as code.
+    """
+    found = FENCE.match(line)
+    if found:
+        return (found['run'][0], len(found['run'])), False
+    return None, bool(blank and indent >= content + 4)
 
 
 def closes(line, fence):
