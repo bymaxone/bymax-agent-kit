@@ -43,11 +43,12 @@ from pathlib import Path
 
 CONVENTIONAL = re.compile(r'^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<summary>.+)$')
 REFLOG_STAMP = re.compile(r'@\{(\d+)\}')
-# The reflog actions that mean a ref moved because this repository caught up with another
-# one. The action does not settle every case — `reset: moving to origin/main` and
-# `merge origin/main` are catch-ups too, and `merge feat/x` is a delivery with the same
-# word, so the operand carries a distinction this does not read.
+# Reflog actions that always mean this repository caught the ref up with another one, and
+# the two that mean it only depending on where the ref was sent: `merge origin/main` and
+# `reset: moving to origin/main` are catch-ups, `merge feat/x` and `reset: moving to HEAD~1`
+# are local, and the action word is the same on both sides of both pairs.
 SYNCED = ('fetch', 'pull', 'clone')
+TOWARD = ('merge', 'reset')
 PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
@@ -211,6 +212,56 @@ def reflog_reaches(repo: Path, ref: str, cutoff: float) -> bool:
     return bool(oldest) and int(oldest.group(1)) <= cutoff
 
 
+def moved_by_syncing(repo: Path, message: str) -> bool:
+    """Whether one reflog entry records this repository catching up with another one.
+
+    Read from the message, because that is where git puts what it did. An entry's action is
+    the first word before the first colon: ``clone:`` would otherwise keep its colon, and
+    ``pull --tags origin main:`` its arguments, while ``update by push`` has no colon at all
+    — what the pushing repository writes on its tracking ref, where the receiver writes
+    ``push``. Git writes those words into the file, so they do not follow the reader's
+    language.
+
+    Which answer an entry gets is decided by evidence, not by a list of words:
+
+    ``fetch``, ``pull`` and ``clone`` are always a catch-up, whatever the ref is called.
+
+    ``merge`` and ``reset`` are a catch-up or local work depending on where the ref was
+    sent, and the action word cannot tell: the operand can. It sits before the colon for a
+    merge and after ``moving to`` for a reset. A ref under ``refs/remotes/`` belongs to
+    another repository, so moving to it is catching up; a local ref or a plain revision such
+    as ``HEAD~1`` is our own doing. ``rev-parse`` exits 128 and echoes back a name it cannot
+    resolve, and answers a plain revision with nothing at all, so an answer is a zero status
+    with a name in it. A pruned remote-tracking ref gets none, and then only the remote its
+    name begins with is left, which is why git is asked before the string is.
+
+    Anything left over is read as local, because the actions that are not on either list —
+    ``commit``, ``update by push``, ``am``, ``rebase`` — move a ref because the work
+    landed here. The exception is an entry carrying no action at all, which ``GIT_REFLOG_ACTION=``
+    produces on any command, a fetch included: that is not a third kind of move but an
+    unanswered question, and this file answers those with the commit dates.
+    """
+    words = message.partition(':')[0].split()
+    action = words[0] if words else ''
+    if not action:
+        return True
+    if action in SYNCED:
+        return True
+    if action not in TOWARD:
+        return False
+    if len(words) > 1:
+        operand = words[-1]
+    elif ' moving to ' in message:
+        operand = message.rpartition(' ')[2]
+    else:
+        return True
+    code, named, _ = git_out(repo, 'rev-parse', '--symbolic-full-name', operand)
+    if code == 0 and named.strip():
+        return named.strip().startswith('refs/remotes/')
+    code, out, _ = git_out(repo, 'remote')
+    return code == 0 and operand.partition('/')[0] in out.split()
+
+
 def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
     """Whether this repository caught the ref up with another one AFTER that moment.
 
@@ -222,15 +273,7 @@ def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
     where the ref stood last week is still what we put there. A sync AFTER it says something
     later corrected our view of that week. Testing every entry confused the two and sent a
     delivering ref back to the dates, which reported work pushed the week after as delivered
-    inside it.
-
-    An entry's action is the first word of its message once anything from the first colon is
-    cut off: ``clone:`` would otherwise keep its colon, and ``pull --tags origin main:`` its
-    arguments, while ``update by push`` has no colon at all. Git writes those words into the
-    file itself, so they do not follow the reader's language — but a message can carry
-    nothing before the colon, which git does write when ``GIT_REFLOG_ACTION`` is empty, and
-    an unreadable entry must not cost the report. What the action cannot separate is a
-    catch-up merge or reset from a delivery one; the comment on ``SYNCED`` says so.
+    inside it. What each entry is, is ``moved_by_syncing``'s question.
     """
     code, out, _ = git_out(repo, 'reflog', 'show', '--date=unix', '--format=%gd%x1f%gs', ref, '--')
     if code != 0:
@@ -240,7 +283,7 @@ def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
         at = REFLOG_STAMP.search(stamp)
         if not at or int(at.group(1)) <= cutoff:
             continue
-        if (message.split(':', 1)[0].split() or [''])[0] in SYNCED:
+        if moved_by_syncing(repo, message):
             return True
     return False
 

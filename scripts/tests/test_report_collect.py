@@ -405,15 +405,19 @@ class CollectTests(unittest.TestCase):
                     log.unlink()
         return repo.resolve()
 
-    def clone_that_fetched_late(self):
+    def clone_that_fetched_late(self, blank_action=False):
         """A clone whose last fetch before the period is older than the week's work, which is
-        what a Friday merge and a Monday pull look like. Its origin/main reflog is a log of
-        fetches, so asking it where the branch stood answers where this clone stood."""
+        what a Friday merge and a Monday pull look like. Its final fetch is stamped after the
+        period, so this clone's view of that week was corrected afterwards and the reflog is
+        no longer a record of where the branch stood in it. With `blank_action` that fetch
+        carries no action word, which is the shape `GIT_REFLOG_ACTION=` produces."""
         root = self.tmp / 'clone'; root.mkdir(parents=True)
         env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
-        def git(where, *args, when=None):
+        def git(where, *args, when=None, action=None):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            if action is not None:
+                extra['GIT_REFLOG_ACTION'] = action
             subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
         up, work, app = root / 'up.git', root / 'work', root / 'app'
         subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
@@ -438,16 +442,15 @@ class CollectTests(unittest.TestCase):
         git(work, 'checkout', '-q', 'main')
         git(work, 'merge', '-q', '--no-ff', 'feat/b', '-m', 'Merge pull request #2', when='2026-09-25T12:00:00Z')
         git(work, 'push', '-q', 'origin', 'main')
-        git(app, 'fetch', '-q', 'origin')
+        git(app, 'fetch', '-q', 'origin', action='' if blank_action else None)
         return app.resolve()
 
     def test_a_clone_reads_the_dates_because_its_reflog_logs_fetches(self):
-        """A reflog records when THIS repository moved the ref, so for a remote-tracking ref it
-        is a log of fetches: asking it where the delivery branch stood answers where this clone
-        stood, and a Friday merge pulled on Monday comes back as work still in flight. The
-        commit dates carry the upstream merge time instead, which is the right answer here.
-        This fixture also pins the first-parent walk: without it the date walk returns the
-        merge's second parent."""
+        """This clone fetched again after the period, so its reflog records where the clone
+        stood, not where the delivery branch stood in the week: read that way, a Friday merge
+        pulled on Monday comes back as work still in flight. The commit dates carry the
+        upstream merge time instead, which is the right answer here. This fixture also pins
+        the first-parent walk: without it the date walk returns the merge's second parent."""
         data = self.m.collect(self.clone_that_fetched_late(), self.since, self.until, self.home, use_gh=False)
         shipped = {c['subject']: c['shipped'] for c in data['commits']}
         self.assertIs(shipped['feat(a): the work of the week'], True)
@@ -517,7 +520,7 @@ class CollectTests(unittest.TestCase):
         """Git writes `: Fast-forward`, with nothing before the colon, when GIT_REFLOG_ACTION is
         empty — a variable git exports to its own hooks. Reading the action off that raised, and
         the exception escaped the guard, so a whole standup died on one line of a file the
-        user never wrote. The unreadable entry is skipped, and the reflog still answers."""
+        user never wrote. The collect survives it and still names a delivery ref."""
         repo = self.tmp / 'blank-action' / 'app'; repo.mkdir(parents=True)
         env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
@@ -535,6 +538,92 @@ class CollectTests(unittest.TestCase):
         data = self.m.collect(repo.resolve(), self.since, self.until, self.home, use_gh=False)
         self.assertEqual(len(data['commits']), 2)
         self.assertEqual(data['coverage']['delivery_ref'], 'main')
+
+    def repo_that_caught_up_after_the_period(self, how='merge'):
+        """Our own checkout of a project whose remote is called upstream, so no origin/main
+        exists and the delivery ref is the local main. The week's work was merged upstream
+        inside the period and reached us only afterwards, by the command `how` names."""
+        root = self.tmp / ('catch-up-' + how); root.mkdir(parents=True)
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(where, *args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
+        up, work, app = root / 'up.git', root / 'work', root / 'app'
+        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
+        git(work, 'remote', 'add', 'origin', str(up))
+        git(work, 'push', '-q', '-u', 'origin', 'main')
+        # Backdated, because a clone writes `clone:` into the new main's reflog and that is a
+        # sync too: stamped after the period it would decide this fixture by itself, and the
+        # catch-up the case is about would never be read.
+        subprocess.run(['git', 'clone', '-q', '--origin', 'upstream', str(up), str(app)],
+                       check=True, capture_output=True,
+                       env={**env, 'GIT_COMMITTER_DATE': '2026-09-11T12:00:00Z'})
+        git(work, 'checkout', '-q', '-b', 'feat/a')
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'feat(a): the work of the week', when='2026-09-16T12:00:00Z')
+        git(work, 'checkout', '-q', 'main')
+        git(work, 'merge', '-q', '--no-ff', 'feat/a', '-m', 'Merge pull request #1', when='2026-09-17T12:00:00Z')
+        git(work, 'push', '-q', 'origin', 'main')
+        git(app, 'fetch', '-q', 'upstream')
+        if how.startswith('local'):
+            # The same two action words, sent to a ref this repository owns.
+            git(app, 'branch', '-q', 'mine', 'upstream/main')
+            git(app, *(['reset', '-q', '--hard', 'mine'] if how.endswith('reset')
+                       else ['merge', '-q', '--ff-only', 'mine']))
+        elif how == 'reset':
+            git(app, 'reset', '-q', '--hard', 'upstream/main')
+        else:
+            git(app, 'merge', '-q', '--ff-only', 'upstream/main')
+        if how == 'pruned':
+            # The message still names upstream/main, but the ref is gone, so git can no
+            # longer say what it was. Its first segment is a configured remote, which is
+            # the only thing left that distinguishes it from a local branch of that name.
+            git(app, 'branch', '-q', '-rd', 'upstream/main')
+        return app.resolve()
+
+    def test_a_catch_up_after_the_period_is_a_sync_whatever_moved_the_ref(self):
+        """`merge upstream/main` and `reset: moving to upstream/main` carry the same action
+        words as `merge feat/x` and `reset: moving to HEAD~1`, which are local work, so the
+        word alone sent both here down the delivery path: the reflog was trusted, it stood
+        where we were before the catch-up, and the week's work came back unshipped. Where the
+        ref was sent is what separates them, and git records that in the same message. Where
+        the ref it names has since been pruned, only the remote it belonged to is left."""
+        for how in ('merge', 'reset', 'pruned'):
+            with self.subTest(how=how):
+                data = self.m.collect(self.repo_that_caught_up_after_the_period(how),
+                                      self.since, self.until, self.home, use_gh=False)
+                shipped = {c['subject']: c['shipped'] for c in data['commits']}
+                self.assertIs(shipped['feat(a): the work of the week'], True)
+                self.assertEqual(data['coverage']['delivery_ref'], 'main')
+                self.assertIn('commit dates', data['coverage']['shipped'])
+
+    def test_the_same_action_words_sent_to_our_own_ref_are_not_a_catch_up(self):
+        """`merge mine` and `reset: moving to mine` are this repository moving its own
+        branch, so the reflog is still the record of where that branch stood in the week.
+        The operand is the only thing separating them from the catch-up above, and git
+        writes it in two places: before the colon for a merge, after `moving to` for a
+        reset."""
+        for how in ('local-merge', 'local-reset'):
+            with self.subTest(how=how):
+                data = self.m.collect(self.repo_that_caught_up_after_the_period(how),
+                                      self.since, self.until, self.home, use_gh=False)
+                shipped = {c['subject']: c['shipped'] for c in data['commits']}
+                self.assertIs(shipped['feat(a): the work of the week'], False)
+                self.assertIn('reflog', data['coverage']['shipped'])
+
+    def test_a_blank_action_fetch_after_the_period_is_still_a_sync(self):
+        """`GIT_REFLOG_ACTION= git fetch` writes an entry with nothing before its colon, which
+        is a real sync wearing no name. Reading the unreadable action as proof that no sync
+        happened trusted this clone's stale reflog and reported the week's delivered work as
+        unshipped."""
+        data = self.m.collect(self.clone_that_fetched_late(blank_action=True),
+                              self.since, self.until, self.home, use_gh=False)
+        shipped = {c['subject']: c['shipped'] for c in data['commits']}
+        self.assertIs(shipped['feat(a): the work of the week'], True)
+        self.assertIs(shipped['feat(b): merged the week after'], False)
+        self.assertIn('commit dates', data['coverage']['shipped'])
 
     def test_a_push_to_the_delivery_ref_is_the_delivery(self):
         """A remote-tracking reflog is a syncing log only where catching up moved the ref. A push
