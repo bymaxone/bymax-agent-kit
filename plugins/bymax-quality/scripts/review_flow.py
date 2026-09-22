@@ -1075,9 +1075,8 @@ def collects_a_test(path):
     A neighbour with a broken import is enough to stop the directory answering, and refusing the
     round for a file that is not implicated is the blocked-for-good shape this gate exists to
     remove. So the directory is asked a second time tolerantly, which is the same question with
-    the neighbour's failure no longer fatal. Asking about the file alone instead would have
-    changed the question and called every helper a test, which is what the paragraph above says.
-    The file alone is asked only to tell "not a test module" from "this file is what failed".
+    the neighbour's failure no longer fatal. The file alone is asked only to tell "not a test
+    module" from "this file is what failed".
     """
     import review_matrix
     root = git('rev-parse', '--show-toplevel')

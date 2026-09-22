@@ -2506,8 +2506,8 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
                                       capture_output=True, text=True).stdout.strip()
         shared = {'test_shared.py': 'def test_shared():\n    assert True\n'}
         start = self.commit(dict(shared))
-        # The other side is the base branch. It adds a test of its own, and one whose bytes
-        # match what this delta writes below.
+        # The other side adds a test of its own, and one whose bytes match what this delta
+        # writes below.
         run('checkout', '-q', '-b', 'other', start)
         self.commit(dict(shared, **{'test_theirs.py': 'def test_theirs():\n    assert True\n',
                                     'test_same.py': 'def test_same():\n    assert True\n'}))
@@ -2550,12 +2550,8 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
         self.assertEqual(self.flow.tests_changed(base, head)[0], ['test_new.py'])
 
     def test_work_merged_in_off_the_first_parent_line_is_not_read_as_written_here(self):
-        """The stated limit, pinned so it stays a contract rather than a hole. A merge of the
-        base branch and a merge of one's own side branch are the same shape, and telling them
-        apart by content, by descent and by naming a ref were each wrong in both directions. So
-        only the first-parent line counts, and work merged in with `--no-ff` is off it. The
-        round does not pass on that: it refuses for having no changed test, which the case in
-        ReviewFlowTests asserts."""
+        """The stated limit, pinned so it stays a contract rather than a hole: only the
+        first-parent line counts, and work merged in with `--no-ff` is off it."""
         run = lambda *args: subprocess.run(['git', '-C', str(self.where), *args], check=True,
                                            capture_output=True)
         base = self.commit({'test_t.py': 'def test_t():\n    assert 1\n'})

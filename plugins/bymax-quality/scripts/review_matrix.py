@@ -475,9 +475,8 @@ def ids(root, files, selector=None, tolerant=False):
     A collect that fails for any reason but finding nothing is refused, since a record built
     from a broken collect would name nothing and prove the same.
 
-    Tolerantly, the exit code stops being fatal and what was collected is returned, which is how
-    a caller asks about one file in a directory another file has broken: the question is the
-    same one, asked where a neighbour would otherwise answer it. Measured, `--collect-only`
+    Tolerantly, the exit code stops being fatal and what was collected is returned, so a
+    directory one broken file would otherwise silence still answers. Measured, `--collect-only`
     already reports every id it reached beside the errors, so nothing else is needed to see them.
     """
     # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
