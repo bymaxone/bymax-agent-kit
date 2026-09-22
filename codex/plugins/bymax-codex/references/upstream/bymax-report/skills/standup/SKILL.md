@@ -59,28 +59,31 @@ user typed never becomes shell source: line 1 the period token (`last-week` when
 was given), line 2 the repository path (an absolute path, or `.` when none was given),
 line 3 the author text (an empty line when none was given).
 
-Write it into `.claude/bymax-report-args.d/` in the home directory, under **a name no
-other run would pick** — the date and time to the second is enough. **Remember that
-name.** Two standups at once cannot be prevented from both writing there, so the block
-does not try: it refuses unless exactly one file is waiting, and it prints the name it
-claimed. Check that against the name you wrote before you read anything. Then run:
+Write it into `.claude/bymax-report-args.d/` in the home directory, under **a name carrying the
+date and time to the second and a dozen random characters**, because two standups can begin in the
+same second. **Then read that file back and compare it with what you wrote.** Different contents
+mean another run overwrote yours; write yours again under a new name. That catches a collision,
+never stops one. **Remember the name.** Nothing prevents two standups from both writing there, so
+the block does not try: it refuses unless exactly one file is waiting, and it prints the name it
+claimed. Check it against the name you wrote before reading anything. Then run:
 
 ```bash
 ARGS_DIR="${HOME}/.claude/bymax-report-args.d"
 set -- "$ARGS_DIR"/*
-if [ ! -f "$1" ]; then
-  echo "No arguments file in $ARGS_DIR: write one (period, repo, author) and run again." >&2
+if [ "$#" -ne 1 ]; then
+  echo "$# entries are waiting in $ARGS_DIR, so another standup is in flight or left one" >&2
+  echo "behind. Wait for it, or remove one older than fifteen minutes, and run again." >&2
   exit 1
 fi
-if [ "$#" -ne 1 ]; then
-  echo "$# arguments files are waiting in $ARGS_DIR, so another standup is in flight or left" >&2
-  echo "one behind. Wait for it, or remove one older than fifteen minutes, and run again." >&2
+if [ ! -f "$1" ]; then
+  echo "No arguments file in $ARGS_DIR: write one (period, repo, author) and run again." >&2
   exit 1
 fi
 MINE="${ARGS_DIR}.claimed.$$"
 mv "$1" "$MINE" 2>/dev/null || MINE=''
 if [ -z "$MINE" ]; then
-  echo "Another run claimed the arguments first; write yours again and run this block again." >&2
+  echo "Could not claim the arguments: another run took them first, or $ARGS_DIR cannot be" >&2
+  echo "written. Check the directory, write yours again, and run this block again." >&2
   exit 1
 fi
 echo "claimed $(basename "$1")"

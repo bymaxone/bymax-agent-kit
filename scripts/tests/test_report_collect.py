@@ -345,20 +345,33 @@ class CollectTests(unittest.TestCase):
         commits are then written up as work with no pull request."""
         rows = [{'number': 5, 'title': 'feat: a', 'createdAt': noon('2026-09-17'), 'author': {'login': 'x'}},
                 {'number': 6, 'title': 'feat: b', 'createdAt': noon('2026-09-18'), 'author': {'login': 'x'}}]
-        def fake_gh(cmd, **kwargs):
-            if 'view' in cmd:
-                if cmd[cmd.index('view') + 1] == '5':
-                    return subprocess.CompletedProcess(cmd, 1, stdout='', stderr='gh: not logged in')
-                body = json.dumps({'commits': [{'oid': 'a' * 40}]})
-                return subprocess.CompletedProcess(cmd, 0, stdout=body, stderr='')
-            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows), stderr='')
-        with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
-            prs, note = self.m.collect_prs(self.repo, self.since, self.until)
-        self.assertIn('could not read the commits of 1', note)
-        byn = {pr['number']: pr for pr in prs}
-        self.assertEqual(byn[5]['shas'], [])
-        self.assertEqual(byn[5]['title'], 'feat: a', 'the refusal cost the pull request its evidence')
-        self.assertEqual(byn[6]['shas'], ['a' * 12])
+        # Each refusal below is a separate way the call can fail. A probe that removes them all at
+        # once shows a gate exists; it does not show the gate covers each cause.
+        refusals = {
+            'no gh at all': FileNotFoundError('gh'),
+            'gh that never answers': subprocess.TimeoutExpired('gh', 30),
+            'gh that refuses': subprocess.CompletedProcess(['gh'], 1, stdout='', stderr='not logged in'),
+            'an answer that is not an object': subprocess.CompletedProcess(['gh'], 0, stdout='[]', stderr=''),
+        }
+        for why, answer in refusals.items():
+            with self.subTest(why=why):
+                def fake_gh(cmd, **kwargs):
+                    if 'view' in cmd:
+                        if cmd[cmd.index('view') + 1] == '5':
+                            if isinstance(answer, Exception):
+                                raise answer
+                            return subprocess.CompletedProcess(cmd, answer.returncode,
+                                                               stdout=answer.stdout, stderr=answer.stderr)
+                        body = json.dumps({'commits': [{'oid': 'a' * 40}]})
+                        return subprocess.CompletedProcess(cmd, 0, stdout=body, stderr='')
+                    return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows), stderr='')
+                with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
+                    prs, note = self.m.collect_prs(self.repo, self.since, self.until)
+                self.assertIn('could not read the commits of 1', note)
+                byn = {pr['number']: pr for pr in prs}
+                self.assertEqual(byn[5]['shas'], [])
+                self.assertEqual(byn[5]['title'], 'feat: a', 'the refusal cost the pull request its evidence')
+                self.assertEqual(byn[6]['shas'], ['a' * 12])
 
     def test_gh_reaching_its_cap_is_said_in_coverage(self):
         """gh pr list has no pagination: a read that returns exactly the cap may have dropped older
@@ -390,7 +403,7 @@ class CollectTests(unittest.TestCase):
 
     ARGS_DIR = '.claude/bymax-report-args.d'
 
-    def run_block(self, home, args_lines, tmpdir=None, plugin=None, path=None, name='run-1', extra=None):
+    def run_block(self, home, args_lines, tmpdir=None, plugin=None, path=None, name='2026-09-22T09-05-01-k7qz3f', extra=None):
         home.mkdir(parents=True, exist_ok=True)
         waiting = home / self.ARGS_DIR
         if args_lines is not None:
@@ -440,8 +453,9 @@ class CollectTests(unittest.TestCase):
         home = self.tmp / 'h-two'
         done = self.run_block(home, ['2026-09-14..2026-09-20', str(self.repo), ''], extra='run-2')
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn('2 arguments files', done.stderr)
-        self.assertEqual(sorted(p.name for p in (home / self.ARGS_DIR).iterdir()), ['run-1', 'run-2'])
+        self.assertIn('2 entries are waiting', done.stderr)
+        self.assertEqual(sorted(p.name for p in (home / self.ARGS_DIR).iterdir()),
+                         ['2026-09-22T09-05-01-k7qz3f', 'run-2'])
         self.assertEqual(done.stdout.strip(), '', done.stdout)
 
     def test_the_skill_block_stops_when_there_is_no_temporary_directory(self):
@@ -465,9 +479,7 @@ class CollectTests(unittest.TestCase):
         self.assertFalse(called.exists(),
                          'the collector ran with --out %s' % (out.read_text() if out.exists() else '?'))
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        # The claimed name is printed before this point and is not a work path; what must not
-        # appear is a directory the reader would take for a finished collect.
-        self.assertNotIn('bymax-report.', done.stdout, done.stdout)
+        self.assertEqual(done.stdout.strip(), 'claimed 2026-09-22T09-05-01-k7qz3f', done.stdout)
 
     def test_the_skill_block_refuses_a_missing_args_file_and_runs_with_one(self):
         """The handoff file carries what the user typed; without it the block used to run the
@@ -480,7 +492,9 @@ class CollectTests(unittest.TestCase):
         home2 = self.tmp / 'h2'
         with_file = self.run_block(home2, ['2026-09-14..2026-09-20', str(self.repo), ''])
         self.assertEqual(with_file.returncode, 0, with_file.stdout + with_file.stderr)
-        self.assertIn('claimed run-1', with_file.stdout)
+        # The name is the one the helper wrote, so the case pins the output to the file that was
+        # claimed: asserting only `claimed` would pass while the block echoed any name at all.
+        self.assertIn('claimed 2026-09-22T09-05-01-k7qz3f\n', with_file.stdout)
         self.assertEqual(sorted((home2 / self.ARGS_DIR).iterdir()), [])
         work = with_file.stdout.strip().splitlines()[-1]
         self.assertTrue((Path(work) / 'collect.json').exists(), with_file.stdout)
