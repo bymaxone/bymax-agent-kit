@@ -271,7 +271,7 @@ def defined(text):
 
 def definitions(source):
     """Every test a python source defines, spelled as pytest spells its node id — a method
-    under `Class::`. Read from the text: a file that cannot be parsed defines nothing here,
+    under `Class::`. A file that cannot be parsed defines nothing here,
     which leaves the caller its own answer rather than a crash."""
     try:
         return set(defined_under(ast.parse(source), '', set()))
@@ -297,7 +297,7 @@ def collected_here(node, outer):
     """The class names visible in this body whose tests pytest collects: named as
     python_classes has it, or carrying a TestCase base, or a base bound here or outside that
     carries one itself. Resolved per body, as Python resolves a base when the class is
-    created — a name bound in one class body is not the name a class beside it inherits — and
+    created — a class bound in one body is the base a class beside it inherits — and
     the last binding of a name is the one that answers, since a module that reuses a case
     class's name has no case class by then. A base is read by its last name and followed no
     further, so a subclass of an imported base not called TestCase is left to the file rule.
