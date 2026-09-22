@@ -8,6 +8,7 @@ nobody asked for.
 """
 import datetime as dt
 import importlib.util
+import inspect
 import json
 import os
 from pathlib import Path
@@ -338,6 +339,36 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(prs[0]['shas'], ['f' * 12])
         self.assertNotIn('could not read the commits', note)
 
+    def counting_branches(self):
+        """The lines of commit_shas that count a refusal, asked of the source rather than listed
+        here. A list written by hand says what its author meant to cover, which is not what the
+        code counts. Asking the function means a branch added later with no case below fails this
+        gate instead of being covered by a sentence."""
+        lines, first = inspect.getsourcelines(self.m.commit_shas)
+        return {first + n for n, line in enumerate(lines) if line.strip() == 'unread += 1'}
+
+    def lines_reached_in_collect(self, run):
+        """Which lines of the collector `run` actually executed. The counters are one statement
+        each, so reaching the line is reaching the branch, and a case that believes it drives a
+        branch it never enters is the whole reason this is measured rather than argued."""
+        seen = set()
+        source = self.m.__file__
+
+        def trace(frame, event, arg):
+            if frame.f_code.co_filename != source:
+                return None
+            if event == 'line':
+                seen.add(frame.f_lineno)
+            return trace
+
+        previous = sys.gettrace()
+        sys.settrace(trace)
+        try:
+            run()
+        finally:
+            sys.settrace(previous)
+        return seen
+
     def test_a_pull_request_whose_commits_gh_refuses_is_named_in_coverage(self):
         """The commits are a second call per pull request, and a second call is a second way to
         fail: signed out, rate limited, or a pull request the token cannot see. The evidence block
@@ -346,13 +377,17 @@ class CollectTests(unittest.TestCase):
         rows = [{'number': 5, 'title': 'feat: a', 'createdAt': noon('2026-09-17'), 'author': {'login': 'x'}},
                 {'number': 6, 'title': 'feat: b', 'createdAt': noon('2026-09-18'), 'author': {'login': 'x'}}]
         # Each refusal below is a separate way the call can fail. A probe that removes them all at
-        # once shows a gate exists; it does not show the gate covers each cause.
+        # once shows a gate exists; it does not show the gate covers each cause. Nor does a table
+        # of causes, since a cause can share an `except` with another: the assertion under the
+        # loop is what holds every counting branch to a case here.
         refusals = {
             'no gh at all': FileNotFoundError('gh'),
             'gh that never answers': subprocess.TimeoutExpired('gh', 30),
             'gh that refuses': subprocess.CompletedProcess(['gh'], 1, stdout='', stderr='not logged in'),
+            'an answer that is not JSON': subprocess.CompletedProcess(['gh'], 0, stdout='commits: none', stderr=''),
             'an answer that is not an object': subprocess.CompletedProcess(['gh'], 0, stdout='[]', stderr=''),
         }
+        counted = set()
         for why, answer in refusals.items():
             with self.subTest(why=why):
                 def fake_gh(cmd, **kwargs):
@@ -365,13 +400,20 @@ class CollectTests(unittest.TestCase):
                         body = json.dumps({'commits': [{'oid': 'a' * 40}]})
                         return subprocess.CompletedProcess(cmd, 0, stdout=body, stderr='')
                     return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows), stderr='')
-                with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
-                    prs, note = self.m.collect_prs(self.repo, self.since, self.until)
+                got = {}
+                def collect():
+                    with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
+                        got['prs'], got['note'] = self.m.collect_prs(self.repo, self.since, self.until)
+                counted.update(self.lines_reached_in_collect(collect) & self.counting_branches())
+                prs, note = got['prs'], got['note']
                 self.assertIn('could not read the commits of 1', note)
                 byn = {pr['number']: pr for pr in prs}
                 self.assertEqual(byn[5]['shas'], [])
                 self.assertEqual(byn[5]['title'], 'feat: a', 'the refusal cost the pull request its evidence')
                 self.assertEqual(byn[6]['shas'], ['a' * 12])
+        missing = sorted(self.counting_branches() - counted)
+        self.assertEqual(missing, [], 'collect.py lines %s count a refusal no case above reaches, '
+                                      'so deleting them would leave this suite green' % missing)
 
     def test_gh_reaching_its_cap_is_said_in_coverage(self):
         """gh pr list has no pagination: a read that returns exactly the cap may have dropped older
@@ -403,7 +445,8 @@ class CollectTests(unittest.TestCase):
 
     ARGS_DIR = '.claude/bymax-report-args.d'
 
-    def run_block(self, home, args_lines, tmpdir=None, plugin=None, path=None, name='2026-09-22T09-05-01-k7qz3f', extra=None):
+    def run_block(self, home, args_lines, tmpdir=None, plugin=None, path=None, name='2026-09-22T09-05-01-k7qz3f', extra=None,
+                  nonfile=None):
         home.mkdir(parents=True, exist_ok=True)
         waiting = home / self.ARGS_DIR
         if args_lines is not None:
@@ -412,6 +455,11 @@ class CollectTests(unittest.TestCase):
         if extra is not None:
             waiting.mkdir(parents=True, exist_ok=True)
             (waiting / extra).write_text('last-week\n/somewhere/else\n\n')
+        # Everything above writes a regular file, which is the one shape `[ ! -f ]` never
+        # objects to; a directory left in the waiting place is what tells the two guards
+        # apart, so a case that needs one asks for it here.
+        if nonfile is not None:
+            (waiting / nonfile).mkdir(parents=True, exist_ok=True)
         env = {**isolated(), 'HOME': str(home), 'TMPDIR': tmpdir or str(home / 'tmp'),
                'CLAUDE_PLUGIN_ROOT': str(plugin or ROOT / 'plugins/bymax-report')}
         if path:
@@ -457,6 +505,61 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in (home / self.ARGS_DIR).iterdir()),
                          ['2026-09-22T09-05-01-k7qz3f', 'run-2'])
         self.assertEqual(done.stdout.strip(), '', done.stdout)
+
+    def test_something_that_is_not_an_arguments_file_does_not_hide_one_waiting_behind_it(self):
+        """The waiting place is a directory, so what sits in it is not always a file a run wrote:
+        a leftover directory, or anything else the block cannot read three lines from, sorts by
+        name like any entry. Asking `[ ! -f ]` before counting answers about the first entry and
+        calls the place empty, so a real one waiting behind it is reported as absent and the model
+        writes another. Counting first says how many are there, which is true of the directory
+        either way, and the file test then speaks only when there is exactly one entry to speak
+        about."""
+        alone = self.tmp / 'h-nonfile-alone'
+        done = self.run_block(alone, None, nonfile='0-left-behind')
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn('No arguments file in', done.stderr)
+        self.assertEqual(done.stdout.strip(), '', done.stdout)
+
+        behind = self.tmp / 'h-nonfile-behind'
+        done = self.run_block(behind, ['2026-09-14..2026-09-20', str(self.repo), ''], nonfile='0-left-behind')
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn('2 entries are waiting', done.stderr)
+        self.assertNotIn('No arguments file', done.stderr,
+                         'the block called the place empty while an arguments file waited in it')
+        self.assertEqual(sorted(p.name for p in (behind / self.ARGS_DIR).iterdir()),
+                         ['0-left-behind', '2026-09-22T09-05-01-k7qz3f'])
+        self.assertEqual(done.stdout.strip(), '', done.stdout)
+
+    def test_a_claim_that_cannot_be_written_names_both_places_it_needs(self):
+        """The claim is a rename out of the waiting directory into the one above it, so it needs
+        to unlink in the first and create in the second, and either can be the one refusing. The
+        message named only the waiting directory, which in the reproduced case is writable: a
+        reader following it inspects a directory that is fine and never looks at the one that is
+        not. Both are named now, and this case is what keeps them named."""
+        home = self.tmp / 'h-unclaimable'
+        waiting = home / self.ARGS_DIR
+        waiting.mkdir(parents=True, exist_ok=True)
+        (waiting / 'a-run').write_text('2026-09-14..2026-09-20\n%s\n\n' % self.repo)
+        above = home / '.claude'
+        above.chmod(0o555)
+        self.addCleanup(above.chmod, 0o755)
+        probe = above / 'probe'
+        try:
+            probe.touch()
+        except OSError:
+            pass
+        else:
+            probe.unlink()
+            self.skipTest('this runner can write a directory it has no write bit for')
+
+        done = self.run_block(home, None)
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn('Could not claim the arguments', done.stderr)
+        self.assertIn(str(waiting), done.stderr)
+        self.assertIn('directory above it', done.stderr,
+                      'the message names only the waiting directory, which here is the writable one')
+        self.assertEqual(done.stdout.strip(), '', done.stdout)
+        self.assertTrue((waiting / 'a-run').exists(), 'the refusal cost the run its arguments')
 
     def test_the_skill_block_stops_when_there_is_no_temporary_directory(self):
         """An unchecked `mktemp -d` leaves the variable empty, and the collector is then
