@@ -79,6 +79,33 @@ class ConventionalTests(unittest.TestCase):
         self.assertEqual(m.branch_name('refs/heads/feat/y'), 'feat/y')
 
 
+def isolated():
+    """The git environment a fixture states, instead of inheriting the machine's.
+
+    Inherited git config turns this suite red, measured by injecting each one into a
+    copy of it: `core.logAllRefUpdates=false` removes the reflogs the shipped cases are
+    about, `clone.defaultRemoteName` renames the remote the clone fixtures call `origin`,
+    and a `GIT_REFLOG_ACTION` exported by whatever ran the tests lands in the reflog
+    messages the classifier reads. A fixture that inherits any of them is testing the
+    machine.
+
+    The two file lookups are turned off, and every variable that reaches git around them is
+    dropped rather than emptied: the `GIT_CONFIG_COUNT` family and `GIT_CONFIG_PARAMETERS`
+    inject config directly, and `GIT_CONFIG_PARAMETERS` is the one git itself exports to
+    hooks and subprocesses under `git -c`, which is the route that delivers the kind of
+    variable this helper exists for. `GIT_TEMPLATE_DIR` installs hooks, the date variables
+    are what each fixture states per call, and `XDG_CONFIG_HOME` holds the ignore file git
+    reads when nothing sets `core.excludesFile`.
+    """
+    dropped = ('GIT_REFLOG_ACTION', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS',
+               'GIT_AUTHOR_DATE', 'GIT_COMMITTER_DATE', 'GIT_TEMPLATE_DIR')
+    env = {k: v for k, v in os.environ.items()
+           if not (k in dropped or k.startswith(('GIT_CONFIG_KEY_', 'GIT_CONFIG_VALUE_')))}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1',
+               XDG_CONFIG_HOME=os.devnull)
+    return env
+
+
 class CollectTests(unittest.TestCase):
     """A fixture repository, a fake HOME with both session stores, and one collect over them."""
 
@@ -88,7 +115,7 @@ class CollectTests(unittest.TestCase):
         self.home = self.tmp / 'home'
         self.repo = self.tmp / 'work' / 'app'
         self.repo.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_DATE': '2026-09-16T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-16T12:00:00Z',
+        env = {**isolated(), 'GIT_AUTHOR_DATE': '2026-09-16T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-16T12:00:00Z',
                'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x', 'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         git = lambda *a, **k: subprocess.run(['git', '-C', str(self.repo), *a], check=True, capture_output=True, env={**env, **k})
         git('init', '-q', '-b', 'main')
@@ -199,7 +226,7 @@ class CollectTests(unittest.TestCase):
     def test_a_stash_is_not_a_shipped_commit(self):
         """`git stash -u` writes two non-merge commits under refs/stash ('index on', 'untracked
         files on'); `--all` walks them and the report would list a stash as shipped work."""
-        env = {**os.environ, 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
+        env = {**isolated(), 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
                'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x', 'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         (self.repo / 'a').write_text('changed')
         (self.repo / 'u').write_text('untracked')
@@ -251,7 +278,7 @@ class CollectTests(unittest.TestCase):
     def test_commits_reachable_only_from_a_remote_branch_or_a_tag_are_read(self):
         """A commit that only a remote-tracking ref or a tag still reaches is shipped work a
         deleted local branch must not hide."""
-        env = {**os.environ, 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
+        env = {**isolated(), 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
                'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x', 'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         git = lambda *a: subprocess.run(['git', '-C', str(self.repo), *a], check=True, capture_output=True, env=env)
         for name, subject in (('remote-only', 'feat(dm): reachable from origin only'), ('tagged', 'feat(grants): reachable from a tag only')):
@@ -287,16 +314,39 @@ class CollectTests(unittest.TestCase):
         import re
         return re.search(r'```bash\n(.*?)```', text, re.S).group(1)
 
-    def run_block(self, home, args_lines):
+    def run_block(self, home, args_lines, tmpdir=None, plugin=None):
         home.mkdir(parents=True, exist_ok=True)
         if args_lines is not None:
             (home / '.claude').mkdir(exist_ok=True)
             (home / '.claude/bymax-report-args').write_text('\n'.join(args_lines) + '\n')
-        env = {**os.environ, 'HOME': str(home), 'TMPDIR': str(home / 'tmp'),
-               'CLAUDE_PLUGIN_ROOT': str(ROOT / 'plugins/bymax-report')}
+        env = {**isolated(), 'HOME': str(home), 'TMPDIR': tmpdir or str(home / 'tmp'),
+               'CLAUDE_PLUGIN_ROOT': str(plugin or ROOT / 'plugins/bymax-report')}
         (home / 'tmp').mkdir(exist_ok=True)
         return subprocess.run(['bash', '-c', self.skill_block()], cwd=str(self.repo), env=env,
                               capture_output=True, text=True)
+
+    def test_the_skill_block_stops_when_there_is_no_temporary_directory(self):
+        """An unchecked `mktemp -d` leaves the variable empty, and the collector is then
+        told to write `/collect.json`: outside the run's own directory, outside its cleanup,
+        and against this skill's promise that a run leaves nothing on disk. The block
+        exited 0 while printing a blank path, so nothing downstream could tell."""
+        # The collector is a stub that records being called, because the real one fails on
+        # `--out /collect.json` for anyone who cannot write to the root directory, and then
+        # the unguarded block stops for that reason instead of this one. What the guard
+        # must do is stop BEFORE the collector, whoever is running.
+        home = self.tmp / 'h-notmp'; home.mkdir(parents=True, exist_ok=True)
+        plugin = self.tmp / 'stub-plugin'; (plugin / 'scripts').mkdir(parents=True)
+        called, out = home / 'called', home / 'out-path'
+        (plugin / 'scripts/collect.py').write_text(
+            'import sys, pathlib\n'
+            'pathlib.Path(%r).write_text("yes")\n' % str(called) +
+            'pathlib.Path(%r).write_text(sys.argv[sys.argv.index("--out") + 1])\n' % str(out))
+        done = self.run_block(home, ['2026-09-14..2026-09-20', str(self.repo), ''],
+                              tmpdir=str(self.tmp / 'nowhere' / 'deeper'), plugin=plugin)
+        self.assertFalse(called.exists(),
+                         'the collector ran with --out %s' % (out.read_text() if out.exists() else '?'))
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(done.stdout.strip(), '', done.stdout)
 
     def test_the_skill_block_refuses_a_missing_args_file_and_runs_with_one(self):
         """The handoff file carries what the user typed; without it the block used to run the
@@ -315,7 +365,7 @@ class CollectTests(unittest.TestCase):
         self.assertIn('(2026-09-14 .. 2026-09-20)', with_file.stdout)
 
     def git_in_repo(self, *args, **env):
-        base = {**os.environ, 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
+        base = {**isolated(), 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
                 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x', 'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         return subprocess.run(['git', '-C', str(self.repo), *args], check=True, capture_output=True, text=True, env={**base, **env})
 
@@ -388,7 +438,7 @@ class CollectTests(unittest.TestCase):
         """A delivery branch advanced by fast-forward after the period: no merge object is
         created and no date is stamped, so the branch commit still carries its own date."""
         repo = self.tmp / ('ff' if keep_reflog else 'ff-bare') / 'app'; repo.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         def git(*args, when=None):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
@@ -412,7 +462,7 @@ class CollectTests(unittest.TestCase):
         no longer a record of where the branch stood in it. With `blank_action` that fetch
         carries no action word, which is the shape `GIT_REFLOG_ACTION=` produces."""
         root = self.tmp / 'clone'; root.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         def git(where, *args, when=None, action=None):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
@@ -464,7 +514,7 @@ class CollectTests(unittest.TestCase):
         pushes: `update by push` is the delivery itself, so that reflog is a record of
         landing and not of syncing, whatever the ref is called."""
         root = self.tmp / 'pusher'; root.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         def git(where, *args, when=None):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
@@ -484,7 +534,7 @@ class CollectTests(unittest.TestCase):
         long ago, and everything since has been our own pushes. The fetch is history, not a
         statement about where the ref stood last week."""
         root = self.tmp / 'mixed'; root.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         def git(where, *args, when=None):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
@@ -522,7 +572,7 @@ class CollectTests(unittest.TestCase):
         the exception escaped the guard, so a whole standup died on one line of a file the
         user never wrote. The collect survives it and still names a delivery ref."""
         repo = self.tmp / 'blank-action' / 'app'; repo.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         def git(*args, when=None, action=None):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
@@ -544,7 +594,7 @@ class CollectTests(unittest.TestCase):
         exists and the delivery ref is the local main. The week's work was merged upstream
         inside the period and reached us only afterwards, by the command `how` names."""
         root = self.tmp / ('catch-up-' + how); root.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         def git(where, *args, when=None):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
@@ -592,7 +642,7 @@ class CollectTests(unittest.TestCase):
         that branch deleted afterwards. Reading the remote out of the name reported a commit
         that was never pushed anywhere as shipped."""
         root = self.tmp / 'named-like-the-remote'; root.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         def git(where, *args, when=None):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
@@ -699,7 +749,7 @@ class CollectTests(unittest.TestCase):
         record for the week. Git answers the question anyway, with its oldest entry and a
         warning, which is the shape that reads as an answer and is not one."""
         repo = self.tmp / 'late-reflog' / 'app'; repo.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x',
                'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-25T12:00:00Z'}
         for args in (('init', '-q', '-b', 'main'),
@@ -748,7 +798,7 @@ class CollectTests(unittest.TestCase):
         That is an answer, not a missing one: the work had not shipped by then, and the file
         must say so rather than leave the week undecided."""
         repo = self.tmp / 'late' / 'app'; repo.mkdir(parents=True)
-        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
         def git(*args, **extra):
             subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, env={**env, **extra})
@@ -862,7 +912,7 @@ class CollectTests(unittest.TestCase):
     def test_author_keeps_one_person_by_name_or_email_and_never_filters_the_asks(self):
         """Two people commit; the standup is one person's. The sessions on this machine are
         already that person's, so an author filter that dropped them would empty PROGRESS."""
-        env = {**os.environ, 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
+        env = {**isolated(), 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
                'GIT_AUTHOR_NAME': 'Other Person', 'GIT_AUTHOR_EMAIL': 'other@x', 'GIT_COMMITTER_NAME': 'Other Person', 'GIT_COMMITTER_EMAIL': 'other@x'}
         (self.repo / 'd').write_text('4')
         subprocess.run(['git', '-C', str(self.repo), 'add', 'd'], check=True, env=env)

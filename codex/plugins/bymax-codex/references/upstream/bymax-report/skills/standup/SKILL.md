@@ -71,7 +71,11 @@ if [ -z "$PERIOD" ] || [ -z "$REPO" ]; then
   echo "No arguments file at $ARGS: write it (period, repo, author) and run this block again." >&2
   exit 1
 fi
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/bymax-report.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/bymax-report.XXXXXX") || WORK=''
+if [ -z "$WORK" ] || [ ! -d "$WORK" ]; then
+  echo "No temporary directory under ${TMPDIR:-/tmp}, so the collect did not run." >&2
+  exit 1
+fi
 if ! python3 "${CLAUDE_PLUGIN_ROOT}/scripts/collect.py" --period "$PERIOD" --repo "$REPO" --author "$AUTHOR" --out "${WORK}/collect.json"; then
   rm -rf "$WORK"
   echo "The collect failed, so there is nothing to report on; the reason is above." >&2
@@ -82,6 +86,9 @@ echo "$WORK"
 
 The block prints the temporary directory only when the collect succeeded; on a failure
 it removes that directory and exits nonzero, so a printed path always holds a `collect.json`.
+It also stops when there is no temporary directory to make, because an unchecked `mktemp`
+leaves the variable empty and the collector is then told to write `/collect.json`, outside
+the run's own directory and outside its cleanup.
 The collect's own line says how many commits, pull requests and requests it found and
 the dates it resolved. **Read that line before anything else.** Then read
 `collect.json`; it is one record per line, so read it whole with the file tool.
