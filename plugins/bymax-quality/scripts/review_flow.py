@@ -1034,9 +1034,8 @@ def tests_added(base, names):
     these files here, and does not name in them at the base.
 
     Read from the source instead, this meant predicting what pytest collects and how Python
-    binds a name, and every round of that found another shape it had got wrong — an async
-    definition, a case class reached through a base, a name rebound by a del or a for or a
-    comprehension. The two collects are facts, and the question is the one the record answers.
+    binds a name, and every round of that found another shape it had got wrong. The two
+    collects are facts, and the question is the one the record answers.
     A base that cannot be collected answers nothing, which demands nothing.
     """
     import review_matrix
@@ -1075,8 +1074,7 @@ def caught_with_the_changed_test(kept, wanted):
 
     Every, not one of them: a file is credited when any node of it failed, which an older
     neighbour of the new test satisfies, and one added test that catches would carry the
-    vacuous one beside it. Only the tests pytest RAN on the clean tree are asked, since one
-    it skipped can never be among those that failed.
+    vacuous one beside it.
     """
     failed = {node.split('[')[0] for r in kept.get('results') or [] for node in (r.get('nodes') or [])}
     idle = [node for node in wanted if node.split('[')[0] not in failed]

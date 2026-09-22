@@ -1763,12 +1763,10 @@ class ReviewFlowTests(unittest.TestCase):
 
     def test_a_test_the_correction_added_is_what_must_have_caught(self):
         """What a correction adds is a gate it asserts, and which tests it added is asked of
-        pytest on both sides — what it names here and does not name at the base — because
-        reading it from the source meant predicting pytest's collection and Python's scoping,
-        and every round of that found another shape it had got wrong. A test pytest skips is
-        not asked for: it can never be among those that failed. What the base already held is
-        not asked for either, however little it discriminates — the vacuous neighbour here is
-        the correction's to answer for only if the correction wrote it."""
+        pytest on both sides — what it names here and does not name at the base. A test
+        pytest skips is not asked for: it can never be among those that failed. What the
+        base already held is not asked for either, however little it discriminates — the
+        vacuous neighbour here is the correction's to answer for only if the correction wrote it."""
         (self.repo / 'guard.py').write_text('LIMIT = 7\n')
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_quiet(): assert True\n')

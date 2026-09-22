@@ -251,10 +251,10 @@ def baseline(root, files, case):
     side effect failed alone under a mutation of something else entirely, and that failure was
     recorded as a catch.
 
-    With them, the ones that RAN: pytest says `1 passed` for a test it ran and `1 skipped` or
-    `1 xfailed` for one it did not, and a test that does not run cannot fail, so asking it to
-    would be a demand nobody could satisfy. Asked of pytest rather than read from the marks,
-    which is the same question answered where it is decided.
+    With them, the ones that RAN: pytest says `1 passed` for a test it ran and `1 skipped` for
+    one it did not, and a test that does not run cannot fail, so asking it to would be a
+    demand nobody could satisfy. Asked of pytest rather than read from the marks, which is
+    the same question answered where it is decided.
     """
     nodes = ids(root, files, case)
     if not nodes:
@@ -489,8 +489,7 @@ def record(root, spec_path, files, out=None):
     payload = {'head': head, 'tree': tree, 'files': names, 'rules': len(spec),
                'mutants': len(results), 'survivors': [r['case'] for r in survivors],
                'tests': collected(root, files, results),
-               # The nodes pytest ran on the clean tree: a reader asking which of the tests
-               # this correction added must have caught something can only ask it of those.
+               # The nodes pytest ran on the clean tree, as opposed to those it collected.
                'ran': sorted({node for _, ran in clean.values() for node in ran}),
                'results': results}
     if out:
