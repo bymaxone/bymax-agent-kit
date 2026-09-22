@@ -876,10 +876,45 @@ def tests_changed(base, head):
     Renames are not detected, so a renamed test is listed under its new path as added instead
     of vanishing from the list both reviewers see. Deleted tests never count as evidence, but
     reviewers must see them to judge the deletion, so they come back separately.
+
+    What a merge carried in is not what this delta wrote. Merging the base branch is the only
+    way to resolve a conflict on a branch that may not be rebased, and it puts every test the
+    other side ever wrote into this diff — which asked the matrix for a case inside suites the
+    correction never touched, a demand nobody can satisfy.
     """
     changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
     removed = git('diff', '--name-only', '--no-renames', '--diff-filter=D', base, head).splitlines()
-    return [p for p in changed if is_test_path(p)], [p for p in removed if is_test_path(p)]
+    carried = carried_by_a_merge(base, head, changed)
+    return ([name for name in changed if is_test_path(name) and name not in carried],
+            [name for name in removed if is_test_path(name)])
+
+
+def carried_by_a_merge(base, head, paths):
+    """Of these paths, the ones a merge in this range brought in exactly as the other side had.
+
+    Compared by object id against the merged-in parents, so the question is what the tree holds
+    now rather than what the merge once wrote: a file edited after the merge no longer matches
+    the side it came from and is this delta's again. The first parent is never one of them —
+    it is this delta's own line, and every file it carries is the delta.
+    """
+    others = []
+    for row in git('rev-list', '--merges', '--parents', '%s..%s' % (base, head)).split('\n'):
+        others.extend(row.split()[2:])
+    here = {name: blob(head, name) for name in paths}
+    carried = set()
+    for parent in others:
+        for name, digest in here.items():
+            if digest and blob(parent, name) == digest:
+                carried.add(name)
+    return carried
+
+
+def blob(revision, path):
+    """The object id this revision holds at this path, or '' where it holds none."""
+    try:
+        return git('rev-parse', '--verify', '--quiet', '%s:%s' % (revision, path))
+    except subprocess.CalledProcessError:
+        return ''
 
 
 def regression_note(state):
@@ -966,9 +1001,8 @@ def matrix_first(state, directory):
 
 
 def matrix_bound_to_this_tree(kept, head):
-    """The record, once it is shown to be about this candidate and this tree: its head, that
-    it mutated something, that it names the files it mutated, and that their contents still
-    digest to what it recorded. Returns it with those names, which the checks after it read.
+    """The record, once it is shown to be about this candidate and this tree. Returns it
+    with the names of the files it mutated.
     """
     require(kept.get('head') == head, 'The recorded matrix names head %s, not this '
             'candidate. A record bound to another head measured another tree.'
