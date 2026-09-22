@@ -106,7 +106,7 @@ What the file holds:
   pull request explains, which is not the same as one that shipped; its body is kept.
   `shipped: null` means nothing decided what shipped, and `coverage.shipped` says why.
 - `requests`: what a person typed into Claude Code or Codex on this repository in
-  the period, dated to the minute, with the git branch the session was on.
+  the period, dated to the minute, with the git branch a Claude session was on.
   Pasted text from a third party — a client's message, a bug report — is a request
   too; it was put in the session so the work would be done.
 - `coverage`: what was read and what was not. `gh` says whether pull requests were

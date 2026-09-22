@@ -266,7 +266,7 @@ class CollectTests(unittest.TestCase):
                                          ('event', '2026-09-17T12:02:00.000Z', 'only an event')), ['straddle'])
 
     def test_codex_keeps_every_repeat_a_person_typed(self):
-        """Nothing deduplicates: the same words are another ask on another day, five minutes later,
+        """Nothing deduplicates: the same words are another ask five minutes later,
         half a second later, and out of order; one typed before the period does not hide one inside it."""
         self.assertEqual(self.codex_rows(('item', noon('2026-09-10'), 'fix the approval flow'),
                                          ('item', noon('2026-09-17'), 'fix the approval flow')), ['fix the approval flow'])

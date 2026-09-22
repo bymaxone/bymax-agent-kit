@@ -62,7 +62,7 @@ senior engineer** — and it ships for both of the agents people actually run in
 <tr>
 <td valign="top">
 
-**9 plugins** on a public marketplace — 23 slash commands, 7 skills, 10 sub-agents, 4 hooks,
+**9 plugins** on a public marketplace — 21 slash commands, 7 skills, 10 sub-agents, 4 hooks,
 26 templates.
 
 ```bash

@@ -305,7 +305,7 @@ def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]
     The date walk goes by first parent: it otherwise descends into a merge's second parent
     and returns a commit that was never on the delivery branch, which then marks itself
     shipped. ``--`` ends the revisions where the command takes paths too: an untracked path
-    spelled like the ref, or like a commit's twelve hex digits, otherwise makes git refuse.
+    spelled like the ref otherwise makes git refuse.
     """
     when = f'{until.isoformat()}T23:59:59'
     cutoff = dt.datetime.fromisoformat(when).timestamp()
