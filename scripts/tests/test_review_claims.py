@@ -336,14 +336,42 @@ class OpaqueFileTests(unittest.TestCase):
         tree = Tree(self, {'a.py': 'X = 1\n'}, {'a.py': 'X = 2\n'})
         self.assertEqual(self.opaque(tree), [])
 
-    def test_a_name_inside_any_code_block_is_an_example(self):
-        """Found by a reviewer: only the backtick fence was stripped, so a name shown in a
-        tilde fence or an indented block read as an assertion and refused a candidate whose
-        README merely showed the call."""
-        for shown in ('```\nOLD_HELPER()\n```', '~~~\nOLD_HELPER()\n~~~', '    OLD_HELPER()'):
-            self.assertNotIn('OLD_HELPER', claims.prose('README.md', '# doc\n\n' + shown + '\n'), shown)
-        # And a real mention is still one: what is not in a block is what the file asserts.
-        self.assertIn('OLD_HELPER', claims.prose('README.md', '# doc\n\nThe OLD_HELPER is gone.\n'))
+    EXAMPLES = (
+        ('a backtick fence', '```\nOLD_HELPER()\n```'),
+        ('a tilde fence', '~~~\nOLD_HELPER()\n~~~'),
+        ('a fence indented under nothing', '  ```\n  OLD_HELPER()\n  ```'),
+        ('a fence inside a list item', '- Example:\n\n  ```\n  OLD_HELPER()\n  ```'),
+        ('a fence closed only by one as long', '````\nOLD_HELPER()\n```\nstill code\n````'),
+        ('a fence with an info string', '```python\nOLD_HELPER()\n```'),
+        ('a fence nobody closed', '```\nOLD_HELPER()'),
+        ('a fence of the other character inside one', '```\n~~~\nOLD_HELPER()\n~~~\n```'),
+        ('an indented block', '    OLD_HELPER()'),
+        ('an indented block of several lines', '    one()\n    OLD_HELPER()'),
+        ('an indented block after a list closed', '- Status\n\nDone.\n\n    OLD_HELPER()'),
+        ('a block indented with a tab', '\tOLD_HELPER()'),
+        ('a fence a line with an info string does not close', '```\n``` still open\nOLD_HELPER()\n```'),
+    )
+
+    ASSERTIONS = (
+        ('a mention on its own', 'The OLD_HELPER is gone.'),
+        ('a continuation four spaces under a list marker',
+         '- Status\n\n    We removed OLD_HELPER from the API.'),
+        ('a nested list item', '- Status\n    - and OLD_HELPER went with it'),
+        ('the wrapped second line of a sentence',
+         'A paragraph about it\n    that says OLD_HELPER is gone.'),
+    )
+
+    def test_a_name_inside_a_code_block_is_an_example(self):
+        """Three spellings of one regex each fixed a shape and broke another — a tilde fence, a
+        fence indented inside a list item, and four spaces under a list marker, which is the
+        item's own prose and not code. The shapes are listed here and walked, so a fourth
+        spelling has to answer all of them at once."""
+        for name, shown in self.EXAMPLES:
+            with self.subTest(name):
+                self.assertNotIn('OLD_HELPER', claims.prose('README.md', '# doc\n\n' + shown + '\n'))
+        for name, said in self.ASSERTIONS:
+            with self.subTest(name):
+                self.assertIn('OLD_HELPER', claims.prose('README.md', '# doc\n\n' + said + '\n'))
 
     def test_the_generated_mirror_is_not_named_either(self):
         """A generated copy is not a file whose claims nobody read; it is a copy."""

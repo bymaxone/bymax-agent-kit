@@ -1761,19 +1761,26 @@ class ReviewFlowTests(unittest.TestCase):
         """A conftest, a fixture and a helper module are test paths the scope rule counts as
         part of the correction, and no matrix can ever name a case that ran in one: asking was
         a refusal nobody could satisfy. Asked of pytest, not guessed from the name — a helper
-        may define a test-shaped function pytest never collects, and a file whose collect
-        cannot answer at all is read as collecting none rather than ending the campaign at
-        another tier."""
+        may define a test-shaped function pytest never collects."""
         self.a_guard_and_its_older_test()
         (self.repo / 'tests/conftest.py').write_text('import pytest\n\n\n@pytest.fixture\ndef spare(): return 1\n')
         (self.repo / 'tests/helpers.py').write_text('def build(v): return v\n\n\ndef test_added(): assert 1\n')
-        (self.repo / 'src/__tests__').mkdir(parents=True, exist_ok=True)
-        (self.repo / 'src/__tests__/test_broken.py').write_text('def test_added(: assert 1\n')
         (self.repo / 'tests/fixtures.json').parent.mkdir(exist_ok=True)
         (self.repo / 'tests/fixtures.json').write_text('{"v": 1}\n')
         self.commit('a correction that repairs a fixture the tests share')
         self.guard_matrix()
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_collect_that_cannot_answer_refuses_instead_of_skipping_the_gate(self):
+        """Found by a reviewer: a collect that errors was read as "no test here", which emptied
+        the list the gate is scoped by and returned before the gate demanded anything. A
+        conftest that will not import anywhere near a changed test then skipped the one check
+        this delivery exists for, in silence. It is refused by name instead."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'tests/conftest.py').write_text('import nothing_that_exists\n')
+        self.commit('a correction whose test directory no longer collects')
+        said = self.start(correction=True, reason='', ok=False)
+        self.assertIn('pytest could not say whether', said.stdout + said.stderr)
 
     def test_a_test_the_correction_added_is_what_must_have_caught(self):
         """What a correction adds is a gate it asserts, and which tests it added is asked of
@@ -2428,28 +2435,57 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
         return subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],
                               capture_output=True, text=True).stdout.strip()
 
-    def test_a_test_a_merge_carried_in_is_not_this_delta_s(self):
-        """Found on a branch that could not be rebased: merging the base branch in put every
-        test the other side had ever written into the diff, and the matrix was then asked for a
-        case inside suites this correction never touched. What the merge carried over unchanged
-        is subtracted; what this delta wrote, and what it edited after the merge, stays."""
+    def test_what_a_merge_carried_in_is_told_from_what_this_delta_wrote(self):
+        """Asking whether head's bytes match a side the merge brought in got both answers
+        wrong: a test this delta wrote that the other side wrote identically vanished, and
+        `git merge --no-ff` puts the delta's OWN commits on the second parent, which emptied
+        the list and skipped the matrix gate in silence. The question is provenance."""
         run = lambda *args: subprocess.run(['git', '-C', str(self.where), *args], check=True,
                                            capture_output=True)
-        base = self.commit({'test_shared.py': 'def test_shared():\n    assert True\n'})
-        mine = self.commit({'test_shared.py': 'def test_shared():\n    assert True\n',
-                            'test_mine.py': 'def test_mine():\n    assert True\n'})
-        run('checkout', '-q', '-b', 'other', base)
-        self.commit({'test_shared.py': 'def test_shared():\n    assert True\n',
-                     'test_theirs.py': 'def test_theirs():\n    assert True\n'})
+        head = lambda: subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],
+                                      capture_output=True, text=True).stdout.strip()
+        shared = {'test_shared.py': 'def test_shared():\n    assert True\n'}
+        start = self.commit(dict(shared))
+        # The other side is a branch this one does not descend from, which is what the base
+        # branch is: no commit of it has the previous candidate as an ancestor. It adds a test
+        # of its own, and one whose bytes match what this delta writes below.
+        run('checkout', '-q', '-b', 'other', start)
+        self.commit(dict(shared, **{'test_theirs.py': 'def test_theirs():\n    assert True\n',
+                                    'test_same.py': 'def test_same():\n    assert True\n'}))
         run('checkout', '-q', '-')
+        base = self.commit(dict(shared))
+        self.commit(dict(shared, **{'test_mine.py': 'def test_mine():\n    assert True\n',
+                                    'test_same.py': 'def test_same():\n    assert True\n'}))
         run('merge', '-q', '--no-edit', 'other')
+        self.assertEqual(self.flow.tests_changed(base, head())[0],
+                         ['test_mine.py', 'test_same.py'])
+        # A test both sides changed is resolved by hand in the merge, and somebody typing a
+        # resolution is this delta writing the file, however much of it came from either side.
+        (self.where / 'test_shared.py').write_text('def test_shared():\n    assert 2\n')
+        run('add', '-A')
+        run('-c', 'user.email=c@example.invalid', '-c', 'user.name=C', 'commit', '-q',
+            '--amend', '--no-edit')
+        self.assertEqual(self.flow.tests_changed(base, head())[0],
+                         ['test_mine.py', 'test_same.py', 'test_shared.py'])
+        # And a file edited after the merge is this delta's, however it arrived.
+        self.commit({'test_theirs.py': 'def test_theirs():\n    assert 1\n'})
+        self.assertEqual(self.flow.tests_changed(base, head())[0],
+                         ['test_mine.py', 'test_same.py', 'test_shared.py', 'test_theirs.py'])
+
+    def test_a_no_ff_merge_of_this_delta_s_own_branch_is_this_delta(self):
+        """`git merge --no-ff topic` makes the correction's own commits the second parent. Read
+        as the side a merge carried in, every test it changed disappeared and the gate returned
+        before it demanded anything."""
+        run = lambda *args: subprocess.run(['git', '-C', str(self.where), *args], check=True,
+                                           capture_output=True)
+        base = self.commit({'test_t.py': 'def test_t():\n    assert 1\n'})
+        run('checkout', '-q', '-b', 'topic')
+        self.commit({'test_t.py': 'def test_t():\n    assert 2\n'})
+        run('checkout', '-q', '-')
+        run('merge', '-q', '--no-ff', '--no-edit', 'topic')
         head = subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],
                               capture_output=True, text=True).stdout.strip()
-        self.assertEqual(self.flow.tests_changed(base, head)[0], ['test_mine.py'])
-        # And a file edited after the merge is this delta's again, however it arrived.
-        after = self.commit({'test_theirs.py': 'def test_theirs():\n    assert 1\n'})
-        self.assertEqual(self.flow.tests_changed(base, after)[0],
-                         ['test_mine.py', 'test_theirs.py'])
+        self.assertEqual(self.flow.tests_changed(base, head)[0], ['test_t.py'])
 
     def test_the_brief_shows_a_removal_claim_the_check_only_reports(self):
         """An independent reviewer found that nothing on the flow path executed the removal check, so its rows
