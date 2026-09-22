@@ -388,11 +388,17 @@ class CollectTests(unittest.TestCase):
         import re
         return re.search(r'```bash\n(.*?)```', text, re.S).group(1)
 
-    def run_block(self, home, args_lines, tmpdir=None, plugin=None, path=None):
+    ARGS_DIR = '.claude/bymax-report-args.d'
+
+    def run_block(self, home, args_lines, tmpdir=None, plugin=None, path=None, name='run-1', extra=None):
         home.mkdir(parents=True, exist_ok=True)
+        waiting = home / self.ARGS_DIR
         if args_lines is not None:
-            (home / '.claude').mkdir(exist_ok=True)
-            (home / '.claude/bymax-report-args').write_text('\n'.join(args_lines) + '\n')
+            waiting.mkdir(parents=True, exist_ok=True)
+            (waiting / name).write_text('\n'.join(args_lines) + '\n')
+        if extra is not None:
+            waiting.mkdir(parents=True, exist_ok=True)
+            (waiting / extra).write_text('last-week\n/somewhere/else\n\n')
         env = {**isolated(), 'HOME': str(home), 'TMPDIR': tmpdir or str(home / 'tmp'),
                'CLAUDE_PLUGIN_ROOT': str(plugin or ROOT / 'plugins/bymax-report')}
         if path:
@@ -402,12 +408,11 @@ class CollectTests(unittest.TestCase):
                               capture_output=True, text=True)
 
     def test_the_skill_block_claims_the_arguments_before_it_reads_them(self):
-        """The handoff file sits at one fixed path per home directory, so two standup runs at
-        once reach for the same file. Reading it line by line left a window where the second run
-        could overwrite it between the first run's reads, mixing one run's period with another's
-        repository. The block now claims it with a rename, which is atomic: the winner reads a
-        copy only it holds, the loser finds nothing and says so. Measured by a `sed` on PATH that
-        records which path it was handed — the shared one means the window is still open."""
+        """The arguments wait in a directory both runs can write to, so reading a file in place
+        left a window where a second run could overwrite it between the first run's reads, mixing
+        one run's period with another's repository. The block claims it with a rename first, which
+        is atomic, and reads a copy outside that directory. Measured by a `sed` on PATH that
+        records which path it was handed: one inside the directory means the window is open."""
         home = self.tmp / 'h-claim'; home.mkdir(parents=True, exist_ok=True)
         binx = self.tmp / 'claim-bin'; binx.mkdir(parents=True, exist_ok=True)
         seen = home / 'sed-was-given'
@@ -416,14 +421,28 @@ class CollectTests(unittest.TestCase):
         fake.chmod(0o755)
         done = self.run_block(home, ['2026-09-14..2026-09-20', str(self.repo), ''], path=str(binx))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        shared = str(home / '.claude/bymax-report-args')
+        waiting = str(home / self.ARGS_DIR)
         handed = seen.read_text().split()
         self.assertTrue(handed, 'the fake sed was never called')
-        self.assertNotIn(shared, handed,
-                         'the block read the shared handoff in place: %r' % handed)
+        self.assertFalse([h for h in handed if h.startswith(waiting + '/')],
+                         'the block read the waiting handoff in place: %r' % handed)
         second = self.run_block(home, None, path=str(binx))
         self.assertNotEqual(second.returncode, 0, second.stdout + second.stderr)
-        self.assertEqual(len(list((home / '.claude').glob('bymax-report-args*'))), 0)
+        self.assertEqual(sorted((home / self.ARGS_DIR).iterdir()), [])
+        self.assertEqual(sorted((home / '.claude').glob('bymax-report-args.d.claimed.*')), [])
+
+    def test_two_standups_waiting_at_once_make_the_block_refuse_both(self):
+        """Nothing can stop two runs writing their arguments at the same moment: the file tool
+        has no create-if-absent that another turn cannot race, and a rename only owns what is
+        already there. So the block does not try to pick a winner. It refuses while more than
+        one is waiting, claims neither, and says how many it saw. Refusing costs a wait;
+        reporting on another run's repository costs the report."""
+        home = self.tmp / 'h-two'
+        done = self.run_block(home, ['2026-09-14..2026-09-20', str(self.repo), ''], extra='run-2')
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn('2 arguments files', done.stderr)
+        self.assertEqual(sorted(p.name for p in (home / self.ARGS_DIR).iterdir()), ['run-1', 'run-2'])
+        self.assertEqual(done.stdout.strip(), '', done.stdout)
 
     def test_the_skill_block_stops_when_there_is_no_temporary_directory(self):
         """An unchecked `mktemp -d` leaves the variable empty, and the collector is then
@@ -446,7 +465,9 @@ class CollectTests(unittest.TestCase):
         self.assertFalse(called.exists(),
                          'the collector ran with --out %s' % (out.read_text() if out.exists() else '?'))
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(done.stdout.strip(), '', done.stdout)
+        # The claimed name is printed before this point and is not a work path; what must not
+        # appear is a directory the reader would take for a finished collect.
+        self.assertNotIn('bymax-report.', done.stdout, done.stdout)
 
     def test_the_skill_block_refuses_a_missing_args_file_and_runs_with_one(self):
         """The handoff file carries what the user typed; without it the block used to run the
@@ -459,7 +480,8 @@ class CollectTests(unittest.TestCase):
         home2 = self.tmp / 'h2'
         with_file = self.run_block(home2, ['2026-09-14..2026-09-20', str(self.repo), ''])
         self.assertEqual(with_file.returncode, 0, with_file.stdout + with_file.stderr)
-        self.assertFalse((home2 / '.claude/bymax-report-args').exists())
+        self.assertIn('claimed run-1', with_file.stdout)
+        self.assertEqual(sorted((home2 / self.ARGS_DIR).iterdir()), [])
         work = with_file.stdout.strip().splitlines()[-1]
         self.assertTrue((Path(work) / 'collect.json').exists(), with_file.stdout)
         self.assertIn('(2026-09-14 .. 2026-09-20)', with_file.stdout)

@@ -56,22 +56,34 @@ it is a section title or an area name.
 
 First write the arguments to a file with the file tool, three lines, so a value the
 user typed never becomes shell source: line 1 the period token (`last-week` when none
-was given), line 2 the repository path (`.` when none was given), line 3 the author
-text (an empty line when none was given). The file is `.claude/bymax-report-args` in
-the home directory. **Create it only when it is absent.** A file already there may
-be another standup in flight: wait for it rather than overwriting it, or you take
-arguments that run is about to read. The block below then claims that file with a
-rename and reads the copy only it holds, and refuses to run without one, so a run
-never falls back to defaults the user did not choose. Then run:
+was given), line 2 the repository path (an absolute path, or `.` when none was given),
+line 3 the author text (an empty line when none was given).
+
+Write it into `.claude/bymax-report-args.d/` in the home directory, under **a name no
+other run would pick** — the date and time to the second is enough. **Remember that
+name.** Two standups at once cannot be prevented from both writing there, so the block
+does not try: it refuses unless exactly one file is waiting, and it prints the name it
+claimed. Check that against the name you wrote before you read anything. Then run:
 
 ```bash
-ARGS="${HOME}/.claude/bymax-report-args"
-MINE="${ARGS}.$$"
-mv "$ARGS" "$MINE" 2>/dev/null || MINE=''
-if [ -z "$MINE" ]; then
-  echo "No arguments file at $ARGS: write it (period, repo, author) and run this block again." >&2
+ARGS_DIR="${HOME}/.claude/bymax-report-args.d"
+set -- "$ARGS_DIR"/*
+if [ ! -f "$1" ]; then
+  echo "No arguments file in $ARGS_DIR: write one (period, repo, author) and run again." >&2
   exit 1
 fi
+if [ "$#" -ne 1 ]; then
+  echo "$# arguments files are waiting in $ARGS_DIR, so another standup is in flight or left" >&2
+  echo "one behind. Wait for it, or remove one older than fifteen minutes, and run again." >&2
+  exit 1
+fi
+MINE="${ARGS_DIR}.claimed.$$"
+mv "$1" "$MINE" 2>/dev/null || MINE=''
+if [ -z "$MINE" ]; then
+  echo "Another run claimed the arguments first; write yours again and run this block again." >&2
+  exit 1
+fi
+echo "claimed $(basename "$1")"
 PERIOD=$(sed -n 1p "$MINE")
 REPO=$(sed -n 2p "$MINE")
 AUTHOR=$(sed -n 3p "$MINE")
@@ -100,11 +112,12 @@ leaves the variable empty and the collector is then told to write `/collect.json
 the run's own directory and outside its cleanup.
 The collect's own line says how many commits, pull requests and requests it found and
 the dates it resolved and the repository it read. **Read that line before anything
-else, and check the period and the repository against what you were asked for.** The
-create-only-when-absent rule above is prose, not a gate, so a run that ignores it can
-still take your arguments; a period or a repository that is not the one you were asked
-about is what that looks like. Write the arguments again and run the block again rather
-than reporting on the wrong repository. Then read
+else, and check it against what you were asked for**, together with the `claimed` line
+above it. The claimed name is what your run chose; the period and the repository are a
+second reading, and a weaker one, since a repository written as `.` is resolved wherever
+the block runs. A disagreement means you are holding another run's arguments: write
+yours again and run the block again rather than reporting on the wrong repository.
+Then read
 `collect.json`; it is one record per line, so read it whole with the file tool.
 
 What the file holds:
