@@ -220,9 +220,9 @@ def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
     local branch moved by ``pull`` moved because we caught up. It is not a property of the
     whole history either. A sync BEFORE the period is history: someone's work arrived, and
     where the ref stood last week is still what we put there. A sync AFTER it says something
-    later corrected our view of that week, which is the clone whose fetches fall on either
-    side of it. Testing every entry confused the two and sent a delivering ref back to the
-    dates, which reported work pushed the week after as delivered inside it.
+    later corrected our view of that week. Testing every entry confused the two and sent a
+    delivering ref back to the dates, which reported work pushed the week after as delivered
+    inside it.
 
     An entry's action is the first word of its message once anything from the first colon is
     cut off: ``clone:`` would otherwise keep its colon, and ``pull --tags origin main:`` its
@@ -252,7 +252,7 @@ def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]
     report asks: a branch merged the week after is reachable today and shipped in no week
     under review.
 
-    Where every move of the ref was delivery rather than syncing, the reflog is that record
+    Where no move since the period was this repository syncing, the reflog is that record
     and the only thing that sees a fast-forward, which creates no object and stamps no date.
     Where a move since the period was this repository catching up, our view of that week was
     corrected afterwards, so the commit dates answer instead. They carry the upstream merge
@@ -261,9 +261,8 @@ def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]
 
     The date walk goes by first parent: it otherwise descends into a merge's second parent
     and returns a commit that was never on the delivery branch, which then marks itself
-    shipped. ``--`` ends the revisions of every question here that names a ref — both reflog
-    reads, this walk and the ancestry query: an untracked path spelled like the ref, or like a
-    commit's twelve hex digits, otherwise makes git refuse.
+    shipped. ``--`` ends the revisions where the command takes paths too: an untracked path
+    spelled like the ref, or like a commit's twelve hex digits, otherwise makes git refuse.
     """
     when = f'{until.isoformat()}T23:59:59'
     cutoff = dt.datetime.fromisoformat(when).timestamp()

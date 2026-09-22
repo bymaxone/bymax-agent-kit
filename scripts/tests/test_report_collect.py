@@ -516,8 +516,8 @@ class CollectTests(unittest.TestCase):
     def test_a_reflog_message_git_wrote_cannot_abort_the_collect(self):
         """Git writes `: Fast-forward`, with nothing before the colon, when GIT_REFLOG_ACTION is
         empty — a variable git exports to its own hooks. Reading the action off that raised, and
-        the exception escaped the one guard, so a whole standup died on one line of a file the
-        user never wrote. A git question that cannot be answered is a coverage note here."""
+        the exception escaped the guard, so a whole standup died on one line of a file the
+        user never wrote. The unreadable entry is skipped, and the reflog still answers."""
         repo = self.tmp / 'blank-action' / 'app'; repo.mkdir(parents=True)
         env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
@@ -598,9 +598,9 @@ class CollectTests(unittest.TestCase):
         self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
 
     def test_a_file_named_like_the_branch_does_not_break_the_fallback(self):
-        """Every git question here that names a ref ends its revisions, this one included:
-        a path of the same name made the reflog calls exit 128 too. Only a repository whose
-        reflog cannot answer reaches the date walk, which is what this fixture is for."""
+        """The date walk names the ref as a bare argument, so a path of the same name makes git
+        refuse it: 'ambiguous argument'. That walk is reached where the reflog does not answer,
+        which is what this fixture is for."""
         repo = self.repo_whose_reflog_starts_after_the_period()
         (repo / 'main').write_text('a compiled binary, not a branch')
         data = self.m.collect(repo, self.since, self.until, self.home, use_gh=False)
@@ -629,10 +629,9 @@ class CollectTests(unittest.TestCase):
         self.assertIn('held nothing', data['coverage']['shipped'])
 
     def test_a_file_named_like_the_delivery_branch_does_not_break_the_question(self):
-        """Every git question naming the ref refuses when a path called main exists:
-        'ambiguous argument'. A compiled binary in the root is the everyday case. The separator
-        says the argument is a revision; this fixture's reflog answers, so it is that call
-        the case covers, and without the separator every commit came back undecided."""
+        """A path called main makes git refuse the questions that name the ref as a bare
+        argument: 'ambiguous argument'. The separator says the argument is a revision; this
+        fixture's reflog answers, so it is the reflog reads that this case covers."""
         (self.repo / 'main').write_text('a compiled binary, not a branch')
         shipped, data = self.shipped_by_subject()
         self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
