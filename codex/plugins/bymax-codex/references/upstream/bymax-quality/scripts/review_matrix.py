@@ -250,11 +250,6 @@ def baseline(root, files, case):
     then runs under the mutant. Shown passing together, a node that leaned on an earlier one's
     side effect failed alone under a mutation of something else entirely, and that failure was
     recorded as a catch.
-
-    With them, the ones that RAN: pytest says `1 passed` for a test it ran and `1 skipped` for
-    one it did not, and a test that does not run cannot fail, so asking it to would be a
-    demand nobody could satisfy. Asked of pytest rather than read from the marks, which is
-    the same question answered where it is decided.
     """
     nodes = ids(root, files, case)
     if not nodes:
@@ -269,8 +264,8 @@ def baseline(root, files, case):
 
 
 def ran_alone(root, nodes):
-    """Of these nodes, the ones pytest RAN, each on its own in this tree. It writes `1 passed`
-    for a test it ran and `1 skipped` for one it did not, and a test that does not run can
+    """Of these nodes, the ones that PASSED alone in this tree. Only the tail line is read, so
+    a failure and an error are excluded with the skips, and a test that does not run can
     never be among those that failed, so asking it to would be a demand nobody could satisfy.
 
     Asked of the nodes themselves rather than taken from what the matrix ran: the matrix runs
