@@ -1001,9 +1001,8 @@ def matrix_first(state, directory):
 
 
 def matrix_bound_to_this_tree(kept, head):
-    """The record, once it is shown to be about this candidate and this tree: its head, that
-    it mutated something, that it names the files it mutated, and that their contents still
-    digest to what it recorded. Returns it with those names, which the checks after it read.
+    """The record, once it is shown to be about this candidate and this tree. Returns it
+    with the names of the files it mutated.
     """
     require(kept.get('head') == head, 'The recorded matrix names head %s, not this '
             'candidate. A record bound to another head measured another tree.'
