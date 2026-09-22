@@ -82,9 +82,7 @@ def outside_code(text):
     """Every Markdown code block blanked, and nothing else.
 
     Every regex spelling tried here fixed one shape while breaking another. The question needs
-    state a regex has no way to carry, so the lines are walked once with it: the fence that is
-    open, and the column the innermost list item's content starts at. Inside a block a name is
-    an example about somebody else's repository; outside one it is what this file asserts.
+    state a regex has no way to carry, so the lines are walked once with it.
     """
     out, fence, content, blank, code = [], None, 0, True, False
     for line in text.split('\n'):
@@ -112,7 +110,7 @@ def outside_code(text):
 
 
 def listing(line, indent, content):
-    """The column the innermost open list item's content starts at, once this line is read.
+    """The column the open list item's content starts at, once this line is read.
 
     A marker opens an item and a line indented less than its content closes it, which is what
     tells an indented code block from the item's own prose four spaces in.
