@@ -328,8 +328,8 @@ class CollectTests(unittest.TestCase):
         self.git_in_repo('checkout', '-q', 'main')
         return sha
 
-    def shipped_by_subject(self, until=None, **kw):
-        data = self.m.collect(self.repo, self.since, until or self.until, self.home, use_gh=False, **kw)
+    def shipped_by_subject(self, **kw):
+        data = self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False, **kw)
         return {c['subject']: c['shipped'] for c in data['commits']}, data
 
     def test_only_what_reached_the_default_branch_counts_as_shipped(self):
@@ -384,6 +384,86 @@ class CollectTests(unittest.TestCase):
         self.assertIs(shipped[subject], False)
         self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
 
+    def fast_forwarded_repo(self, keep_reflog=True):
+        """A delivery branch advanced by fast-forward after the period: no merge object is
+        created and no date is stamped, so the branch commit still carries its own date."""
+        repo = self.tmp / ('ff' if keep_reflog else 'ff-bare') / 'app'; repo.mkdir(parents=True)
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(*args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, env={**env, **extra})
+        git('init', '-q', '-b', 'main')
+        git('commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-15T12:00:00Z')
+        git('checkout', '-q', '-b', 'feat/ff')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(ff): fast-forwarded after the week', when='2026-09-17T12:00:00Z')
+        git('checkout', '-q', 'main')
+        git('merge', '-q', '--ff-only', 'feat/ff')
+        if not keep_reflog:
+            for log in (repo / '.git/logs').rglob('*'):
+                if log.is_file():
+                    log.unlink()
+        return repo.resolve()
+
+    def test_a_fast_forward_after_the_period_did_not_ship_in_it(self):
+        """A fast-forward moves a branch without creating an object or stamping a date, so the
+        branch's position cannot be reconstructed from commit dates: the commit still looks like
+        the tip of the week it was written in. Git does record the move, in the reflog, and
+        `<ref>@{<date>}` is that record — the one question that answers where a ref stood."""
+        data = self.m.collect(self.fast_forwarded_repo(), self.since, self.until, self.home, use_gh=False)
+        self.assertEqual([(c['subject'], c['shipped']) for c in data['commits']],
+                         [('chore: base', True), ('feat(ff): fast-forwarded after the week', False)])
+        self.assertIn('reflog', data['coverage']['shipped'])
+
+    def repo_whose_reflog_starts_after_the_period(self):
+        """A reflog that exists and begins too late: the entry is stamped when the commit was
+        made, so a commit written during the week and committed after it leaves nothing on
+        record for the week. Git answers the question anyway, with its oldest entry and a
+        warning, which is the shape that reads as an answer and is not one."""
+        repo = self.tmp / 'late-reflog' / 'app'; repo.mkdir(parents=True)
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x',
+               'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-25T12:00:00Z'}
+        for args in (('init', '-q', '-b', 'main'),
+                     ('commit', '-q', '--allow-empty', '-m', 'feat(x): written in the week, committed after it')):
+            subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, env=env)
+        return repo.resolve()
+
+    def test_when_the_reflog_cannot_answer_the_commit_dates_do_and_say_so(self):
+        """Two ways the record is missing: no reflog at all, which is a fresh clone or an
+        expired one, and a reflog that begins after the period, where git answers with its
+        oldest entry and a warning. Both fall back to the commit dates, which cannot see a
+        fast-forward, and the file says which question was answered rather than implying the
+        stronger one."""
+        for name, repo in (('no reflog', self.fast_forwarded_repo(keep_reflog=False)),
+                           ('a reflog that begins too late', self.repo_whose_reflog_starts_after_the_period())):
+            with self.subTest(case=name):
+                data = self.m.collect(repo, self.since, self.until, self.home, use_gh=False)
+                self.assertEqual(data['coverage']['delivery_ref'], 'main')
+                self.assertIn('commit dates', data['coverage']['shipped'])
+                self.assertNotIn('reflog', data['coverage']['shipped'])
+
+    def test_a_file_named_like_a_commit_does_not_void_the_week(self):
+        """The ancestry query hands git commit ids, and an untracked file named with one of their
+        abbreviations makes it refuse — which left every commit undecided and, because the skill
+        reads a null delivery ref as 'write no UPDATES', threw away the pull requests too."""
+        # main's tip is the commit outside the period, which the query never names; the file
+        # has to carry the abbreviation of a commit the query does hand git.
+        collected = self.git_in_repo('rev-parse', '--short=12', 'main~1').stdout.strip()
+        (self.repo / collected).write_text('a fixture named after a hash')
+        shipped, data = self.shipped_by_subject()
+        self.assertEqual(data['coverage']['delivery_ref'], 'main')
+        self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
+
+    def test_a_file_named_like_the_branch_does_not_break_the_fallback(self):
+        """The reflog question is untouched by a path of the same name, so only the fallback
+        needs the separator — and only a repository whose reflog cannot answer reaches it."""
+        repo = self.repo_whose_reflog_starts_after_the_period()
+        (repo / 'main').write_text('a compiled binary, not a branch')
+        data = self.m.collect(repo, self.since, self.until, self.home, use_gh=False)
+        self.assertEqual(data['coverage']['delivery_ref'], 'main')
+        self.assertEqual({c['shipped'] for c in data['commits']}, {False})
+
     def test_a_delivery_branch_that_held_nothing_yet_shipped_nothing(self):
         """A delivery branch whose first commit lands after the period held nothing during it.
         That is an answer, not a missing one: the work had not shipped by then, and the file
@@ -414,26 +494,30 @@ class CollectTests(unittest.TestCase):
         self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
         self.assertEqual(data['coverage']['delivery_ref'], 'main')
 
-    def collect_with_git_refusing(self, refuse_when):
+    def collect_with_git_refusing(self, repo, refuse_when):
         """Run a collect where git refuses the calls this predicate picks, and nothing else."""
         real = self.m.git
-        def refuse(repo, *args, **kw):
+        def refuse(where, *args, **kw):
             if refuse_when(args):
                 raise RuntimeError('pretend git said no')
-            return real(repo, *args, **kw)
+            return real(where, *args, **kw)
         with unittest.mock.patch.object(self.m, 'git', side_effect=refuse):
-            return self.m.collect(self.repo, self.since, self.until, self.home, use_gh=False)
+            return self.m.collect(repo, self.since, self.until, self.home, use_gh=False)
 
     def test_an_ancestry_question_git_refuses_decides_nothing_and_says_so(self):
         """Two calls can fail — where the branch stood, and what it reached — and each must end
         the same way: nothing decided, and no ref left in coverage claiming it did. The skill's
         one escape hatch reads `delivery_ref`, so a ref there with every commit undecided is how
-        a report silently loses its updates. A test that kills the first call never reaches the
-        second, which is what let a mutant of that branch live."""
-        for name, predicate in (('where the branch stood', lambda a: a[:2] == ('rev-list', '-1')),
-                                ('what it reached', lambda a: a[:2] == ('rev-list', '--no-walk'))):
+        a report silently loses its updates, and it discards the pull requests with them. The
+        first is reached only where the reflog cannot answer, which is why it gets a repository
+        without one: a test that kills a call nothing runs measures nothing."""
+        for name, repo, predicate in (
+                ('where the branch stood', self.fast_forwarded_repo(keep_reflog=False),
+                 lambda a: a[:2] == ('rev-list', '-1')),
+                ('what it reached', self.repo,
+                 lambda a: a and a[0] == 'rev-list' and a[1:2] != ('-1',))):
             with self.subTest(call=name):
-                data = self.collect_with_git_refusing(predicate)
+                data = self.collect_with_git_refusing(repo, predicate)
                 self.assertEqual({c['shipped'] for c in data['commits']}, {None})
                 self.assertIsNone(data['coverage']['delivery_ref'])
                 self.assertIn('failed', data['coverage']['shipped'])

@@ -93,7 +93,9 @@ What the file holds:
   is true only for one that merged in the period.
 - `commits`: non-merge commits in the period on any branch, remote branch or tag, with
   `pr` set when a pull request explains them and `shipped` true only when the delivery
-  branch had reached them by the end of the period. A commit with `pr: null` is one no
+  branch had reached them by the end of the period. `coverage.shipped` names the record
+  that decided it: the branch's reflog, which sees a branch moved without a merge, or
+  its commit dates, which cannot. A commit with `pr: null` is one no
   pull request explains, which is not the same as one that shipped; its body is kept.
   `shipped: null` means nothing decided what shipped, and `coverage.shipped` says why.
 - `requests`: what a person typed into Claude Code or Codex on this repository in
@@ -159,8 +161,8 @@ number came from its own subject) is a bullet of its own. A pull request still o
 one closed without merging, and a commit whose `shipped` is false are work
 in flight: they are evidence for a PROGRESS item that is still open, never an update.
 A branch merged during the period is shipped whatever its state is now, because the
-delivery branch reaches its commits; where the merge squashed them, the delivery
-branch reaches the squashed commit instead and that one carries the change.
+delivery branch had reached its commits by the period's end; where the merge squashed
+them it had reached the squashed commit instead, and that one carries the change.
 
 Then, over the shipped records:
 

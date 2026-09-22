@@ -183,21 +183,39 @@ def delivery_ref(repo: Path) -> str | None:
     return None
 
 
-def delivery_tip(repo: Path, ref: str, until: dt.date) -> str | None:
-    """Where the delivery ref stood at the end of the period, or None if it had nothing yet.
+def git_out(repo: Path, *args: str) -> tuple[int, str, str]:
+    """Run git and hand back what it said, including the warnings it writes to stderr."""
+    done = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True)
+    return done.returncode, done.stdout, done.stderr
+
+
+def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]:
+    """Where the delivery ref stood at the end of the period, and which record answered.
 
     Asking what the ref reaches *now* answers a different question from the one a period
     report asks: a branch merged the week after is reachable today and shipped in no week
-    under review. ``--first-parent`` is not decoration — a date walk descends into a merge's
-    second parent and returns a commit that was never on the delivery branch, and that commit
-    then marks itself shipped. ``--`` ends the revisions: this is the one call that hands git a
-    ref by name, and a path called the same — a compiled ``main`` in the root is the everyday
-    one — otherwise makes it refuse the question. The two calls around it pass a sha and a
-    ``^{commit}``, which name no path; measured, each accepts the argument with a file there.
+    under review.
+
+    Git records when a ref moved in its reflog, and ``<ref>@{<date>}`` is that record. It is
+    the only thing that sees a fast-forward, which creates no object and stamps no date, so
+    without it a commit written inside the period and fast-forwarded afterwards still looks
+    like the branch's tip. The reflog is local and expires, so where it does not reach the
+    date git says so on stderr and the answer falls back to the commit dates, which is a
+    weaker question honestly named rather than a stronger one implied.
+
+    That fallback walks by first parent: a date walk descends into a merge's second parent
+    and returns a commit that was never on the delivery branch, which then marks itself
+    shipped. ``--`` ends the revisions of that fallback and of the ancestry query: an
+    untracked path spelled like the ref, or like a commit's twelve hex digits, otherwise
+    makes git refuse. The reflog question needs none — measured, a path of the same name
+    does not touch it, because ``@{`` is not how a path is spelled.
     """
-    out = git(repo, 'rev-list', '-1', '--first-parent',
-              f'--before={until.isoformat()}T23:59:59', ref, '--')
-    return out.strip() or None
+    when = f'{until.isoformat()}T23:59:59'
+    code, out, err = git_out(repo, 'rev-parse', '--verify', f'{ref}@{{{when}}}')
+    if code == 0 and out.strip() and 'only goes back to' not in err:
+        return out.strip(), f'the reflog of {ref} on {until.isoformat()}'
+    out = git(repo, 'rev-list', '-1', '--first-parent', f'--before={when}', ref, '--')
+    return out.strip() or None, f'the commit dates on {ref} up to {until.isoformat()}'
 
 
 def mark_shipped(repo: Path, commits: list[dict], ref: str | None, until: dt.date) -> tuple[str | None, str]:
@@ -207,34 +225,37 @@ def mark_shipped(repo: Path, commits: list[dict], ref: str | None, until: dt.dat
     is not delivery either: an open branch, a tag on it and a remote-tracking copy are all
     reachable, and a report built from them presents work in flight as done.
 
-    Returns the ref that decided, and the sentence coverage carries. A question git refuses
-    decides nothing, and says so with a null ref, because the skill's one escape hatch reads
-    that field: leaving the ref there while every commit came back undecided is how a report
-    silently loses its updates and claims the branch had ruled on them.
+    Returns the ref that decided, and the sentence coverage carries — which names the record
+    that answered, because the reflog and the commit dates answer different questions and the
+    reader is entitled to know which one they got. A question git refuses decides nothing, and
+    says so with a null ref, because the skill's one escape hatch reads that field: leaving the
+    ref there while every commit came back undecided is how a report silently loses its
+    updates and claims the branch had ruled on them.
 
-    One ``rev-list`` decides every commit: with ``--no-walk`` it prints the shas given that
-    the tip does not reach, so a collected sha is unshipped exactly when it appears there.
-    Asking ``merge-base --is-ancestor`` instead would be one process per commit.
+    One ``rev-list`` decides every commit: it prints what the tip does not reach, so a
+    collected sha is unshipped exactly when it appears. Asking ``merge-base --is-ancestor``
+    instead would be one process per commit.
     """
     if ref is None:
         for commit in commits:
             commit['shipped'] = None
         return None, 'no default branch resolves here, so nothing decided what shipped'
     try:
-        tip = delivery_tip(repo, ref, until)
+        tip, answered_by = delivery_tip(repo, ref, until)
     except RuntimeError as error:
         for commit in commits:
             commit['shipped'] = None
         return None, f'asking where {ref} stood on {until.isoformat()} failed, so nothing decided what shipped: {error}'
-    decided = f'a commit shipped when {ref} reached it by {until.isoformat()}; a pull request when it merged in the period'
+    decided = (f'a commit shipped when {ref} had reached it by {until.isoformat()}, read from '
+               f'{answered_by}; a pull request when it merged in the period')
     if tip is None:
         for commit in commits:
             commit['shipped'] = False
-        return ref, f'{ref} held nothing by {until.isoformat()}, so nothing had shipped by then'
+        return ref, f'{ref} held nothing by {until.isoformat()}, read from {answered_by}, so nothing had shipped by then'
     if not commits:
         return ref, decided
     try:
-        out = git(repo, 'rev-list', '--no-walk', *[c['sha'] for c in commits], '--not', tip)
+        out = git(repo, 'rev-list', *[c['sha'] for c in commits], '--not', tip, '--')
     except RuntimeError as error:
         for commit in commits:
             commit['shipped'] = None
