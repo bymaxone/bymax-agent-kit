@@ -447,7 +447,7 @@ class CollectTests(unittest.TestCase):
         """The ancestry query hands git commit ids, and an untracked file named with one of their
         abbreviations makes it refuse — which left every commit undecided and, because the skill
         reads a null delivery ref as 'write no UPDATES', threw away the pull requests too."""
-        # main's tip is the commit outside the period, which the query never names; the file
+        # main's tip is the commit outside the period, which the query never abbreviates; the file
         # has to carry the abbreviation of a commit the query does hand git.
         collected = self.git_in_repo('rev-parse', '--short=12', 'main~1').stdout.strip()
         (self.repo / collected).write_text('a fixture named after a hash')
@@ -456,7 +456,7 @@ class CollectTests(unittest.TestCase):
         self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
 
     def test_a_file_named_like_the_branch_does_not_break_the_fallback(self):
-        """The reflog question is untouched by a path of the same name, so only the fallback
+        """The reflog question is untouched by a path of the same name, so the fallback
         needs the separator — and only a repository whose reflog cannot answer reaches it."""
         repo = self.repo_whose_reflog_starts_after_the_period()
         (repo / 'main').write_text('a compiled binary, not a branch')

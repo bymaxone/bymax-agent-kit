@@ -208,7 +208,7 @@ def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]
     shipped. ``--`` ends the revisions of that fallback and of the ancestry query: an
     untracked path spelled like the ref, or like a commit's twelve hex digits, otherwise
     makes git refuse. The reflog question needs none — measured, a path of the same name
-    does not touch it, because ``@{`` is not how a path is spelled.
+    does not touch it.
     """
     when = f'{until.isoformat()}T23:59:59'
     code, out, err = git_out(repo, 'rev-parse', '--verify', f'{ref}@{{{when}}}')
