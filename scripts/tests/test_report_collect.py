@@ -214,14 +214,33 @@ class CollectTests(unittest.TestCase):
         self.assertTrue(all(c['pr'] is None for c in data['commits']))
 
     def test_a_commit_is_linked_to_its_pr_by_title_or_head_and_then_drops_its_body(self):
-        commits = [{'subject': 'feat(likes): x', 'ref': 'feat/likes', 'pr': None, 'body': 'long story'},
-                   {'subject': 'test(likes): y', 'ref': 'feat/likes', 'pr': None, 'body': 'kept?'},
-                   {'subject': 'docs: z', 'ref': 'main', 'pr': None, 'body': 'stays'},
-                   {'subject': 'fix: w (#9)', 'ref': 'main', 'pr': 9, 'body': 'already'}]
+        commits = [{'sha': 'aaaaaaaaaaaa', 'subject': 'feat(likes): x', 'ref': 'feat/likes',
+                    'pr': None, 'body': 'long story'},
+                   {'sha': 'bbbbbbbbbbbb', 'subject': 'test(likes): y', 'ref': 'feat/likes',
+                    'pr': None, 'body': 'kept?'},
+                   {'sha': 'cccccccccccc', 'subject': 'docs: z', 'ref': 'main', 'pr': None,
+                    'body': 'stays'},
+                   {'sha': 'dddddddddddd', 'subject': 'fix: w (#9)', 'ref': 'main', 'pr': 9,
+                    'body': 'already'}]
         prs = [{'number': 138, 'title': 'feat(likes): x', 'head': 'feat/likes'}]
         self.m.link_commits_to_prs(commits, prs)
         self.assertEqual([c['pr'] for c in commits], [138, 138, None, 9])
         self.assertEqual([c['body'] for c in commits], ['', '', 'stays', 'already'])
+
+    def test_a_merged_branch_that_was_deleted_links_by_the_pull_requests_own_commits(self):
+        """Merge a pull request without squashing and delete its branch, and neither fallback
+        can speak: --source names the delivery branch because the head is gone, and the commit
+        subjects were never the pull request's title. The pull request still names its own
+        commits, so that is what links them."""
+        commits = [{'sha': '1111aaaa2222', 'subject': 'feat(x): the work itself', 'ref': 'main',
+                    'pr': None, 'body': 'kept until linked'},
+                   {'sha': '9999zzzz8888', 'subject': 'chore: unrelated', 'ref': 'main',
+                    'pr': None, 'body': 'stays'}]
+        prs = [{'number': 7, 'title': 'Add the thing', 'head': 'feat/x',
+                'shas': ['1111aaaa2222', '3333bbbb4444']}]
+        self.m.link_commits_to_prs(commits, prs)
+        self.assertEqual([c['pr'] for c in commits], [7, None])
+        self.assertEqual([c['body'] for c in commits], ['', 'stays'])
 
     def test_a_stash_is_not_a_shipped_commit(self):
         """`git stash -u` writes two non-merge commits under refs/stash ('index on', 'untracked
@@ -292,12 +311,43 @@ class CollectTests(unittest.TestCase):
         self.assertIn('feat(dm): reachable from origin only', subjects)
         self.assertIn('feat(grants): reachable from a tag only', subjects)
 
+    def test_the_list_query_stays_within_what_github_will_answer(self):
+        """`commits` carries an authors connection, so asking for it in the list query makes
+        the node count the limit times the commits times the authors. Measured against this
+        repository, that query is accepted at a limit of 30, rejected at 50 for 505,050 nodes,
+        and rejected at the limit the collector uses for a million. A rejected list query returns no
+        pull requests at all, so asking there traded every pull request for the commits of a
+        few. The commits are asked one pull request at a time instead, and this case pins the
+        shape of both calls rather than the error text GitHub uses."""
+        seen = []
+        def fake_gh(cmd, **kwargs):
+            seen.append(cmd)
+            if 'view' in cmd:
+                body = json.dumps({'commits': [{'oid': 'f' * 40}]})
+                return subprocess.CompletedProcess(cmd, 0, stdout=body, stderr='')
+            row = {'number': 3, 'title': 'feat: x', 'createdAt': noon('2026-09-17'),
+                   'author': {'login': 'x'}}
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([row]), stderr='')
+        with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
+            prs, note = self.m.collect_prs(self.repo, self.since, self.until)
+        listed = [c for c in seen if 'list' in c][0]
+        self.assertIn('--limit', listed)
+        self.assertNotIn('commits', listed[listed.index('--json') + 1].split(','),
+                         'the list query asks for commits, which GitHub refuses at this limit')
+        self.assertEqual([c for c in seen if 'view' in c][0][:4], ['gh', 'pr', 'view', '3'])
+        self.assertEqual(prs[0]['shas'], ['f' * 12])
+        self.assertNotIn('could not read the commits', note)
+
     def test_gh_reaching_its_cap_is_said_in_coverage(self):
         """gh pr list has no pagination: a read that returns exactly the cap may have dropped older
         PRs, and the evidence block must say so rather than read as complete."""
         cap = self.m.PR_LIMIT
         rows = [{'number': n, 'title': f'feat: item {n}', 'createdAt': noon('2026-09-17'), 'author': {'login': 'x'}} for n in range(cap)]
         def fake_gh(cmd, **kwargs):
+            # `gh pr view` is the second call collect_prs makes, one per pull request, and it
+            # takes no --limit; answering it keeps this case about the cap and not about that.
+            if 'view' in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout='{"commits": []}', stderr='')
             limit = int(cmd[cmd.index('--limit') + 1])
             return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows[:limit]), stderr='')
         with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
@@ -305,6 +355,8 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(len(prs), cap)
         self.assertIn('cap', note)
         def fake_gh_under_cap(cmd, **kwargs):
+            if 'view' in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout='{"commits": []}', stderr='')
             return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows[:cap - 1]), stderr='')
         with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh_under_cap):
             self.assertNotIn('cap', self.m.collect_prs(self.repo, self.since, self.until)[1])
@@ -314,16 +366,42 @@ class CollectTests(unittest.TestCase):
         import re
         return re.search(r'```bash\n(.*?)```', text, re.S).group(1)
 
-    def run_block(self, home, args_lines, tmpdir=None, plugin=None):
+    def run_block(self, home, args_lines, tmpdir=None, plugin=None, path=None):
         home.mkdir(parents=True, exist_ok=True)
         if args_lines is not None:
             (home / '.claude').mkdir(exist_ok=True)
             (home / '.claude/bymax-report-args').write_text('\n'.join(args_lines) + '\n')
         env = {**isolated(), 'HOME': str(home), 'TMPDIR': tmpdir or str(home / 'tmp'),
                'CLAUDE_PLUGIN_ROOT': str(plugin or ROOT / 'plugins/bymax-report')}
+        if path:
+            env['PATH'] = path + os.pathsep + os.environ.get('PATH', '')
         (home / 'tmp').mkdir(exist_ok=True)
         return subprocess.run(['bash', '-c', self.skill_block()], cwd=str(self.repo), env=env,
                               capture_output=True, text=True)
+
+    def test_the_skill_block_claims_the_arguments_before_it_reads_them(self):
+        """The handoff file sits at one fixed path per home directory, so two standup runs at
+        once reach for the same file. Reading it line by line left a window where the second run
+        could overwrite it between the first run's reads, mixing one run's period with another's
+        repository. The block now claims it with a rename, which is atomic: the winner reads a
+        copy only it holds, the loser finds nothing and says so. Measured by a `sed` on PATH that
+        records which path it was handed — the shared one means the window is still open."""
+        home = self.tmp / 'h-claim'; home.mkdir(parents=True, exist_ok=True)
+        binx = self.tmp / 'claim-bin'; binx.mkdir(parents=True, exist_ok=True)
+        seen = home / 'sed-was-given'
+        fake = binx / 'sed'
+        fake.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" >> ' + str(seen) + '\nexec /usr/bin/sed "$@"\n')
+        fake.chmod(0o755)
+        done = self.run_block(home, ['2026-09-14..2026-09-20', str(self.repo), ''], path=str(binx))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        shared = str(home / '.claude/bymax-report-args')
+        handed = seen.read_text().split()
+        self.assertTrue(handed, 'the fake sed was never called')
+        self.assertNotIn(shared, handed,
+                         'the block read the shared handoff in place: %r' % handed)
+        second = self.run_block(home, None, path=str(binx))
+        self.assertNotEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertEqual(len(list((home / '.claude').glob('bymax-report-args*'))), 0)
 
     def test_the_skill_block_stops_when_there_is_no_temporary_directory(self):
         """An unchecked `mktemp -d` leaves the variable empty, and the collector is then

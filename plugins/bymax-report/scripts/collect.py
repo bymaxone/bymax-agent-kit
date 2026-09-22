@@ -418,6 +418,44 @@ def by_author(items: list[dict], author: str | None, *fields: str) -> list[dict]
     return [item for item in items if any(needle in str(item.get(field) or '').lower() for field in fields)]
 
 
+def commit_shas(repo: Path, prs: list[dict]) -> int:
+    """Fill each pull request's own commit shas, and answer how many could not be read.
+
+    Asked one pull request at a time, because asking for them in the list query is what
+    GitHub refuses: `commits` carries an authors connection, so the node count is the
+    limit times the commits times the authors, and past a small limit it exceeds what
+    GitHub will answer. A rejected list query returns no pull requests at all, so the
+    wider query traded every pull request for the commits of a few; the shape both calls
+    must keep is pinned by test_the_list_query_stays_within_what_github_will_answer.
+
+    The loop is bounded by the pull requests of one period rather than by that limit, and a
+    pull request whose commits cannot be read keeps its other evidence and is counted here.
+    """
+    unread = 0
+    for pr in prs:
+        if not pr.get('number'):
+            continue
+        cmd = ['gh', 'pr', 'view', str(pr['number']), '--json', 'commits']
+        try:
+            done = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True, timeout=30)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            unread += 1
+            continue
+        if done.returncode != 0:
+            unread += 1
+            continue
+        try:
+            payload = json.loads(done.stdout or '{}')
+        except json.JSONDecodeError:
+            unread += 1
+            continue
+        if not isinstance(payload, dict):
+            unread += 1
+            continue
+        pr['shas'] = [c['oid'][:12] for c in payload.get('commits') or [] if c.get('oid')]
+    return unread
+
+
 def collect_prs(repo: Path, since: dt.date, until: dt.date) -> tuple[list[dict], str]:
     """Pull requests merged or opened in the period, and a coverage note for the reader."""
     fields = 'number,title,body,state,createdAt,mergedAt,closedAt,headRefName,url,author'
@@ -449,11 +487,15 @@ def collect_prs(repo: Path, since: dt.date, until: dt.date) -> tuple[list[dict],
             'shipped': merged, 'merged_in_period': merged, 'opened_in_period': opened,
             'merged_at': item.get('mergedAt'), 'created_at': item.get('createdAt'),
             'head': item.get('headRefName'), 'url': item.get('url'),
+            'shas': [],
             'author': (item.get('author') or {}).get('login'),
             'body': (item.get('body') or '').strip()[:TEXT_LIMIT * 2], **parsed,
         })
     prs.sort(key=lambda pr: pr['merged_at'] or pr['created_at'] or '')
+    unread = commit_shas(repo, prs)
     note = f'gh read {len(raw)} pull requests updated since {since.isoformat()}'
+    if unread:
+        note += f', and could not read the commits of {unread} of them'
     if len(raw) >= PR_LIMIT:
         note += f', which is the cap of {PR_LIMIT}: older ones may be missing'
     return prs, note
@@ -462,16 +504,20 @@ def collect_prs(repo: Path, since: dt.date, until: dt.date) -> tuple[list[dict],
 def link_commits_to_prs(commits: list[dict], prs: list[dict]) -> None:
     """Give each commit the pull request it shipped in, when the tree still says so.
 
-    A squash merge keeps the PR title as the commit subject; a branch still on the
-    remote keeps the PR head as the commit's ref. A commit nothing matches stays
-    unlinked, and the reader treats it as work that shipped without a PR.
+    The pull request says which commits are its own, so that is asked first and the rest
+    are fallbacks for when it cannot be: a squash merge keeps the PR title as the commit
+    subject, and a branch still on the remote keeps the PR head as the commit's ref.
+    Neither survives a merge left unsquashed whose branch was deleted: the ref becomes
+    the delivery branch and no subject is the title.
     """
+    by_sha = {sha: pr['number'] for pr in prs for sha in pr.get('shas') or ()}
     by_title = {pr['title']: pr['number'] for pr in prs if pr.get('title')}
     by_head = {pr['head']: pr['number'] for pr in prs if pr.get('head')}
     for commit in commits:
         if commit['pr'] is not None:
             continue
-        commit['pr'] = by_title.get(commit['subject']) or by_head.get(commit['ref'])
+        commit['pr'] = (by_sha.get(commit['sha']) or by_title.get(commit['subject'])
+                        or by_head.get(commit['ref']))
         if commit['pr'] is not None:
             commit['body'] = ''
 

@@ -58,17 +58,24 @@ First write the arguments to a file with the file tool, three lines, so a value 
 user typed never becomes shell source: line 1 the period token (`last-week` when none
 was given), line 2 the repository path (`.` when none was given), line 3 the author
 text (an empty line when none was given). The file is `.claude/bymax-report-args` in
-the home directory; the block below reads it, deletes it, and refuses to run without
-it, so a run never falls back to defaults the user did not choose. Then run:
+the home directory; the block below claims it with a rename, reads the copy only it
+holds, and refuses to run without one, so a run never falls back to defaults the user
+did not choose and two runs at once cannot read each other's arguments. Then run:
 
 ```bash
 ARGS="${HOME}/.claude/bymax-report-args"
-PERIOD=$(sed -n 1p "$ARGS" 2>/dev/null)
-REPO=$(sed -n 2p "$ARGS" 2>/dev/null)
-AUTHOR=$(sed -n 3p "$ARGS" 2>/dev/null)
-rm -f "$ARGS"
-if [ -z "$PERIOD" ] || [ -z "$REPO" ]; then
+MINE="${ARGS}.$$"
+mv "$ARGS" "$MINE" 2>/dev/null || MINE=''
+if [ -z "$MINE" ]; then
   echo "No arguments file at $ARGS: write it (period, repo, author) and run this block again." >&2
+  exit 1
+fi
+PERIOD=$(sed -n 1p "$MINE")
+REPO=$(sed -n 2p "$MINE")
+AUTHOR=$(sed -n 3p "$MINE")
+rm -f "$MINE"
+if [ -z "$PERIOD" ] || [ -z "$REPO" ]; then
+  echo "The arguments file had no period or no repository; write all three lines and run again." >&2
   exit 1
 fi
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/bymax-report.XXXXXX") || WORK=''
