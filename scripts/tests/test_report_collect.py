@@ -420,7 +420,7 @@ class CollectTests(unittest.TestCase):
                 extra['GIT_REFLOG_ACTION'] = action
             subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
         up, work, app = root / 'up.git', root / 'work', root / 'app'
-        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(up)], check=True, capture_output=True, env=env)
         subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
         git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
         git(work, 'remote', 'add', 'origin', str(up))
@@ -470,7 +470,7 @@ class CollectTests(unittest.TestCase):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
             subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
         up, work = root / 'up.git', root / 'work'
-        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(up)], check=True, capture_output=True, env=env)
         subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
         git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
         git(work, 'remote', 'add', 'origin', str(up))
@@ -490,7 +490,7 @@ class CollectTests(unittest.TestCase):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
             subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
         up, work, other = root / 'up.git', root / 'work', root / 'other'
-        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(up)], check=True, capture_output=True, env=env)
         subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
         git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-08-01T12:00:00Z')
         git(work, 'remote', 'add', 'origin', str(up))
@@ -550,7 +550,7 @@ class CollectTests(unittest.TestCase):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
             subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
         up, work, app = root / 'up.git', root / 'work', root / 'app'
-        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(up)], check=True, capture_output=True, env=env)
         subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
         git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
         git(work, 'remote', 'add', 'origin', str(up))
@@ -598,7 +598,7 @@ class CollectTests(unittest.TestCase):
             extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
             subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
         up, work, app = root / 'up.git', root / 'work', root / 'app'
-        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(up)], check=True, capture_output=True, env=env)
         subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
         git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
         git(work, 'remote', 'add', 'origin', str(up))
