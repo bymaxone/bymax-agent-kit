@@ -1449,32 +1449,40 @@ def correction_contract(args, old, head):
             + ', '.join(uncovered) + '. Add a probe entry per finding with "covers": "<id>", '
             'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
     tests, removed = tests_changed(old['head'], head)
-    # A reason answers "this correction has no test to add". It must not answer "this delta has
-    # tests the runtime cannot attribute", which is a different sentence and was satisfied by
-    # the same flag.
-    carried = merged_in_tests(old['head'], head)
+    reason = (args.no_regression_reason or '').strip()
+    a_regression_or_a_reason(old['head'], head, tests, reason, probe)
+    return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
+                regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
+
+
+def a_regression_or_a_reason(base, head, tests, reason, probe):
+    """What a correction owes about the tests it changed, or about changing none.
+
+    A reason answers "this correction has no test to add". It must not answer "this delta has
+    tests the runtime cannot attribute", which is a different sentence and was satisfied by the
+    same flag.
+
+    Nor does believing a case exercises the fix make it evidence. Measured across two campaigns
+    on two repositories: every such belief that was checked turned out wrong, and a reviewer
+    checked it every time. Reverting the change and watching the case fail costs seconds, so the
+    round asks for that output rather than for the belief.
+    """
+    carried = merged_in_tests(base, head)
     require(tests or not carried,
             'This delta changes %s, and none of it is on its own first-parent line, so nothing '
             'here can say whether it is this correction\'s work or the side a merge brought in. '
             'A recorded reason does not answer that. Put the correction on the branch\'s own line '
             '— commit it there, or merge with --ff-only — and run `review_flow.py matrix` over it.'
             % ', '.join(carried))
-    reason = (args.no_regression_reason or '').strip()
     require(tests or reason,
             'This correction touches no test. Add the failing regression first, or record why '
             'that is infeasible with --no-regression-reason "<why>".')
-    # A case the author believes exercises the fix is not evidence that it does. Measured across
-    # two campaigns on two repositories: every such belief that was checked turned out wrong, and
-    # a reviewer checked it every time. Reverting the change and watching the case fail costs
-    # seconds, so the round asks for that output rather than for the belief.
     shown = [p for p in probe if isinstance(p.get('without_fix'), str) and p['without_fix'].strip()]
     require(not tests or shown,
             'This correction changes ' + ', '.join(tests) + ' and no probe entry shows a case '
             'failing without the fix. Revert the production change, run the case, and record what '
             'failed in a probe entry\'s "without_fix". A case that was never watched fail is not '
             'evidence that it would.')
-    return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
-                regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
 
 
 def delta_view(state):
