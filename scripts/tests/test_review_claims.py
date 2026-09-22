@@ -596,9 +596,17 @@ class ChangedTestTests(unittest.TestCase):
                           'if True:\n    Base = int', 'try:\n    Base = int\nexcept Exception:\n    pass',
                           'if True:\n    class Base: pass', 'match 1:\n    case Base:\n        pass'):
             self.assertEqual(sorted(claims.definitions(case + rebinding + '\n' + sub)), [], rebinding)
-        # And a name bound in a scope of its own — another class's body, a function's — is
-        # that scope's, so the base this one inherits is still the collected class.
-        for elsewhere in ('class Namespace:\n    Base = int', 'def outer():\n    Base = int'):
+        # And a name bound in a scope of its own — another class's body, a function's, a
+        # comprehension's target — is that scope's, so the base this one inherits is still
+        # the collected class. A walrus written inside a comprehension is not: it binds out
+        # here, which is why the targets are stepped over and everything else is read.
+        for walrus in ('[x for x in () if (Base := x)]', '[(Base := x) for x in ()]',
+                       '{(Base := x): 1 for x in ()}'):
+            self.assertEqual(sorted(claims.definitions(case + walrus + '\n' + sub)), [], walrus)
+        for elsewhere in ('class Namespace:\n    Base = int', 'def outer():\n    Base = int',
+                          '[Base for Base in ()]', 'tuple(Base for Base in ())',
+                          '{Base: 1 for Base in ()}', '{Base for Base in ()}',
+                          'f = lambda Base: Base'):
             self.assertEqual(sorted(claims.definitions(case + elsewhere + '\n' + sub)),
                              ['Cases::test_added'], elsewhere)
 

@@ -338,6 +338,13 @@ def bound_by(child):
         if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar, ast.MatchMapping)):
             found += [held for held in (getattr(node, 'name', None), getattr(node, 'rest', None))
                       if isinstance(held, str)]
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            # A comprehension's target is its own scope's and leaves the name outside alone,
+            # while a walrus written inside one binds out here: the targets are stepped over
+            # and everything else is still read.
+            rest.extend(part for made in node.generators for part in [made.iter, *made.ifs])
+            rest.extend([node.elt] if hasattr(node, 'elt') else [node.key, node.value])
+            continue
         rest.extend(ast.iter_child_nodes(node))
     return found
 
