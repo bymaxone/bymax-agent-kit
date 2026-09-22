@@ -475,9 +475,13 @@ def ids(root, files, selector=None, tolerant=False):
     A collect that fails for any reason but finding nothing is refused, since a record built
     from a broken collect would name nothing and prove the same.
 
-    Tolerantly, the exit code stops being fatal and what was collected is returned, so a
-    directory one broken file would otherwise silence still answers. Measured, `--collect-only`
-    already reports every id it reached beside the errors, so nothing else is needed to see them.
+    Tolerantly, a run that reached collection answers even though something in it failed, so a
+    directory one broken file would otherwise silence still answers. It has to have reached
+    collection: a conftest that will not import makes pytest write the captured output of the
+    module that failed and stop before collecting anything, so the only line on stdout is that
+    output. Measured in one tree — a broken test module exits 2 and prints the real ids with the
+    report after them, a broken conftest exits 4 before any id is collected — and a directory
+    whose conftest will not import has nothing the matrix could measure anyway.
     """
     # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
     # every id against the argument's own directory instead — a bare name for a file under
@@ -485,10 +489,13 @@ def ids(root, files, selector=None, tolerant=False):
     real = os.path.realpath(root)
     args = [*PYTEST, '--collect-only', '--rootdir', real, *arguments(root, files)] + (['-k', selector] if selector else [])
     done = subprocess.run(args, cwd=real, capture_output=True, text=True, env=pytest_env())
-    if not tolerant and done.returncode not in (0, 5):
+    if done.returncode not in ((0, 2, 5) if tolerant else (0, 5)):
         bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
              ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
     return sorted({line.strip() for line in collected_lines(done.stdout) if '::' in line})
+
+
+BANNER = re.compile(r'^=+(?: .* )?=+$')
 
 
 def collected_lines(text):
@@ -496,12 +503,15 @@ def collected_lines(text):
 
     Everything after that banner is pytest describing what went wrong, and a module that printed
     while it failed to import has its output captured there. Read as node ids, such a module
-    could name any file it liked, and a caller would take the name for a collected test. The
-    banner is a marker pytest emits, not a guess about what a line holds.
+    could name any file it liked, and a caller would take the name for a collected test.
+
+    Matched by the banner's shape and not by its first characters: a path may begin with those
+    same characters, and a node id under it was cut, which emptied the answer. A banner ends
+    where it began; an id ends in a test's name.
     """
     out = []
     for line in text.splitlines():
-        if line.startswith('==='):
+        if BANNER.match(line):
             break
         out.append(line)
     return out
