@@ -339,7 +339,7 @@ class OpaqueFileTests(unittest.TestCase):
     def test_a_name_inside_any_code_block_is_an_example(self):
         """Found by a reviewer: only the backtick fence was stripped, so a name shown in a
         tilde fence or an indented block read as an assertion and refused a candidate whose
-        README merely showed the call. Every form Markdown has is an example."""
+        README merely showed the call."""
         for shown in ('```\nOLD_HELPER()\n```', '~~~\nOLD_HELPER()\n~~~', '    OLD_HELPER()'):
             self.assertNotIn('OLD_HELPER', claims.prose('README.md', '# doc\n\n' + shown + '\n'), shown)
         # And a real mention is still one: what is not in a block is what the file asserts.

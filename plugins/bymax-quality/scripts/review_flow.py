@@ -942,10 +942,9 @@ def matrix_first(state, directory):
     # demanding one there would buy a slower suite and no evidence.
     #
     # And scoped to a test the matrix can run at all. It runs pytest, while a test path here
-    # is any repository's — a `.test.ts`, a `_test.rs`, a file under tests/ — so on a project
-    # whose suite is Jest or Cargo the record demanded could never be produced and the
-    # correction was blocked for good. Asked of pytest: what it collects no test from is not
-    # a gate this runtime can mutate.
+    # is any repository's, so on a project whose suite is Jest or Cargo the record demanded
+    # could never be produced and the correction was blocked for good. Asked of pytest: what
+    # it collects no test from is not a gate this runtime can mutate.
     runnable = [path for path in state['regression_tests'] if collects_a_test(path)]
     if not runnable:
         return
@@ -1005,7 +1004,7 @@ def ran_the_changed_tests(kept, changed):
     Only the changed files pytest collects a test from reach this rule, which its caller
     decides: a file it collects none from is still a test path a correction may change, and
     no matrix could ever name a case that ran in one, so demanding it was a refusal nobody
-    could satisfy. The filter lives there alone, so this rule has one meaning.
+    could satisfy.
     """
     ran = kept.get('tests')
     require(isinstance(ran, dict) and all(isinstance(p, str) and isinstance(c, list)

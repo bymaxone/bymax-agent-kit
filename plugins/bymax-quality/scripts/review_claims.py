@@ -36,7 +36,7 @@ import sys
 import tokenize
 from pathlib import Path
 
-# Every fence Markdown has, and the indented block too: a name inside one is an example
+# A fence, and the indented block too: a name inside one is an example
 # about somebody else's repository, and reading it as an assertion refused a candidate
 # whose README merely showed the call. Only the backtick form was stripped.
 FENCED = re.compile(r'^(```|~~~).*?^\1', re.DOTALL | re.MULTILINE)

@@ -1744,10 +1744,10 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_suite_the_matrix_cannot_run_is_not_asked_for_a_matrix(self):
-        """Found by a reviewer: a test path is any repository's — a `.test.ts`, a `_test.rs`,
-        a file under tests/ — while the matrix runs pytest, so on a project whose suite is
-        Jest or Cargo the record demanded could never be produced and the correction was
-        blocked for good. What pytest collects no test from is not a gate this can mutate."""
+        """Found by a reviewer: a test path is any repository's, while the matrix runs pytest,
+        so on a project whose suite is Jest or Cargo the record demanded could never be
+        produced and the correction was blocked for good. What pytest collects no test from
+        is not a gate this can mutate."""
         self.start()
         self.report('claude')
         self.report('codex')
