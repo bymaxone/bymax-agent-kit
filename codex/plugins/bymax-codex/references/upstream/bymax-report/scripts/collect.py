@@ -44,7 +44,9 @@ from pathlib import Path
 CONVENTIONAL = re.compile(r'^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<summary>.+)$')
 REFLOG_STAMP = re.compile(r'@\{(\d+)\}')
 # The reflog actions that mean a ref moved because this repository caught up with another
-# one; a ref moved by anything else moved because the work arrived here.
+# one. The action does not settle every case — `reset: moving to origin/main` and
+# `merge origin/main` are catch-ups too, and `merge feat/x` is a delivery with the same
+# word, so the operand carries a distinction this does not read.
 SYNCED = ('fetch', 'pull', 'clone')
 PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
@@ -209,27 +211,38 @@ def reflog_reaches(repo: Path, ref: str, cutoff: float) -> bool:
     return bool(oldest) and int(oldest.group(1)) <= cutoff
 
 
-def moved_by_syncing(repo: Path, ref: str) -> bool:
-    """Whether any move of that ref was this repository catching up with another one.
+def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
+    """Whether this repository caught the ref up with another one AFTER that moment.
 
     A reflog says when the ref moved *here*, so it is a record of delivery only where the
     move and the delivery are the same event. That is not a property of the ref's name: a
     remote-tracking ref moved by ``update by push`` moved because the work landed, and a
-    local branch moved by ``pull`` moved because we caught up. Deciding by the name threw
-    the first away, and a clone whose last fetch before the period predated the week
-    reported the week's work as still in flight — both measured.
+    local branch moved by ``pull`` moved because we caught up. It is not a property of the
+    whole history either. A sync BEFORE the period is history: someone's work arrived, and
+    where the ref stood last week is still what we put there. A sync AFTER it says something
+    later corrected our view of that week, which is the clone whose fetches fall on either
+    side of it. Testing every entry confused the two and sent a delivering ref back to the
+    dates, which reported work pushed the week after as delivered inside it.
 
-    So the entries answer. An entry's action is the first word of its message once anything
-    from the first colon is cut off: ``clone:`` would otherwise keep its colon, and
-    ``pull --tags origin main:`` its arguments, while ``update by push`` has no colon at all.
-    These words are written into the file by the command that moved the ref, not rendered at
-    read time, so they do not follow the reader's language.
+    An entry's action is the first word of its message once anything from the first colon is
+    cut off: ``clone:`` would otherwise keep its colon, and ``pull --tags origin main:`` its
+    arguments, while ``update by push`` has no colon at all. Git writes those words into the
+    file itself, so they do not follow the reader's language — but a message can carry
+    nothing before the colon, which git does write when ``GIT_REFLOG_ACTION`` is empty, and
+    an unreadable entry must not cost the report. What the action cannot separate is a
+    catch-up merge or reset from a delivery one; the comment on ``SYNCED`` says so.
     """
-    code, out, _ = git_out(repo, 'reflog', 'show', '--format=%gs', ref, '--')
+    code, out, _ = git_out(repo, 'reflog', 'show', '--date=unix', '--format=%gd%x1f%gs', ref, '--')
     if code != 0:
         return True
-    actions = [line.split(':', 1)[0].split()[0] for line in out.splitlines() if line.strip()]
-    return any(action in SYNCED for action in actions)
+    for line in out.splitlines():
+        stamp, _, message = line.partition('\x1f')
+        at = REFLOG_STAMP.search(stamp)
+        if not at or int(at.group(1)) <= cutoff:
+            continue
+        if (message.split(':', 1)[0].split() or [''])[0] in SYNCED:
+            return True
+    return False
 
 
 def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]:
@@ -241,18 +254,20 @@ def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]
 
     Where every move of the ref was delivery rather than syncing, the reflog is that record
     and the only thing that sees a fast-forward, which creates no object and stamps no date.
-    Where any move was this repository catching up, the reflog says when that happened, so
-    the commit dates answer instead — and they carry the upstream merge time,
-    which is what the question is about. Neither sees a fast-forward performed elsewhere;
+    Where a move since the period was this repository catching up, our view of that week was
+    corrected afterwards, so the commit dates answer instead. They carry the upstream merge
+    time of a merge commit, and nothing at all about when a plain commit was pushed. Neither sees a fast-forward performed elsewhere;
     coverage names the record so the reader knows which question was answered.
 
     The date walk goes by first parent: it otherwise descends into a merge's second parent
     and returns a commit that was never on the delivery branch, which then marks itself
-    shipped. ``--`` ends its revisions, and the ancestry query's: an untracked path spelled
-    like the ref, or like a commit's twelve hex digits, otherwise makes git refuse.
+    shipped. ``--`` ends the revisions of every question here that names a ref — both reflog
+    reads, this walk and the ancestry query: an untracked path spelled like the ref, or like a
+    commit's twelve hex digits, otherwise makes git refuse.
     """
     when = f'{until.isoformat()}T23:59:59'
-    if not moved_by_syncing(repo, ref) and reflog_reaches(repo, ref, dt.datetime.fromisoformat(when).timestamp()):
+    cutoff = dt.datetime.fromisoformat(when).timestamp()
+    if not synced_since(repo, ref, cutoff) and reflog_reaches(repo, ref, cutoff):
         code, out, _ = git_out(repo, 'rev-parse', '--verify', f'{ref}@{{{when}}}')
         if code == 0 and out.strip():
             return out.strip(), f'the reflog of {ref} on {until.isoformat()}'

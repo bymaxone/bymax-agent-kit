@@ -476,6 +476,66 @@ class CollectTests(unittest.TestCase):
         git(work, 'push', '-q', 'origin', 'main', when='2026-09-25T12:00:00Z')
         return work.resolve()
 
+    def repo_that_fetched_once_and_then_pushed(self):
+        """The ordinary shape of a shared repository: someone else's work arrived by a fetch
+        long ago, and everything since has been our own pushes. The fetch is history, not a
+        statement about where the ref stood last week."""
+        root = self.tmp / 'mixed'; root.mkdir(parents=True)
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(where, *args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
+        up, work, other = root / 'up.git', root / 'work', root / 'other'
+        subprocess.run(['git', 'init', '-q', '--bare', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-08-01T12:00:00Z')
+        git(work, 'remote', 'add', 'origin', str(up))
+        git(work, 'push', '-q', '-u', 'origin', 'main', when='2026-08-01T12:05:00Z')
+        subprocess.run(['git', 'clone', '-q', str(up), str(other)], check=True, capture_output=True, env=env)
+        git(other, 'commit', '-q', '--allow-empty', '-m', "chore: someone else's work", when='2026-08-02T12:00:00Z')
+        git(other, 'push', '-q', 'origin', 'main')
+        git(work, 'fetch', '-q', 'origin', when='2026-08-02T12:30:00Z')
+        git(work, 'merge', '-q', '--ff-only', 'origin/main')
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'feat(x): written in the week, pushed after it', when='2026-09-19T12:00:00Z')
+        git(work, 'push', '-q', 'origin', 'main', when='2026-09-25T12:00:00Z')
+        return work.resolve()
+
+    def test_a_sync_before_the_period_does_not_disqualify_the_record(self):
+        """What matters is not whether the ref was ever synced but whether a sync since the
+        period corrected our view of where it stood. A fetch in August says nothing about last
+        week; a fetch after the period end says our view of it was incomplete, which is the
+        clone that fetched late. Testing every entry the ref ever had confused the two, and
+        the work pushed the week after came back as delivered inside it."""
+        data = self.m.collect(self.repo_that_fetched_once_and_then_pushed(), self.since, self.until,
+                              self.home, use_gh=False)
+        shipped = {c['subject']: c['shipped'] for c in data['commits']}
+        self.assertIs(shipped['feat(x): written in the week, pushed after it'], False)
+        self.assertIn('reflog', data['coverage']['shipped'])
+
+    def test_a_reflog_message_git_wrote_cannot_abort_the_collect(self):
+        """Git writes `: Fast-forward`, with nothing before the colon, when GIT_REFLOG_ACTION is
+        empty — a variable git exports to its own hooks. Reading the action off that raised, and
+        the exception escaped the one guard, so a whole standup died on one line of a file the
+        user never wrote. A git question that cannot be answered is a coverage note here."""
+        repo = self.tmp / 'blank-action' / 'app'; repo.mkdir(parents=True)
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(*args, when=None, action=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            if action is not None:
+                extra['GIT_REFLOG_ACTION'] = action
+            subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, env={**env, **extra})
+        git('init', '-q', '-b', 'main')
+        git('commit', '-q', '--allow-empty', '-m', 'feat: base', when='2026-09-16T12:00:00Z')
+        git('checkout', '-q', '-b', 'f')
+        git('commit', '-q', '--allow-empty', '-m', 'feat: on the branch', when='2026-09-17T12:00:00Z')
+        git('checkout', '-q', 'main')
+        git('merge', '-q', '--ff-only', 'f', action='')
+        data = self.m.collect(repo.resolve(), self.since, self.until, self.home, use_gh=False)
+        self.assertEqual(len(data['commits']), 2)
+        self.assertEqual(data['coverage']['delivery_ref'], 'main')
+
     def test_a_push_to_the_delivery_ref_is_the_delivery(self):
         """A remote-tracking reflog is a syncing log only where catching up moved the ref. A push
         moves it because the work landed, so that entry is the record this question wants —
@@ -538,8 +598,9 @@ class CollectTests(unittest.TestCase):
         self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
 
     def test_a_file_named_like_the_branch_does_not_break_the_fallback(self):
-        """The reflog question is untouched by a path of the same name, so the fallback
-        needs the separator — and only a repository whose reflog cannot answer reaches it."""
+        """Every git question here that names a ref ends its revisions, this one included:
+        a path of the same name made the reflog calls exit 128 too. Only a repository whose
+        reflog cannot answer reaches the date walk, which is what this fixture is for."""
         repo = self.repo_whose_reflog_starts_after_the_period()
         (repo / 'main').write_text('a compiled binary, not a branch')
         data = self.m.collect(repo, self.since, self.until, self.home, use_gh=False)
@@ -568,9 +629,10 @@ class CollectTests(unittest.TestCase):
         self.assertIn('held nothing', data['coverage']['shipped'])
 
     def test_a_file_named_like_the_delivery_branch_does_not_break_the_question(self):
-        """`git rev-list --before=<until> main` refuses when a path called main exists:
+        """Every git question naming the ref refuses when a path called main exists:
         'ambiguous argument'. A compiled binary in the root is the everyday case. The separator
-        says the argument is a revision, and without it every commit came back undecided."""
+        says the argument is a revision; this fixture's reflog answers, so it is that call
+        the case covers, and without the separator every commit came back undecided."""
         (self.repo / 'main').write_text('a compiled binary, not a branch')
         shipped, data = self.shipped_by_subject()
         self.assertIs(shipped['feat(likes): stand the sweep down when Skool answers 429'], True)
