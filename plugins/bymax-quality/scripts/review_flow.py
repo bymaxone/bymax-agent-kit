@@ -1086,8 +1086,8 @@ def collects_a_test(path):
     none either. A collect that cannot answer at all is None and never False: read as "no test
     here" it let the caller skip the gate in silence.
 
-    Both questions are asked, because a neighbour with a broken import is enough to stop the
-    directory answering, and refusing the round for a file that is not implicated is the
+    Asked of the file where the directory cannot answer: a neighbour with a broken import is
+    enough to stop it, and refusing the round for a file that is not implicated is the
     blocked-for-good shape this gate exists to remove. The file alone is how the matrix runs it,
     so pytest finding a test there means the matrix can measure it; only a file that answers
     neither way is None.
