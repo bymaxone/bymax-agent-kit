@@ -1743,6 +1743,20 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('tests/test_calc.py::TestCalc::test_calc_new[7]', record['results'][0]['nodes'])
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
+    def test_a_suite_the_matrix_cannot_run_is_not_asked_for_a_matrix(self):
+        """Found by a reviewer: a test path is any repository's — a `.test.ts`, a `_test.rs`,
+        a file under tests/ — while the matrix runs pytest, so on a project whose suite is
+        Jest or Cargo the record demanded could never be produced and the correction was
+        blocked for good. What pytest collects no test from is not a gate this can mutate."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'src/__tests__').mkdir(parents=True, exist_ok=True)
+        (self.repo / 'src/__tests__/widget.test.ts').write_text('it("holds", () => expect(1).toBe(1));\n')
+        self.commit('a correction that changes a test this runtime cannot run')
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
     def test_a_file_pytest_collects_no_test_from_is_not_asked_for_a_case(self):
         """A conftest, a fixture and a helper module are test paths the scope rule counts as
         part of the correction, and no matrix can ever name a case that ran in one: asking was

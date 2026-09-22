@@ -36,7 +36,11 @@ import sys
 import tokenize
 from pathlib import Path
 
-FENCED = re.compile(r'```.*?```', re.DOTALL)
+# Every fence Markdown has, and the indented block too: a name inside one is an example
+# about somebody else's repository, and reading it as an assertion refused a candidate
+# whose README merely showed the call. Only the backtick form was stripped.
+FENCED = re.compile(r'^(```|~~~).*?^\1', re.DOTALL | re.MULTILINE)
+INDENTED = re.compile(r'^(?: {4}|\t).*$', re.MULTILINE)
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
@@ -69,7 +73,7 @@ def prose(name, text):
     and counting them as assertions was measured to produce false positives on this tree.
     """
     if name.endswith('.md'):
-        return FENCED.sub(' ', text)
+        return INDENTED.sub(' ', FENCED.sub(' ', text))
     if not name.endswith('.py'):
         return ''
     lines = text.split('\n')

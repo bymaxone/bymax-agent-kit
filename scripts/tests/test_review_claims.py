@@ -336,6 +336,15 @@ class OpaqueFileTests(unittest.TestCase):
         tree = Tree(self, {'a.py': 'X = 1\n'}, {'a.py': 'X = 2\n'})
         self.assertEqual(self.opaque(tree), [])
 
+    def test_a_name_inside_any_code_block_is_an_example(self):
+        """Found by a reviewer: only the backtick fence was stripped, so a name shown in a
+        tilde fence or an indented block read as an assertion and refused a candidate whose
+        README merely showed the call. Every form Markdown has is an example."""
+        for shown in ('```\nOLD_HELPER()\n```', '~~~\nOLD_HELPER()\n~~~', '    OLD_HELPER()'):
+            self.assertNotIn('OLD_HELPER', claims.prose('README.md', '# doc\n\n' + shown + '\n'), shown)
+        # And a real mention is still one: what is not in a block is what the file asserts.
+        self.assertIn('OLD_HELPER', claims.prose('README.md', '# doc\n\nThe OLD_HELPER is gone.\n'))
+
     def test_the_generated_mirror_is_not_named_either(self):
         """A generated copy is not a file whose claims nobody read; it is a copy."""
         mirror = 'codex/plugins/bymax-codex/references/upstream/vendored.ts'

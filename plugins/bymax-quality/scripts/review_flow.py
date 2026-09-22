@@ -940,15 +940,38 @@ def matrix_first(state, directory):
     # gate discriminates. Every vacuous gate measured on this loop lived in a test file and
     # passed its own suite. A correction that changes no test has no gate to mutate, and
     # demanding one there would buy a slower suite and no evidence.
+    #
+    # And scoped to a test the matrix can run at all. It runs pytest, while a test path here
+    # is any repository's — a `.test.ts`, a `_test.rs`, a file under tests/ — so on a project
+    # whose suite is Jest or Cargo the record demanded could never be produced and the
+    # correction was blocked for good. Asked of pytest: what it collects no test from is not
+    # a gate this runtime can mutate.
+    runnable = [path for path in state['regression_tests'] if collects_a_test(path)]
+    if not runnable:
+        return
     where = directory / ('matrix-' + state['head'] + '.json')
     require(where.exists(),
             'This correction changes %s and no measured mutation matrix exists for %s. Run '
             '`review_flow.py matrix --spec <file> <test paths>` first: a mutant that survives is '
             'the finding, and a matrix reported rather than run is the one step of this protocol '
             'that has only ever been the author\'s word.'
-            % (', '.join(state['regression_tests']), state['head'][:12]))
-    kept = json.loads(where.read_text())
-    require(kept.get('head') == state['head'], 'The recorded matrix names head %s, not this '
+            % (', '.join(runnable), state['head'][:12]))
+    kept, names = matrix_bound_to_this_tree(json.loads(where.read_text()), state['head'])
+    ran_the_changed_tests(kept, runnable)
+    # Before caught_with_the_changed_test, never after: the nodes it reads are the results,
+    # and a record whose results are not a list crashed there rather than refused by name.
+    results_agree(kept, names)
+    import review_matrix
+    added = tests_added(state['review_base'], runnable)
+    caught_with_the_changed_test(kept, review_matrix.ran_alone(git('rev-parse', '--show-toplevel'), added))
+
+
+def matrix_bound_to_this_tree(kept, head):
+    """The record, once it is shown to be about this candidate and this tree: its head, that
+    it mutated something, that it names the files it mutated, and that their contents still
+    digest to what it recorded. Returns it with those names, which the checks after it read.
+    """
+    require(kept.get('head') == head, 'The recorded matrix names head %s, not this '
             'candidate. A record bound to another head measured another tree.'
             % str(kept.get('head'))[:12])
     require(kept.get('mutants'), 'The recorded matrix measured no mutants. A matrix that mutates '
@@ -970,12 +993,7 @@ def matrix_first(state, directory):
     require(now == kept['tree'], 'The recorded matrix was measured on other contents of %s: its '
             'fingerprint does not match what is here now. A record is bound to the tree it '
             'measured; re-run the matrix on this one.' % ', '.join(names))
-    ran_the_changed_tests(kept, state['regression_tests'])
-    # Before caught_with_the_changed_test, never after: the nodes it reads are the results,
-    # and a record whose results are not a list crashed there rather than refused by name.
-    results_agree(kept, names)
-    added = tests_added(state['review_base'], [p for p in state['regression_tests'] if collects_a_test(p)])
-    caught_with_the_changed_test(kept, review_matrix.ran_alone(git('rev-parse', '--show-toplevel'), added))
+    return kept, names
 
 
 def ran_the_changed_tests(kept, changed):
@@ -984,15 +1002,15 @@ def ran_the_changed_tests(kept, changed):
     case each: a matrix over some other file measured nothing about the new gate, and a
     changed test that failed under no mutant discriminates nothing.
 
-    Of the changed files, only those pytest collects a test from are asked about: a file it
-    collects none from is still a test path a correction may change, and no matrix could ever
-    name a case that ran in one, so demanding it was a refusal nobody could satisfy.
+    Only the changed files pytest collects a test from reach this rule, which its caller
+    decides: a file it collects none from is still a test path a correction may change, and
+    no matrix could ever name a case that ran in one, so demanding it was a refusal nobody
+    could satisfy. The filter lives there alone, so this rule has one meaning.
     """
     ran = kept.get('tests')
     require(isinstance(ran, dict) and all(isinstance(p, str) and isinstance(c, list)
                                           and all(isinstance(x, str) for x in c) for p, c in ran.items()),
             'The recorded matrix does not name the tests it ran. Re-run `review_flow.py matrix`.')
-    changed = [p for p in changed if collects_a_test(p)]
     missing = sorted(set(changed) - set(ran))
     require(not missing, 'The recorded matrix did not run %s, which this correction changes; a '
             'matrix over other tests measured nothing about the gate that changed. Re-run '
