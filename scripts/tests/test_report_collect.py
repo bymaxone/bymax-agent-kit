@@ -572,14 +572,18 @@ class CollectTests(unittest.TestCase):
             git(app, 'branch', '-q', 'mine', 'upstream/main')
             git(app, *(['reset', '-q', '--hard', 'mine'] if how.endswith('reset')
                        else ['merge', '-q', '--ff-only', 'mine']))
+        elif how == 'pruned-path':
+            git(app, 'reset', '-q', '--hard', 'refs/remotes/upstream/main')
         elif how == 'reset':
             git(app, 'reset', '-q', '--hard', 'upstream/main')
         else:
             git(app, 'merge', '-q', '--ff-only', 'upstream/main')
-        if how == 'pruned':
-            # The message still names upstream/main, but the ref is gone, so git can no
-            # longer say what it was — and neither can anyone else: a deleted local branch
-            # called upstream/mine leaves a message of exactly the same shape.
+        if how.startswith('pruned'):
+            # The message still names the ref, but the ref is gone, so git can no longer say
+            # what it was: `pruned` names it `upstream/main`, the shape a deleted local
+            # branch called upstream/mine leaves too. `pruned-path` names the full path,
+            # which git echoes back on stdout when it cannot resolve it, so the echo alone
+            # reads like an answer under refs/remotes/.
             git(app, 'branch', '-q', '-rd', 'upstream/main')
         return app.resolve()
 
@@ -632,8 +636,10 @@ class CollectTests(unittest.TestCase):
         writes it in two places: before the colon for a merge, after `moving to` for a
         reset. A name git can no longer resolve stays here too: `pruned` is a catch-up read
         as local, which under-reports, and the case below is the same message shape read the
-        other way, which reported work that was never pushed as shipped."""
-        for how in ('local-merge', 'local-reset', 'pruned'):
+        other way, which reported work that was never pushed as shipped. `pruned-path` is the
+        same ref named by its full path, which git echoes back on stdout while exiting 128:
+        the echo starts with refs/remotes/, so only the exit status keeps it out."""
+        for how in ('local-merge', 'local-reset', 'pruned', 'pruned-path'):
             with self.subTest(how=how):
                 data = self.m.collect(self.repo_that_caught_up_after_the_period(how),
                                       self.since, self.until, self.home, use_gh=False)
