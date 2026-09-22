@@ -369,7 +369,7 @@ class CollectTests(unittest.TestCase):
         self.git_in_repo('merge', '-q', '--no-ff', '-m', 'merged in the period', 'feat/early')
         # Dated after everything the delivery branch itself holds in the period, so a walk that
         # descends into the merge's second parent hands this commit back as the tip and it then
-        # marks itself shipped. That is what --first-parent is for, and what this case pins.
+        # marks itself shipped. That is what --first-parent is for; the clone case is what pins it.
         subject = 'feat(late): merged the week after'
         self.git_in_repo('checkout', '-q', '-B', 'feat/late', 'main')
         (self.repo / 'late').write_text(subject)
@@ -446,8 +446,8 @@ class CollectTests(unittest.TestCase):
         is a log of fetches: asking it where the delivery branch stood answers where this clone
         stood, and a Friday merge pulled on Monday comes back as work still in flight. The
         commit dates carry the upstream merge time instead, which is the right answer here.
-        The same fixture is the only one with a merge on the fallback, so it also pins the
-        first-parent walk: without it the date walk returns the merge's second parent."""
+        This fixture also pins the first-parent walk: without it the date walk returns the
+        merge's second parent."""
         data = self.m.collect(self.clone_that_fetched_late(), self.since, self.until, self.home, use_gh=False)
         shipped = {c['subject']: c['shipped'] for c in data['commits']}
         self.assertIs(shipped['feat(a): the work of the week'], True)

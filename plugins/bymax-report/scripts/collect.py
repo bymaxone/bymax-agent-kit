@@ -195,8 +195,8 @@ def reflog_reaches(repo: Path, ref: str, cutoff: float) -> bool:
 
     Asked of the entries' own timestamps, not of git's warning: that warning is a sentence
     git translates where catalogues are installed, so reading it would make the answer
-    depend on the language the machine speaks. Out of range git answers anyway, with the
-    oldest entry it kept, which is a later tip than the period had.
+    depend on the language the machine speaks. Out of range git still answers, and with exit
+    zero: the tip from before its oldest entry, which may be later than the period's.
     """
     code, out, _ = git_out(repo, 'reflog', 'show', '--date=unix', '--format=%gd', ref)
     lines = [line for line in out.splitlines() if line.strip()]
