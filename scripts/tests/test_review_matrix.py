@@ -161,6 +161,19 @@ class MeaningTests(unittest.TestCase):
         self.assertEqual(matrix.sites(str(bench.where), [
             {'file': 'mixed.py', 'anchor': 'LIMIT = 10', 'becomes': 'LIMIT = 11', 'case': 'over_the_limit'}]), 1)
 
+    def test_only_a_node_that_ran_clean_can_be_asked_to_have_failed(self):
+        """Found by a reviewer: a test whose body passes and whose teardown raises reads
+        `1 passed, 1 error`, and a mutant run that errors is refused as a crash rather than
+        counted as a catch — so asking that node to have failed is a demand nobody could
+        satisfy. Clean, not merely passing: the exit status and the summary must agree."""
+        bench = Bench(self, test=(
+            'import pytest\n\n\n@pytest.fixture\ndef leaky():\n    yield 1\n    raise RuntimeError\n\n\n'
+            'def test_over_the_limit(leaky): assert True\n\n\ndef test_over_again(): assert True\n'))
+        nodes = matrix.ids(str(bench.where), ['test_thing.py'])
+        self.assertEqual([node.split('::')[-1] for node in nodes], ['test_over_again', 'test_over_the_limit'])
+        self.assertEqual([node.split('::')[-1] for node in matrix.ran_alone(str(bench.where), nodes)],
+                         ['test_over_again'])
+
     def test_a_mutant_that_only_breaks_the_import_is_refused(self):
         """A crash is not a measurement. A mutant that stops the module loading makes every
         case error, which reads as caught while the case never ran — measured on this file's

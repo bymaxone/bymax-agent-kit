@@ -272,7 +272,15 @@ def ran_alone(root, nodes):
     what its cases select, and a test the author's selector passes over would have left the
     demand with nothing to ask about — which is the correction writing its own exemption.
     """
-    return [node for node in nodes if re.search(r'\d+ passed', run_case(root, None, [node])[1])]
+    kept = []
+    for node in nodes:
+        code, tail = run_case(root, None, [node])
+        # Clean, not merely passing: a test whose body passes and whose teardown raises reads
+        # `1 passed, 1 error`, and a mutant run that errors is refused as a crash rather than
+        # counted as a catch — so demanding that node would be a demand nobody could satisfy.
+        if code == 0 and outcome(tail) == 'passed' and re.search(r'\d+ passed', tail):
+            kept.append(node)
+    return kept
 
 
 def judged(mutant, runs):
