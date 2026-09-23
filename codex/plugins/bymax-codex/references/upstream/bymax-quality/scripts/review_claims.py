@@ -39,6 +39,8 @@ from pathlib import Path
 # A name inside a code block is an example about somebody else's repository, and reading it
 # as an assertion refused a candidate whose README merely showed the call.
 FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
+LEAD = re.compile(r'[ \t>]*')
+NESTING = 100
 ITEM = re.compile(r'^(?P<lead> *)(?:[-*+]|\d{1,9}[.)])(?P<gap> +)')
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
@@ -84,46 +86,71 @@ def outside_code(text):
     Every regex spelling tried here fixed one shape while breaking another. The question needs
     state a regex has no way to carry, so the lines are walked once with it.
     """
-    out, fence, content, blank, code = [], None, 0, True, False
-    lines, at = text.split('\n'), 0
-    while at < len(lines):
-        line = lines[at]
+    walk = Walk()
+    return '\n'.join(walk.read(line) for line in text.split('\n'))
+
+
+class Walk:
+    """One container read line by line: the document, or a block quote inside it.
+
+    A quote holds Markdown of its own, so it gets a walk of its own, fed each line without its
+    marker as the line arrives; a line that walk blanks is blanked here. Deciding each line once
+    keeps the reading linear, where walking a quote again per line was quadratic.
+    """
+
+    def __init__(self, depth=0):
+        self.fence, self.content, self.para, self.quote = None, 0, False, None
+        self.depth = depth
+
+    def read(self, line):
+        """This line as prose sees it: the line, or a blank where it is code."""
+        if self.quote is not None:
+            inner = self.continued(line)
+            if inner is not None:
+                seen = self.quote.read(inner)
+                self.para = self.quote.para
+                return line if seen == inner else ' '
+            self.quote = None
         stripped, indent = line.strip(), columns(line)
-        at += 1
-        if fence is not None:
-            out.append(' ' if stripped else line)
-            fence = None if closes(line, fence) else fence
-            continue
-        if code:
-            # A block runs on over its own blank lines and ends at the first line that leaves it.
-            if not stripped or indent >= content + 4:
-                out.append(' ' if stripped else line)
-                blank = not stripped
-                continue
-            code = False
+        if self.fence is not None:
+            self.fence = None if closes(line, self.fence) else self.fence
+            return ' ' if stripped else line
         if not stripped:
-            out.append(line)
-            blank = True
-            continue
-        # This far past the open item's content the line is an indented block, so it is neither
-        # a marker nor a fence: decided after them, a ``` four spaces in opened a fence and
-        # blanked the rest of the file, and a `- x` inside a block reopened a list.
-        if blank and indent >= content + 4:
-            out.append(' ')
-            code, blank = True, False
-            continue
-        # Read before the quote: a `>` below the open item's content closes the item, and a
-        # quote handled first left its column open, so a block after it read as prose.
-        content = listing(line, indent, content)
-        if quotes(line, content):
-            run, at = quoted(lines, at - 1, content)
-            out.extend(run)
-            blank = False
-            continue
-        fence = opens(line)
-        out.append(' ' if fence else line)
-        blank = False
-    return '\n'.join(out)
+            self.para = False
+            return line
+        # An indented block cannot interrupt a paragraph, and this far past the open item's
+        # content the line is neither a marker nor a fence. No paragraph opens inside one, so a
+        # block runs on over its own blank lines without a state of its own.
+        if not self.para and indent >= self.content + 4:
+            return ' '
+        # A line continuing a paragraph lazily keeps its item open; anything else is read
+        # against it, a `>` included, since a quote below the item's content closes the item.
+        if not (self.para and lazy(line)):
+            self.content = listing(line, indent, self.content)
+        # Past NESTING a marker is read as text: each level is a frame, and a line of a
+        # thousand markers exhausted the interpreter's recursion limit.
+        if self.depth < NESTING and quotes(line, self.content):
+            self.quote, self.para = Walk(self.depth + 1), False
+            return self.read(line)
+        self.fence = opens(line) if indent < self.content + 4 else None
+        self.para = not self.fence
+        return ' ' if self.fence else line
+
+    def continued(self, line):
+        """What the open quote reads next from this line, or None where the line ends it.
+
+        A line without a marker still belongs to the quote while its paragraph is open.
+        """
+        if quotes(line, self.content) and columns(line) >= self.content:
+            return unquoted(line)
+        if line.strip() and self.quote.para and lazy(line):
+            return line
+        return None
+
+
+def lazy(line):
+    """Whether this line, read under an open paragraph, only continues it."""
+    return not (ITEM.match(line) or line.lstrip().startswith('>') or FENCE.match(line.lstrip()))
 
 
 def quotes(line, content):
@@ -131,35 +158,19 @@ def quotes(line, content):
     return line.lstrip().startswith('>') and columns(line) < content + 4
 
 
-def quoted(lines, at, content):
-    """The block quote starting at `at` with its code blanked, and the index just past it.
-
-    A quote holds Markdown of its own, so its lines are walked again without their `>` and a
-    line the inner walk blanked is blanked here. Left to the outer walk, a ``` behind `> ` was
-    prose, and a quoted example's call read as an assertion about this repository.
-    """
-    end = at
-    while end < len(lines) and quotes(lines[end], content):
-        end += 1
-    block = lines[at:end]
-    inner = [unquoted(line) for line in block]
-    walked = outside_code('\n'.join(inner)).split('\n')
-    return [line if after == before else ' ' for line, before, after in zip(block, inner, walked)], end
-
-
 def unquoted(line):
     """The line through its first `>` removed, and the one optional column after it.
 
-    A tab after the marker advances from where it stands and loses that column: kept whole,
-    `>\tprose` became an indented block and a quoted assertion was blanked.
+    Every tab before the text is expanded against this line's own columns first, so no level
+    below sees one: expanded per level, a nested quote measured its tab from a shortened line.
     """
-    lead, _, rest = line.partition('>')
-    at, spaces = columns(lead) + 1, ''
-    body = rest.lstrip(' \t')
-    for char in rest[:len(rest) - len(body)]:
+    run = LEAD.match(line).group(0)
+    spaces, at = '', 0
+    for char in run:
         width = 4 - at % 4 if char == '\t' else 1
-        spaces, at = spaces + ' ' * width, at + width
-    return spaces[1:] + body if spaces else body
+        spaces, at = spaces + (' ' * width if char == '\t' else char), at + width
+    rest = (spaces + line[len(run):]).partition('>')[2]
+    return rest[1:] if rest.startswith(' ') else rest
 
 
 def listing(line, indent, content):
