@@ -53,6 +53,9 @@ BLOCK_TAGS = frozenset("""
 RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
 FIRST = re.compile(r'(?:[-*+]|0{0,8}1[.)])[ \t]')
 MARKER = re.compile(r'(?P<mark>[-*+]|\d{1,9}[.)])(?:[ \t]+|$)')
+DEFINITION = re.compile(r'\[(?:[^\]\\]|\\.)+\]: *(?:<[^<>\n]*>|[^ <][^ ]*)?'
+                        r'(?: +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))? *$')
+TITLE = re.compile(r'["\'(]')
 UNDERLINE = re.compile(r' *(?:=+|-+) *$')
 HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
 BREAK = re.compile(r'([-*_])(?:[ \t]*\1){2,}[ \t]*$')
@@ -117,7 +120,7 @@ class Walk:
 
     def __init__(self, depth=0):
         self.fence, self.items, self.para, self.quote, self.html = None, [], False, None, False
-        self.empty = False
+        self.empty = self.defined = False
         self.depth = depth
 
     @property
@@ -142,32 +145,47 @@ class Walk:
             self.items = listing(line, indent, self.items)[0]
         if not self.para and indent >= self.content + 4:
             return ' '
-        # A line continuing a paragraph lazily keeps its item open; anything else is read
-        # against it, a `>` included, since a quote below the item's content closes the item.
-        if not (self.para and lazy(line, self.items, indent >= self.content)):
-            self.items, mark = listing(line, indent, self.items)
-            # What follows the markers is the item's first line and may open any block in it.
-            if mark is not None:
-                self.para, view = False, ' ' * mark + line[mark:]
-                # An item opened empty ends at a blank line unless its content comes first.
-                self.empty = not view.strip(' ')
-                return line if self.empty or self.read(view) == view else ' '
+        # A line continuing a paragraph lazily keeps its item open and starts no block. Measured
+        # from the innermost item instead, a lazy line four columns short of it opened a fence.
+        if self.para and lazy(line, self.items, indent >= self.content):
+            return self.continued(line, indent)
+        # Anything else is read against the open items, a `>` included, since a quote below the
+        # item's content closes the item, and the item's paragraph ends with it.
+        self.para = self.para and indent >= self.content
+        self.items, mark = listing(line, indent, self.items)
+        # What follows the markers is the item's first line and may open any block in it.
+        if mark is not None:
+            self.para, view = False, ' ' * mark + line[mark:]
+            # An item opened empty ends at a blank line unless its content comes first.
+            self.empty = not view.strip(' ')
+            return line if self.empty or self.read(view) == view else ' '
         # Past NESTING a marker is read as text: each level is a frame, and a line of a
         # thousand markers exhausted the interpreter's recursion limit.
         if self.depth < NESTING and quotes(line, self.content):
             self.quote = Walk(self.depth + 1)
             return self.read(line)
-        if indent < self.content + 4 and html(line.lstrip(' '), self.para):
+        if html(line.lstrip(' '), self.para):
             self.html, self.para = ending(line.lstrip(' ')), False
             if self.html is not True and self.html in line.lower()[line.lower().index('<') + 1:]:
                 self.html = False
             return line
-        self.fence = opens(line) if indent < self.content + 4 else None
-        # An underline the paragraph's own container reads makes it a heading, which leaves no
-        # paragraph open; a lazy one is text, so it counts only from the container's content column.
-        underline = self.para and self.content <= indent < self.content + 4 and UNDERLINE.match(line)
-        self.para = not (self.fence or underline or indent < self.content + 4 and closing(line.lstrip(' ')))
+        self.fence = opens(line)
+        self.para = not (self.fence or indent < self.content + 4 and closing(line.lstrip(' ')))
+        # A link reference definition is not a paragraph a line under it can underline.
+        self.defined = self.para and bool(DEFINITION.match(line.lstrip(' ')))
         return ' ' if self.fence else line
+
+    def continued(self, line, indent):
+        """This line, which only continues the open paragraph, and what it leaves open.
+
+        An underline the paragraph's own container reads ends it as a heading; under a link
+        reference definition it is text, and a definition's title may follow it on its own line.
+        """
+        text = line.lstrip(' ')
+        self.para = not (not self.defined and self.content <= indent < self.content + 4
+                         and UNDERLINE.match(line))
+        self.defined = self.defined and bool(DEFINITION.match(text) or TITLE.match(text))
+        return line
 
     def held(self, line):
         """This line as the open quote, fence or HTML block reads it, or None where none holds it."""
@@ -211,9 +229,11 @@ def lazy(line, items, restricted):
         return True
     text = line.lstrip(' ')
     item = ITEM.match(line)
-    if item and restricted and not (line[item.end():].strip(' ') and FIRST.match(text)):
+    # The first item's own text decides: in `- -` the second marker is that text.
+    first = MARKER.match(text)
+    if item and restricted and not (first and text[first.end():].strip(' ') and FIRST.match(text)):
         item = None
-    return not (item or text.startswith('>') or html(text, True) or FENCE.match(text)
+    return not (item or text.startswith('>') or html(text, restricted) or FENCE.match(text)
                 or closing(text))
 
 
