@@ -167,12 +167,12 @@ class Walk:
         if self.fence is not None and (not stripped or indent >= self.content):
             self.fence = None if closes(line, self.fence) else self.fence
             return ' ' if stripped else line
-        # A line that leaves the item ends the fence or blank-line HTML block opened inside it;
+        # A line that leaves the item ends the fence or the HTML block opened inside it; inside,
         # an HTML block with an end text holds every line up to the one carrying that text.
         self.fence = None
         if self.html is True and stripped and indent >= self.content:
             return line
-        if self.html and self.html is not True:
+        if self.html and self.html is not True and (not stripped or indent >= self.content):
             self.html = False if self.html in line.lower() else self.html
             return line
         self.html = False
