@@ -185,7 +185,7 @@ class Walk:
         return line
 
     def settled(self):
-        """Whether the innermost open paragraph holds only a complete link reference definition."""
+        """Whether the innermost open paragraph holds only complete link reference definitions."""
         return self.quote.settled() if self.quote is not None else self.defined in ('whole', 'titled')
 
     def advance(self, text):
