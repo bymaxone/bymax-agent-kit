@@ -12,7 +12,7 @@ earlier run, or a project that writes to the same path, says nothing the caller 
 not tamper-proof and is not claimed to be: once the path and the token leave the environment,
 what remains is code that goes looking for them, which is tampering with one's own review.
 
-The header is written only here, so a plugin that never ran is told apart from one that
+The header precedes any id, so a plugin that never ran is told apart from one that
 collected nothing, rather than both reading as silence.
 """
 import os
