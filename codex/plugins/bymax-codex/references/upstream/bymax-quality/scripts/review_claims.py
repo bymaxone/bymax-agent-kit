@@ -139,7 +139,7 @@ class Walk:
     def continued(self, line):
         """What the open quote reads next from this line, or None where the line ends it.
 
-        A line without a marker still belongs to the quote while its paragraph is open.
+        A line without a marker still belongs to the quote where it lazily continues its paragraph.
         """
         if quotes(line, self.content) and columns(line) >= self.content:
             return unquoted(line)
