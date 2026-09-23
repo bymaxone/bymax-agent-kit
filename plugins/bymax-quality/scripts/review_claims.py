@@ -54,8 +54,8 @@ RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
 FIRST = re.compile(r'(?:[-*+]|0{0,8}1[.)])[ \t]')
 MARKER = re.compile(r'(?P<mark>[-*+]|\d{1,9}[.)])(?:[ \t]+|$)')
 DEFINITION = re.compile(r'\[(?:[^\]\\]|\\.)+\]: *(?P<destination><[^<>\n]*>|[^ <][^ ]*)?'
-                        r'(?: +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))? *$')
-DESTINATION = re.compile(r'(?:<[^<>\n]*>|[^ <][^ ]*)(?: +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))? *$')
+                        r'(?P<title> +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))? *$')
+DESTINATION = re.compile(r'(?:<[^<>\n]*>|[^ <][^ ]*)(?P<title> +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))? *$')
 TITLE = re.compile(r'(?:"[^"]*"|\'[^\']*\'|\([^()]*\)) *$')
 UNDERLINE = re.compile(r' *(?:=+|-+) *$')
 HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
@@ -183,12 +183,15 @@ class Walk:
         reference definition it is text, and its destination or title may take the next line.
         """
         text = line.lstrip(' ')
-        self.para = not (self.defined != 'whole' and self.content <= indent < self.content + 4
+        self.para = not (self.defined not in ('whole', 'titled') and self.content <= indent < self.content + 4
                          and UNDERLINE.match(line))
         if self.defined == 'label':
-            self.defined = 'whole' if DESTINATION.match(text) else None
+            found = DESTINATION.match(text)
+            self.defined = ('titled' if found['title'] else 'whole') if found else None
         elif self.defined == 'whole':
-            self.defined = definition(text) or ('whole' if TITLE.match(text) else None)
+            self.defined = definition(text) or ('titled' if TITLE.match(text) else None)
+        elif self.defined == 'titled':
+            self.defined = definition(text)
         return line
 
     def held(self, line):
@@ -222,10 +225,12 @@ class Walk:
 
 
 def definition(text):
-    """How much of a link reference definition this text is: 'whole' with its destination,
-    'label' where the destination is left for the next line, None where it is none."""
+    """How much of a link reference definition this text is: 'titled' once its one title is in,
+    'whole' with its destination, 'label' where that is left for the next line, None if none."""
     found = DEFINITION.match(text)
-    return ('whole' if found['destination'] else 'label') if found else None
+    if not found:
+        return None
+    return 'titled' if found['title'] else 'whole' if found['destination'] else 'label'
 
 
 def lazy(line, items, restricted):
