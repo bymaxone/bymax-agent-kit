@@ -1166,8 +1166,10 @@ def caught_with_the_changed_test(kept, wanted):
     neighbour of the new test satisfies, and one added test that catches would carry the
     vacuous one beside it.
     """
-    failed = {node.split('[')[0] for r in kept.get('results') or [] for node in (r.get('nodes') or [])}
-    idle = [node for node in wanted if node.split('[')[0] not in failed]
+    # Whole ids: an added parameter of an older test is a node of its own, and without its
+    # parameters it was credited by the parameter beside it.
+    failed = {node for r in kept.get('results') or [] for node in (r.get('nodes') or [])}
+    idle = [node for node in wanted if node not in failed]
     require(not idle, 'The recorded matrix caught nothing with %s, which this correction adds: '
             '%s failed under a mutant and %s did not. A test that already discriminated proves '
             'nothing about the one added beside it.'
