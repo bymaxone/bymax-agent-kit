@@ -259,12 +259,21 @@ def baseline(root, files, case):
     if not nodes:
         bail('Case %r collects no test under %s. A case pytest cannot find measures nothing.'
              % (case, ' '.join(files)))
+    ran = []
     for node in nodes:
         clean_code, clean_tail = run_case(root, None, [node])
         if clean_code != 0:
             bail('Case %r does not pass on the clean tree (%s: %s). A mutant that fails a case '
                  'which already fails measures nothing.' % (case, node, clean_tail))
-    return nodes
+        # Passed, not merely exited zero: pytest exits zero on a skip, and a mutant that changed
+        # the skip condition made the node run and fail, which read as a catch. A skipped node
+        # is left out of the measurement, the way ran_alone() leaves it out of the demand.
+        if outcome(clean_tail) == 'passed' and re.search(r'\d+ passed', clean_tail):
+            ran.append(node)
+    if not ran:
+        bail('Case %r runs no test on the clean tree under %s: every node it collects is skipped '
+             'there, and a case that never runs measures nothing.' % (case, ' '.join(files)))
+    return ran
 
 
 def ran_alone(root, nodes):

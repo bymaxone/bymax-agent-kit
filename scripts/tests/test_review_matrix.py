@@ -92,6 +92,27 @@ class MeaningTests(unittest.TestCase):
                                      'case': 'ordered'}]))
         self.assertIn('does not pass on the clean tree (test_thing.py::test_ordered_b', str(caught.exception))
 
+    def test_a_node_skipped_on_the_clean_tree_is_refused(self):
+        """Found by the PR review: a node skipped on the clean tree passed the baseline, since
+        pytest exits zero on a skip, and a mutant that changed its skip condition made it run
+        and fail, which was recorded as a catch by a case that never ran clean."""
+        bench = Bench(self, guard=GUARDED + '\n\ndef enabled():\n    return False\n',
+                      test='import sys\nsys.path.insert(0, ".")\nimport pytest\nfrom thing import enabled\n\n\n'
+                           '@pytest.mark.skipif(not enabled(), reason="off")\ndef test_gated():\n    assert False\n')
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'return False', 'becomes': 'return True',
+                                     'case': 'gated'}]))
+        self.assertIn('runs no test on the clean tree', str(caught.exception))
+        # Beside a node that runs, the skipped one is left out rather than refused: the mutant
+        # that would bring it to fail finds nothing to catch it, and survives.
+        bench = Bench(self, guard=GUARDED + '\n\ndef enabled():\n    return False\n',
+                      test=CASE + '\nimport pytest\nfrom thing import enabled\n\n\n'
+                           '@pytest.mark.skipif(not enabled(), reason="off")\ndef test_over_gated():\n    assert False\n')
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'return False', 'becomes': 'return True',
+                                     'case': 'over'}]))
+        self.assertIn('survived', str(caught.exception))
+
     def test_a_case_that_collects_no_node_is_refused_by_name(self):
         """A case pytest finds nothing for has no baseline to pass and no node to run: refused
         by name, not recorded as a survivor of a run that never happened."""

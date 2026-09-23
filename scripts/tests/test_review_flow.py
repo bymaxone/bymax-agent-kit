@@ -1928,6 +1928,26 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('caught nothing with tests/test_calc.py::test_calc_new',
                       self.start(ok=False, correction=True, reason='').stderr)
 
+    def test_every_parameter_the_correction_added_must_catch(self):
+        """Found by the PR review: a parameter a correction added to an older parametrized test
+        was credited by the parameter beside it, because the node ids lost their parameters
+        before they were compared. Each added node is asked for by its whole id."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        kinds = (OLD_TEST + 'import pytest\n\n\n@pytest.mark.parametrize("kind", ["strict"%s])\n'
+                 'def test_calc_kinds(kind): assert LIMIT == 7 or kind == "loose"\n')
+        (self.repo / 'tests/test_calc.py').write_text(kinds % '')
+        self.commit('a guard and a parametrized test that discriminates it')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(kinds % ', "loose"')
+        self.commit('a correction that adds a vacuous parameter to the older test')
+        self.guard_matrix()
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_kinds[loose]',
+                      self.start(ok=False, correction=True, reason='').stderr)
+
     def test_every_test_the_delta_changed_must_catch_not_one_of_them(self):
         """Found by a reviewer: the demand was an intersection, so one test that caught
         carried every other — a correction adding a test that discriminates, in the commit
