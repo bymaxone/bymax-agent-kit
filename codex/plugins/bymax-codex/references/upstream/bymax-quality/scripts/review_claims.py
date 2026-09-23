@@ -124,7 +124,7 @@ class Walk:
         held = self.held(line)
         if held is not None:
             return held
-        stripped, indent = line.strip(), columns(line)
+        stripped, indent = line.strip(' \r'), columns(line)
         empty, self.empty = self.empty, False
         if not stripped:
             self.para, self.items = False, self.items[:-1] if empty else self.items
@@ -133,32 +133,31 @@ class Walk:
         # content the line is neither a marker nor a fence. No paragraph opens inside one, so a
         # block runs on over its own blank lines without a state of its own.
         if not self.para and indent < self.content:
-            self.items = listing(line, indent, self.items)
+            self.items = listing(line, indent, self.items)[0]
         if not self.para and indent >= self.content + 4:
             return ' '
         # A line continuing a paragraph lazily keeps its item open; anything else is read
         # against it, a `>` included, since a quote below the item's content closes the item.
         if not (self.para and lazy(line, self.items, indent >= self.content)):
-            self.items = listing(line, indent, self.items)
-            # What follows a marker is the item's first line and may open any block in it.
-            opened = ITEM.match(line)
-            if opened and not BREAK.match(line.lstrip()):
-                self.para, view = False, ' ' * opened.end() + line[opened.end():]
+            self.items, mark = listing(line, indent, self.items)
+            # What follows the markers is the item's first line and may open any block in it.
+            if mark is not None:
+                self.para, view = False, ' ' * mark + line[mark:]
                 # An item opened empty ends at a blank line unless its content comes first.
-                self.empty = not view.strip()
+                self.empty = not view.strip(' \r')
                 return line if self.empty or self.read(view) == view else ' '
         # Past NESTING a marker is read as text: each level is a frame, and a line of a
         # thousand markers exhausted the interpreter's recursion limit.
         if self.depth < NESTING and quotes(line, self.content):
             self.quote = Walk(self.depth + 1)
             return self.read(line)
-        if indent < self.content + 4 and html(line.lstrip(), self.para):
-            self.html, self.para = ending(line.lstrip()), False
+        if indent < self.content + 4 and html(line.lstrip(' '), self.para):
+            self.html, self.para = ending(line.lstrip(' ')), False
             if self.html is not True and self.html in line.lower()[line.lower().index('<') + 1:]:
                 self.html = False
             return line
         self.fence = opens(line) if indent < self.content + 4 else None
-        self.para = not (self.fence or indent < self.content + 4 and closing(line.lstrip()))
+        self.para = not (self.fence or indent < self.content + 4 and closing(line.lstrip(' ')))
         return ' ' if self.fence else line
 
     def held(self, line):
@@ -174,9 +173,10 @@ class Walk:
             if line.strip() and self.quote.para and lazy(line, self.items, False):
                 return line
             self.quote, self.para = None, False
-        stripped, indent = line.strip(), columns(line)
+        stripped, indent = line.strip(' \r'), columns(line)
         if self.fence is not None and (not stripped or indent >= self.content):
-            self.fence = None if closes(line, self.fence) else self.fence
+            # A closing fence, like an opening one, stands less than four columns in.
+            self.fence = None if indent < self.content + 4 and closes(line, self.fence) else self.fence
             return ' ' if stripped else line
         # A line that leaves the item ends the fence or the HTML block opened inside it; inside,
         # an HTML block with an end text holds every line up to the one carrying that text.
@@ -200,7 +200,7 @@ def lazy(line, items, restricted):
     reached = [column for column in items if column <= columns(line)]
     if columns(line) >= (reached[-1] if reached else 0) + 4:
         return True
-    text = line.lstrip()
+    text = line.lstrip(' ')
     item = ITEM.match(line)
     if item and restricted and not (line[item.end():].strip() and FIRST.match(text)):
         item = None
@@ -242,7 +242,7 @@ def closing(text):
 
 def quotes(line, content):
     """Whether this line is a block quote's: a `>` less than four columns past the item content."""
-    return line.lstrip().startswith('>') and columns(line) < content + 4
+    return line.lstrip(' ').startswith('>') and columns(line) < content + 4
 
 
 def unquoted(line):
@@ -252,7 +252,8 @@ def unquoted(line):
 
 
 def listing(line, indent, items):
-    """The content columns of the list items open once this line is read, innermost last.
+    """The content columns of the list items open once this line is read, innermost last, and
+    where the text after the markers this line opened starts, or None where it opened none.
 
     A line indented less than an item's content closes it and every item inside it, and each
     marker on the line opens one: `- 1. x` is two items, and closing the inner one returns to
@@ -260,9 +261,9 @@ def listing(line, indent, items):
     """
     kept = [column for column in items if column <= indent]
     # Four columns past the content it reaches, a marker is inside an indented block.
-    if not ITEM.match(line) or BREAK.match(line.lstrip()) or indent >= (kept[-1] if kept else 0) + 4:
-        return kept
-    at = len(line) - len(line.lstrip(' '))
+    if not ITEM.match(line) or BREAK.match(line.lstrip(' ')) or indent >= (kept[-1] if kept else 0) + 4:
+        return kept, None
+    at, last = len(line) - len(line.lstrip(' ')), len(line.rstrip(' \r'))
     for marker in MARKER.finditer(line, at):
         if marker.start() != at:
             break
@@ -270,12 +271,10 @@ def listing(line, indent, items):
         gap = marker.end() - end
         # Past four columns of gap, or with nothing after it, the content starts one column
         # past the marker, and what follows is an indented block or the item's next line.
-        wide = gap > 4 or not line[marker.end():].strip()
+        wide = gap > 4 or marker.end() >= last
         kept.append(end + 1 if wide else end + gap)
-        if wide:
-            break
-        at = marker.end()
-    return kept
+        at = end if wide else marker.end()
+    return kept, at
 
 
 def opens(line):
