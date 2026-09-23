@@ -105,9 +105,9 @@ class MeaningTests(unittest.TestCase):
         """A node id is a line, and a parametrized one holds a space, so splitting on whitespace
         made two nodes out of one. The plugin takes where to write and what vouches for it out
         of the environment before any conftest is imported: read later, a conftest rewriting
-        the file in pytest_sessionfinish made a directory holding a real test answer empty. And
-        a module of the plugin's name at the repository's root is loaded in its place, so the
-        hook never runs; that is refused rather than read as "no test here"."""
+        the file in pytest_sessionfinish made a directory holding a real test answer empty. A
+        collector that never reports, or a module of its name at the root that pytest would load
+        in its place, is refused rather than read as "no test here"."""
         root = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
         (root / 'tests').mkdir()
@@ -133,8 +133,8 @@ class MeaningTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             matrix.ids(str(root), ['tests'])
         self.assertIn('never reported what it found', str(caught.exception))
-        # A module of the plugin's name at the root is loaded in its place, which is refused before
-        # pytest runs, whatever any conftest would then write.
+        # A module of the plugin's name at the root, which pytest would load in its place, is
+        # refused before pytest runs.
         (root / 'conftest.py').unlink()
         (root / 'review_collect.py').write_text('"""a project module that shares the name"""\n')
         with self.assertRaises(SystemExit) as caught:
