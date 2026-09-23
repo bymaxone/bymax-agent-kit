@@ -41,7 +41,20 @@ from pathlib import Path
 FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
 LEAD = re.compile(r'[ \t>]*')
 NESTING = 100
-ITEM = re.compile(r'^(?P<lead> *)(?:[-*+]|\d{1,9}[.)])(?P<gap> +)')
+ITEM = re.compile(r'^ *(?:(?:[-*+]|\d{1,9}[.)]) +)+')
+TAG = re.compile(r'<(?:(?P<close>/?)(?P<name>[A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)|!|\?)')
+ALONE = re.compile(r'</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>\s*$')
+# CommonMark's block-level names: opened or closed, these start an HTML block anywhere.
+BLOCK_TAGS = frozenset("""
+    address article aside base basefont blockquote body caption center col colgroup dd details
+    dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6
+    head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option
+    p param search section summary table tbody td tfoot th thead title tr track ul""".split())
+# The raw-text names start one anywhere only when they open.
+RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
+MARKER = re.compile(r'(?:[-*+]|\d{1,9}[.)]) +')
+HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
+BREAK = re.compile(r'([-*_])(?:[ \t]*\1){2,}[ \t]*$')
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
@@ -99,11 +112,50 @@ class Walk:
     """
 
     def __init__(self, depth=0):
-        self.fence, self.content, self.para, self.quote = None, 0, False, None
+        self.fence, self.items, self.para, self.quote, self.html = None, [], False, None, False
         self.depth = depth
+
+    @property
+    def content(self):
+        """The column the innermost open list item's content starts at, or 0 outside a list."""
+        return self.items[-1] if self.items else 0
 
     def read(self, line):
         """This line as prose sees it: the line, or a blank where it is code."""
+        held = self.held(line)
+        if held is not None:
+            return held
+        stripped, indent = line.strip(), columns(line)
+        if not stripped:
+            self.para = False
+            return line
+        # An indented block cannot interrupt a paragraph, and this far past the open item's
+        # content the line is neither a marker nor a fence. No paragraph opens inside one, so a
+        # block runs on over its own blank lines without a state of its own.
+        if not self.para and indent < self.content:
+            self.items = listing(line, indent, self.items)
+        if not self.para and indent >= self.content + 4:
+            return ' '
+        # A line continuing a paragraph lazily keeps its item open; anything else is read
+        # against it, a `>` included, since a quote below the item's content closes the item.
+        if not (self.para and lazy(line)):
+            self.items = listing(line, indent, self.items)
+        # Past NESTING a marker is read as text: each level is a frame, and a line of a
+        # thousand markers exhausted the interpreter's recursion limit.
+        if self.depth < NESTING and quotes(line, self.content):
+            self.quote = Walk(self.depth + 1)
+            return self.read(line)
+        if indent < self.content + 4 and html(line.lstrip(), self.para):
+            self.html, self.para = ending(line.lstrip()), False
+            if self.html is not True and self.html in line.lower()[line.lower().index('<') + 1:]:
+                self.html = False
+            return line
+        self.fence = opens(line) if indent < self.content + 4 else None
+        self.para = not (self.fence or closing(line.lstrip()))
+        return ' ' if self.fence else line
+
+    def held(self, line):
+        """This line as the open quote, fence or HTML block reads it, or None where none holds it."""
         if self.quote is not None:
             inner = self.continued(line)
             if inner is not None:
@@ -112,29 +164,19 @@ class Walk:
                 return line if seen == inner else ' '
             self.quote = None
         stripped, indent = line.strip(), columns(line)
-        if self.fence is not None:
+        if self.fence is not None and (not stripped or indent >= self.content):
             self.fence = None if closes(line, self.fence) else self.fence
             return ' ' if stripped else line
-        if not stripped:
-            self.para = False
+        # A line that leaves the item ends the fence or the HTML block opened inside it, and an
+        # HTML block is raw text up to the blank line that ends it.
+        self.fence = None
+        if self.html is True and stripped and indent >= self.content:
             return line
-        # An indented block cannot interrupt a paragraph, and this far past the open item's
-        # content the line is neither a marker nor a fence. No paragraph opens inside one, so a
-        # block runs on over its own blank lines without a state of its own.
-        if not self.para and indent >= self.content + 4:
-            return ' '
-        # A line continuing a paragraph lazily keeps its item open; anything else is read
-        # against it, a `>` included, since a quote below the item's content closes the item.
-        if not (self.para and lazy(line)):
-            self.content = listing(line, indent, self.content)
-        # Past NESTING a marker is read as text: each level is a frame, and a line of a
-        # thousand markers exhausted the interpreter's recursion limit.
-        if self.depth < NESTING and quotes(line, self.content):
-            self.quote, self.para = Walk(self.depth + 1), False
-            return self.read(line)
-        self.fence = opens(line) if indent < self.content + 4 else None
-        self.para = not self.fence
-        return ' ' if self.fence else line
+        if self.html and self.html is not True:
+            self.html = False if self.html in line.lower() else self.html
+            return line
+        self.html = False
+        return None
 
     def continued(self, line):
         """What the open quote reads next from this line, or None where the line ends it.
@@ -150,7 +192,41 @@ class Walk:
 
 def lazy(line):
     """Whether this line, read under an open paragraph, only continues it."""
-    return not (ITEM.match(line) or line.lstrip().startswith('>') or FENCE.match(line.lstrip()))
+    text = line.lstrip()
+    return not (ITEM.match(line) or text.startswith('>') or html(text, True) or FENCE.match(text)
+                or closing(text))
+
+
+def ending(text):
+    """What ends the HTML block this text starts: the text that closes it, or True where a
+    blank line does. A comment runs to `-->` over blank lines, and so do raw-text tags."""
+    lowered = text.lower()
+    for start, end in (('<!--', '-->'), ('<?', '?>'), ('<![cdata[', ']]>')):
+        if lowered.startswith(start):
+            return end
+    if re.match(r'<![a-z]', lowered):
+        return '>'
+    raw = re.match(r'<(pre|script|style|textarea)(?=[\s>]|$)', lowered)
+    return '</%s>' % raw.group(1) if raw else True
+
+
+def html(text, para):
+    """Whether this text, stripped of its indent, starts an HTML block. A block-level tag, a
+    comment or a declaration may interrupt a paragraph; any other tag starts one only alone on
+    its line and where no paragraph is open."""
+    found = TAG.match(text)
+    if not found:
+        return False
+    name = (found['name'] or '').lower()
+    if not name or name in BLOCK_TAGS or name in RAW_TAGS and not found['close']:
+        return True
+    return not para and bool(ALONE.match(text))
+
+
+def closing(text):
+    """Whether this text, stripped of its indent, is a heading or a thematic break: a line that
+    interrupts a paragraph and leaves none open after it."""
+    return bool(HEADING.match(text) or BREAK.match(text))
 
 
 def quotes(line, content):
@@ -173,16 +249,22 @@ def unquoted(line):
     return rest[1:] if rest.startswith(' ') else rest
 
 
-def listing(line, indent, content):
-    """The column the open list item's content starts at, once this line is read.
+def listing(line, indent, items):
+    """The content columns of the list items open once this line is read, innermost last.
 
-    A marker opens an item and a line indented less than its content closes it, which is what
-    tells an indented code block from the item's own prose four spaces in.
+    A line indented less than an item's content closes it and every item inside it, and each
+    marker on the line opens one: `- 1. x` is two items, and closing the inner one returns to
+    the outer one's column rather than to none.
     """
-    item = ITEM.match(line)
-    if item:
-        return len(item.group(0))
-    return 0 if indent < content else content
+    kept = [column for column in items if column <= indent]
+    if ITEM.match(line) and not BREAK.match(line.lstrip()):
+        at = len(line) - len(line.lstrip(' '))
+        for marker in MARKER.finditer(line, at):
+            if marker.start() != at:
+                break
+            at = marker.end()
+            kept.append(at)
+    return kept
 
 
 def opens(line):
