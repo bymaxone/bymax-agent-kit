@@ -167,8 +167,8 @@ class Walk:
         if self.fence is not None and (not stripped or indent >= self.content):
             self.fence = None if closes(line, self.fence) else self.fence
             return ' ' if stripped else line
-        # A line that leaves the item ends the fence or the HTML block opened inside it, and an
-        # HTML block is raw text up to the blank line that ends it.
+        # A line that leaves the item ends the fence or blank-line HTML block opened inside it;
+        # an HTML block with an end text holds every line up to the one carrying that text.
         self.fence = None
         if self.html is True and stripped and indent >= self.content:
             return line
@@ -211,9 +211,9 @@ def ending(text):
 
 
 def html(text, para):
-    """Whether this text, stripped of its indent, starts an HTML block. A block-level tag, a
-    comment or a declaration may interrupt a paragraph; any other tag starts one only alone on
-    its line and where no paragraph is open."""
+    """Whether this text, stripped of its indent, starts an HTML block. A comment, a declaration,
+    a BLOCK_TAGS name or an opening RAW_TAGS name may interrupt a paragraph; any other tag starts
+    one only alone on its line and where no paragraph is open."""
     found = TAG.match(text)
     if not found:
         return False
