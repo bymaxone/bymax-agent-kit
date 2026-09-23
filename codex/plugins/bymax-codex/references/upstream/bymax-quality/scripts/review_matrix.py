@@ -250,7 +250,7 @@ def one(root, mutant, files, clean=None):
 
 
 def baseline(root, files, case):
-    """The nodes the case collects, each shown to pass alone on the clean tree — alone, as it
+    """The nodes of the case shown to pass alone on the clean tree — alone, as it
     then runs under the mutant. Shown passing together, a node that leaned on an earlier one's
     side effect failed alone under a mutation of something else entirely, and that failure was
     recorded as a catch.
