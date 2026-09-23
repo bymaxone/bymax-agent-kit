@@ -369,6 +369,12 @@ class OpaqueFileTests(unittest.TestCase):
         ('a quoted block reached by two tabs after the marker', '>\n>\t\tOLD_HELPER()'),
         ('a space and a tab after a marker two columns in, which reach a block',
          '  > \tOLD_HELPER()'),
+        ('a tab in a nested quote, measured from the line and not the level', '> >\n> > \tOLD_HELPER()'),
+        ('a block after a quote that left an item quote', '- item\n\n  > quote\n> more\n\n    OLD_HELPER()'),
+        ('a block after a quote that left an item quote with no blank line', '- item\n  > quote\n> more\n\n    OLD_HELPER()'),
+        ('a block after an empty quote, where no paragraph is open', '>\n    OLD_HELPER()'),
+        ('a block right after a closed fence', '```\nx\n```\n    OLD_HELPER()'),
+        ('a fence in a list item after a lazy line', '- item\nlazy text\n    ```\n    OLD_HELPER()'),
     )
 
     ASSERTIONS = (
@@ -392,6 +398,12 @@ class OpaqueFileTests(unittest.TestCase):
         ('a tab after the marker, which is two columns from it', '>\tWe removed OLD_HELPER.'),
         ('a space and a tab after the marker', '> \tWe removed OLD_HELPER.'),
         ('a tab after a marker two columns in', '  >\tWe removed OLD_HELPER.'),
+        ('a nested quote whose tabs leave a paragraph', '> >\n>\t> \tWe removed OLD_HELPER.'),
+        ('a quote after an item quote whose fence never closed', '- item\n\n  > ```\n  > code\n> We removed OLD_HELPER.'),
+        ('a fence four columns in under a quoted paragraph', '> para\n>      ```\n> We removed OLD_HELPER.'),
+        ('a fence four columns in under a paragraph', 'A paragraph\n    ```\nWe removed OLD_HELPER.'),
+        ('a quote line after a lazy line, continuing its paragraph', '> para\nlazy text\n>     We removed OLD_HELPER.'),
+        ('a quote nested past the depth the walk reads', '>' * 2000 + ' We removed OLD_HELPER.'),
     )
 
     def test_a_name_inside_a_code_block_is_an_example(self):
