@@ -1,6 +1,7 @@
 """The matrix runner: what it refuses, and what it records."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -99,6 +100,32 @@ class MeaningTests(unittest.TestCase):
             bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'value > LIMIT', 'becomes': 'True',
                                      'case': 'nothing_named_so'}]))
         self.assertIn("Case 'nothing_named_so' collects no test under test_thing.py", str(caught.exception))
+
+    def test_a_collect_answers_with_what_pytest_vouched_for(self):
+        """Three reviewers found the same two holes in reading the collect back. A node id is a
+        line, and a parametrized one holds a space, so splitting on whitespace made two nodes
+        out of one. And the plugin is loaded by name while `python -m pytest` puts the reviewed
+        repository on the path first, so a module of that name there is loaded instead and the
+        hook never runs — answered empty, that reads as "no test here" and the gate asks for
+        nothing. Each line carries this run's token, so a file left behind or a project writing
+        to the same path says nothing the caller reads."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        (root / 'tests').mkdir()
+        (root / 'tests/test_p.py').write_text(
+            'import pytest\n\n\n@pytest.mark.parametrize("v", ["a b", "c"])\ndef test_p(v): assert v\n')
+        self.assertEqual(matrix.ids(str(root), ['tests']),
+                         ['tests/test_p.py::test_p[a b]', 'tests/test_p.py::test_p[c]'])
+        # A conftest writing to the same file without the token contributes nothing.
+        (root / 'conftest.py').write_text(
+            'import os\nopen(os.environ["BYMAX_COLLECT_OUT"], "a").write("forged.py::forged\\n")\n')
+        self.assertEqual(matrix.ids(str(root), ['tests']),
+                         ['tests/test_p.py::test_p[a b]', 'tests/test_p.py::test_p[c]'])
+        # A module of the plugin's name in that repository is loaded first; the hook never runs.
+        (root / 'bymax_collect.py').write_text('"""a project module that shares the name"""\n')
+        with self.assertRaises(SystemExit) as caught:
+            matrix.ids(str(root), ['tests'])
+        self.assertIn('never heard what it found', str(caught.exception))
 
     def test_a_surviving_mutant_is_the_finding(self):
         """A guard whose case cannot tell the mutant from the original is decoration."""

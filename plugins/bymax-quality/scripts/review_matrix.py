@@ -30,6 +30,7 @@ import json
 import os
 import re
 import shutil
+import secrets
 import subprocess
 import tempfile
 import sys
@@ -38,6 +39,8 @@ from pathlib import Path
 # `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
 # starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
 # The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
+from bymax_collect import MARK
+
 PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
 
 
@@ -489,21 +492,46 @@ def ids(root, files, selector=None, tolerant=False):
     # every id against the argument's own directory instead — a bare name for a file under
     # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
-    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'review_collect',
+    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'bymax_collect',
             *arguments(root, files)] + (['-k', selector] if selector else [])
     env = pytest_env()
     here = str(Path(__file__).resolve().parent)
     env['PYTHONPATH'] = os.pathsep.join([here, env['PYTHONPATH']]) if env.get('PYTHONPATH') else here
+    token = secrets.token_hex(8)
+    env['BYMAX_COLLECT_TOKEN'] = token
     with tempfile.TemporaryDirectory() as box:
         env['BYMAX_COLLECT_OUT'] = str(Path(box, 'collected'))
         done = subprocess.run(args, cwd=real, capture_output=True, text=True, env=env)
         if not tolerant and done.returncode not in (0, 5):
             bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
                  ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
-        try:
-            return sorted(set(Path(env['BYMAX_COLLECT_OUT']).read_text().split()))
-        except OSError:
-            return []
+        vouched = reported(Path(env['BYMAX_COLLECT_OUT']), token)
+        # A collect that pytest completed and the plugin did not report is not an empty
+        # directory: the plugin did not run. Answering [] there says "no test here" and the
+        # gate above asks for nothing, which is the one thing this whole path exists to stop.
+        if vouched is None and done.returncode in (0, 5):
+            bail('pytest collected %s and the runtime never heard what it found. Its plugin is '
+                 'loaded by name, and a module of that name in the repository under review is '
+                 'loaded first; rename that module, or say so and the collect cannot be '
+                 'trusted.' % ' '.join(files))
+        return sorted(vouched or [])
+
+
+def reported(where, token):
+    """The node ids a collect vouched for with this run's token, or None where it said nothing.
+
+    None and an empty list are different answers: nothing at all means the plugin never ran,
+    while an empty list means it ran and collected no test. Lines without the token are not
+    read, so a file left by an earlier run and a project writing to the same path say nothing.
+    """
+    try:
+        lines = where.read_text().splitlines()
+    except OSError:
+        return None
+    if ('%s %s' % (MARK, token)) not in lines:
+        return None
+    return [line.partition(' ')[2] for line in lines
+            if line.startswith(token + ' ') and line.partition(' ')[2]]
 
 
 def record(root, spec_path, files, out=None):
