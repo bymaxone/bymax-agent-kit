@@ -39,7 +39,6 @@ from pathlib import Path
 # A name inside a code block is an example about somebody else's repository, and reading it
 # as an assertion refused a candidate whose README merely showed the call.
 FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
-LEAD = re.compile(r'[ \t>]*')
 NESTING = 100
 ITEM = re.compile(r'^ *(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$))+')
 TAG = re.compile(r'<(?:(?P<close>/?)(?P<name>[A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)|!--|\?|![A-Z]|!\[CDATA\[)')
@@ -82,16 +81,8 @@ def git(*args, cwd=None):
 
 
 def columns(line):
-    """How far this line is indented, a tab advancing to the next four-column stop."""
-    width = 0
-    for char in line:
-        if char == ' ':
-            width += 1
-        elif char == '\t':
-            width += 4 - width % 4
-        else:
-            break
-    return width
+    """How far this line is indented. Its tabs are already spaces: outside_code() expands them."""
+    return len(line) - len(line.lstrip(' '))
 
 
 def outside_code(text):
@@ -100,8 +91,14 @@ def outside_code(text):
     Every regex spelling tried here fixed one shape while breaking another. The question needs
     state a regex has no way to carry, so the lines are walked once with it.
     """
-    walk = Walk()
-    return '\n'.join(walk.read(line) for line in text.split('\n'))
+    walk, out = Walk(), []
+    for line in text.split('\n'):
+        # Tabs are read as spaces to the next stop of four, as CommonMark reads block structure,
+        # once and against the source line's own columns: expanded per container, a tab behind
+        # a quote or a list marker was measured from a shortened line.
+        spaced = line.expandtabs(4)
+        out.append(line if walk.read(spaced) == spaced else ' ')
+    return '\n'.join(out)
 
 
 class Walk:
@@ -114,6 +111,7 @@ class Walk:
 
     def __init__(self, depth=0):
         self.fence, self.items, self.para, self.quote, self.html = None, [], False, None, False
+        self.empty = False
         self.depth = depth
 
     @property
@@ -127,8 +125,9 @@ class Walk:
         if held is not None:
             return held
         stripped, indent = line.strip(), columns(line)
+        empty, self.empty = self.empty, False
         if not stripped:
-            self.para = False
+            self.para, self.items = False, self.items[:-1] if empty else self.items
             return line
         # An indented block cannot interrupt a paragraph, and this far past the open item's
         # content the line is neither a marker nor a fence. No paragraph opens inside one, so a
@@ -139,13 +138,15 @@ class Walk:
             return ' '
         # A line continuing a paragraph lazily keeps its item open; anything else is read
         # against it, a `>` included, since a quote below the item's content closes the item.
-        if not (self.para and lazy(line, self.content, self.items)):
+        if not (self.para and lazy(line, self.items, not self.items)):
             self.items = listing(line, indent, self.items)
             # What follows a marker is the item's first line and may open any block in it.
             opened = ITEM.match(line)
             if opened and not BREAK.match(line.lstrip()):
-                self.para, view = False, ' ' * len(opened.group(0).expandtabs(4)) + line[opened.end():]
-                return line if not view.strip() or self.read(view) == view else ' '
+                self.para, view = False, ' ' * opened.end() + line[opened.end():]
+                # An item opened empty ends at a blank line unless its content comes first.
+                self.empty = not view.strip()
+                return line if self.empty or self.read(view) == view else ' '
         # Past NESTING a marker is read as text: each level is a frame, and a line of a
         # thousand markers exhausted the interpreter's recursion limit.
         if self.depth < NESTING and quotes(line, self.content):
@@ -163,12 +164,16 @@ class Walk:
     def held(self, line):
         """This line as the open quote, fence or HTML block reads it, or None where none holds it."""
         if self.quote is not None:
-            inner = self.continued(line)
-            if inner is not None:
+            if quotes(line, self.content) and columns(line) >= self.content:
+                inner = unquoted(line)
                 seen = self.quote.read(inner)
                 self.para = self.quote.para
                 return line if seen == inner else ' '
-            self.quote = None
+            # A line without a marker belongs to the quote only as a continuation of its open
+            # paragraph, which no walk inside the quote reads again as a block of its own.
+            if line.strip() and self.quote.para and lazy(line, self.items, False):
+                return line
+            self.quote, self.para = None, False
         stripped, indent = line.strip(), columns(line)
         if self.fence is not None and (not stripped or indent >= self.content):
             self.fence = None if closes(line, self.fence) else self.fence
@@ -184,29 +189,20 @@ class Walk:
         self.html = False
         return None
 
-    def continued(self, line):
-        """What the open quote reads next from this line, or None where the line ends it.
 
-        A line without a marker still belongs to the quote where it lazily continues its paragraph.
-        """
-        if quotes(line, self.content) and columns(line) >= self.content:
-            return unquoted(line)
-        if line.strip() and self.quote.para and lazy(line, self.content, self.items):
-            return line
-        return None
-
-
-def lazy(line, content, items):
+def lazy(line, items, restricted):
     """Whether this line, read under an open paragraph, only continues it.
 
-    Outside a list, a marker opens one under a paragraph only with text after it and, when
-    ordered, only numbered 1: `2. two` there is a continuation.
+    Where the paragraph is the container's own and outside a list, a marker opens one only with
+    text after it and, when ordered, only numbered 1: `2. two` there is a continuation.
     """
-    if columns(line) >= content + 4:
+    # Measured from the content of the container the line reaches, not of the innermost item.
+    reached = [column for column in items if column <= columns(line)]
+    if columns(line) >= (reached[-1] if reached else 0) + 4:
         return True
     text = line.lstrip()
     item = ITEM.match(line)
-    if item and not items and not (line[item.end():].strip() and FIRST.match(text)):
+    if item and restricted and not (line[item.end():].strip() and FIRST.match(text)):
         item = None
     return not (item or text.startswith('>') or html(text, True) or FENCE.match(text)
                 or closing(text))
@@ -250,17 +246,8 @@ def quotes(line, content):
 
 
 def unquoted(line):
-    """The line through its first `>` removed, and the one optional column after it.
-
-    Every tab before the text is expanded against this line's own columns first, so no level
-    below sees one: expanded per level, a nested quote measured its tab from a shortened line.
-    """
-    run = LEAD.match(line).group(0)
-    spaces, at = '', 0
-    for char in run:
-        width = 4 - at % 4 if char == '\t' else 1
-        spaces, at = spaces + (' ' * width if char == '\t' else char), at + width
-    rest = (spaces + line[len(run):]).partition('>')[2]
+    """The line through its first `>` removed, and the one optional column after it."""
+    rest = line.partition('>')[2]
     return rest[1:] if rest.startswith(' ') else rest
 
 
@@ -278,8 +265,8 @@ def listing(line, indent, items):
     for marker in MARKER.finditer(line, at):
         if marker.start() != at:
             break
-        end = len(line[:marker.start()].expandtabs(4)) + len(marker['mark'])
-        gap = len(line[:marker.end()].expandtabs(4)) - end
+        end = marker.start() + len(marker['mark'])
+        gap = marker.end() - end
         # Past four columns of gap, or with nothing after it, the content starts one column
         # past the marker, and what follows is an indented block or the item's next line.
         wide = gap > 4 or not line[marker.end():].strip()
