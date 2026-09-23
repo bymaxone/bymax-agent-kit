@@ -39,6 +39,7 @@ from pathlib import Path
 # A name inside a code block is an example about somebody else's repository, and reading it
 # as an assertion refused a candidate whose README merely showed the call.
 FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
+QUOTE = re.compile(r'^\s*> ?')
 ITEM = re.compile(r'^(?P<lead> *)(?:[-*+]|\d{1,9}[.)])(?P<gap> +)')
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
@@ -85,8 +86,11 @@ def outside_code(text):
     state a regex has no way to carry, so the lines are walked once with it.
     """
     out, fence, content, blank, code = [], None, 0, True, False
-    for line in text.split('\n'):
+    lines, at = text.split('\n'), 0
+    while at < len(lines):
+        line = lines[at]
         stripped, indent = line.strip(), columns(line)
+        at += 1
         if fence is not None:
             out.append(' ' if stripped else line)
             fence = None if closes(line, fence) else fence
@@ -109,11 +113,37 @@ def outside_code(text):
             out.append(' ')
             code, blank = True, False
             continue
+        if quotes(line, content):
+            run, at = quoted(lines, at - 1, content)
+            out.extend(run)
+            blank = False
+            continue
         content = listing(line, indent, content)
         fence = opens(line)
         out.append(' ' if fence else line)
         blank = False
     return '\n'.join(out)
+
+
+def quotes(line, content):
+    """Whether this line is a block quote's: a `>` less than four columns past the item content."""
+    return line.lstrip().startswith('>') and columns(line) < content + 4
+
+
+def quoted(lines, at, content):
+    """The block quote starting at `at` with its code blanked, and the index just past it.
+
+    A quote holds Markdown of its own, so its lines are walked again without their `>` and a
+    line the inner walk blanked is blanked here. Left to the outer walk, a ``` behind `> ` was
+    prose, and a quoted example's call read as an assertion about this repository.
+    """
+    end = at
+    while end < len(lines) and quotes(lines[end], content):
+        end += 1
+    block = lines[at:end]
+    inner = [QUOTE.sub('', line, count=1) for line in block]
+    walked = outside_code('\n'.join(inner)).split('\n')
+    return [line if after == before else ' ' for line, before, after in zip(block, inner, walked)], end
 
 
 def listing(line, indent, content):
