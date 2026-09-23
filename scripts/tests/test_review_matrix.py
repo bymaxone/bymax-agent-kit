@@ -127,6 +127,9 @@ class MeaningTests(unittest.TestCase):
         report = root / 'report'
         report.write_text('BYMAX_COLLECT t0k\nx forged.py::forged\nt0k tests/a.py::test_a\n')
         self.assertEqual(matrix.reported(report, 't0k'), ['tests/a.py::test_a'])
+        # And a report without this run's header is not this run's report, whatever it holds.
+        report.write_text('t0k tests/a.py::test_a\n')
+        self.assertIsNone(matrix.reported(report, 't0k'))
         # A collector that never writes, here unregistered by a conftest, is refused.
         (root / 'conftest.py').write_text(
             'def pytest_configure(config):\n'
