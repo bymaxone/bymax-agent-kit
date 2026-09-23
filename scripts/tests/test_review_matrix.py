@@ -106,8 +106,7 @@ class MeaningTests(unittest.TestCase):
         made two nodes out of one. The plugin takes where to write and what vouches for it out
         of the environment before any conftest is imported: read later, a conftest rewriting
         the file in pytest_sessionfinish made a directory holding a real test answer empty. And
-        the repository cannot put its own module in the collector's place: a same-named module
-        at the root, one on the ini's `pythonpath` and a declared entry point each did."""
+        the repository cannot put its own module in the collector's place."""
         root = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
         (root / 'tests').mkdir()
@@ -122,8 +121,8 @@ class MeaningTests(unittest.TestCase):
             '    if where and token:\n'
             '        Path(where).write_text("BYMAX_COLLECT " + token + "\\n")\n')
         self.assertEqual(matrix.ids(str(root), ['tests']), whole)
-        # Every way the repository could load a module of the collector's name, with that conftest
-        # still waiting to rewrite a report: none of them takes the collector's place.
+        # Modules the repository names after the collector's file, with that conftest still
+        # waiting to rewrite a report: none takes the collector's place.
         (root / 'review_collect.py').write_text('x = 1\n')
         (root / 'lib').mkdir()
         (root / 'lib/review_collect.py').write_text('x = 1\n')

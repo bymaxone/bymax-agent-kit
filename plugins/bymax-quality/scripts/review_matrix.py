@@ -512,10 +512,9 @@ def collect_run(real, root, files, selector, token, box):
     """Run pytest's collect with the collector loaded under a name made for this run.
 
     Loaded by a name anyone could know, the collector was replaced: pytest resolves a -p name
-    through the repository's root, the ini's `pythonpath` and any declared pytest11 entry point
-    before the directory this runtime adds, and each was measured to put the project's module in
-    its place and leave its channel in the environment for a conftest to write an empty report
-    with. Predicting that path lost to the next entry into it. A name carrying this run's token,
+    through places the repository controls before the directory this runtime adds, and a
+    project's module found there took its place and left its channel in the environment for a
+    conftest to write an empty report with. Predicting that path lost to the next entry into it. A name carrying this run's token,
     in a directory of this run's own, is one nothing in the repository can place or declare.
     """
     name = 'bymax_collect_' + token
