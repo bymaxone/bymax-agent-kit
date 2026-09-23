@@ -53,10 +53,7 @@ BLOCK_TAGS = frozenset("""
 RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
 FIRST = re.compile(r'(?:[-*+]|0{0,8}1[.)])[ \t]')
 MARKER = re.compile(r'(?P<mark>[-*+]|\d{1,9}[.)])(?:[ \t]+|$)')
-DEFINITION = re.compile(r'\[(?:[^\]\\]|\\.)+\]: *(?P<destination><[^<>\n]*>|[^ <][^ ]*)?'
-                        r'(?P<title> +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))? *$')
-DESTINATION = re.compile(r'(?:<[^<>\n]*>|[^ <][^ ]*)(?P<title> +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))? *$')
-TITLE = re.compile(r'(?:"[^"]*"|\'[^\']*\'|\([^()]*\)) *$')
+LABEL = re.compile(r'\[((?:[^\[\]\\]|\\.){1,999})\]:')
 UNDERLINE = re.compile(r' *(?:=+|-+) *$')
 HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
 BREAK = re.compile(r'([-*_])(?:[ \t]*\1){2,}[ \t]*$')
@@ -148,7 +145,7 @@ class Walk:
             return ' '
         # A line continuing a paragraph lazily keeps its item open and starts no block. Measured
         # from the innermost item instead, a line four columns into its container opened a fence.
-        if self.para and lazy(line, self.items, indent >= self.content):
+        if self.para and lazy(line, self.items, indent >= self.content, self.settled()):
             return self.continued(line, indent)
         # Anything else is read against the open items, a `>` included, since a quote below the
         # item's content closes the item, and the item's paragraph ends with it.
@@ -182,17 +179,21 @@ class Walk:
         An underline the paragraph's own container reads ends it as a heading, except under a link
         reference definition past its label; its destination or title may take the next line.
         """
-        text = line.lstrip(' ')
         self.para = not (self.defined not in ('whole', 'titled') and self.content <= indent < self.content + 4
                          and UNDERLINE.match(line))
-        if self.defined == 'label':
-            found = DESTINATION.match(text)
-            self.defined = ('titled' if found['title'] else 'whole') if found else None
-        elif self.defined == 'whole':
-            self.defined = definition(text) or ('titled' if TITLE.match(text) else None)
-        elif self.defined == 'titled':
-            self.defined = definition(text)
+        self.advance(line.lstrip(' '))
         return line
+
+    def settled(self):
+        """Whether the innermost open paragraph holds only a complete link reference definition."""
+        return self.quote.settled() if self.quote is not None else self.defined in ('whole', 'titled')
+
+    def advance(self, text):
+        """Carry a continuation line into the definition state of the innermost open paragraph."""
+        if self.quote is not None:
+            self.quote.advance(text)
+        else:
+            self.defined = defining(self.defined, text)
 
     def held(self, line):
         """This line as the open quote, fence or HTML block reads it, or None where none holds it."""
@@ -204,7 +205,8 @@ class Walk:
                 return line if seen == inner else ' '
             # A line without a marker belongs to the quote only as a continuation of its open
             # paragraph, which no walk inside the quote reads again as a block of its own.
-            if line.strip(' ') and self.quote.para and lazy(line, self.items, False):
+            if line.strip(' ') and self.quote.para and lazy(line, self.items, False, self.quote.settled()):
+                self.quote.advance(line.lstrip(' '))
                 return line
             self.quote, self.para = None, False
         stripped, indent = line.strip(' '), columns(line)
@@ -225,15 +227,72 @@ class Walk:
 
 
 def definition(text):
-    """How much of a link reference definition this text is: 'titled' once its one title is in,
-    'whole' with its destination, 'label' where that is left for the next line, None if none."""
-    found = DEFINITION.match(text)
-    if not found:
+    """The state a link reference definition starting on this text leaves, or None where the text
+    starts none: 'label' with its destination left for the next line, 'whole' with it, 'titled'
+    with its one title, 'open' and the closing character while a title runs on."""
+    found = LABEL.match(text)
+    if not found or not found[1].strip():
         return None
-    return 'titled' if found['title'] else 'whole' if found['destination'] else 'label'
+    return destined(text[found.end():], 'label')
 
 
-def lazy(line, items, restricted):
+def defining(state, text):
+    """The definition state after one more line of the paragraph it opened, or None once the
+    paragraph is past any definition."""
+    if state == 'label':
+        return destined(text, None)
+    if state == 'whole':
+        return definition(text) or titled(text, None)
+    if state and state.startswith('open'):
+        return titled(('(' if state[-1] == ')' else state[-1]) + text, None)
+    return definition(text) if state == 'titled' else None
+
+
+def destined(rest, empty):
+    """The state a destination and what follows it leave, `empty` where there is nothing."""
+    rest = rest.strip(' ')
+    if not rest:
+        return empty
+    pointed = re.match(r'<(?:[^<>\\]|\\.)*>', rest)
+    target = pointed.group(0) if pointed else rest.split(' ', 1)[0]
+    # An unbalanced destination is none, and CommonMark reads the line as paragraph text.
+    if rest.startswith('<') and not pointed or not pointed and not balanced(target):
+        return None
+    after = rest[len(target):]
+    return titled(after, 'whole') if not after or after.startswith(' ') else None
+
+
+def titled(rest, none):
+    """The state a title leaves: 'titled' closed with nothing after it, 'open' and its closing
+    character while it runs on, `none` where there is no title, None where it is malformed."""
+    rest = rest.strip(' ')
+    if not rest:
+        return none
+    closer = {'"': '"', "'": "'", '(': ')'}.get(rest[0])
+    at = 1
+    while closer and at < len(rest):
+        if rest[at] == '\\':
+            at += 2
+            continue
+        if rest[at] == closer:
+            return None if rest[at + 1:].strip(' ') else 'titled'
+        if closer == ')' and rest[at] == '(':
+            return None
+        at += 1
+    return 'open' + closer if closer else None
+
+
+def balanced(destination):
+    """Whether a destination's parentheses balance, escapes aside."""
+    depth = 0
+    for char in re.sub(r'\\.', '', destination):
+        depth += {'(': 1, ')': -1}.get(char, 0)
+        if depth < 0:
+            return False
+    return depth == 0
+
+
+def lazy(line, items, restricted, defined=False):
     """Whether this line, read under an open paragraph, only continues it.
 
     Where the line reaches the paragraph's own container, a marker opens a list there only with
@@ -249,7 +308,7 @@ def lazy(line, items, restricted):
     first = MARKER.match(text)
     if item and restricted and not (first and text[first.end():].strip(' ') and FIRST.match(text)):
         item = None
-    return not (item or text.startswith('>') or html(text, restricted) or FENCE.match(text)
+    return not (item or text.startswith('>') or html(text, not defined) or FENCE.match(text)
                 or closing(text))
 
 
