@@ -1942,10 +1942,9 @@ class ReviewFlowTests(unittest.TestCase):
 
     def test_the_runtime_runs_pytest_without_the_project_addopts(self):
         """Found by a reviewer: a project's addopts reached every pytest the runtime starts, so
-        the project decided what the matrix ran and what it read back. The collect stopped
-        caring once its ids came from pytest rather than from its output; the runs did not, and
-        an addopts that collects instead of running leaves every mutant uncaught while the tree
-        looks green. PYTEST_ADDOPTS in the environment is the same option by another door."""
+        the project decided what the matrix ran and what it read back. An addopts that collects
+        instead of running leaves every mutant uncaught while the tree looks green.
+        PYTEST_ADDOPTS in the environment is the same option by another door."""
         self.start()
         self.report('claude')
         self.report('codex')
