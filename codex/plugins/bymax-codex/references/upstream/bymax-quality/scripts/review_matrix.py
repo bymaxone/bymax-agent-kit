@@ -39,7 +39,7 @@ from pathlib import Path
 # `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
 # starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
 # The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
-from bymax_collect import MARK
+from review_collect import MARK
 
 PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
 
@@ -492,7 +492,7 @@ def ids(root, files, selector=None, tolerant=False):
     # every id against the argument's own directory instead — a bare name for a file under
     # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
-    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'bymax_collect',
+    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'review_collect',
             *arguments(root, files)] + (['-k', selector] if selector else [])
     env = pytest_env()
     here = str(Path(__file__).resolve().parent)
@@ -507,8 +507,7 @@ def ids(root, files, selector=None, tolerant=False):
                  ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
         vouched = reported(Path(env['BYMAX_COLLECT_OUT']), token)
         # A collect that pytest completed and the plugin did not report is not an empty
-        # directory: the plugin did not run. Answering [] there says "no test here" and the
-        # gate above asks for nothing, which is the one thing this whole path exists to stop.
+        # directory: the plugin did not run. Answering [] there would say "no test here".
         if vouched is None and done.returncode in (0, 5):
             bail('pytest collected %s and the runtime never heard what it found. Its plugin is '
                  'loaded by name, and a module of that name in the repository under review is '

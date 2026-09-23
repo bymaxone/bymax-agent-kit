@@ -120,7 +120,7 @@ class MeaningTests(unittest.TestCase):
         self.assertEqual(matrix.ids(str(root), ['tests']),
                          ['tests/test_p.py::test_p[a b]', 'tests/test_p.py::test_p[c]'])
         # A module of the plugin's name in that repository is loaded first; the hook never runs.
-        (root / 'bymax_collect.py').write_text('"""a project module that shares the name"""\n')
+        (root / 'review_collect.py').write_text('"""a project module that shares the name"""\n')
         with self.assertRaises(SystemExit) as caught:
             matrix.ids(str(root), ['tests'])
         self.assertIn('never heard what it found', str(caught.exception))

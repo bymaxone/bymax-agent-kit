@@ -13,9 +13,9 @@ not tamper-proof and is not claimed to be — the token reaches this process thr
 environment, so a conftest that means to forge an id can read it — and the header tells a
 plugin that never ran apart from one that collected nothing.
 
-The module name is the caller's own rather than a plain word, because `python -m pytest` puts
-the repository under review on the path ahead of the caller's own directory: a module named for
-a common word there is loaded instead of this one, and the hook never runs.
+A module of this name in the repository under review is loaded instead of this one, because
+`python -m pytest` puts that repository on the path ahead of the caller's own directory; the
+header is written only here, so the caller can tell that happened rather than read silence.
 """
 import os
 

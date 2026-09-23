@@ -39,7 +39,7 @@ from pathlib import Path
 # `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
 # starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
 # The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
-from bymax_collect import MARK
+from review_collect import MARK
 
 PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
 
@@ -492,7 +492,7 @@ def ids(root, files, selector=None, tolerant=False):
     # every id against the argument's own directory instead — a bare name for a file under
     # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
-    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'bymax_collect',
+    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'review_collect',
             *arguments(root, files)] + (['-k', selector] if selector else [])
     env = pytest_env()
     here = str(Path(__file__).resolve().parent)

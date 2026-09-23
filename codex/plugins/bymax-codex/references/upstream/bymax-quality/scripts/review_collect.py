@@ -4,19 +4,18 @@ through its output.
 Read from stdout instead, a node id was whatever line held `::`, and a module that printed
 while it failed to import could name any file it liked: pytest replays that print, sometimes
 after its report banner and sometimes — a conftest below the collected directory — ahead of
-every real id. The hook below receives the items pytest collected and nothing else can reach it.
+every real id. The hook below receives the items pytest collected, which nothing printed can reach.
 
 Each line carries a token the caller generated for this run, and the caller keeps only the lines
 that carry it. That is what makes accidental contamination impossible: a file inherited from an
 earlier run, or a project that writes to the same path, says nothing the caller will read. It is
 not tamper-proof and is not claimed to be — the token reaches this process through the
-environment, so a conftest that means to forge an id can read it — and the header the caller
-requires turns the other failure, a plugin that never ran at all, into a refusal instead of an
-empty answer.
+environment, so a conftest that means to forge an id can read it — and the header tells a
+plugin that never ran apart from one that collected nothing.
 
-The module name is the caller's own rather than a plain word, because `python -m pytest` puts
-the repository under review on the path ahead of the caller's own directory: a module named for
-a common word there is loaded instead of this one, and the hook silently never runs.
+A module of this name in the repository under review is loaded instead of this one, because
+`python -m pytest` puts that repository on the path ahead of the caller's own directory; the
+header is written only here, so the caller can tell that happened rather than read silence.
 """
 import os
 
