@@ -238,8 +238,8 @@ def definition(text):
 
 
 def bracketed(state, text):
-    """The state after more of a label that has not closed: 'empty' while it holds nothing but
-    space, 'bracket' once it holds text; a label of space alone is no definition."""
+    """The state after more of an open label: 'empty' while it holds only space, 'bracket' once
+    it holds text, then what its destination leaves; a label of space alone is no definition."""
     closed = labelled(text)
     state = 'bracket' if state == 'bracket' or text[:closed and closed - 2].strip(' ') else 'empty'
     if closed is None:
