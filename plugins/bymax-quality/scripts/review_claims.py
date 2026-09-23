@@ -146,7 +146,7 @@ class Walk:
         if not self.para and indent >= self.content + 4:
             return ' '
         # A line continuing a paragraph lazily keeps its item open and starts no block. Measured
-        # from the innermost item instead, a lazy line four columns short of it opened a fence.
+        # from the innermost item instead, a line four columns into its container opened a fence.
         if self.para and lazy(line, self.items, indent >= self.content):
             return self.continued(line, indent)
         # Anything else is read against the open items, a `>` included, since a quote below the
