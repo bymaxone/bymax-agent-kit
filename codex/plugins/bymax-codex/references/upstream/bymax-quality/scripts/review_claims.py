@@ -51,7 +51,7 @@ BLOCK_TAGS = frozenset("""
     p param search section summary table tbody td tfoot th thead title tr track ul""".split())
 # The raw-text names start one anywhere only when they open.
 RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
-FIRST = re.compile(r'(?:[-*+]|1[.)])[ \t]')
+FIRST = re.compile(r'(?:[-*+]|0{0,8}1[.)])[ \t]')
 MARKER = re.compile(r'(?P<mark>[-*+]|\d{1,9}[.)])(?:[ \t]+|$)')
 HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
 BREAK = re.compile(r'([-*_])(?:[ \t]*\1){2,}[ \t]*$')
@@ -138,7 +138,7 @@ class Walk:
             return ' '
         # A line continuing a paragraph lazily keeps its item open; anything else is read
         # against it, a `>` included, since a quote below the item's content closes the item.
-        if not (self.para and lazy(line, self.items, not self.items)):
+        if not (self.para and lazy(line, self.items, indent >= self.content)):
             self.items = listing(line, indent, self.items)
             # What follows a marker is the item's first line and may open any block in it.
             opened = ITEM.match(line)
@@ -193,7 +193,7 @@ class Walk:
 def lazy(line, items, restricted):
     """Whether this line, read under an open paragraph, only continues it.
 
-    Where the paragraph is the container's own and outside a list, a marker opens one only with
+    Where the line reaches the paragraph's own container, a marker opens a list there only with
     text after it and, when ordered, only numbered 1: `2. two` there is a continuation.
     """
     # Measured from the content of the container the line reaches, not of the innermost item.
