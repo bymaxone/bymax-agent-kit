@@ -164,7 +164,7 @@ class Walk:
             return line
         self.fence = opens(line) if indent < self.content + 4 else None
         # An underline the paragraph's own container reads makes it a heading, which leaves no
-        # paragraph open; a lazy one is text, so it counts only from the paragraph's column.
+        # paragraph open; a lazy one is text, so it counts only from the container's content column.
         underline = self.para and self.content <= indent < self.content + 4 and UNDERLINE.match(line)
         self.para = not (self.fence or underline or indent < self.content + 4 and closing(line.lstrip(' ')))
         return ' ' if self.fence else line
