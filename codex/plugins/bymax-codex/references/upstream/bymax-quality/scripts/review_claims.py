@@ -143,9 +143,9 @@ class Walk:
             self.items = listing(line, indent, self.items)
             # What follows a marker is the item's first line and may open any block in it.
             opened = ITEM.match(line)
-            if opened and not BREAK.match(line.lstrip()) and line[opened.end():].strip():
+            if opened and not BREAK.match(line.lstrip()):
                 self.para, view = False, ' ' * len(opened.group(0).expandtabs(4)) + line[opened.end():]
-                return line if self.read(view) == view else ' '
+                return line if not view.strip() or self.read(view) == view else ' '
         # Past NESTING a marker is read as text: each level is a frame, and a line of a
         # thousand markers exhausted the interpreter's recursion limit.
         if self.depth < NESTING and quotes(line, self.content):
