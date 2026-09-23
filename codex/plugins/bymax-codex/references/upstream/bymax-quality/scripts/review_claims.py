@@ -229,12 +229,22 @@ class Walk:
 
 def definition(text):
     """The state a link reference definition starting on this text leaves, or None if it starts
-    none: 'bracket' while its label runs on, 'label' with the destination still to come, 'whole'
+    none: 'bracket' or 'empty' while its label runs on, 'label' with the destination to come, 'whole'
     with it, 'titled' with its one title, 'open' and the closing character while a title runs on."""
     found = LABEL.match(text)
     if not found:
-        return 'bracket' if text.startswith('[') and labelled(text[1:]) is None else None
+        return bracketed('empty', text[1:]) if text.startswith('[') else None
     return destined(text[found.end():], 'label') if found[1].strip() else None
+
+
+def bracketed(state, text):
+    """The state after more of a label that has not closed: 'empty' while it holds nothing but
+    space, 'bracket' once it holds text; a label of space alone is no definition."""
+    closed = labelled(text)
+    state = 'bracket' if state == 'bracket' or text[:closed and closed - 2].strip(' ') else 'empty'
+    if closed is None:
+        return state
+    return destined(text[closed:], 'label') if closed and state == 'bracket' else None
 
 
 def labelled(text):
@@ -251,9 +261,8 @@ def defining(state, text):
     paragraph is past any definition."""
     if state == 'label':
         return destined(text, None)
-    if state == 'bracket':
-        closed = labelled(text)
-        return 'bracket' if closed is None else destined(text[closed:], 'label') if closed else None
+    if state in ('bracket', 'empty'):
+        return bracketed(state, text)
     if state == 'whole':
         return definition(text) or titled(text, None)
     if state and state.startswith('open'):
