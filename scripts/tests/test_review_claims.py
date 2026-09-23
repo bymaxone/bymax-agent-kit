@@ -354,6 +354,13 @@ class OpaqueFileTests(unittest.TestCase):
          '    ```\n    OLD_HELPER()'),
         ('a marker inside an indented block, which opens no list', '    - OLD_HELPER: yes'),
         ('a numbered marker inside an indented block', '    1. OLD_HELPER()'),
+        ('a fence inside a block quote', '> Example:\n>\n> ```py\n> OLD_HELPER()\n> ```'),
+        ('a fence inside a nested block quote', '> > ```\n> > OLD_HELPER()\n> > ```'),
+        ('a quoted fence with no space after the marker', '>```\n>OLD_HELPER()\n>```'),
+        ('a quoted fence three spaces in', '   > ~~~\n   > OLD_HELPER()\n   > ~~~'),
+        ('an indented block inside a block quote', '>\n>     OLD_HELPER()'),
+        ('a quoted fence inside a list item', '- item\n\n  > ```\n  > OLD_HELPER()\n  > ```'),
+        ('a quote marker four spaces in, which is an indented block', '    > OLD_HELPER()'),
     )
 
     ASSERTIONS = (
@@ -365,6 +372,14 @@ class OpaqueFileTests(unittest.TestCase):
          'A paragraph about it\n    that says OLD_HELPER is gone.'),
         ('the prose after a fence four spaces in, which never opened',
          '    ```\nWe removed OLD_HELPER from the API.'),
+        ('a mention inside a block quote', '> We removed OLD_HELPER.'),
+        ('a lazy line continuing a quoted paragraph', '> A paragraph\nthat says OLD_HELPER is gone.'),
+        ('the prose after a quote whose fence never closed',
+         '> ```\n> example()\nWe removed OLD_HELPER from the API.'),
+        ('a quoted line three spaces past the marker, which is not a block',
+         '>\n>    We removed OLD_HELPER from the API.'),
+        ('a quote marker four spaces under a paragraph, which continues it',
+         'A paragraph\n    > ```\n    > OLD_HELPER()'),
     )
 
     def test_a_name_inside_a_code_block_is_an_example(self):
