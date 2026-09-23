@@ -346,6 +346,12 @@ class EnumerationTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'value > LIMIT', 'becomes': 'True', 'case': 7}]))
         self.assertIn('case is 7', str(caught.exception))
+        # A replacement equal to its anchor, in either line-break spelling, mutates nothing.
+        for anchor, becomes in (('value > LIMIT', 'value > LIMIT'), ('a\r\nb', 'a\nb')):
+            with self.assertRaises(SystemExit) as caught:
+                bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': anchor, 'becomes': becomes,
+                                         'case': 'test_over_the_limit'}]))
+            self.assertIn('replacement is its anchor', str(caught.exception))
         with self.assertRaises(SystemExit) as caught:
             matrix.matrix(str(bench.where), rule() + rule(), ['test_thing.py'])
         self.assertIn('share a name', str(caught.exception))

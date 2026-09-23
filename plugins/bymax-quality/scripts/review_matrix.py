@@ -323,6 +323,12 @@ def shaped(rule):
             if not isinstance(mutant.get(field), str) or not mutant[field]:
                 bail('Rule %r has a mutant whose %s is %r, not a non-empty string.'
                      % (rule['rule'], field, mutant.get(field)))
+        # Compared as spelled() will write them: a CRLF file takes either spelling of a line
+        # break, so an anchor and a replacement differing only there change nothing either.
+        if mutant['anchor'].replace('\r\n', '\n') == mutant['becomes'].replace('\r\n', '\n'):
+            bail('Rule %r has a mutant of %s whose replacement is its anchor. It changes nothing, '
+                 'so a case failing for any other reason would read the unchanged source as caught.'
+                 % (rule['rule'], mutant['file']))
 
 
 def place(root, name):
