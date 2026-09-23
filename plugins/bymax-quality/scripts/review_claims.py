@@ -259,7 +259,8 @@ def listing(line, indent, items):
     the outer one's column rather than to none.
     """
     kept = [column for column in items if column <= indent]
-    if not ITEM.match(line) or BREAK.match(line.lstrip()):
+    # Four columns past the content it reaches, a marker is inside an indented block.
+    if not ITEM.match(line) or BREAK.match(line.lstrip()) or indent >= (kept[-1] if kept else 0) + 4:
         return kept
     at = len(line) - len(line.lstrip(' '))
     for marker in MARKER.finditer(line, at):

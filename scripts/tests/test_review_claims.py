@@ -417,6 +417,8 @@ class OpaqueFileTests(unittest.TestCase):
         ('a second marker past a wide gap, which is a block',
          '1.     2. OLD_HELPER()'),
         ('a block after an empty nested quote', '> >\n    OLD_HELPER()'),
+        ('a marker four columns past the content it reaches, which is a block',
+         '   *  x\n      # deep\n\t- OLD_HELPER()'),
         ('a fence under a closing raw-text tag, which opens a paragraph',
          '</pre> text\n```\nOLD_HELPER()\n```'),
         ('a block after an HTML block that closed a list item',
