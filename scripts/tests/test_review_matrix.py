@@ -1,6 +1,7 @@
 """The matrix runner: what it refuses, and what it records."""
 import json
 import os
+import py_compile
 import shutil
 import subprocess
 import sys
@@ -137,6 +138,13 @@ class MeaningTests(unittest.TestCase):
         # refused before pytest runs.
         (root / 'conftest.py').unlink()
         (root / 'review_collect.py').write_text('"""a project module that shares the name"""\n')
+        with self.assertRaises(SystemExit) as caught:
+            matrix.ids(str(root), ['tests'])
+        self.assertIn('is loaded in place of the runtime', str(caught.exception))
+        # A sourceless .pyc shadows exactly as the source does, which a list of file names missed.
+        compiled = root / 'review_collect.pyc'
+        py_compile.compile(str(root / 'review_collect.py'), cfile=str(compiled))
+        (root / 'review_collect.py').unlink()
         with self.assertRaises(SystemExit) as caught:
             matrix.ids(str(root), ['tests'])
         self.assertIn('is loaded in place of the runtime', str(caught.exception))
