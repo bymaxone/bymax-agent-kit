@@ -503,8 +503,8 @@ def ids(root, files, selector=None, tolerant=False):
         # directory: the plugin did not run. Answering [] there would say "no test here".
         if vouched is None and done.returncode in (0, 5):
             bail('pytest collected %s and its collector never reported what it found, so nothing '
-                 'here can say what was collected. Something in the repository under review '
-                 'unregistered it.' % ' '.join(files))
+                 'here can say what was collected. Something in the repository under review kept '
+                 'it from reporting.' % ' '.join(files))
         return sorted(vouched or [])
 
 
