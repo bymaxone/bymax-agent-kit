@@ -492,6 +492,14 @@ def ids(root, files, selector=None, tolerant=False):
     # every id against the argument's own directory instead — a bare name for a file under
     # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
+    # Refused before pytest runs, because once it runs the name is already the repository's:
+    # `python -m pytest` puts the root ahead of this directory, the project's module loads in
+    # place of the collector, and the channel it should have taken out of the environment
+    # stays there for any conftest to write a report with.
+    shadow = [name for name in ('review_collect.py', 'review_collect') if Path(real, name).exists()]
+    if shadow:
+        bail('%s at the root of the repository under review is loaded in place of the runtime\'s '
+             'collector, so nothing here could say what pytest collected. Rename it.' % shadow[0])
     args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'review_collect',
             *arguments(root, files)] + (['-k', selector] if selector else [])
     env = pytest_env()
@@ -509,10 +517,10 @@ def ids(root, files, selector=None, tolerant=False):
         # A collect that pytest completed and the plugin did not report is not an empty
         # directory: the plugin did not run. Answering [] there would say "no test here".
         if vouched is None and done.returncode in (0, 5):
-            bail('pytest collected %s and the runtime never heard what it found. Its plugin is '
-                 'loaded by name, and a module of that name in the repository under review is '
-                 'loaded first; rename that module, or say so and the collect cannot be '
-                 'trusted.' % ' '.join(files))
+            bail('pytest collected %s and its collector never reported what it found, so nothing '
+                 'here can say what was collected. The way this happens by accident is a module named '
+                 'review_collect at the repository\'s root, which pytest loads in its place; rename '
+                 'that module.' % ' '.join(files))
         return sorted(vouched or [])
 
 
