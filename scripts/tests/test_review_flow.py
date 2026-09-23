@@ -1818,22 +1818,50 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('pytest could not say whether', said.stdout + said.stderr)
 
     def test_a_neighbour_that_prints_a_node_id_while_failing_names_nothing(self):
-        """Found by both reviewers independently: with the exit code ignored, every line holding
-        `::` was read as a node id, and pytest captures what a module printed while it
-        failed to import. A broken neighbour could name any file it liked and make a helper a
-        test, which demands a matrix over a file the matrix can never measure."""
+        """Filed by both reviewers, then reopened by one of them: every line holding `::` was
+        read as a node id, and pytest replays what a module printed while it failed to import —
+        after its report banner from a module beside the tests, and ahead of every real id from
+        a conftest BELOW them. Two guards each closed one spelling. The ids come from pytest's
+        own collection now, so a print cannot be one, and the shape below is the one that beat
+        both guards."""
         (self.repo / 'guard.py').write_text('LIMIT = 7\n')
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)
-        (self.repo / 'tests/test_absent.py').write_text(
+        (self.repo / 'tests/sub').mkdir(exist_ok=True)
+        (self.repo / 'tests/sub/test_sub.py').write_text('def test_sub(): assert 1\n')
+        (self.repo / 'tests/sub/conftest.py').write_text(
             'print("tests/helpers.py::test_shape")\nimport totally_absent_dependency\n')
-        self.commit('a guard, its test, and a neighbour that prints while it fails to import')
+        self.commit('a guard, its test, and a conftest below them that prints while it fails')
         self.start()
         self.report('claude')
         self.report('codex')
         self.triage()
         (self.repo / 'tests/helpers.py').write_text('def build(v): return v\n\n\ndef test_shape(v): assert v\n')
         self.commit('a correction that changes a helper the neighbour names')
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_neighbour_that_cannot_be_collected_does_not_refuse_the_round(self):
+        """Both reviewers found this case missing: rewriting the block between two markers had
+        deleted it, and it is the only one putting a broken neighbour beside a CHANGED TEST,
+        which is the only input on which asking the directory a second time changes an answer.
+        The directory is what pytest is asked about, so a neighbour with a broken import stopped
+        it answering and the round was refused for a test that is not implicated."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)
+        (self.repo / 'tests/test_absent.py').write_text('import totally_absent_dependency\n')
+        self.commit('a guard, its test, and a neighbour whose import is not installed')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_new(): assert LIMIT == 7\n')
+        self.commit('a correction beside it')
+        # Still demanded, which is what says the gate is live rather than merely unrefused.
+        said = self.start(correction=True, reason='', ok=False)
+        self.assertIn('no measured mutation matrix exists', said.stdout + said.stderr)
+        self.matrix('tests/test_calc.py', [('LIMIT = 7', 'LIMIT = 8', 'test_calc')],
+                    where='guard.py', enumeration='echo 1')
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_helper_beside_a_broken_neighbour_is_still_not_asked_for_a_case(self):

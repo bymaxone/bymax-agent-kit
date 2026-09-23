@@ -31,6 +31,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -475,46 +476,34 @@ def ids(root, files, selector=None, tolerant=False):
     A collect that fails for any reason but finding nothing is refused, since a record built
     from a broken collect would name nothing and prove the same.
 
-    Tolerantly, a run that reached collection answers even though something in it failed, so a
-    directory one broken file would otherwise silence still answers. It has to have reached
-    collection: a conftest that will not import makes pytest write the captured output of the
-    module that failed and stop before collecting anything, so the only line on stdout is that
-    output. Measured in one tree — a broken test module exits 2 and prints the real ids with the
-    report after them, a broken conftest exits 4 before any id is collected — and a directory
-    whose conftest will not import has nothing the matrix could measure anyway.
+    The ids come from pytest's own collection, written by a plugin to a file this runtime names,
+    so nothing a module prints can be one. Read from stdout, an id was any line holding `::`, and
+    a module that printed while it failed to import could name any file it liked — after the
+    report banner, or, from a conftest below the collected directory, ahead of every real id.
+
+    Tolerantly, a run that failed still answers with whatever it collected before failing, so a
+    directory one broken file would otherwise silence still answers; a run that collected
+    nothing answers nothing, whatever it exited with.
     """
     # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
     # every id against the argument's own directory instead — a bare name for a file under
     # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
-    args = [*PYTEST, '--collect-only', '--rootdir', real, *arguments(root, files)] + (['-k', selector] if selector else [])
-    done = subprocess.run(args, cwd=real, capture_output=True, text=True, env=pytest_env())
-    if done.returncode not in ((0, 2, 5) if tolerant else (0, 5)):
-        bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
-             ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
-    return sorted({line.strip() for line in collected_lines(done.stdout) if '::' in line})
-
-
-BANNER = re.compile(r'^=+(?: .* )?=+$')
-
-
-def collected_lines(text):
-    """The lines a collect prints before its own report banner.
-
-    Everything after that banner is pytest describing what went wrong, and a module that printed
-    while it failed to import has its output captured there. Read as node ids, such a module
-    could name any file it liked, and a caller would take the name for a collected test.
-
-    Matched by the banner's shape and not by its first characters: a path may begin with those
-    same characters, and a node id under it was cut, which emptied the answer. A banner ends
-    where it began; an id ends in a test's name.
-    """
-    out = []
-    for line in text.splitlines():
-        if BANNER.match(line):
-            break
-        out.append(line)
-    return out
+    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'review_collect',
+            *arguments(root, files)] + (['-k', selector] if selector else [])
+    env = pytest_env()
+    here = str(Path(__file__).resolve().parent)
+    env['PYTHONPATH'] = os.pathsep.join([here, env['PYTHONPATH']]) if env.get('PYTHONPATH') else here
+    with tempfile.TemporaryDirectory() as box:
+        env['BYMAX_COLLECT_OUT'] = str(Path(box, 'collected'))
+        done = subprocess.run(args, cwd=real, capture_output=True, text=True, env=env)
+        if not tolerant and done.returncode not in (0, 5):
+            bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
+                 ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
+        try:
+            return sorted(set(Path(env['BYMAX_COLLECT_OUT']).read_text().split()))
+        except OSError:
+            return []
 
 
 def record(root, spec_path, files, out=None):

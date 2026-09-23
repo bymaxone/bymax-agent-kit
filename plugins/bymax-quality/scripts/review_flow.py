@@ -893,7 +893,8 @@ def merged_in_tests(base, head):
     """The test files this delta changed that no commit of its own first-parent line wrote.
 
     A merge of the base branch and a merge of a branch of one's own put work here the same way,
-    so this names it rather than guessing.
+    so this names it rather than guessing — and it says no more than that, because a base that
+    is not an ancestor of head puts files here that no merge touched at all.
     """
     changed = git_raw('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
     mine = written_here(base, head)
@@ -941,16 +942,17 @@ def regression_note(state):
     also = ('' if not carried else
             ' This delta also changes ' + ', '.join(carried) + ', none of it on its own '
             'first-parent line, so nothing here can say whose work it is and no matrix is asked '
-            'for it. Judge those changes as a merge carried them.')
+            'for it. Judge those changes on the diff.')
     if tests:
         return ('Tests changed in this delta: ' + ', '.join(tests)
                 + '. A test whose expectation was flipped rather than added must be justified '
                 'in the triage evidence; report an unjustified flip.' + also)
     reason = state.get('no_regression_reason', '')
     if reason:
-        return ('No test changed in this delta. Recorded reason: ' + reason
+        return ('No test this correction wrote changed. Recorded reason: ' + reason
                 + '. Judge whether that is justified.' + also)
-    return 'No test changed in this delta. Judge whether a delta this size can carry no case.' + also
+    return ('No test this correction wrote changed. Judge whether a delta this size can carry '
+            'no case.' + also)
 
 
 def matrix_run(args, directory, state):
