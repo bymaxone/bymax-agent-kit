@@ -172,15 +172,15 @@ class Walk:
             return line
         self.fence = opens(line)
         self.para = not (self.fence or indent < self.content + 4 and closing(line.lstrip(' ')))
-        # A link reference definition is not a paragraph a line under it can underline.
+        # A link reference definition past its label is not a paragraph an underline can head.
         self.defined = self.para and definition(line.lstrip(' '))
         return ' ' if self.fence else line
 
     def continued(self, line, indent):
         """This line, which only continues the open paragraph, and what it leaves open.
 
-        An underline the paragraph's own container reads ends it as a heading; under a link
-        reference definition it is text, and its destination or title may take the next line.
+        An underline the paragraph's own container reads ends it as a heading, except under a link
+        reference definition past its label; its destination or title may take the next line.
         """
         text = line.lstrip(' ')
         self.para = not (self.defined not in ('whole', 'titled') and self.content <= indent < self.content + 4
