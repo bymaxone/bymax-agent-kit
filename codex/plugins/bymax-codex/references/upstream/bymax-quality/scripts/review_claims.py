@@ -41,7 +41,7 @@ from pathlib import Path
 FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
 NESTING = 100
 ITEM = re.compile(r'^ *(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$))+')
-TAG = re.compile(r'<(?:(?P<close>/?)(?P<name>[A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)|!--|\?|![A-Z]|!\[CDATA\[)')
+TAG = re.compile(r'<(?:(?P<close>/?)(?P<name>[A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)|!--|\?|![A-Za-z]|!\[CDATA\[)')
 ALONE = re.compile(r'</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>\s*$')
 # CommonMark's block-level names: opened or closed, these start an HTML block anywhere.
 BLOCK_TAGS = frozenset("""
@@ -53,7 +53,7 @@ BLOCK_TAGS = frozenset("""
 RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
 FIRST = re.compile(r'(?:[-*+]|0{0,8}1[.)])[ \t]')
 MARKER = re.compile(r'(?P<mark>[-*+]|\d{1,9}[.)])(?:[ \t]+|$)')
-RUN = re.compile(r'(?:[^\[\]\\]|\\.)*')
+RUN = re.compile(r'(?:[^\[\]\\]|\\.?)*')
 LABEL = re.compile(r'\[((?:[^\[\]\\]|\\.){1,999})\]:')
 UNDERLINE = re.compile(r' *(?:=+|-+) *$')
 HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
@@ -146,11 +146,10 @@ class Walk:
             return ' '
         # A line continuing a paragraph lazily keeps its item open and starts no block. Measured
         # from the innermost item instead, a line four columns into its container opened a fence.
-        if self.para and lazy(line, self.items, indent >= self.content, self.settled()):
+        if self.para and lazy(line, self.items, indent >= self.content):
             return self.continued(line, indent)
         # Anything else is read against the open items, a `>` included, since a quote below the
-        # item's content closes the item, and the item's paragraph ends with it.
-        self.para = self.para and indent >= self.content
+        # item's content closes the item.
         self.items, mark = listing(line, indent, self.items)
         # What follows the markers is the item's first line and may open any block in it.
         if mark is not None:
@@ -185,10 +184,6 @@ class Walk:
         self.advance(line.lstrip(' '))
         return line
 
-    def settled(self):
-        """Whether the innermost open paragraph holds only complete link reference definitions."""
-        return self.quote.settled() if self.quote is not None else self.defined in ('whole', 'titled')
-
     def advance(self, text):
         """Carry a continuation line into the definition state of the innermost open paragraph."""
         if self.quote is not None:
@@ -206,7 +201,7 @@ class Walk:
                 return line if seen == inner else ' '
             # A line without a marker belongs to the quote only as a continuation of its open
             # paragraph, which no walk inside the quote reads again as a block of its own.
-            if line.strip(' ') and self.quote.para and lazy(line, self.items, False, self.quote.settled()):
+            if line.strip(' ') and self.quote.para and lazy(line, self.items, False):
                 self.quote.advance(line.lstrip(' '))
                 return line
             self.quote, self.para = None, False
@@ -314,7 +309,7 @@ def balanced(destination):
     return depth == 0
 
 
-def lazy(line, items, restricted, defined=False):
+def lazy(line, items, restricted):
     """Whether this line, read under an open paragraph, only continues it.
 
     Where the line reaches the paragraph's own container, a marker opens a list there only with
@@ -330,7 +325,7 @@ def lazy(line, items, restricted, defined=False):
     first = MARKER.match(text)
     if item and restricted and not (first and text[first.end():].strip(' ') and FIRST.match(text)):
         item = None
-    return not (item or text.startswith('>') or html(text, not defined) or FENCE.match(text)
+    return not (item or text.startswith('>') or html(text, True) or FENCE.match(text)
                 or closing(text))
 
 
@@ -341,7 +336,7 @@ def ending(text):
     for start, end in (('<!--', '-->'), ('<?', '?>'), ('<![cdata[', ']]>')):
         if lowered.startswith(start):
             return end
-    if re.match(r'<![A-Z]', text):
+    if re.match(r'<![A-Za-z]', text):
         return '>'
     raw = re.match(r'<(pre|script|style|textarea)(?=[\s>]|$)', lowered)
     return '</%s>' % raw.group(1) if raw else True
