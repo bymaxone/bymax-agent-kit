@@ -26,6 +26,7 @@ more than the list: a rule that cannot be enumerated mechanically is a mechanism
 understood well enough to be corrected.
 """
 import hashlib
+import importlib.machinery
 import json
 import os
 import re
@@ -496,10 +497,13 @@ def ids(root, files, selector=None, tolerant=False):
     # `python -m pytest` puts the root ahead of this directory, the project's module loads in
     # place of the collector, and the channel it should have taken out of the environment
     # stays there for any conftest to write a report with.
-    shadow = [name for name in ('review_collect.py', 'review_collect') if Path(real, name).exists()]
-    if shadow:
+    # Asked of the import system rather than of a list of file names: a sourceless .pyc or an
+    # extension module shadows as well as a .py does, and a namespace directory does not, since a
+    # regular module later on the path wins over it.
+    shadow = importlib.machinery.PathFinder.find_spec('review_collect', [real])
+    if shadow is not None and shadow.loader is not None:
         bail('%s at the root of the repository under review is loaded in place of the runtime\'s '
-             'collector, so nothing here could say what pytest collected. Rename it.' % shadow[0])
+             'collector, so nothing here could say what pytest collected. Rename it.' % shadow.origin)
     args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'review_collect',
             *arguments(root, files)] + (['-k', selector] if selector else [])
     env = pytest_env()
@@ -518,9 +522,8 @@ def ids(root, files, selector=None, tolerant=False):
         # directory: the plugin did not run. Answering [] there would say "no test here".
         if vouched is None and done.returncode in (0, 5):
             bail('pytest collected %s and its collector never reported what it found, so nothing '
-                 'here can say what was collected. The way this happens by accident is a module named '
-                 'review_collect at the repository\'s root, which pytest loads in its place; rename '
-                 'that module.' % ' '.join(files))
+                 'here can say what was collected. Something in the repository under review '
+                 'unregistered or replaced it.' % ' '.join(files))
         return sorted(vouched or [])
 
 
