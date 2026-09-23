@@ -1,7 +1,6 @@
 """The matrix runner: what it refuses, and what it records."""
 import json
 import os
-import py_compile
 import shutil
 import subprocess
 import sys
@@ -106,9 +105,9 @@ class MeaningTests(unittest.TestCase):
         """A node id is a line, and a parametrized one holds a space, so splitting on whitespace
         made two nodes out of one. The plugin takes where to write and what vouches for it out
         of the environment before any conftest is imported: read later, a conftest rewriting
-        the file in pytest_sessionfinish made a directory holding a real test answer empty. A
-        collector that never reports, or a module of its name at the root that pytest would load
-        in its place, is refused rather than read as "no test here"."""
+        the file in pytest_sessionfinish made a directory holding a real test answer empty. And
+        the repository cannot put its own module in the collector's place: a same-named module
+        at the root, one on the ini's `pythonpath` and a declared entry point each did."""
         root = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
         (root / 'tests').mkdir()
@@ -123,6 +122,17 @@ class MeaningTests(unittest.TestCase):
             '    if where and token:\n'
             '        Path(where).write_text("BYMAX_COLLECT " + token + "\\n")\n')
         self.assertEqual(matrix.ids(str(root), ['tests']), whole)
+        # Every way the repository could load a module of the collector's name, with that conftest
+        # still waiting to rewrite a report: none of them takes the collector's place.
+        (root / 'review_collect.py').write_text('x = 1\n')
+        (root / 'lib').mkdir()
+        (root / 'lib/review_collect.py').write_text('x = 1\n')
+        (root / 'pytest.ini').write_text('[pytest]\npythonpath = lib\n')
+        (root / 'evilmod.py').write_text('x = 1\n')
+        (root / 'evil-1.0.dist-info').mkdir()
+        (root / 'evil-1.0.dist-info/METADATA').write_text('Metadata-Version: 2.1\nName: evil\nVersion: 1.0\n')
+        (root / 'evil-1.0.dist-info/entry_points.txt').write_text('[pytest11]\nreview_collect = evilmod\n')
+        self.assertEqual(matrix.ids(str(root), ['tests']), whole)
         # A line without this run's token says nothing, even one shaped like "prefix id".
         report = root / 'report'
         report.write_text('BYMAX_COLLECT t0k\nx forged.py::forged\nt0k tests/a.py::test_a\n')
@@ -133,24 +143,12 @@ class MeaningTests(unittest.TestCase):
         # A collector that never writes, here unregistered by a conftest, is refused.
         (root / 'conftest.py').write_text(
             'def pytest_configure(config):\n'
-            '    config.pluginmanager.unregister(config.pluginmanager.get_plugin("review_collect"))\n')
+            '    for name, plugin in config.pluginmanager.list_name_plugin():\n'
+            '        if name.startswith("bymax_collect_"):\n'
+            '            config.pluginmanager.unregister(plugin)\n')
         with self.assertRaises(SystemExit) as caught:
             matrix.ids(str(root), ['tests'])
         self.assertIn('never reported what it found', str(caught.exception))
-        # A module of the plugin's name at the root, which pytest would load in its place, is
-        # refused before pytest runs.
-        (root / 'conftest.py').unlink()
-        (root / 'review_collect.py').write_text('"""a project module that shares the name"""\n')
-        with self.assertRaises(SystemExit) as caught:
-            matrix.ids(str(root), ['tests'])
-        self.assertIn('is loaded in place of the runtime', str(caught.exception))
-        # A sourceless .pyc shadows exactly as the source does, which a list of file names missed.
-        compiled = root / 'review_collect.pyc'
-        py_compile.compile(str(root / 'review_collect.py'), cfile=str(compiled))
-        (root / 'review_collect.py').unlink()
-        with self.assertRaises(SystemExit) as caught:
-            matrix.ids(str(root), ['tests'])
-        self.assertIn('is loaded in place of the runtime', str(caught.exception))
 
     def test_a_surviving_mutant_is_the_finding(self):
         """A guard whose case cannot tell the mutant from the original is decoration."""

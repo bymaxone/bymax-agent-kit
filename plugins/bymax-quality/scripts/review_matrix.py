@@ -26,7 +26,6 @@ more than the list: a rule that cannot be enumerated mechanically is a mechanism
 understood well enough to be corrected.
 """
 import hashlib
-import importlib.machinery
 import json
 import os
 import re
@@ -493,38 +492,41 @@ def ids(root, files, selector=None, tolerant=False):
     # every id against the argument's own directory instead — a bare name for a file under
     # tests/ — and the cwd is spelled the same so the two agree.
     real = os.path.realpath(root)
-    # Refused before pytest runs, because once it runs the name is already the repository's:
-    # `python -m pytest` puts the root ahead of this directory, the project's module loads in
-    # place of the collector, and the channel it should have taken out of the environment
-    # stays there for any conftest to write a report with.
-    # Asked of the import system rather than of a list of file names: a sourceless .pyc or an
-    # extension module shadows as well as a .py does, and a namespace directory does not, since a
-    # regular module later on the path wins over it.
-    shadow = importlib.machinery.PathFinder.find_spec('review_collect', [real])
-    if shadow is not None and shadow.loader is not None:
-        bail('%s at the root of the repository under review is loaded in place of the runtime\'s '
-             'collector, so nothing here could say what pytest collected. Rename it.' % shadow.origin)
-    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', 'review_collect',
-            *arguments(root, files)] + (['-k', selector] if selector else [])
-    env = pytest_env()
-    here = str(Path(__file__).resolve().parent)
-    env['PYTHONPATH'] = os.pathsep.join([here, env['PYTHONPATH']]) if env.get('PYTHONPATH') else here
     token = secrets.token_hex(8)
-    env['BYMAX_COLLECT_TOKEN'] = token
     with tempfile.TemporaryDirectory() as box:
-        env['BYMAX_COLLECT_OUT'] = str(Path(box, 'collected'))
-        done = subprocess.run(args, cwd=real, capture_output=True, text=True, env=env)
+        done, where = collect_run(real, root, files, selector, token, box)
         if not tolerant and done.returncode not in (0, 5):
             bail('pytest could not collect %s (exit %d): %s' % (' '.join(files), done.returncode,
                  ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
-        vouched = reported(Path(env['BYMAX_COLLECT_OUT']), token)
+        vouched = reported(where, token)
         # A collect that pytest completed and the plugin did not report is not an empty
         # directory: the plugin did not run. Answering [] there would say "no test here".
         if vouched is None and done.returncode in (0, 5):
             bail('pytest collected %s and its collector never reported what it found, so nothing '
                  'here can say what was collected. Something in the repository under review '
-                 'unregistered or replaced it.' % ' '.join(files))
+                 'unregistered it.' % ' '.join(files))
         return sorted(vouched or [])
+
+
+def collect_run(real, root, files, selector, token, box):
+    """Run pytest's collect with the collector loaded under a name made for this run.
+
+    Loaded by a name anyone could know, the collector was replaced: pytest resolves a -p name
+    through the repository's root, the ini's `pythonpath` and any declared pytest11 entry point
+    before the directory this runtime adds, and each was measured to put the project's module in
+    its place and leave its channel in the environment for a conftest to write an empty report
+    with. Predicting that path lost to the next entry into it. A name carrying this run's token,
+    in a directory of this run's own, is one nothing in the repository can place or declare.
+    """
+    name = 'bymax_collect_' + token
+    shutil.copyfile(Path(__file__).with_name('review_collect.py'), Path(box, name + '.py'))
+    env = pytest_env()
+    env['PYTHONPATH'] = os.pathsep.join([box, env['PYTHONPATH']]) if env.get('PYTHONPATH') else box
+    env['BYMAX_COLLECT_TOKEN'] = token
+    env['BYMAX_COLLECT_OUT'] = str(Path(box, 'collected'))
+    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', name,
+            *arguments(root, files)] + (['-k', selector] if selector else [])
+    return subprocess.run(args, cwd=real, capture_output=True, text=True, env=env), Path(env['BYMAX_COLLECT_OUT'])
 
 
 def reported(where, token):
