@@ -170,15 +170,15 @@ class Walk:
             return line
         self.fence = opens(line)
         self.para = not (self.fence or indent < self.content + 4 and closing(line.lstrip(' ')))
-        # A link reference definition past its destination is not a paragraph an underline heads.
+        # A paragraph of complete link reference definitions is not one an underline heads.
         self.defined = self.para and definition(line.lstrip(' '))
         return ' ' if self.fence else line
 
     def continued(self, line, indent):
         """This line, which only continues the open paragraph, and what it leaves open.
 
-        An underline the paragraph's own container reads ends it as a heading, except under a link
-        reference definition past its destination; that or its title may take the next line.
+        An underline the paragraph's own container reads ends it as a heading, unless the paragraph
+        holds only complete link reference definitions, which leave no text for it to head.
         """
         self.para = not (self.defined not in ('whole', 'titled') and self.content <= indent < self.content + 4
                          and UNDERLINE.match(line))
@@ -228,9 +228,9 @@ class Walk:
 
 
 def definition(text):
-    """The state a link reference definition starting on this text leaves, or None where the text
-    starts none: 'label' with its destination left for the next line, 'whole' with it, 'titled'
-    with its one title, 'open' and the closing character while a title runs on."""
+    """The state a link reference definition starting on this text leaves, or None if it starts
+    none: 'bracket' while its label runs on, 'label' with the destination still to come, 'whole'
+    with it, 'titled' with its one title, 'open' and the closing character while a title runs on."""
     found = LABEL.match(text)
     if not found:
         return 'bracket' if text.startswith('[') and labelled(text[1:]) is None else None
