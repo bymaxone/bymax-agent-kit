@@ -507,8 +507,7 @@ def ids(root, files, selector=None, tolerant=False):
                  ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
         vouched = reported(Path(env['BYMAX_COLLECT_OUT']), token)
         # A collect that pytest completed and the plugin did not report is not an empty
-        # directory: the plugin did not run. Answering [] there says "no test here" and the
-        # gate above asks for nothing, which is the one thing this whole path exists to stop.
+        # directory: the plugin did not run. Answering [] there would say "no test here".
         if vouched is None and done.returncode in (0, 5):
             bail('pytest collected %s and the runtime never heard what it found. Its plugin is '
                  'loaded by name, and a module of that name in the repository under review is '

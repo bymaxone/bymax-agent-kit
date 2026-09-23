@@ -102,12 +102,10 @@ class MeaningTests(unittest.TestCase):
         self.assertIn("Case 'nothing_named_so' collects no test under test_thing.py", str(caught.exception))
 
     def test_a_collect_answers_with_what_pytest_vouched_for(self):
-        """Three reviewers found the same two holes in reading the collect back. A node id is a
-        line, and a parametrized one holds a space, so splitting on whitespace made two nodes
-        out of one. And the plugin is loaded by name while `python -m pytest` puts the reviewed
-        repository on the path first, so a module of that name there is loaded instead and the
-        hook never runs — answered empty, that reads as "no test here" and the gate asks for
-        nothing. Each line carries this run's token, so a file left behind or a project writing
+        """A node id is a line, and a parametrized one holds a space, so splitting on whitespace
+        made two nodes out of one. And the plugin is loaded by name while `python -m pytest` puts
+        the reviewed repository on the path first, so a module of that name there is loaded
+        instead and the hook never runs — answered empty, that reads as "no test here". Each line carries this run's token, so a file left behind or a project writing
         to the same path says nothing the caller reads."""
         root = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
