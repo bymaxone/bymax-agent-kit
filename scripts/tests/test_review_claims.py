@@ -403,6 +403,7 @@ class OpaqueFileTests(unittest.TestCase):
          '1. ```sh\n   OLD_HELPER()\n   ```'),
         ('a block after an empty item that could not interrupt a paragraph',
          'Title\n-  \n\n    OLD_HELPER()'),
+        ('a block right under a marker with nothing after it', '-\n      OLD_HELPER()'),
         ('a fence under a closing raw-text tag, which opens a paragraph',
          '</pre> text\n```\nOLD_HELPER()\n```'),
         ('a block after an HTML block that closed a list item',
