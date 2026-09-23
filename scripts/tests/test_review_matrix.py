@@ -347,7 +347,7 @@ class EnumerationTests(unittest.TestCase):
             bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'value > LIMIT', 'becomes': 'True', 'case': 7}]))
         self.assertIn('case is 7', str(caught.exception))
         # A replacement equal to its anchor, in either line-break spelling, mutates nothing.
-        for anchor, becomes in (('value > LIMIT', 'value > LIMIT'), ('a\r\nb', 'a\nb')):
+        for anchor, becomes in (('value > LIMIT', 'value > LIMIT'), ('a\r\nb', 'a\nb'), ('a\nb', 'a\r\nb')):
             with self.assertRaises(SystemExit) as caught:
                 bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': anchor, 'becomes': becomes,
                                          'case': 'test_over_the_limit'}]))

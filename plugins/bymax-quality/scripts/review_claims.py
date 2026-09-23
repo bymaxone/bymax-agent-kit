@@ -39,7 +39,6 @@ from pathlib import Path
 # A name inside a code block is an example about somebody else's repository, and reading it
 # as an assertion refused a candidate whose README merely showed the call.
 FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
-QUOTE = re.compile(r'^\s*> ?')
 ITEM = re.compile(r'^(?P<lead> *)(?:[-*+]|\d{1,9}[.)])(?P<gap> +)')
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
@@ -113,12 +112,14 @@ def outside_code(text):
             out.append(' ')
             code, blank = True, False
             continue
+        # Read before the quote: a `>` below the open item's content closes the item, and a
+        # quote handled first left its column open, so a block after it read as prose.
+        content = listing(line, indent, content)
         if quotes(line, content):
             run, at = quoted(lines, at - 1, content)
             out.extend(run)
             blank = False
             continue
-        content = listing(line, indent, content)
         fence = opens(line)
         out.append(' ' if fence else line)
         blank = False
@@ -141,9 +142,24 @@ def quoted(lines, at, content):
     while end < len(lines) and quotes(lines[end], content):
         end += 1
     block = lines[at:end]
-    inner = [QUOTE.sub('', line, count=1) for line in block]
+    inner = [unquoted(line) for line in block]
     walked = outside_code('\n'.join(inner)).split('\n')
     return [line if after == before else ' ' for line, before, after in zip(block, inner, walked)], end
+
+
+def unquoted(line):
+    """The line with its first `>` removed, and the one optional column after it.
+
+    A tab after the marker advances to the next stop from where it stands, not from column 0:
+    measured from 0, `>\tprose` became an indented block and a quoted assertion was blanked.
+    """
+    lead, _, rest = line.partition('>')
+    at, spaces = columns(lead) + 1, ''
+    body = rest.lstrip(' \t')
+    for char in rest[:len(rest) - len(body)]:
+        width = 4 - at % 4 if char == '\t' else 1
+        spaces, at = spaces + ' ' * width, at + width
+    return spaces[1:] + body if spaces else body
 
 
 def listing(line, indent, content):

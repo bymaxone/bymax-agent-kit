@@ -361,6 +361,14 @@ class OpaqueFileTests(unittest.TestCase):
         ('an indented block inside a block quote', '>\n>     OLD_HELPER()'),
         ('a quoted fence inside a list item', '- item\n\n  > ```\n  > OLD_HELPER()\n  > ```'),
         ('a quote marker four spaces in, which is an indented block', '    > OLD_HELPER()'),
+        ('a quote four columns into a list item, measured from its content',
+         '- item\n\n    > ```\n    > OLD_HELPER()\n    > ```'),
+        ('a block after a quote that closed the list item', '- item\n> quote\n\n    OLD_HELPER()'),
+        ('a block after a quote a blank line below the list item',
+         '- item\n\n> quotation\n\n    OLD_HELPER()'),
+        ('a quoted block reached by two tabs after the marker', '>\n>\t\tOLD_HELPER()'),
+        ('a space and a tab after a marker two columns in, which reach a block',
+         '  > \tOLD_HELPER()'),
     )
 
     ASSERTIONS = (
@@ -380,6 +388,10 @@ class OpaqueFileTests(unittest.TestCase):
          '>\n>    We removed OLD_HELPER from the API.'),
         ('a quote marker four spaces under a paragraph, which continues it',
          'A paragraph\n    > ```\n    > OLD_HELPER()'),
+        ('a lazy line four spaces in after a quoted paragraph', '> para\n    We removed OLD_HELPER.'),
+        ('a tab after the marker, which is two columns from it', '>\tWe removed OLD_HELPER.'),
+        ('a space and a tab after the marker', '> \tWe removed OLD_HELPER.'),
+        ('a tab after a marker two columns in', '  >\tWe removed OLD_HELPER.'),
     )
 
     def test_a_name_inside_a_code_block_is_an_example(self):
