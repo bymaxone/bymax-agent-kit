@@ -1941,15 +1941,16 @@ class ReviewFlowTests(unittest.TestCase):
                       self.start(ok=False, correction=True, reason='').stderr)
 
     def test_the_runtime_runs_pytest_without_the_project_addopts(self):
-        """Found by a reviewer: a project's addopts reached every pytest the runtime starts, and
-        one `-q` more or a `-v` changed the lines the collect and the outcome read, so the
-        record named nothing and a caught mutant read as a survivor. PYTEST_ADDOPTS in the
-        environment is the same option by another door."""
+        """Found by a reviewer: a project's addopts reached every pytest the runtime starts, so
+        the project decided what the matrix ran and what it read back. The collect stopped
+        caring once its ids came from pytest rather than from its output; the runs did not, and
+        an addopts that collects instead of running leaves every mutant uncaught while the tree
+        looks green. PYTEST_ADDOPTS in the environment is the same option by another door."""
         self.start()
         self.report('claude')
         self.report('codex')
         self.triage()
-        (self.repo / 'pytest.ini').write_text('[pytest]\naddopts = -v\n')
+        (self.repo / 'pytest.ini').write_text('[pytest]\naddopts = --collect-only\n')
         os.environ['PYTEST_ADDOPTS'] = '-qq'
         self.addCleanup(os.environ.pop, 'PYTEST_ADDOPTS', None)
         (self.repo / 'tests').mkdir(exist_ok=True)
