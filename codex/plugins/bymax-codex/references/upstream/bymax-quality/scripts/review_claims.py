@@ -180,7 +180,7 @@ class Walk:
         """This line, which only continues the open paragraph, and what it leaves open.
 
         An underline the paragraph's own container reads ends it as a heading; under a link
-        reference definition it is text, and a definition's title may follow it on its own line.
+        reference definition it is text, and its destination or title may take the next line.
         """
         text = line.lstrip(' ')
         self.para = not (self.defined != 'whole' and self.content <= indent < self.content + 4
