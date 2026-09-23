@@ -53,6 +53,7 @@ BLOCK_TAGS = frozenset("""
 RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
 FIRST = re.compile(r'(?:[-*+]|0{0,8}1[.)])[ \t]')
 MARKER = re.compile(r'(?P<mark>[-*+]|\d{1,9}[.)])(?:[ \t]+|$)')
+RUN = re.compile(r'(?:[^\[\]\\]|\\.)*')
 LABEL = re.compile(r'\[((?:[^\[\]\\]|\\.){1,999})\]:')
 UNDERLINE = re.compile(r' *(?:=+|-+) *$')
 HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
@@ -169,7 +170,7 @@ class Walk:
             return line
         self.fence = opens(line)
         self.para = not (self.fence or indent < self.content + 4 and closing(line.lstrip(' ')))
-        # A link reference definition past its label is not a paragraph an underline can head.
+        # A link reference definition past its destination is not a paragraph an underline heads.
         self.defined = self.para and definition(line.lstrip(' '))
         return ' ' if self.fence else line
 
@@ -177,7 +178,7 @@ class Walk:
         """This line, which only continues the open paragraph, and what it leaves open.
 
         An underline the paragraph's own container reads ends it as a heading, except under a link
-        reference definition past its label; its destination or title may take the next line.
+        reference definition past its destination; that or its title may take the next line.
         """
         self.para = not (self.defined not in ('whole', 'titled') and self.content <= indent < self.content + 4
                          and UNDERLINE.match(line))
@@ -231,9 +232,18 @@ def definition(text):
     starts none: 'label' with its destination left for the next line, 'whole' with it, 'titled'
     with its one title, 'open' and the closing character while a title runs on."""
     found = LABEL.match(text)
-    if not found or not found[1].strip():
+    if not found:
+        return 'bracket' if text.startswith('[') and labelled(text[1:]) is None else None
+    return destined(text[found.end():], 'label') if found[1].strip() else None
+
+
+def labelled(text):
+    """Where the label running through this text closes, just past its `]:`: None while it
+    runs on, False where it closes without the colon or breaks on another bracket."""
+    found = RUN.match(text)
+    if found.end() == len(text):
         return None
-    return destined(text[found.end():], 'label')
+    return found.end() + 2 if text[found.end():found.end() + 2] == ']:' else False
 
 
 def defining(state, text):
@@ -241,6 +251,9 @@ def defining(state, text):
     paragraph is past any definition."""
     if state == 'label':
         return destined(text, None)
+    if state == 'bracket':
+        closed = labelled(text)
+        return 'bracket' if closed is None else destined(text[closed:], 'label') if closed else None
     if state == 'whole':
         return definition(text) or titled(text, None)
     if state and state.startswith('open'):
