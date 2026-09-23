@@ -10,12 +10,10 @@ Each line carries a token the caller generated for this run, and the caller keep
 that carry it. That is what makes accidental contamination impossible: a file inherited from an
 earlier run, or a project that writes to the same path, says nothing the caller will read. It is
 not tamper-proof and is not claimed to be: once the path and the token leave the environment,
-what remains is code that goes looking for them, which is tampering with one's own review. The header tells a plugin that never ran apart from one
-that collected nothing.
+what remains is code that goes looking for them, which is tampering with one's own review.
 
-A module of this name at the root of the repository under review is loaded instead of this one,
-because `python -m pytest` puts that root on the path first; the header is written only here,
-so the caller can tell that happened rather than read silence.
+The header is written only here, so a plugin that never ran is told apart from one that
+collected nothing, rather than both reading as silence.
 """
 import os
 
