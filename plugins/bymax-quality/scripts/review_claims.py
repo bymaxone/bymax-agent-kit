@@ -53,9 +53,10 @@ BLOCK_TAGS = frozenset("""
 RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
 FIRST = re.compile(r'(?:[-*+]|0{0,8}1[.)])[ \t]')
 MARKER = re.compile(r'(?P<mark>[-*+]|\d{1,9}[.)])(?:[ \t]+|$)')
-DEFINITION = re.compile(r'\[(?:[^\]\\]|\\.)+\]: *(?:<[^<>\n]*>|[^ <][^ ]*)?'
+DEFINITION = re.compile(r'\[(?:[^\]\\]|\\.)+\]: *(?P<destination><[^<>\n]*>|[^ <][^ ]*)?'
                         r'(?: +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))? *$')
-TITLE = re.compile(r'["\'(]')
+DESTINATION = re.compile(r'(?:<[^<>\n]*>|[^ <][^ ]*)(?: +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))? *$')
+TITLE = re.compile(r'(?:"[^"]*"|\'[^\']*\'|\([^()]*\)) *$')
 UNDERLINE = re.compile(r' *(?:=+|-+) *$')
 HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
 BREAK = re.compile(r'([-*_])(?:[ \t]*\1){2,}[ \t]*$')
@@ -172,7 +173,7 @@ class Walk:
         self.fence = opens(line)
         self.para = not (self.fence or indent < self.content + 4 and closing(line.lstrip(' ')))
         # A link reference definition is not a paragraph a line under it can underline.
-        self.defined = self.para and bool(DEFINITION.match(line.lstrip(' ')))
+        self.defined = self.para and definition(line.lstrip(' '))
         return ' ' if self.fence else line
 
     def continued(self, line, indent):
@@ -182,9 +183,12 @@ class Walk:
         reference definition it is text, and a definition's title may follow it on its own line.
         """
         text = line.lstrip(' ')
-        self.para = not (not self.defined and self.content <= indent < self.content + 4
+        self.para = not (self.defined != 'whole' and self.content <= indent < self.content + 4
                          and UNDERLINE.match(line))
-        self.defined = self.defined and bool(DEFINITION.match(text) or TITLE.match(text))
+        if self.defined == 'label':
+            self.defined = 'whole' if DESTINATION.match(text) else None
+        elif self.defined == 'whole':
+            self.defined = definition(text) or ('whole' if TITLE.match(text) else None)
         return line
 
     def held(self, line):
@@ -215,6 +219,13 @@ class Walk:
             return line
         self.html = False
         return None
+
+
+def definition(text):
+    """How much of a link reference definition this text is: 'whole' with its destination,
+    'label' where the destination is left for the next line, None where it is none."""
+    found = DEFINITION.match(text)
+    return ('whole' if found['destination'] else 'label') if found else None
 
 
 def lazy(line, items, restricted):
