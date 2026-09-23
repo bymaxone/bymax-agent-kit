@@ -41,8 +41,8 @@ from pathlib import Path
 FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
 LEAD = re.compile(r'[ \t>]*')
 NESTING = 100
-ITEM = re.compile(r'^ *(?:(?:[-*+]|\d{1,9}[.)]) +)+')
-TAG = re.compile(r'<(?:(?P<close>/?)(?P<name>[A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)|!|\?)')
+ITEM = re.compile(r'^ *(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$))+')
+TAG = re.compile(r'<(?:(?P<close>/?)(?P<name>[A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)|!--|\?|![A-Z]|!\[CDATA\[)')
 ALONE = re.compile(r'</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>\s*$')
 # CommonMark's block-level names: opened or closed, these start an HTML block anywhere.
 BLOCK_TAGS = frozenset("""
@@ -52,7 +52,8 @@ BLOCK_TAGS = frozenset("""
     p param search section summary table tbody td tfoot th thead title tr track ul""".split())
 # The raw-text names start one anywhere only when they open.
 RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
-MARKER = re.compile(r'(?:[-*+]|\d{1,9}[.)]) +')
+FIRST = re.compile(r'(?:[-*+]|1[.)])[ \t]')
+MARKER = re.compile(r'(?P<mark>[-*+]|\d{1,9}[.)])(?:[ \t]+|$)')
 HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
 BREAK = re.compile(r'([-*_])(?:[ \t]*\1){2,}[ \t]*$')
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
@@ -138,8 +139,13 @@ class Walk:
             return ' '
         # A line continuing a paragraph lazily keeps its item open; anything else is read
         # against it, a `>` included, since a quote below the item's content closes the item.
-        if not (self.para and lazy(line)):
+        if not (self.para and lazy(line, self.content, self.items)):
             self.items = listing(line, indent, self.items)
+            # What follows a marker is the item's first line and may open any block in it.
+            opened = ITEM.match(line)
+            if opened and not BREAK.match(line.lstrip()) and line[opened.end():].strip():
+                self.para, view = False, ' ' * len(opened.group(0).expandtabs(4)) + line[opened.end():]
+                return line if self.read(view) == view else ' '
         # Past NESTING a marker is read as text: each level is a frame, and a line of a
         # thousand markers exhausted the interpreter's recursion limit.
         if self.depth < NESTING and quotes(line, self.content):
@@ -151,7 +157,7 @@ class Walk:
                 self.html = False
             return line
         self.fence = opens(line) if indent < self.content + 4 else None
-        self.para = not (self.fence or closing(line.lstrip()))
+        self.para = not (self.fence or indent < self.content + 4 and closing(line.lstrip()))
         return ' ' if self.fence else line
 
     def held(self, line):
@@ -185,15 +191,24 @@ class Walk:
         """
         if quotes(line, self.content) and columns(line) >= self.content:
             return unquoted(line)
-        if line.strip() and self.quote.para and lazy(line):
+        if line.strip() and self.quote.para and lazy(line, self.content, self.items):
             return line
         return None
 
 
-def lazy(line):
-    """Whether this line, read under an open paragraph, only continues it."""
+def lazy(line, content, items):
+    """Whether this line, read under an open paragraph, only continues it.
+
+    Outside a list, a marker opens one under a paragraph only with text after it and, when
+    ordered, only numbered 1: `2. two` there is a continuation.
+    """
+    if columns(line) >= content + 4:
+        return True
     text = line.lstrip()
-    return not (ITEM.match(line) or text.startswith('>') or html(text, True) or FENCE.match(text)
+    item = ITEM.match(line)
+    if item and not items and not (line[item.end():].strip() and FIRST.match(text)):
+        item = None
+    return not (item or text.startswith('>') or html(text, True) or FENCE.match(text)
                 or closing(text))
 
 
@@ -204,7 +219,7 @@ def ending(text):
     for start, end in (('<!--', '-->'), ('<?', '?>'), ('<![cdata[', ']]>')):
         if lowered.startswith(start):
             return end
-    if re.match(r'<![a-z]', lowered):
+    if re.match(r'<![A-Z]', text):
         return '>'
     raw = re.match(r'<(pre|script|style|textarea)(?=[\s>]|$)', lowered)
     return '</%s>' % raw.group(1) if raw else True
@@ -218,7 +233,7 @@ def html(text, para):
     if not found:
         return False
     name = (found['name'] or '').lower()
-    if not name or name in BLOCK_TAGS or name in RAW_TAGS and not found['close']:
+    if not name or name in BLOCK_TAGS or name in RAW_TAGS and ending(text) is not True:
         return True
     return not para and bool(ALONE.match(text))
 
@@ -257,13 +272,21 @@ def listing(line, indent, items):
     the outer one's column rather than to none.
     """
     kept = [column for column in items if column <= indent]
-    if ITEM.match(line) and not BREAK.match(line.lstrip()):
-        at = len(line) - len(line.lstrip(' '))
-        for marker in MARKER.finditer(line, at):
-            if marker.start() != at:
-                break
-            at = marker.end()
-            kept.append(at)
+    if not ITEM.match(line) or BREAK.match(line.lstrip()):
+        return kept
+    at = len(line) - len(line.lstrip(' '))
+    for marker in MARKER.finditer(line, at):
+        if marker.start() != at:
+            break
+        end = len(line[:marker.start()].expandtabs(4)) + len(marker['mark'])
+        gap = len(line[:marker.end()].expandtabs(4)) - end
+        # Past four columns of gap, or with nothing after it, the content starts one column
+        # past the marker, and what follows is an indented block or the item's next line.
+        wide = gap > 4 or not line[marker.end():].strip()
+        kept.append(end + 1 if wide else end + gap)
+        if wide:
+            break
+        at = marker.end()
     return kept
 
 
