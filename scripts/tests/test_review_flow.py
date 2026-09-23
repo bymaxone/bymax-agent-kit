@@ -1799,9 +1799,9 @@ class ReviewFlowTests(unittest.TestCase):
 
     def test_a_conftest_that_fails_before_collection_answers_nothing(self):
         """Found by a reviewer: a conftest that will not import makes pytest write the captured
-        output of the module that failed and stop before collecting anything, so the only line
-        on stdout is that output — no banner to cut at. A run that never reached collection
-        answers nothing, and a directory like that has nothing the matrix could measure."""
+        output of the module that failed and stop before collecting anything. A run that never
+        reached collection answers nothing, and a directory like that has nothing the matrix
+        could measure."""
         (self.repo / 'guard.py').write_text('LIMIT = 7\n')
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)
@@ -1821,9 +1821,8 @@ class ReviewFlowTests(unittest.TestCase):
         """Filed by both reviewers, then reopened by one of them: every line holding `::` was
         read as a node id, and pytest replays what a module printed while it failed to import —
         after its report banner from a module beside the tests, and ahead of every real id from
-        a conftest BELOW them. Two guards each closed one spelling. The ids come from pytest's
-        own collection now, so a print cannot be one, and the shape below is the one that beat
-        both guards."""
+        a conftest BELOW them. The ids come from pytest's own collection now, so a print cannot
+        be one."""
         (self.repo / 'guard.py').write_text('LIMIT = 7\n')
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)
@@ -1842,10 +1841,10 @@ class ReviewFlowTests(unittest.TestCase):
 
     def test_a_neighbour_that_cannot_be_collected_does_not_refuse_the_round(self):
         """Both reviewers found this case missing: rewriting the block between two markers had
-        deleted it, and it is the only one putting a broken neighbour beside a CHANGED TEST,
-        which is the only input on which asking the directory a second time changes an answer.
-        The directory is what pytest is asked about, so a neighbour with a broken import stopped
-        it answering and the round was refused for a test that is not implicated."""
+        deleted it. It puts a broken neighbour beside a CHANGED TEST, which is where asking the
+        directory a second time changes an answer. The directory is what pytest is asked about,
+        so a neighbour with a broken import stopped it answering and the round was refused for
+        a test that is not implicated."""
         (self.repo / 'guard.py').write_text('LIMIT = 7\n')
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)

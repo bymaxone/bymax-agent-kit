@@ -4,8 +4,8 @@ through its output.
 Read from stdout instead, a node id was whatever line held `::`, and a module that printed
 while it failed to import could name any file it liked: pytest replays that print, sometimes
 after its report banner and sometimes — a conftest below the collected directory — ahead of
-every real id. Two guards were written against that and each closed one spelling. The hook
-below is not a spelling: it receives the items pytest collected and nothing else can reach it.
+every real id. The hook below receives the items pytest collected and nothing else can
+reach it.
 
 The destination is a path the caller names in the environment, so the ids never share a stream
 with anything a test can write.
