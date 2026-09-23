@@ -103,27 +103,43 @@ class MeaningTests(unittest.TestCase):
 
     def test_a_collect_answers_with_what_pytest_vouched_for(self):
         """A node id is a line, and a parametrized one holds a space, so splitting on whitespace
-        made two nodes out of one. And the plugin is loaded by name while `python -m pytest` puts
-        the reviewed repository on the path first, so a module of that name there is loaded
-        instead and the hook never runs — answered empty, that reads as "no test here". Each line carries this run's token, so a file left behind or a project writing
-        to the same path says nothing the caller reads."""
+        made two nodes out of one. The plugin takes where to write and what vouches for it out
+        of the environment before any conftest is imported: read later, a conftest rewriting
+        the file in pytest_sessionfinish made a directory holding a real test answer empty. And
+        a module of the plugin's name at the repository's root is loaded in its place, so the
+        hook never runs; that is refused rather than read as "no test here"."""
         root = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
         (root / 'tests').mkdir()
         (root / 'tests/test_p.py').write_text(
             'import pytest\n\n\n@pytest.mark.parametrize("v", ["a b", "c"])\ndef test_p(v): assert v\n')
-        self.assertEqual(matrix.ids(str(root), ['tests']),
-                         ['tests/test_p.py::test_p[a b]', 'tests/test_p.py::test_p[c]'])
-        # A conftest writing to the same file without the token contributes nothing.
+        whole = ['tests/test_p.py::test_p[a b]', 'tests/test_p.py::test_p[c]']
+        self.assertEqual(matrix.ids(str(root), ['tests']), whole)
+        # A conftest that looks for the channel once collection is over finds nothing to rewrite.
         (root / 'conftest.py').write_text(
-            'import os\nopen(os.environ["BYMAX_COLLECT_OUT"], "a").write("forged.py::forged\\n")\n')
-        self.assertEqual(matrix.ids(str(root), ['tests']),
-                         ['tests/test_p.py::test_p[a b]', 'tests/test_p.py::test_p[c]'])
-        # A module of the plugin's name in that repository is loaded first; the hook never runs.
+            'import os\nfrom pathlib import Path\n\n\ndef pytest_sessionfinish(session, exitstatus):\n'
+            '    where, token = os.environ.get("BYMAX_COLLECT_OUT"), os.environ.get("BYMAX_COLLECT_TOKEN")\n'
+            '    if where and token:\n'
+            '        Path(where).write_text("BYMAX_COLLECT " + token + "\\n")\n')
+        self.assertEqual(matrix.ids(str(root), ['tests']), whole)
+        # A line without this run's token says nothing, even one shaped like "prefix id".
+        report = root / 'report'
+        report.write_text('BYMAX_COLLECT t0k\nx forged.py::forged\nt0k tests/a.py::test_a\n')
+        self.assertEqual(matrix.reported(report, 't0k'), ['tests/a.py::test_a'])
+        # A collector that never writes, here unregistered by a conftest, is refused.
+        (root / 'conftest.py').write_text(
+            'def pytest_configure(config):\n'
+            '    config.pluginmanager.unregister(config.pluginmanager.get_plugin("review_collect"))\n')
+        with self.assertRaises(SystemExit) as caught:
+            matrix.ids(str(root), ['tests'])
+        self.assertIn('never reported what it found', str(caught.exception))
+        # A module of the plugin's name at the root is loaded in its place, which is refused before
+        # pytest runs, whatever any conftest would then write.
+        (root / 'conftest.py').unlink()
         (root / 'review_collect.py').write_text('"""a project module that shares the name"""\n')
         with self.assertRaises(SystemExit) as caught:
             matrix.ids(str(root), ['tests'])
-        self.assertIn('never heard what it found', str(caught.exception))
+        self.assertIn('is loaded in place of the runtime', str(caught.exception))
 
     def test_a_surviving_mutant_is_the_finding(self):
         """A guard whose case cannot tell the mutant from the original is decoration."""
