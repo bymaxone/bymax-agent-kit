@@ -53,6 +53,7 @@ BLOCK_TAGS = frozenset("""
 RAW_TAGS = frozenset(('pre', 'script', 'style', 'textarea'))
 FIRST = re.compile(r'(?:[-*+]|0{0,8}1[.)])[ \t]')
 MARKER = re.compile(r'(?P<mark>[-*+]|\d{1,9}[.)])(?:[ \t]+|$)')
+UNDERLINE = re.compile(r' *(?:=+|-+) *$')
 HEADING = re.compile(r'#{1,6}(?:[ \t]|$)')
 BREAK = re.compile(r'([-*_])(?:[ \t]*\1){2,}[ \t]*$')
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
@@ -162,7 +163,10 @@ class Walk:
                 self.html = False
             return line
         self.fence = opens(line) if indent < self.content + 4 else None
-        self.para = not (self.fence or indent < self.content + 4 and closing(line.lstrip(' ')))
+        # An underline the paragraph's own container reads makes it a heading, which leaves no
+        # paragraph open; a lazy one is text, so it counts only from the paragraph's column.
+        underline = self.para and self.content <= indent < self.content + 4 and UNDERLINE.match(line)
+        self.para = not (self.fence or underline or indent < self.content + 4 and closing(line.lstrip(' ')))
         return ' ' if self.fence else line
 
     def held(self, line):
