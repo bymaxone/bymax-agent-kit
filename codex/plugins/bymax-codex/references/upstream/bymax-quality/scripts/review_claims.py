@@ -175,7 +175,7 @@ class Walk:
             self.quote, self.para = None, False
         stripped, indent = line.strip(' \r'), columns(line)
         if self.fence is not None and (not stripped or indent >= self.content):
-            # A closing fence, like an opening one, stands less than four columns in.
+            # A closing fence, like an opening one, stands under four columns past the content.
             self.fence = None if indent < self.content + 4 and closes(line, self.fence) else self.fence
             return ' ' if stripped else line
         # A line that leaves the item ends the fence or the HTML block opened inside it; inside,
