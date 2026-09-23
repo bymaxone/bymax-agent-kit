@@ -96,7 +96,7 @@ def outside_code(text):
         # Tabs are read as spaces to the next stop of four, as CommonMark reads block structure,
         # once and against the source line's own columns: expanded per container, a tab behind
         # a quote or a list marker was measured from a shortened line. A CRLF's carriage return
-        # goes too, so from here on a space is the only whitespace the walk knows.
+        # goes too, so from here on the walk measures indents and gaps in spaces alone.
         spaced = line.removesuffix('\r').expandtabs(4)
         out.append(line if walk.read(spaced) == spaced else ' ')
     return '\n'.join(out)
