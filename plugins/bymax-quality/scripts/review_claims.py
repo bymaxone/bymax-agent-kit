@@ -148,10 +148,10 @@ def quoted(lines, at, content):
 
 
 def unquoted(line):
-    """The line with its first `>` removed, and the one optional column after it.
+    """The line through its first `>` removed, and the one optional column after it.
 
-    A tab after the marker advances to the next stop from where it stands, not from column 0:
-    measured from 0, `>\tprose` became an indented block and a quoted assertion was blanked.
+    A tab after the marker advances from where it stands and loses that column: kept whole,
+    `>\tprose` became an indented block and a quoted assertion was blanked.
     """
     lead, _, rest = line.partition('>')
     at, spaces = columns(lead) + 1, ''
