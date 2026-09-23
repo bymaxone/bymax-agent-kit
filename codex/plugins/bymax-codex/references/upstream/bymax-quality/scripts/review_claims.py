@@ -95,8 +95,9 @@ def outside_code(text):
     for line in text.split('\n'):
         # Tabs are read as spaces to the next stop of four, as CommonMark reads block structure,
         # once and against the source line's own columns: expanded per container, a tab behind
-        # a quote or a list marker was measured from a shortened line.
-        spaced = line.expandtabs(4)
+        # a quote or a list marker was measured from a shortened line. A CRLF's carriage return
+        # goes too, so from here on a space is the only whitespace the walk knows.
+        spaced = line.removesuffix('\r').expandtabs(4)
         out.append(line if walk.read(spaced) == spaced else ' ')
     return '\n'.join(out)
 
@@ -124,7 +125,7 @@ class Walk:
         held = self.held(line)
         if held is not None:
             return held
-        stripped, indent = line.strip(' \r'), columns(line)
+        stripped, indent = line.strip(' '), columns(line)
         empty, self.empty = self.empty, False
         if not stripped:
             self.para, self.items = False, self.items[:-1] if empty else self.items
@@ -144,7 +145,7 @@ class Walk:
             if mark is not None:
                 self.para, view = False, ' ' * mark + line[mark:]
                 # An item opened empty ends at a blank line unless its content comes first.
-                self.empty = not view.strip(' \r')
+                self.empty = not view.strip(' ')
                 return line if self.empty or self.read(view) == view else ' '
         # Past NESTING a marker is read as text: each level is a frame, and a line of a
         # thousand markers exhausted the interpreter's recursion limit.
@@ -170,10 +171,10 @@ class Walk:
                 return line if seen == inner else ' '
             # A line without a marker belongs to the quote only as a continuation of its open
             # paragraph, which no walk inside the quote reads again as a block of its own.
-            if line.strip() and self.quote.para and lazy(line, self.items, False):
+            if line.strip(' ') and self.quote.para and lazy(line, self.items, False):
                 return line
             self.quote, self.para = None, False
-        stripped, indent = line.strip(' \r'), columns(line)
+        stripped, indent = line.strip(' '), columns(line)
         if self.fence is not None and (not stripped or indent >= self.content):
             # A closing fence, like an opening one, stands under four columns past the content.
             self.fence = None if indent < self.content + 4 and closes(line, self.fence) else self.fence
@@ -202,7 +203,7 @@ def lazy(line, items, restricted):
         return True
     text = line.lstrip(' ')
     item = ITEM.match(line)
-    if item and restricted and not (line[item.end():].strip() and FIRST.match(text)):
+    if item and restricted and not (line[item.end():].strip(' ') and FIRST.match(text)):
         item = None
     return not (item or text.startswith('>') or html(text, True) or FENCE.match(text)
                 or closing(text))
@@ -263,7 +264,7 @@ def listing(line, indent, items):
     # Four columns past the content it reaches, a marker is inside an indented block.
     if not ITEM.match(line) or BREAK.match(line.lstrip(' ')) or indent >= (kept[-1] if kept else 0) + 4:
         return kept, None
-    at, last = len(line) - len(line.lstrip(' ')), len(line.rstrip(' \r'))
+    at, last = len(line) - len(line.lstrip(' ')), len(line.rstrip(' '))
     for marker in MARKER.finditer(line, at):
         if marker.start() != at:
             break
@@ -288,7 +289,7 @@ def closes(line, fence):
     after it — an info string is allowed where a fence opens and nowhere else."""
     found = FENCE.match(line)
     return bool(found and found['run'][0] == fence[0] and len(found['run']) >= fence[1]
-                and not found['info'].strip())
+                and not found['info'].strip(' '))
 
 
 def prose(name, text):
