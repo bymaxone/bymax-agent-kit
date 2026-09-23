@@ -97,8 +97,12 @@ def outside_code(text):
         # once and against the source line's own columns: expanded per container, a tab behind
         # a quote or a list marker was measured from a shortened line. A CRLF's carriage return
         # goes too, so from here on the walk measures indents and gaps in spaces alone.
-        spaced = line.removesuffix('\r').expandtabs(4)
-        out.append(line if walk.read(spaced) == spaced else ' ')
+        body = line.removesuffix('\r')
+        # A lone carriage return ends a line too. Each is read as its own line and blanked in
+        # place, so the output keeps the newline count prose() is indexed by.
+        parts = [(part, part.expandtabs(4)) for part in body.split('\r')]
+        read = [part if walk.read(spaced) == spaced else ' ' for part, spaced in parts]
+        out.append('\r'.join(read) + line[len(body):])
     return '\n'.join(out)
 
 
