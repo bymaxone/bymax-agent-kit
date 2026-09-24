@@ -145,12 +145,46 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': '# tmp_value is scratch\n'})
         self.assertEqual(tree.retired(), [])
 
+    def test_a_name_moved_in_any_shape_the_tree_counts_is_alive(self):
+        """The tree counts a name after a semicolon or in a chained assignment, so the search
+        for where it went must reach those lines too: a pattern anchored at the start of a line
+        did not, and a constant that only moved read as removed."""
+        for shape in ('FIRST = LIMIT_MAX = 3\n', 'import os; LIMIT_MAX = 3\n'):
+            with self.subTest(shape):
+                tree = Tree(self, {'a.py': shape, 'b.py': '', 'README.md': 'Uses `LIMIT_MAX`.\n'},
+                            {'a.py': '', 'b.py': shape, 'README.md': 'Uses `LIMIT_MAX`.\n'})
+                self.assertEqual(tree.retired(), [])
+
+    def test_both_sides_of_a_file_are_read_by_one_reader(self):
+        """A side that does not parse is read as text, and so is the other side then: a text
+        read subtracted from a tree read turns every line the text mistakes for a definition
+        into a removal. A removal the text read sees on both sides is still one, and a name it
+        lost is alive where the tree defines it elsewhere."""
+        kwarg = 'import os\nos.environ.update(dict(\n    BYMAX_HOME="/opt",\n))\n# BYMAX_HOME is set\n'
+        tree = Tree(self, {'a.py': '\ufeff' + kwarg}, {'a.py': kwarg})
+        self.assertEqual(tree.retired(), [])
+        doc = '"""Environment:\n    BYMAX_FLAG: turns it on, as in BYMAX_FLAG=1.\n"""\n'
+        tree = Tree(self, {'a.py': doc + 'print "x"\n', 'README.md': 'Set `BYMAX_FLAG`.\n'},
+                    {'a.py': doc + 'print("x")\n', 'README.md': 'Set `BYMAX_FLAG`.\n'})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'OLD_LIMIT = 1\nprint "x"\n', 'README.md': 'Uses `OLD_LIMIT`.\n'},
+                    {'a.py': 'print("x")\n', 'README.md': 'Uses `OLD_LIMIT`.\n'})
+        self.assertEqual(tree.retired(), [('README.md', 'OLD_LIMIT')])
+        tree = Tree(self, {'a.py': 'OLD_LIMIT = 1\nprint "x"\n', 'b.py': '',
+                           'README.md': 'Uses `OLD_LIMIT`.\n'},
+                    {'a.py': 'print("x")\n', 'b.py': 'FIRST = OLD_LIMIT = 1\n',
+                     'README.md': 'Uses `OLD_LIMIT`.\n'})
+        self.assertEqual(tree.retired(), [])
+
     def test_a_file_that_does_not_parse_is_read_as_text(self):
         """A half-written file still answers: its definitions are read from the text."""
         tree = Tree(self, {'a.py': 'OLD_LIMIT = 1\ndef old_helper(x):\n    return x\ndef broken(:\n',
                            'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'},
                     {'a.py': 'def broken(:\n', 'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'})
         self.assertEqual(tree.retired(), [('README.md', 'OLD_LIMIT'), ('README.md', 'old_helper')])
+        tree = Tree(self, {'a.py': 'LIMIT_MAX = 3\n', 'b.py': 'print "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'},
+                    {'a.py': '', 'b.py': 'LIMIT_MAX = 3\nprint "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'})
+        self.assertEqual(tree.retired(), [])
 
     def test_a_comment_after_code_is_read_for_what_it_names(self):
         """The line stays code for the split, and the comment on it still asserts: a removed

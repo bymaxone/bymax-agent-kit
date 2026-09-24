@@ -294,11 +294,26 @@ def defined(text):
     EACCES, and rewording that line reads as removing them. A file that does not parse is read
     as text, so a half-written one still answers.
     """
+    tree = parsed(text)
+    return written(text) if tree is None else declared(tree)
+
+
+def parsed(text):
+    """The syntax tree of a python source, or None where it does not parse."""
     try:
-        tree = ast.parse(text)
+        return ast.parse(text)
     except (SyntaxError, ValueError):
-        found = set(re.findall(r'^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
-        return found | set(re.findall(r'^\s*([A-Z][A-Z0-9_]{2,})\s*(?::[^=\n]*)?=', text, re.MULTILINE))
+        return None
+
+
+def written(text):
+    """The names defined() reads from a source that does not parse, read as text."""
+    found = set(re.findall(r'^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
+    return found | set(re.findall(r'^\s*([A-Z][A-Z0-9_]{2,})\s*(?::[^=\n]*)?=', text, re.MULTILINE))
+
+
+def declared(tree):
+    """The names defined() reads from a syntax tree."""
     found, constant = set(), re.compile(r'[A-Z][A-Z0-9_]{2,}')
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -316,24 +331,26 @@ def defined(text):
 
 
 def orphaned(base, head, cwd=None):
-    """Names this delta removed from code and left defined nowhere in the tree."""
+    """Names this delta removed from code and left defined nowhere in the tree.
+
+    Both sides of a file are read by one reader: the syntax tree when both parse, the text when
+    either does not. Subtracting one reader's answer from the other's reads every line the text
+    read mistakes for a definition as removed, which a delta that only strips a BOM triggers.
+    A name is alive in any file defined() finds it in.
+    """
     lost = set()
     for name in touched(base, head, cwd=cwd):
         if name.endswith('.py'):
-            lost |= defined(git('show', '%s:%s' % (base, name), cwd=cwd)) - \
-                    defined(git('show', '%s:%s' % (head, name), cwd=cwd))
-    # Neither \s nor \b: git grep runs its own engine, where both are literal and a pattern
-    # using either silently matches nothing. Corrected twice — the \s half first, the \b half
-    # only after a reviewer found that every function which merely MOVED to another module
-    # read as removed. An `async def` and an annotated assignment count here as they do in
-    # defined(): a name moved, made async or given a type is alive.
-    shaped = (r'^[[:space:]]*(async[[:space:]]+)?(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
-              r'|^[[:space:]]*%s[[:space:]]*(:[^=]*)?=')
+            before, after = (git('show', '%s:%s' % (rev, name), cwd=cwd) for rev in (base, head))
+            both = parsed(before) is not None and parsed(after) is not None
+            read = defined if both else written
+            lost |= read(before) - read(after)
 
     def alive(name):
-        # The grep only narrows the search: a docstring line matches it too, so each file it
-        # names is confirmed by the same read that found the name lost.
-        listed = git('grep', '-lE', shaped % (name, name), head, '--', '*.py', cwd=cwd)
+        # The whole word narrows which files are read and decides nothing: a name the tree
+        # counts can sit after a semicolon or in a chained assignment, which no line-anchored
+        # pattern reaches, and a docstring matches any pattern a definition does.
+        listed = git('grep', '-lw', '--', name, head, '--', '*.py', cwd=cwd)
         return any(name in defined(git('show', hit, cwd=cwd)) for hit in listed.split('\n') if hit)
 
     return sorted(name for name in lost if not alive(name))
