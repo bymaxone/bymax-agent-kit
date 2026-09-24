@@ -555,6 +555,21 @@ class OpaqueFileTests(unittest.TestCase):
 
 class UnkeptPromiseTests(unittest.TestCase):
 
+    def test_a_path_git_quotes_is_read_as_itself(self):
+        """Git quotes a non-ASCII path it prints one to a line, and the quoted spelling names no
+        file: a dangling mention in café.md went unreported, a def moved to café.py read as
+        removed, and a removal claimed of text surviving in café.md went unchecked."""
+        tree = Tree(self, {'a.py': 'OLD_NAME = 1\n', 'café.md': 'Uses `OLD_NAME`.\n'},
+                    {'a.py': '', 'café.md': 'Uses `OLD_NAME`.\n'})
+        self.assertEqual(tree.retired(), [('café.md', 'OLD_NAME')])
+        tree = Tree(self, {'a.py': 'def old_helper(x):\n    return x\n', 'README.md': 'Calls `old_helper`.\n'},
+                    {'café.py': 'def old_helper(x):\n    return x\n', 'README.md': 'Calls `old_helper`.\n'})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'café.md': 'Said most likely never joined.\n'},
+                    {'café.md': 'Said most likely never joined.\n',
+                     'NOTES.md': 'We removed `most likely never joined` from the message.\n'})
+        self.assertEqual(tree.unkept(), [('NOTES.md', 'most likely never joined', 'café.md')])
+
     def test_a_claimed_removal_whose_quote_survives_is_reported(self):
         """Measured on another repository on this loop: a triage disposition certifying a
         correction, written without opening the file, whose sentence was still in HEAD. A

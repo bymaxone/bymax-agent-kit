@@ -1848,6 +1848,20 @@ class ReviewFlowTests(unittest.TestCase):
         self.commit('a correction that changes a helper the neighbour names')
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
+    def test_a_changed_test_git_quotes_is_still_a_changed_test(self):
+        """Git quotes a path it prints one to a line, so tests/test_café.py came back as
+        "tests/test_caf\\303\\251.py", matched no file, and the correction read as testless: the
+        matrix was never demanded. Read NUL-separated, the path is itself and the gate holds."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_café.py').write_text(TEST_G)
+        self.commit('a correction whose test git quotes')
+        said = self.start(correction=True, reason='', ok=False)
+        self.assertIn('no measured mutation matrix exists', said.stdout + said.stderr)
+
     def test_a_neighbour_that_cannot_be_collected_does_not_refuse_the_round(self):
         """Both reviewers found this case missing: rewriting the block between two markers had
         deleted it. It puts a broken neighbour beside a CHANGED TEST, which is where asking the
@@ -2665,6 +2679,7 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
         shown = self.flow.code_view({'review_base': base, 'head': head})
         marks = {line.strip()[0] for line in shown.split('\n') if line.startswith('  ')}
         self.assertEqual(marks, {'+', '-', '?'}, shown)
+
 
 
 if __name__ == '__main__':

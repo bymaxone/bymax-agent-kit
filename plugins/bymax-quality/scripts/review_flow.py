@@ -882,8 +882,12 @@ def tests_changed(base, head):
     other side ever wrote into this diff — which asked the matrix for a case inside suites the
     correction never touched, a demand nobody can satisfy.
     """
-    changed = git_raw('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
-    removed = git_raw('diff', '--name-only', '--no-renames', '--diff-filter=D', base, head).splitlines()
+    # NUL-separated, because git quotes a path it prints one to a line: tests/test_café.py came
+    # back as "tests/test_caf\303\251.py", matched no file, and the change read as testless.
+    changed = [p for p in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=AM',
+                                  base, head).split('\0') if p]
+    removed = [p for p in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=D',
+                                  base, head).split('\0') if p]
     mine = written_here(base, head)
     return ([name for name in changed if is_test_path(name) and name in mine],
             [name for name in removed if is_test_path(name)])
@@ -896,7 +900,8 @@ def merged_in_tests(base, head):
     so this names it rather than guessing — and it says no more than that, because a base that
     is not an ancestor of head puts files here that no merge touched at all.
     """
-    changed = git_raw('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
+    changed = [p for p in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=AM',
+                                  base, head).split('\0') if p]
     mine = written_here(base, head)
     return [name for name in changed if is_test_path(name) and name not in mine]
 
@@ -921,8 +926,8 @@ def written_here(base, head):
     written = set()
     for row in git('rev-list', '--first-parent', '--parents', '%s..%s' % (base, head)).splitlines():
         shape = ['-c'] if len(row.split()) > 2 else ['--root']
-        written.update(git_raw('diff-tree', '-r', '--no-commit-id', '--name-only', '--no-renames',
-                               *shape, row.split()[0]).splitlines())
+        written.update(p for p in git_raw('diff-tree', '-r', '-z', '--no-commit-id', '--name-only',
+                                          '--no-renames', *shape, row.split()[0]).split('\0') if p)
     return written
 
 

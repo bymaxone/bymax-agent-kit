@@ -366,8 +366,8 @@ def orphaned(base, head, cwd=None):
         # The grep narrows which files are read and defines() decides: a name the tree counts
         # can sit after a semicolon or in a chained assignment, which no line-anchored pattern
         # reaches, so only the whole word is a search wide enough to narrow by.
-        listed = git('grep', '-lw', '--', name, head, '--', '*.py', cwd=cwd)
-        return any(defines(name, git('show', hit, cwd=cwd)) for hit in listed.split('\n') if hit)
+        listed = git('grep', '-z', '-lw', '--', name, head, '--', '*.py', cwd=cwd)
+        return any(defines(name, git('show', hit, cwd=cwd)) for hit in listed.split('\0') if hit)
 
     return sorted(name for name in lost if not alive(name))
 
@@ -416,12 +416,14 @@ def retired(base, head, cwd=None):
     for token in orphaned(base, head, cwd=cwd):
         if not code_shaped(token):
             continue
-        listed = git('grep', '-lw', '--', token, head, '--', '*.py', '*.md', cwd=cwd)
+        # NUL-separated, because git quotes a path it prints one to a line, and the quoted
+        # spelling of café.md named no file: the dangling mention there went unreported.
+        listed = git('grep', '-z', '-lw', '--', token, head, '--', '*.py', '*.md', cwd=cwd)
         # Filtered here as well as in touched(): the search that finds the dangling mention is
         # a different search from the one that finds the removal, and excluding the generated
         # copy in only one of them leaves the other reporting a file that asserts nothing of
         # its own.
-        for name in sorted({p.split(':', 1)[-1] for p in listed.split('\n')
+        for name in sorted({p.split(':', 1)[-1] for p in listed.split('\0')
                             if p and authored(p.split(':', 1)[-1])}):
             if re.search(r'\b%s\b' % token,
                          prose(name, git('show', '%s:%s' % (head, name), cwd=cwd))):
@@ -483,9 +485,9 @@ def unkept(base, head, cwd=None):
                     continue
                 if len(quote.split()) < 2:
                     continue            # one word is a name, and names live on legitimately
-                before = git('grep', '-Fl', '--', quote, base, cwd=cwd).count('\n')
-                hit = git('grep', '-Fl', '--', quote, head, cwd=cwd)
-                surviving = [p.split(':', 1)[-1] for p in hit.split('\n')
+                before = git('grep', '-z', '-Fl', '--', quote, base, cwd=cwd).count('\0')
+                hit = git('grep', '-z', '-Fl', '--', quote, head, cwd=cwd)
+                surviving = [p.split(':', 1)[-1] for p in hit.split('\0')
                              if p and authored(p.split(':', 1)[-1])
                              and p.split(':', 1)[-1] != name]
                 # The phrase must have existed BEFORE. Nothing can be removed that was never
