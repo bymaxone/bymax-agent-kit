@@ -303,9 +303,8 @@ def defines(name, text):
 
 
 def assigned(tree):
-    """Names a binding creates in this tree, in any case: every name in a store position, which
-    is an assignment's target, unpacked or not, a for or with target and a walrus, and the name
-    an except clause binds. A bare annotation, `x: int`, binds nothing."""
+    """Names a binding creates in this tree, in any case: every name in a store position and the
+    name an except clause binds. A bare annotation, `x: int`, binds nothing."""
     bare = {id(node.target) for node in ast.walk(tree)
             if isinstance(node, ast.AnnAssign) and node.value is None}
     stored = {node.id for node in ast.walk(tree)
