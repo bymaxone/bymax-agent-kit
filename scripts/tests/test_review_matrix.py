@@ -371,14 +371,22 @@ class MeaningTests(unittest.TestCase):
     def test_a_mutant_of_a_file_run_as_a_test_is_refused(self):
         """Breaking a test makes it fail whatever the code it covers does, so a mutant there
         would credit a vacuous test with a catch. Refused before anything runs, and a conftest
-        with it, whether the test path names the file or the directory holding it."""
+        and a helper under tests/ with it, whether the test path names the file or its directory."""
         bench = Bench(self)
         (bench.where / 'conftest.py').write_text('LIMIT_SEEN = 1\n')
         test = {'file': 'test_thing.py', 'anchor': 'assert over(11)', 'becomes': 'assert not over(11)',
                 'case': 'over_the_limit'}
         fixture = {'file': 'conftest.py', 'anchor': 'LIMIT_SEEN = 1', 'becomes': 'LIMIT_SEEN = 2',
                    'case': 'over_the_limit'}
-        for mutant, where in ((test, 'test_thing.py'), (test, '.'), (fixture, '.')):
+        (bench.where / 'tests').mkdir()
+        (bench.where / 'tests' / 'helper.py').write_text('ALLOWED = True\n')
+        (bench.where / 'Test').mkdir()
+        (bench.where / 'Test' / 'aid.py').write_text('ALLOWED = True\n')
+        helper = {'file': 'tests/helper.py', 'anchor': 'ALLOWED = True', 'becomes': 'ALLOWED = False',
+                  'case': 'over_the_limit'}
+        aid = dict(helper, file='Test/aid.py')
+        for mutant, where in ((test, 'test_thing.py'), (test, '.'), (fixture, '.'),
+                              (helper, 'test_thing.py'), (aid, 'test_thing.py')):
             with self.subTest(mutant['file'], where=where), self.assertRaises(SystemExit) as caught:
                 matrix.record(str(bench.where), bench.spec(rule(mutants=[mutant])), [where])
             self.assertIn('which the matrix runs as a test', str(caught.exception))
