@@ -286,11 +286,32 @@ def review_marks(name, text):
 
 
 def defined(text):
-    """Names a python source defines, read as text so a half-written file still answers.
-    An `async def` is a def, and `LIMIT: int = 3` assigns LIMIT as `LIMIT = 3` does: without
-    either, a name only re-spelled read as removed, or a removal went unreported."""
-    found = set(re.findall(r'^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
-    found |= set(re.findall(r'^\s*([A-Z][A-Z0-9_]{2,})\s*(?::[^=\n]*)?=', text, re.MULTILINE))
+    """Names a python source defines: each def and class, async included, and each CONSTANT_CASE
+    name assigned, `LIMIT: int = 3` as much as `LIMIT = 3`.
+
+    Read from the syntax tree, because text shaped like an assignment is not one: a docstring
+    line `FLAG: set it to 1` or a dict entry `EACCES: retry(),` read as text defines FLAG and
+    EACCES, and rewording that line reads as removing them. A file that does not parse is read
+    as text, so a half-written one still answers.
+    """
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        found = set(re.findall(r'^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
+        return found | set(re.findall(r'^\s*([A-Z][A-Z0-9_]{2,})\s*(?::[^=\n]*)?=', text, re.MULTILINE))
+    found, constant = set(), re.compile(r'[A-Z][A-Z0-9_]{2,}')
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            found.add(node.name)
+            continue
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets = [node.target]
+        else:
+            continue
+        found.update(target.id for target in targets
+                     if isinstance(target, ast.Name) and constant.fullmatch(target.id))
     return found
 
 
@@ -306,11 +327,16 @@ def orphaned(base, head, cwd=None):
     # only after a reviewer found that every function which merely MOVED to another module
     # read as removed. An `async def` and an annotated assignment count here as they do in
     # defined(): a name moved, made async or given a type is alive.
-    alive = (r'^[[:space:]]*(async[[:space:]]+)?(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
-             r'|^[[:space:]]*%s[[:space:]]*(:[^=]*)?=')
-    return sorted(name for name in lost
-                  if not git('grep', '-lE', alive % (name, name), head,
-                             '--', '*.py', cwd=cwd).strip())
+    shaped = (r'^[[:space:]]*(async[[:space:]]+)?(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
+              r'|^[[:space:]]*%s[[:space:]]*(:[^=]*)?=')
+
+    def alive(name):
+        # The grep only narrows the search: a docstring line matches it too, so each file it
+        # names is confirmed by the same read that found the name lost.
+        listed = git('grep', '-lE', shaped % (name, name), head, '--', '*.py', cwd=cwd)
+        return any(name in defined(git('show', hit, cwd=cwd)) for hit in listed.split('\n') if hit)
+
+    return sorted(name for name in lost if not alive(name))
 
 
 def code_shaped(token):

@@ -118,6 +118,40 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': 'LIMIT_MAX: int = 1\n# reads LIMIT_MAX\n'})
         self.assertEqual(tree.retired(), [])
 
+    def test_text_shaped_like_a_definition_defines_nothing(self):
+        """A docstring line `FLAG: set it to 1` and a dict entry `ERR_ONE: dict(),` look like
+        annotated assignments to a regex. Rewording or removing either removes no definition,
+        and the refusing tier must not say it did; nor may such a line elsewhere keep a name
+        alive that the delta really removed."""
+        doc = '"""Environment:\n    BYMAX_FLAG: turns it on, as in BYMAX_FLAG=1.\n"""\n'
+        tree = Tree(self, {'a.py': doc + 'import os\n', 'README.md': 'Set `BYMAX_FLAG`.\n'},
+                    {'a.py': doc.replace('turns it on, as in BYMAX_FLAG=1.', 'set it to 1.') + 'import os\n',
+                     'README.md': 'Set `BYMAX_FLAG`.\n'})
+        self.assertEqual(tree.retired(), [])
+        table = 'from errs import ERR_ONE\n\nTABLE = {\n    ERR_ONE: dict(retry=False),\n}\n# ERR_ONE retries\n'
+        tree = Tree(self, {'a.py': table},
+                    {'a.py': table.replace('    ERR_ONE: dict(retry=False),\n', '')})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'OLD_LIMIT = 1\n# reads OLD_LIMIT\n',
+                           'b.py': 'def f():\n    """Limits.\n\n    OLD_LIMIT: was = 2.\n    """\n'},
+                    {'a.py': '# reads OLD_LIMIT\n',
+                     'b.py': 'def f():\n    """Limits.\n\n    OLD_LIMIT: was = 2.\n    """\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'OLD_LIMIT'), ('b.py', 'OLD_LIMIT')])
+
+    def test_only_a_constant_case_assignment_is_a_definition(self):
+        """A lowercase name assigned is a variable, as the text read has always held: removing
+        `tmp_value = 1` is not removing a definition a sentence could still assert."""
+        tree = Tree(self, {'a.py': 'tmp_value = 1\n# tmp_value is scratch\n'},
+                    {'a.py': '# tmp_value is scratch\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_a_file_that_does_not_parse_is_read_as_text(self):
+        """A half-written file still answers: its definitions are read from the text."""
+        tree = Tree(self, {'a.py': 'OLD_LIMIT = 1\ndef old_helper(x):\n    return x\ndef broken(:\n',
+                           'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'},
+                    {'a.py': 'def broken(:\n', 'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'})
+        self.assertEqual(tree.retired(), [('README.md', 'OLD_LIMIT'), ('README.md', 'old_helper')])
+
     def test_a_comment_after_code_is_read_for_what_it_names(self):
         """The line stays code for the split, and the comment on it still asserts: a removed
         name left in `value = 2  # uses OLD_NAME` is a dangling reference like any other. Only
