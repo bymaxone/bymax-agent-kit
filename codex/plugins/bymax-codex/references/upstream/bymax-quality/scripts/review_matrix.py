@@ -503,11 +503,15 @@ def confined(root, spec):
     """Refuse a mutant of a file outside the reviewed tree, or one git does not track there.
     A matrix is evidence about the candidate: a catch earned by mutating a helper in /tmp, or an
     untracked file no diff shows, measures something no review reads, and the fingerprint would
-    hash it as if it were the tree. The file is read where it is, as untested() reads it."""
+    hash it as if it were the tree. The file is read where it is, as untested() reads it; a file
+    that is not there is left to apply_mutant, whose refusal names it."""
     real = os.path.realpath(root)
     for rule in spec:
         for mutant in rule['mutants']:
-            where = os.path.relpath(os.path.realpath(os.path.join(root, mutant['file'])), real)
+            resolved = os.path.realpath(os.path.join(root, mutant['file']))
+            if not os.path.isfile(resolved):
+                continue
+            where = os.path.relpath(resolved, real)
             outside = where == os.pardir or where.startswith(os.pardir + os.sep)
             if outside or subprocess.run(['git', '-C', real, 'ls-files', '--error-unmatch', '--', where],
                                          capture_output=True).returncode != 0:
