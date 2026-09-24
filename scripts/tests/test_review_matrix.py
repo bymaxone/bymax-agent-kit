@@ -113,6 +113,24 @@ class MeaningTests(unittest.TestCase):
                                      'case': 'over'}]))
         self.assertIn('survived', str(caught.exception))
 
+    def test_a_mutant_that_hangs_a_case_is_stopped_and_restored(self):
+        """Found by the PR review: a mutant that disables a loop's stop condition left pytest
+        waiting forever, so the matrix never reached the restore and the source stayed
+        mutated. Each run under a mutant has a deadline; a case that never finishes under the
+        mutant is one the mutant changed, and the file is restored whatever happens."""
+        floor = matrix.FLOOR
+        matrix.FLOOR = 3
+        self.addCleanup(setattr, matrix, 'FLOOR', floor)
+        guard = GUARDED + '\n\ndef done():\n    return True\n'
+        bench = Bench(self, guard=guard,
+                      test='import sys\nsys.path.insert(0, ".")\nfrom thing import done\n\n\n'
+                           'def test_waits():\n    while not done():\n        pass\n')
+        payload = bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'return True',
+                                           'becomes': 'return False', 'case': 'waits'}]))
+        self.assertTrue(payload['results'][0]['caught'])
+        self.assertIn('timed out', payload['results'][0]['saw'])
+        self.assertEqual((bench.where / 'thing.py').read_text(), guard)
+
     def test_a_case_that_collects_no_node_is_refused_by_name(self):
         """A case pytest finds nothing for has no baseline to pass and no node to run: refused
         by name, not recorded as a survivor of a run that never happened."""
