@@ -354,6 +354,29 @@ class MeaningTests(unittest.TestCase):
         self.assertEqual(matrix.outcome(1, '1 failed, 20 deselected in 0.11s'), 'failed')
         self.assertEqual(matrix.outcome(0, '1 passed, 20 deselected in 0.08s'), 'passed')
 
+    def test_an_enumeration_that_never_ends_is_refused(self):
+        """A rule's enumeration command is the author's, and one that waits for input or loops
+        would hold the matrix, and the correction that needs it, for good. Bounded, refused by
+        name, and the process it started dies with it."""
+        clean = matrix.CLEAN
+        matrix.CLEAN = 3
+        self.addCleanup(setattr, matrix, 'CLEAN', clean)
+        bench = Bench(self)
+
+        def unbounded(*_):
+            raise AssertionError('the enumeration was never stopped')
+        previous = signal.signal(signal.SIGALRM, unbounded)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        self.addCleanup(signal.alarm, 0)
+        signal.alarm(30)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='sleep 600 & echo $! > enumerate.pid; wait'))
+        signal.alarm(0)
+        self.assertIn('did not finish', str(caught.exception))
+        time.sleep(0.5)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(int((bench.where / 'enumerate.pid').read_text()), 0)
+
     def test_a_collect_that_never_ends_is_refused(self):
         """A collect runs the repository's import-time code, and a loop there that only a
         collect reaches never returns. Bounded, refused by name, and its process group dies."""
