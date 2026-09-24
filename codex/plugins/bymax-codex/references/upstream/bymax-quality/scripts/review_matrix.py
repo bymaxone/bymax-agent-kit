@@ -480,12 +480,15 @@ def untested(root, spec, files):
     under a directory named tests or test. The directory's name and not its contents: a test
     kept beside the module it covers shares that module's directory, and refusing the
     directory of every collected test refused the code under review. A helper named neither
-    way is a stated gap."""
+    way is a stated gap. The directory is read where the file is, relative to the root: a
+    spelling through `..`, an absolute one or a symlink names the same place."""
     tests = {place(root, name) for name in nodes(root, files)}
+    real = os.path.realpath(root)
     for rule in spec:
         for mutant in rule['mutants']:
-            parts = [part.lower() for part in Path(mutant['file']).parts[:-1]]
-            if place(root, mutant['file']) in tests or Path(mutant['file']).name == 'conftest.py' \
+            where = os.path.relpath(os.path.realpath(os.path.join(root, mutant['file'])), real)
+            parts = [part.lower() for part in Path(where).parts[:-1]]
+            if place(root, mutant['file']) in tests or Path(where).name == 'conftest.py' \
                     or 'tests' in parts or 'test' in parts:
                 bail('Mutant for %r mutates %s, which the matrix runs as a test or which tests '
                      'stand on. A catch there measures the test and not the rule: mutate the '
