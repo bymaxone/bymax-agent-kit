@@ -96,11 +96,28 @@ def run_case(root, selector, files, deadline=CLEAN):
         try:
             out, err = child.communicate(timeout=deadline)
         except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGKILL)
-            child.communicate()
+            stop(child)
             return None, 'timed out after %ds' % deadline
+        except BaseException:
+            # In a session of its own pytest no longer hears the terminal's Ctrl-C, so an
+            # interrupted matrix left it spinning under the mutant.
+            stop(child)
+            raise
     tail = out.strip().splitlines()
     return child.returncode, (tail[-1] if tail else err[-160:])
+
+
+def stop(child):
+    """Kill the child's process group, or the child alone where the group is already gone,
+    and wait a bounded time for its pipes: a detached descendant may hold them for good."""
+    try:
+        os.killpg(child.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        child.kill()
+    try:
+        child.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def outcome(tail):
@@ -111,9 +128,10 @@ def outcome(tail):
     case never ran. Measured on this file's own fixtures — replacing a `def` line with a
     module-scope raise recorded two mutants as caught, and neither case had executed.
     """
-    # A case that never finishes under a mutant is one the mutant changed: it failed to end.
+    # A run that never ends says nothing about where it stopped: it may hang importing the
+    # module, before any test body runs, so it is read as a crash and not as a catch.
     if tail.startswith('timed out'):
-        return 'failed'
+        return 'error'
     failed = re.search(r'(\d+) failed', tail)
     errored = re.search(r'(\d+) error', tail)
     # An error anywhere means some case did not run, whatever else the line says. Reading
@@ -323,10 +341,10 @@ def judged(mutant, runs):
     crash and not a measurement, whatever the other nodes did."""
     errored = [tail for node, tail in runs if outcome(tail) == 'error']
     if errored:
-        bail('Mutant for %r stopped the tree from loading rather than failing the case (%s). '
-             'That is a crash, not a measurement: the case never ran, and every case would '
-             'report the same. Mutate what the gate reads, not what the module needs to '
-             'import.' % (mutant['case'], errored[0]))
+        bail('Mutant for %r stopped the tree from loading or finishing rather than failing the '
+             'case (%s). That is a crash, not a measurement: the case may never have run, and '
+             'every case would report the same. Mutate what the gate reads, not what the module '
+             'needs to import or a loop needs to end.' % (mutant['case'], errored[0]))
     failed = [node for node, tail in runs if outcome(tail) == 'failed']
     saw = dict(runs)[failed[0]] if failed else (runs[-1][1] if runs else 'no node collected for the case')
     return failed, saw
