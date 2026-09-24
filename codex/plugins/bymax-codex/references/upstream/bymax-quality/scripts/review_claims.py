@@ -338,8 +338,8 @@ def orphaned(base, head, cwd=None):
     heuristic: a docstring line or a keyword argument shaped like a definition reads as one,
     and a delta that rewords it reads as removing it, which refuses a candidate that removed
     nothing. So text only keeps a name alive: as the head of a file whose head does not parse,
-    and as a file the alive search reads that does not parse. A file whose base does not parse contributes no
-    removal: a stated gap, because a heuristic that refuses is worse than none.
+    and as a file the alive search reads that does not parse. A file whose base does not parse
+    contributes no removal: a stated gap, because a heuristic that refuses is worse than none.
     """
     lost = set()
     for name in touched(base, head, cwd=cwd):
