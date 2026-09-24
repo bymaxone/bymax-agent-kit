@@ -128,10 +128,6 @@ def outcome(code, tail):
     exit 1 with a summary saying so, a pass is exit 0 with no failure in it, and a run whose two
     disagree is refused like a crash.
     """
-    # A run that never ends says nothing about where it stopped: it may hang importing the
-    # module, before any test body runs, so it is read as a crash and not as a catch.
-    if tail.startswith('timed out'):
-        return 'error'
     failed = re.search(r'(\d+) failed', tail)
     errored = re.search(r'(\d+) error', tail)
     # An error anywhere means some case did not run, whatever else the line says. Reading
@@ -141,6 +137,8 @@ def outcome(code, tail):
         return 'error'
     if failed:
         return 'failed' if code == 1 else 'error'
+    # A run that never ended has no status, and says nothing about where it stopped: it may
+    # hang importing the module, before any test body runs, so it is a crash and not a catch.
     return 'passed' if code == 0 else 'error'
 
 
