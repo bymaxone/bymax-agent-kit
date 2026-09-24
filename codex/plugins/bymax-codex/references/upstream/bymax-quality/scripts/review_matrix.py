@@ -38,15 +38,15 @@ import tempfile
 import sys
 from pathlib import Path
 
-# `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
-# starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
-# The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
 from review_collect import MARK
 
 # A run under a mutant may take this many times its clean run, and never less than FLOOR
 # seconds: a mutant that disables a stop condition otherwise leaves pytest waiting forever,
 # and the restore that follows it is never reached.
 SLACK, FLOOR, CLEAN = 10, 60, 1800
+# `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
+# starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
+# The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
 PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
 
 
@@ -86,8 +86,8 @@ def run_case(root, selector, files, deadline=CLEAN):
     the same size inside one second serve the previous one's result — and the direction that
     lies is 'broke nothing', which manufactures a false claim that a rule is uncovered.
 
-    Past `deadline` seconds the whole process group is killed, pytest and whatever it started,
-    and the run reads as timed out.
+    Past `deadline` seconds the whole process group is killed, pytest and each child it did not
+    detach, and the run reads as timed out.
     """
     caches(root)
     args = [*PYTEST, *arguments(root, files)] + (['-k', selector] if selector else [])
@@ -99,8 +99,8 @@ def run_case(root, selector, files, deadline=CLEAN):
             stop(child)
             return None, 'timed out after %ds' % deadline
         except BaseException:
-            # In a session of its own pytest no longer hears the terminal's Ctrl-C, so an
-            # interrupted matrix left it spinning under the mutant.
+            # In a session of its own pytest does not hear the terminal's Ctrl-C, so an
+            # interrupted matrix would leave it running under the mutant.
             stop(child)
             raise
     tail = out.strip().splitlines()
