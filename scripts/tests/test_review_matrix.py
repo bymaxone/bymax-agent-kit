@@ -357,7 +357,7 @@ class MeaningTests(unittest.TestCase):
     def test_a_mutant_outside_the_tracked_tree_is_refused(self):
         """A catch earned outside the candidate is not evidence about it: a helper outside the
         root, reached by `..` or an absolute path, and a file inside it git does not track, are
-        refused before anything runs. The tracked guard is still accepted."""
+        refused before any mutant runs. The tracked guard is still accepted."""
         bench = Bench(self)
         outside = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, outside, True)
