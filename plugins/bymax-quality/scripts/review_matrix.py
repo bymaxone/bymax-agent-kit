@@ -38,15 +38,15 @@ import tempfile
 import sys
 from pathlib import Path
 
-# `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
-# starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
-# The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
 from review_collect import MARK
 
 # A run under a mutant may take this many times its clean run, and never less than FLOOR
 # seconds: a mutant that disables a stop condition otherwise leaves pytest waiting forever,
 # and the restore that follows it is never reached.
 SLACK, FLOOR, CLEAN = 10, 60, 1800
+# `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
+# starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
+# The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
 PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
 
 
