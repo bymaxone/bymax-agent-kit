@@ -439,6 +439,7 @@ def matrix(root, spec, files):
         bail('Two rules share a name: a result is told from another by its rule, so each rule '
              'needs one of its own.')
     untested(root, spec, files)
+    confined(root, spec)
     for rule in spec:
         declared = enumerated(root, rule)
         mutants = rule.get('mutants') or []
@@ -496,6 +497,24 @@ def untested(root, spec, files):
                 bail('Mutant for %r mutates %s, which the matrix runs as a test or which tests '
                      'stand on. A catch there measures the test and not the rule: mutate the '
                      'code the test covers.' % (mutant['case'], mutant['file']))
+
+
+def confined(root, spec):
+    """Refuse a mutant of a file outside the reviewed tree, or one git does not track there.
+    A matrix is evidence about the candidate: a catch earned by mutating a helper in /tmp, or an
+    untracked file no diff shows, measures something no review reads, and the fingerprint would
+    hash it as if it were the tree. The file is read where it is, as untested() reads it."""
+    real = os.path.realpath(root)
+    for rule in spec:
+        for mutant in rule['mutants']:
+            where = os.path.relpath(os.path.realpath(os.path.join(root, mutant['file'])), real)
+            outside = where == os.pardir or where.startswith(os.pardir + os.sep)
+            if outside or subprocess.run(['git', '-C', real, 'ls-files', '--error-unmatch', '--', where],
+                                         capture_output=True).returncode != 0:
+                bail('Mutant for %r mutates %s, which is %s. A matrix measures the tree under '
+                     'review: mutate a file the candidate tracks.'
+                     % (mutant['case'], mutant['file'],
+                        'outside the reviewed tree' if outside else 'not tracked in it'))
 
 
 def digest(root, names):
