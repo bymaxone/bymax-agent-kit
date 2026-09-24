@@ -308,9 +308,9 @@ def parsed(text):
 
 def declared(tree):
     """Names a syntax tree defines: each def and class, async included, and each CONSTANT_CASE
-    name assigned, `LIMIT: int = 3` as much as `LIMIT = 3`. Read from the tree because text
-    shaped like an assignment is not one: a docstring line `FLAG: set FLAG=1` or a dict entry
-    `EACCES: f(retry=0),` is no definition, and rewording it removes none."""
+    name assigned, not unpacked, `LIMIT: int = 3` as much as `LIMIT = 3`. Read from the tree
+    because text shaped like an assignment is not one: a docstring line `FLAG: set FLAG=1` or a
+    dict entry `EACCES: f(retry=0),` is no definition, and rewording it removes none."""
     found, constant = set(), re.compile(r'[A-Z][A-Z0-9_]{2,}')
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
