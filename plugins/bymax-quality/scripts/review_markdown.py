@@ -1,17 +1,12 @@
 """Markdown block layer: which lines of a document are code blocks, read as CommonMark reads them.
 
-The block-structure layer under review_claims: it knows fences, indented code, HTML blocks,
-lists, block quotes and link reference definitions, and nothing about git, a delta or a claim.
-review_claims asks it one question through outside_code() — which lines are prose — and both
-the claims report and the prose/code split read that one answer.
+The block-structure layer under review_claims: it knows nothing about git, a delta or a claim.
 
 A line is judged against the lines before it, so the reading is a walk with state rather than
 a pattern: every regex spelling tried for it fixed one shape while breaking another.
 """
 import re
 
-# A name inside a code block is an example about somebody else's repository, and reading it
-# as an assertion refused a candidate whose README merely showed the call.
 FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
 NESTING = 100
 ITEM = re.compile(r'^ *(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$))+')
@@ -108,7 +103,7 @@ class Walk:
             # An item opened empty ends at a blank line unless its content comes first.
             self.empty = not view.strip(' ')
             return line if self.empty or self.read(view) == view else ' '
-        # Past NESTING a marker is read as text: each level is a frame, and a line of a
+        # Past NESTING a `>` is read as text: each level is a frame, and a line of a
         # thousand markers exhausted the interpreter's recursion limit.
         if self.depth < NESTING and quotes(line, self.content):
             self.quote = Walk(self.depth + 1)
