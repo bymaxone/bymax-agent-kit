@@ -645,6 +645,8 @@ class OpaqueFileTests(unittest.TestCase):
          '<!--\nx\n-->\n\n    OLD_HELPER()'),
         ('a block after a thematic break spelled with list markers',
          '- a\n- - -\n\n    OLD_HELPER()'),
+        ('a tilde fence whose info string holds a backtick',
+         '~~~ python`ok\nOLD_HELPER()\n~~~'),
     )
 
     ASSERTIONS = (
@@ -847,6 +849,12 @@ class OpaqueFileTests(unittest.TestCase):
          '<pre>\n\n    We removed OLD_HELPER.\n</pre>'),
         ('a paragraph a lazy HTML tag cannot interrupt',
          '> para\n<span>\n    We removed OLD_HELPER.'),
+        ('a backtick fence whose info string holds a backtick',
+         '```python`bad\nWe removed OLD_HELPER.\n```'),
+        ('a quoted paragraph a backtick run with a backtick in its info continues',
+         '> para\n```a`b\n>     We removed OLD_HELPER.'),
+        ('an item a backtick run with a backtick in its info continues',
+         '- item\n```x`y\nWe removed OLD_HELPER.'),
     )
 
     def test_a_name_inside_a_code_block_is_an_example(self):

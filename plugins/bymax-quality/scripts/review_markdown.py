@@ -271,7 +271,7 @@ def lazy(line, items, restricted):
     first = MARKER.match(text)
     if item and restricted and not (first and text[first.end():].strip(' ') and FIRST.match(text)):
         item = None
-    return not (item or text.startswith('>') or html(text, True) or FENCE.match(text)
+    return not (item or text.startswith('>') or html(text, True) or opens(text)
                 or closing(text))
 
 
@@ -345,9 +345,12 @@ def listing(line, indent, items):
 
 
 def opens(line):
-    """The fence this line opens, as its character and its length, or None where it opens none."""
+    """The fence this line opens, as its character and its length, or None where it opens none.
+    A backtick fence's info string may hold no backtick: with one, the line is paragraph text."""
     found = FENCE.match(line)
-    return (found['run'][0], len(found['run'])) if found else None
+    if not found or found['run'][0] == '`' and '`' in found['info']:
+        return None
+    return found['run'][0], len(found['run'])
 
 
 def closes(line, fence):
