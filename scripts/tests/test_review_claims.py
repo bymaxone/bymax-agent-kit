@@ -160,13 +160,22 @@ class RetiredNameTests(unittest.TestCase):
         self.assertEqual(tree.retired(), [])
 
     def test_a_name_the_file_assigns_is_alive(self):
-        """A def refactored into an alias, `old_helper = replacement`, still binds the name a
-        sentence names, whatever its case and with or without an annotation."""
-        for head in ('old_helper = print\n', 'old_helper: object = print\n'):
+        """A def refactored into a binding still binds the name a sentence names, in every form a
+        binding takes; a bare annotation and a name only read bind nothing."""
+        for head in ('old_helper = print\n', 'old_helper: object = print\n',
+                     'old_helper, other = print, len\n', '[old_helper, *rest] = [print]\n',
+                     'for old_helper in [print]:\n    pass\n', 'with open(__file__) as old_helper:\n    pass\n',
+                     '(old_helper := print)\n', 'try:\n    pass\nexcept Exception as old_helper:\n    pass\n'):
             with self.subTest(head):
                 tree = Tree(self, {'a.py': 'def old_helper(x):\n    return x\n# calls old_helper\n'},
                             {'a.py': head + '# calls old_helper\n'})
                 self.assertEqual(tree.retired(), [])
+        # Binding nothing: a bare annotation, and a name only read.
+        for head in ('old_helper: object\n', 'value = old_helper\n'):
+            with self.subTest(head):
+                tree = Tree(self, {'a.py': 'def old_helper(x):\n    return x\n# calls old_helper\n'},
+                            {'a.py': head + '# calls old_helper\n'})
+                self.assertEqual(tree.retired(), [('a.py', 'old_helper')])
 
     def test_a_name_moved_in_any_shape_the_tree_counts_is_alive(self):
         """The tree counts a name after a semicolon or in a chained assignment, so the search
