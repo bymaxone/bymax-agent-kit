@@ -354,6 +354,34 @@ class MeaningTests(unittest.TestCase):
         self.assertEqual(matrix.outcome(1, '1 failed, 20 deselected in 0.11s'), 'failed')
         self.assertEqual(matrix.outcome(0, '1 passed, 20 deselected in 0.08s'), 'passed')
 
+    def test_the_test_directory_rule_reads_where_the_file_is(self):
+        """A spelling is not a place: `..`, an absolute path and a symlink name the file where
+        it is, relative to the root, and a directory above the root named test is not one the
+        tests stand on. A symlink to tests/ or to a conftest.py is what it points at."""
+        top = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, top, True)
+        root = top / 'test' / 'repo'
+        (root / 'tests').mkdir(parents=True)
+        (root / 'calc.py').write_text('LIMIT = 1\n')
+        (root / 'test_calc.py').write_text('def test_calc(): assert True\n')
+        (root / 'tests' / 'helper.py').write_text('ALLOWED = True\n')
+        (root / 'conftest.py').write_text('SEEN = 1\n')
+        (root / 'support').symlink_to('tests')
+        (root / 'fixtures.py').symlink_to('conftest.py')
+
+        def refused(name):
+            try:
+                matrix.untested(str(root), [{'mutants': [{'file': name, 'case': 'calc'}]}], ['test_calc.py'])
+            except SystemExit:
+                return True
+            return False
+        for name in ('calc.py', str(root / 'calc.py'), 'tests/../calc.py'):
+            with self.subTest(name):
+                self.assertFalse(refused(name))
+        for name in ('support/helper.py', 'fixtures.py'):
+            with self.subTest(name):
+                self.assertTrue(refused(name))
+
     def test_a_summary_its_exit_status_does_not_back_is_a_crash(self):
         """The summary is the last line a run printed, and a plugin can print `1 failed` after
         pytest's own; exit 0 beside it is a run that passed. Either disagreement is refused."""
