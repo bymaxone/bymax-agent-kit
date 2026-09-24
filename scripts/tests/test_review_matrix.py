@@ -526,6 +526,9 @@ class EnumerationTests(unittest.TestCase):
         self.refused(bench, 'repeats a mutant', enumeration='grep -c "v > LIMIT" thing.py',
                      mutants=[twice, dict(twice, file='sub/../thing.py')])
         os.link(bench.where / 'thing.py', bench.where / 'other.py')
+        for args in (['add', 'other.py'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A',
+                                           'commit', '-q', '-m', 'a tracked hard link']):
+            subprocess.run(['git', '-C', str(bench.where), *args], check=True)
         self.refused(bench, 'repeats a mutant', enumeration='grep -c "v > LIMIT" thing.py',
                      mutants=[twice, dict(twice, file='other.py')])
         self.refused(bench, 'not a file here', enumeration='echo 1', mutants=[dict(twice, file='missing.py')])
