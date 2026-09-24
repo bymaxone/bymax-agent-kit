@@ -152,7 +152,7 @@ def payload(root=None):
 
 
 def complete(carried):
-    """Refuse a short payload BEFORE the first write, and refuse it by what git tracks.
+    """Refuse a short payload or an untracked extra BEFORE the first write, by what git tracks.
 
     Deriving what to copy removed the one thing the hand-kept tuple did well: failing when a
     file was absent. An installer that reports success while planting a runtime missing a
@@ -172,10 +172,17 @@ def complete(carried):
     if listed.returncode != 0 or not tracked:
         raise SystemExit('Refusing to install: this package is not a git checkout, so what it '
                          'should carry cannot be read. Install from a clone.')
-    missing = tracked - {path.name for path in carried}
+    names = {path.name for path in carried}
+    missing = tracked - names
     if missing:
         raise SystemExit('Refusing to install: the package is missing %s, which git tracks '
                          'beside the runtime.' % ', '.join(sorted(missing)))
+    # An untracked file beside the runtime is installed with it, and one named after a standard
+    # module (json.py) shadows it and stops review_flow.py from importing, guard and all.
+    extra = names - tracked
+    if extra:
+        raise SystemExit('Refusing to install: %s beside the runtime is not tracked by git, and '
+                         'would be installed with it. Remove it or track it.' % ', '.join(sorted(extra)))
 
 
 def install(home, overlay):
