@@ -358,7 +358,7 @@ class MeaningTests(unittest.TestCase):
         """A collect runs the repository's import-time code, and a loop there that only a
         collect reaches never returns. Bounded, refused by name, and its process group dies."""
         clean = matrix.CLEAN
-        matrix.CLEAN = 3
+        matrix.CLEAN = 10
         self.addCleanup(setattr, matrix, 'CLEAN', clean)
         bench = Bench(self, test='import os, subprocess, sys\nif "--collect-only" in sys.argv:\n'
                                  '    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])\n'
@@ -379,6 +379,29 @@ class MeaningTests(unittest.TestCase):
         # The whole group, not pytest alone: a process the collect started dies with it.
         with self.assertRaises(ProcessLookupError):
             os.kill(int((bench.where / 'grandchild.pid').read_text()), 0)
+
+    def test_a_collect_that_times_out_answers_nothing(self):
+        """The campaign asks whether a changed file is a test by collecting its directory, and
+        reads a refusal as "not a test module" when the file alone collects. A timeout is not
+        that answer: beside a neighbour that loops on import, the changed test must come back
+        unanswered, None, so the gate refuses rather than opens."""
+        sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
+        import review_flow
+        clean = matrix.CLEAN
+        matrix.CLEAN = 3
+        self.addCleanup(setattr, matrix, 'CLEAN', clean)
+        bench = Bench(self)
+        (bench.where / 'tests').mkdir()
+        (bench.where / 'tests' / 'test_a.py').write_text('def test_a():\n    assert True\n')
+        (bench.where / 'tests' / 'test_hang.py').write_text(
+            'import sys\nif "--collect-only" in sys.argv:\n    while True:\n        pass\n')
+        for args in (['add', '-A'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A',
+                                     'commit', '-q', '-m', 'a test beside a looping neighbour']):
+            subprocess.run(['git', '-C', str(bench.where), *args], check=True)
+        here = os.getcwd()
+        os.chdir(bench.where)
+        self.addCleanup(os.chdir, here)
+        self.assertIsNone(review_flow.collects_a_test('tests/test_a.py'))
 
     def test_a_mutant_outside_the_tracked_tree_is_refused(self):
         """A catch earned outside the candidate is not evidence about it: a helper outside the

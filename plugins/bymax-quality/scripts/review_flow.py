@@ -1103,13 +1103,19 @@ def collects_a_test(path):
     if not path.endswith('.py') or not Path(root, path).is_file():
         return False
     where = [str(Path(path).parent) or '.']
+    # A collect that ran out of time answered nothing, and the file alone collecting fine would
+    # then read as "not a test module": the gate opened on a neighbour that loops on import.
     try:
         return path in review_matrix.nodes(root, where)
+    except review_matrix.Unfinished:
+        return None
     except SystemExit:
         pass
     try:
         if path in review_matrix.nodes(root, where, tolerant=True):
             return True
+    except review_matrix.Unfinished:
+        return None
     except SystemExit:
         pass
     try:

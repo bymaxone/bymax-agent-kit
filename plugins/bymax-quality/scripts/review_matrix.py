@@ -62,6 +62,11 @@ def pytest_env():
     return env
 
 
+class Unfinished(SystemExit):
+    """A refusal for a collect that ran out of time. It answered nothing, which is not "no test
+    here": a caller that reads a refusal as a file collecting nothing must tell this one apart."""
+
+
 def bail(message):
     """Refuse, carrying the reason on the exception.
 
@@ -639,8 +644,9 @@ def collect_run(real, root, files, selector, token, box):
             out, err = child.communicate(timeout=CLEAN)
         except subprocess.TimeoutExpired:
             stop(child)
-            bail('pytest did not finish collecting %s in %ds. A collect that never ends names no '
-                 'test, and the matrix cannot run what it cannot list.' % (' '.join(files), CLEAN))
+            raise Unfinished('BLOCKED: pytest did not finish collecting %s in %ds. A collect that '
+                             'never ends names no test, and the matrix cannot run what it cannot '
+                             'list.' % (' '.join(files), CLEAN))
         except BaseException:
             stop(child)
             raise
