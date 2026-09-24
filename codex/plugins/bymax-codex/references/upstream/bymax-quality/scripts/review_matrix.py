@@ -473,17 +473,23 @@ def matrix(root, spec, files):
 
 
 def untested(root, spec, files):
-    """Refuse a mutant of a file the matrix runs as a test. Breaking a test makes it fail
-    whatever the code it covers does, so `assert 1 == 1` mutated to `1 == 2` is caught, and a
-    vacuous test would carry a correction's evidence. A conftest.py is refused with them: its
-    fixtures are what the tests stand on."""
+    """Refuse a mutant of a file the matrix runs as a test, or of code only tests stand on.
+    Breaking a test makes it fail whatever the code it covers does, so `assert 1 == 1` mutated
+    to `1 == 2` is caught, and a vacuous test would carry a correction's evidence; a helper the
+    test imports does the same from one file over. So a conftest.py is refused, and any file
+    under a directory named tests or test. The directory's name and not its contents: a test
+    kept beside the module it covers shares that module's directory, and refusing the
+    directory of every collected test refused the code under review. A helper named neither
+    way is a stated gap."""
     tests = {place(root, name) for name in nodes(root, files)}
     for rule in spec:
         for mutant in rule['mutants']:
-            if place(root, mutant['file']) in tests or Path(mutant['file']).name == 'conftest.py':
-                bail('Mutant for %r mutates %s, which the matrix runs as a test. A catch there '
-                     'measures the test and not the rule: mutate the code the test covers.'
-                     % (mutant['case'], mutant['file']))
+            parts = [part.lower() for part in Path(mutant['file']).parts[:-1]]
+            if place(root, mutant['file']) in tests or Path(mutant['file']).name == 'conftest.py' \
+                    or 'tests' in parts or 'test' in parts:
+                bail('Mutant for %r mutates %s, which the matrix runs as a test or which tests '
+                     'stand on. A catch there measures the test and not the rule: mutate the '
+                     'code the test covers.' % (mutant['case'], mutant['file']))
 
 
 def digest(root, names):
