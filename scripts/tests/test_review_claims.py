@@ -155,35 +155,53 @@ class RetiredNameTests(unittest.TestCase):
                             {'a.py': '', 'b.py': shape, 'README.md': 'Uses `LIMIT_MAX`.\n'})
                 self.assertEqual(tree.retired(), [])
 
-    def test_both_sides_of_a_file_are_read_by_one_reader(self):
-        """A side that does not parse is read as text, and so is the other side then: a text
-        read subtracted from a tree read turns every line the text mistakes for a definition
-        into a removal. A removal the text read sees on both sides is still one, and a name it
-        lost is alive where the tree defines it elsewhere."""
-        kwarg = 'import os\nos.environ.update(dict(\n    BYMAX_HOME="/opt",\n))\n# BYMAX_HOME is set\n'
-        tree = Tree(self, {'a.py': '\ufeff' + kwarg}, {'a.py': kwarg})
-        self.assertEqual(tree.retired(), [])
-        doc = '"""Environment:\n    BYMAX_FLAG: turns it on, as in BYMAX_FLAG=1.\n"""\n'
-        tree = Tree(self, {'a.py': doc + 'print "x"\n', 'README.md': 'Set `BYMAX_FLAG`.\n'},
-                    {'a.py': doc + 'print("x")\n', 'README.md': 'Set `BYMAX_FLAG`.\n'})
-        self.assertEqual(tree.retired(), [])
-        tree = Tree(self, {'a.py': 'OLD_LIMIT = 1\nprint "x"\n', 'README.md': 'Uses `OLD_LIMIT`.\n'},
-                    {'a.py': 'print("x")\n', 'README.md': 'Uses `OLD_LIMIT`.\n'})
-        self.assertEqual(tree.retired(), [('README.md', 'OLD_LIMIT')])
-        tree = Tree(self, {'a.py': 'OLD_LIMIT = 1\nprint "x"\n', 'b.py': '',
-                           'README.md': 'Uses `OLD_LIMIT`.\n'},
-                    {'a.py': 'print("x")\n', 'b.py': 'FIRST = OLD_LIMIT = 1\n',
-                     'README.md': 'Uses `OLD_LIMIT`.\n'})
-        self.assertEqual(tree.retired(), [])
+    def test_only_the_tree_makes_a_name_lost(self):
+        """Text shaped like a definition is not one, so the text read of a file that does not
+        parse only keeps a name alive. The base's tree decides what was lost; a head that does
+        not parse narrows it by its text; a base that does not parse contributes nothing."""
+        cases = (
+            ('removed from a base that parses', 'OLD_LIMIT = 1\n', 'print "x"\n', ['README.md']),
+            ('kept in the text of a head that does not parse',
+             'OLD_LIMIT = 3\ndef old_helper(x):\n    return x\n',
+             'OLD_LIMIT = 3\ndef old_helper(x):\n    return x\nprint "x"\n', []),
+            ('removed, with a docstring in the same file shaped like it',
+             'OLD_LIMIT = 1\ndef f():\n    """Uses it.\n\n    OLD_LIMIT: was = 1.\n    """\n',
+             'def f():\n    """Uses it.\n\n    OLD_LIMIT: was = 1.\n    """\n', ['README.md', 'a.py']),
+            ('a docstring reworded beside a line that does not parse',
+             '"""Environment:\n    OLD_LIMIT: on, as in OLD_LIMIT=1.\n"""\n',
+             '"""Environment:\n    OLD_LIMIT: set it to 1.\n"""\nprint "x"\n', []),
+            ('a keyword argument dropped beside a line that does not parse',
+             'import os\nos.environ.update(dict(\n    OLD_LIMIT="/opt",\n))\n', 'print "x"\n', []),
+            ('a base that does not parse, ported', 'OLD_LIMIT = 1\nprint "x"\n', 'print("x")\n', []),
+            ('a base that does not parse, half-written', 'OLD_LIMIT = 1\ndef broken(:\n', 'def broken(:\n', []),
+        )
+        for label, before, after, lost in cases:
+            with self.subTest(label):
+                tree = Tree(self, {'a.py': before, 'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'},
+                            {'a.py': after, 'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'})
+                self.assertEqual(tree.retired(), [(where, 'OLD_LIMIT') for where in lost])
 
-    def test_a_file_that_does_not_parse_is_read_as_text(self):
-        """A half-written file still answers: its definitions are read from the text."""
-        tree = Tree(self, {'a.py': 'OLD_LIMIT = 1\ndef old_helper(x):\n    return x\ndef broken(:\n',
-                           'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'},
-                    {'a.py': 'def broken(:\n', 'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'})
-        self.assertEqual(tree.retired(), [('README.md', 'OLD_LIMIT'), ('README.md', 'old_helper')])
+    def test_a_name_moved_into_a_file_that_does_not_parse_is_alive(self):
+        """The text read keeps a name alive where the tree cannot read the file at all."""
         tree = Tree(self, {'a.py': 'LIMIT_MAX = 3\n', 'b.py': 'print "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'},
                     {'a.py': '', 'b.py': 'LIMIT_MAX = 3\nprint "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_a_leading_bom_is_python(self):
+        """A BOM is valid Python, so a file carrying one is read by its tree: a removal from it
+        is reported, and adding one beside a reworded docstring or a dropped keyword argument
+        reads nothing as removed."""
+        tree = Tree(self, {'a.py': '\ufeffOLD_LIMIT = 1\n', 'README.md': 'Uses `OLD_LIMIT`.\n'},
+                    {'a.py': '\ufeff\n', 'README.md': 'Uses `OLD_LIMIT`.\n'})
+        self.assertEqual(tree.retired(), [('README.md', 'OLD_LIMIT')])
+        doc = '"""Environment:\n    BYMAX_FLAG: turns it on, as in BYMAX_FLAG=1.\n"""\n'
+        tree = Tree(self, {'a.py': doc, 'README.md': 'Set `BYMAX_FLAG`.\n'},
+                    {'a.py': '\ufeff' + doc.replace('turns it on, as in BYMAX_FLAG=1.', 'set it to 1.'),
+                     'README.md': 'Set `BYMAX_FLAG`.\n'})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'import os\nos.environ.update(dict(\n    BYMAX_HOME="/opt",\n))\n',
+                           'README.md': 'Set `BYMAX_HOME`.\n'},
+                    {'a.py': '\ufeffimport os\nos.environ.update(dict())\n', 'README.md': 'Set `BYMAX_HOME`.\n'})
         self.assertEqual(tree.retired(), [])
 
     def test_a_comment_after_code_is_read_for_what_it_names(self):
