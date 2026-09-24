@@ -72,27 +72,22 @@ def bail(message):
     raise SystemExit('BLOCKED: ' + message)
 
 
-def caches(root):
-    """Drop every __pycache__ under root. CPython invalidates bytecode on (mtime, size),
-    so two mutants of one size within a second would serve the first one's bytecode to
-    the second's run; cleared after every restore, the next run compiles what is there."""
-    for path in Path(root).rglob('__pycache__'):
-        shutil.rmtree(path, ignore_errors=True)
-
-
 def run_case(root, selector, files, deadline=CLEAN):
     """Run one case: the selector over these paths, or with no selector one node id, which
     selects itself. CPython invalidates bytecode on (mtime seconds, size), so two mutants of
     the same size inside one second serve the previous one's result — and the direction that
-    lies is 'broke nothing', which manufactures a false claim that a rule is uncovered.
+    lies is 'broke nothing', which manufactures a false claim that a rule is uncovered. So each
+    run reads bytecode from an empty directory of its own and writes none, and nothing under
+    root is deleted to get there: a file tracked beneath a __pycache__ belongs to the tree.
 
     Past `deadline` seconds the whole process group is killed, pytest and each child it did not
     detach, and the run reads as timed out.
     """
-    caches(root)
     args = [*PYTEST, *arguments(root, files)] + (['-k', selector] if selector else [])
-    with subprocess.Popen(args, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          text=True, env=pytest_env(), start_new_session=True) as child:
+    with tempfile.TemporaryDirectory() as empty, \
+            subprocess.Popen(args, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
+                             start_new_session=True) as child:
         try:
             out, err = child.communicate(timeout=deadline)
         except subprocess.TimeoutExpired:
@@ -275,7 +270,6 @@ def one(root, mutant, files, clean=None):
         runs = [(node, run_case(root, None, [node], deadline)[1]) for node, deadline in nodes_of_case]
     finally:
         path.write_bytes(original)
-        caches(root)
     failed, saw = judged(mutant, runs)
     # The whole identity travels with the result, so a record's results can be told apart
     # the way the spec's mutants are: a result repeated to match a forged count is not two.
