@@ -125,7 +125,7 @@ def outcome(code, tail):
 
     The summary line alone is not the verdict either: it is the last line a run printed, and a
     plugin in the repository under review can print `1 failed` after it. A failure is pytest's
-    exit 1 with a summary saying so, a pass is exit 0 with one saying so, and a run whose two
+    exit 1 with a summary saying so, a pass is exit 0 with no failure in it, and a run whose two
     disagree is refused like a crash.
     """
     # A run that never ends says nothing about where it stopped: it may hang importing the
