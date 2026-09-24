@@ -303,11 +303,15 @@ def defines(name, text):
 
 
 def assigned(tree):
-    """Names an assignment binds, not unpacked, in any case, annotated ones with a value."""
-    return {target.id for node in ast.walk(tree)
-            if isinstance(node, ast.Assign) or isinstance(node, ast.AnnAssign) and node.value is not None
-            for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
-            if isinstance(target, ast.Name)}
+    """Names a binding creates in this tree, in any case: every name in a store position, which
+    is an assignment's target, unpacked or not, a for or with target and a walrus, and the name
+    an except clause binds. A bare annotation, `x: int`, binds nothing."""
+    bare = {id(node.target) for node in ast.walk(tree)
+            if isinstance(node, ast.AnnAssign) and node.value is None}
+    stored = {node.id for node in ast.walk(tree)
+              if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and id(node) not in bare}
+    return stored | {node.name for node in ast.walk(tree)
+                     if isinstance(node, ast.ExceptHandler) and node.name}
 
 
 def imported(tree):
