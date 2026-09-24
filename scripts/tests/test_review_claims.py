@@ -174,6 +174,8 @@ class RetiredNameTests(unittest.TestCase):
              'import os\nos.environ.update(dict(\n    OLD_LIMIT="/opt",\n))\n', 'print "x"\n', []),
             ('removed, a longer name kept beside a line that does not parse',
              'OLD_LIMIT = 1\nOLD_LIMIT_MAX = 2\n', 'OLD_LIMIT_MAX = 2\nprint "x"\n', ['README.md']),
+            ('removed, a longer name ending in it kept beside a line that does not parse',
+             'OLD_LIMIT = 1\nNEW_OLD_LIMIT = 2\n', 'NEW_OLD_LIMIT = 2\nprint "x"\n', ['README.md']),
             ('a chained definition beside a line that does not parse',
              'FIRST = OLD_LIMIT = 1\n', 'FIRST = OLD_LIMIT = 1\nprint "x"\n', []),
             ('a definition after a semicolon beside a line that does not parse',
