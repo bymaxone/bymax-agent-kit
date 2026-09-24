@@ -115,13 +115,18 @@ def stop(child):
         pass
 
 
-def outcome(tail):
-    """Whether a run FAILED a case or merely stopped working.
+def outcome(code, tail):
+    """Whether a run FAILED a case, passed it, or merely stopped working.
 
     `exit != 0` cannot tell the two apart, and the difference is the whole measurement: a
     mutant that breaks the import makes every case error, which reads as "caught" while the
     case never ran. Measured on this file's own fixtures — replacing a `def` line with a
     module-scope raise recorded two mutants as caught, and neither case had executed.
+
+    The summary line alone is not the verdict either: it is the last line a run printed, and a
+    plugin in the repository under review can print `1 failed` after it. A failure is pytest's
+    exit 1 with a summary saying so, a pass is exit 0 with one saying so, and a run whose two
+    disagree is refused like a crash.
     """
     # A run that never ends says nothing about where it stopped: it may hang importing the
     # module, before any test body runs, so it is read as a crash and not as a catch.
@@ -134,7 +139,9 @@ def outcome(tail):
     # was recorded caught, and the three that never ran were invisible.
     if errored:
         return 'error'
-    return 'failed' if failed else 'passed'
+    if failed:
+        return 'failed' if code == 1 else 'error'
+    return 'passed' if code == 0 else 'error'
 
 
 def per_row(rows):
@@ -267,7 +274,7 @@ def one(root, mutant, files, clean=None):
         # One pytest per node: run together under the selector, the summary line said some
         # test failed and not which, and a vacuous changed test was credited with what an
         # older test of the same name in another file caught.
-        runs = [(node, run_case(root, None, [node], deadline)[1]) for node, deadline in nodes_of_case]
+        runs = [(node, *run_case(root, None, [node], deadline)) for node, deadline in nodes_of_case]
     finally:
         path.write_bytes(original)
     failed, saw = judged(mutant, runs)
@@ -302,7 +309,7 @@ def baseline(root, files, case):
         # Passed, not merely exited zero: pytest exits zero on a skip, and a mutant that changed
         # the skip condition made the node run and fail, which read as a catch. A skipped node
         # is left out of the measurement, the way ran_alone() leaves it out of the demand.
-        if outcome(clean_tail) == 'passed' and re.search(r'\d+ passed', clean_tail):
+        if outcome(clean_code, clean_tail) == 'passed' and re.search(r'\d+ passed', clean_tail):
             ran.append((node, max(FLOOR, int(SLACK * taken) + 1)))
     if not ran:
         bail('Case %r runs no test on the clean tree under %s: every node it collects is skipped '
@@ -325,7 +332,7 @@ def ran_alone(root, nodes):
         # Clean, not merely passing: a test whose body passes and whose teardown raises reads
         # `1 passed, 1 error`, and a mutant run that errors stops the matrix in judged(), never
         # counted as a catch — so demanding that node would be a demand nobody could satisfy.
-        if code == 0 and outcome(tail) == 'passed' and re.search(r'\d+ passed', tail):
+        if outcome(code, tail) == 'passed' and re.search(r'\d+ passed', tail):
             kept.append(node)
     return kept
 
@@ -333,14 +340,16 @@ def ran_alone(root, nodes):
 def judged(mutant, runs):
     """The nodes whose own run FAILED, and the line that said so. A run that errored is a
     crash and not a measurement, whatever the other nodes did."""
-    errored = [tail for node, tail in runs if outcome(tail) == 'error']
+    errored = [tail for node, code, tail in runs if outcome(code, tail) == 'error']
     if errored:
         bail('Mutant for %r stopped the tree from loading or finishing rather than failing the '
-             'case (%s). That is a crash, not a measurement: the case may never have run, and '
-             'every case would report the same. Mutate what the gate reads, not what the module '
-             'needs to import or a loop needs to end.' % (mutant['case'], errored[0]))
-    failed = [node for node, tail in runs if outcome(tail) == 'failed']
-    saw = dict(runs)[failed[0]] if failed else (runs[-1][1] if runs else 'no node collected for the case')
+             'case, or ended a run whose exit status and summary disagree (%s). That is a crash, '
+             'not a measurement: the case may never have run, and every case would report the '
+             'same. Mutate what the gate reads, not what the module needs to import or a loop '
+             'needs to end.' % (mutant['case'], errored[0]))
+    failed = [node for node, code, tail in runs if outcome(code, tail) == 'failed']
+    said = {node: tail for node, code, tail in runs}
+    saw = said[failed[0]] if failed else (runs[-1][2] if runs else 'no node collected for the case')
     return failed, saw
 
 
@@ -428,6 +437,7 @@ def matrix(root, spec, files):
     if len(set(map(str, names))) != len(names):
         bail('Two rules share a name: a result is told from another by its rule, so each rule '
              'needs one of its own.')
+    untested(root, spec, files)
     for rule in spec:
         declared = enumerated(root, rule)
         mutants = rule.get('mutants') or []
@@ -462,6 +472,20 @@ def matrix(root, spec, files):
             print('%-8s %-46s %s' % ('caught' if result['caught'] else 'SURVIVED',
                                      mutant['case'], result['saw']))
     return results
+
+
+def untested(root, spec, files):
+    """Refuse a mutant of a file the matrix runs as a test. Breaking a test makes it fail
+    whatever the code it covers does, so `assert 1 == 1` mutated to `1 == 2` is caught, and a
+    vacuous test would carry a correction's evidence. A conftest.py is refused with them: its
+    fixtures are what the tests stand on."""
+    tests = {place(root, name) for name in nodes(root, files)}
+    for rule in spec:
+        for mutant in rule['mutants']:
+            if place(root, mutant['file']) in tests or Path(mutant['file']).name == 'conftest.py':
+                bail('Mutant for %r mutates %s, which the matrix runs as a test. A catch there '
+                     'measures the test and not the rule: mutate the code the test covers.'
+                     % (mutant['case'], mutant['file']))
 
 
 def digest(root, names):

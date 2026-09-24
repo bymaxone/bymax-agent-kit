@@ -20,6 +20,9 @@ PUSH = FLOW.with_name('review_push.py')
 
 
 OLD_TEST = 'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7\n\n\n'
+# What a fixture's tests assert, in a module of its own: a mutant may not name a test file, so
+# each matrix mutates a value here and the test that reads it has to catch that.
+TEST_G = 'from values import ONE\ndef test_g(): assert ONE == 1\n'
 UNITTEST_TEST = ('import unittest\nfrom guard import LIMIT\n\n\nclass CalcTests(unittest.TestCase):\n'
                  '    def test_calc_old(self): assert LIMIT == 7\n')
 
@@ -45,6 +48,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.git('init', '-q')
         self.git('config', 'user.name', 'Fixture')
         self.git('config', 'user.email', 'fixture@example.invalid')
+        (self.repo / 'values.py').write_text('ONE = 1\nTWO = 2\n')
         self.commit('base')
         self.base = self.git('rev-parse', 'HEAD')
         self.context = self.root / 'context.md'
@@ -1425,7 +1429,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_renamed_test_counts_under_its_new_path(self):
         """A renamed and extended test is regression evidence, listed where it now lives."""
         (self.repo / 'tests').mkdir()
-        (self.repo / 'tests/test_old.py').write_text('def test_a(): assert 1 == 1\n')
+        (self.repo / 'tests/test_old.py').write_text('from values import ONE\ndef test_a(): assert ONE == 1\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'existing test')
         self.start()
@@ -1434,14 +1438,15 @@ class ReviewFlowTests(unittest.TestCase):
         self.triage()
         (self.repo / 'tests/test_old.py').rename(self.repo / 'tests/test_new.py')
         (self.repo / 'tests/test_new.py').write_text(
-            'def test_a(): assert 1 == 1\ndef test_b(): assert 2 == 2\n')
+            'from values import ONE, TWO\ndef test_a(): assert ONE == 1\ndef test_b(): assert TWO == 2\n')
         self.git('add', '-A')
         self.git('commit', '-qm', 'rename and extend')
         # Each mutant changes a case's BODY. Replacing a signature makes the module stop
         # importing, which the runner refuses as a crash rather than a measurement — and two
         # of these fixtures did exactly that, recording "caught" for cases that never ran.
-        self.matrix('tests/test_new.py', [('1 == 1', '1 == 2', 'test_a'),
-                                          ('2 == 2', '2 == 3', 'test_b')])
+        self.matrix('tests/test_new.py', [('ONE = 1', 'ONE = 2', 'test_a'),
+                                          ('TWO = 2', 'TWO = 3', 'test_b')],
+                    where='values.py', enumeration='echo 2')
         state = self.start(correction=True, reason='')
         self.assertEqual(state['regression_tests'], ['tests/test_new.py'])
         self.checks()
@@ -1458,7 +1463,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex')
         self.triage()
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_g.py').write_text(TEST_G)
         self.commit('a correction that changes a test')
 
         missing = self.start(ok=False, correction=True, reason='').stderr
@@ -1489,7 +1494,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('does not match', self.start(ok=False, correction=True, reason='').stderr)
 
         record.unlink()
-        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
+        self.matrix('tests/test_g.py', [('ONE = 1', 'ONE = 2', 'test_g')], where='values.py', enumeration='echo 1')
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
 
     def test_a_record_naming_files_its_results_never_mutated_is_refused(self):
@@ -1501,9 +1506,9 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex')
         self.triage()
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_g.py').write_text(TEST_G)
         self.commit('a correction that changes a test')
-        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
+        self.matrix('tests/test_g.py', [('ONE = 1', 'ONE = 2', 'test_g')], where='values.py', enumeration='echo 1')
         directory = Path(self.flow('status')['directory'])
         record = directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')
         kept = json.loads(record.read_text())
@@ -1520,9 +1525,9 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex')
         self.triage()
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_g.py').write_text(TEST_G)
         self.commit('a correction that changes a test')
-        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
+        self.matrix('tests/test_g.py', [('ONE = 1', 'ONE = 2', 'test_g')], where='values.py', enumeration='echo 1')
         directory = Path(self.flow('status')['directory'])
         record = directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')
         return record, json.loads(record.read_text())
@@ -1602,20 +1607,22 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex')
         self.triage()
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_g.py').write_text(TEST_G)
         (self.repo / 'tests/test_h.py').write_text('def test_h(): assert 2 == 2\n')
         self.commit('a correction that changes two tests')
-        self.matrix(str(self.repo / 'tests/test_g.py'), [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_h.py',))
+        self.matrix(str(self.repo / 'tests/test_g.py'), [('ONE = 1', 'ONE = 2', 'test_g')], also=('tests/test_h.py',),
+                    where='values.py', enumeration='echo 1')
         directory = Path(self.flow('status')['directory'])
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_g.py': ['test_g'], 'tests/test_h.py': []})
         self.assertIn('caught nothing in tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
-        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_h.py',))
+        self.matrix('tests/test_g.py', [('ONE = 1', 'ONE = 2', 'test_g')], also=('tests/test_h.py',),
+                    where='values.py', enumeration='echo 1')
         self.assertIn('caught nothing in tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
         # A directory on the command line runs whatever pytest collects under it, by pytest's
         # own rules: the record names both files, and the one no case of the spec lives in
         # is refused.
-        self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
+        self.matrix('tests', [('ONE = 1', 'ONE = 2', 'test_g')], where='values.py', enumeration='echo 1')
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_g.py': ['test_g'], 'tests/test_h.py': []})
         self.assertIn('caught nothing in tests/test_h.py', self.start(ok=False, correction=True, reason='').stderr)
@@ -1631,11 +1638,11 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex')
         self.triage()
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_g.py').write_text(TEST_G)
         (self.repo / 'tests/quiet_test.py').write_text('# def test_g(): a comment, not a case\n'
                                                        'from test_g import test_g as g\ndef test_q(): g()\n')
         self.commit('a correction that changes two tests')
-        self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
+        self.matrix('tests', [('ONE = 1', 'ONE = 2', 'test_g')], where='values.py', enumeration='echo 1')
         directory = Path(self.flow('status')['directory'])
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/quiet_test.py': [], 'tests/test_g.py': ['test_g']})
@@ -1651,16 +1658,18 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex')
         self.triage()
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_g.py').write_text(TEST_G)
         (self.repo / 'tests/test_b.py').write_text('from test_g import test_g as g\ndef test_g(): g()\n'
                                                    'def test_other(): assert 3 == 3\n')
         self.commit('a correction that changes two tests')
-        self.matrix('tests/test_g.py::test_g', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_b.py::test_g',), where='tests/test_g.py')
+        self.matrix('tests/test_g.py::test_g', [('ONE = 1', 'ONE = 2', 'test_g')], also=('tests/test_b.py::test_g',),
+                    where='values.py', enumeration='echo 1')
         directory = Path(self.flow('status')['directory'])
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['results'][0]['tests'], ['tests/test_b.py', 'tests/test_g.py'])
         self.assertEqual(record['tests'], {'tests/test_b.py': ['test_g'], 'tests/test_g.py': ['test_g']})
-        self.matrix('tests/test_g.py::test_g', [('1 == 1', '1 == 2', 'test_g')], also=('tests/test_b.py::test_other',), where='tests/test_g.py')
+        self.matrix('tests/test_g.py::test_g', [('ONE = 1', 'ONE = 2', 'test_g')], also=('tests/test_b.py::test_other',),
+                    where='values.py', enumeration='echo 1')
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_b.py': [], 'tests/test_g.py': ['test_g']})
         self.assertIn('caught nothing in tests/test_b.py', self.start(ok=False, correction=True, reason='').stderr)
@@ -1672,7 +1681,7 @@ class ReviewFlowTests(unittest.TestCase):
         whose test exercised nothing. Each collected node runs alone under the mutant, and a
         file is credited with a case only when a test of it failed."""
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_g.py').write_text(TEST_G)
         self.commit('an older test that discriminates')
         self.start()
         self.report('claude')
@@ -1680,7 +1689,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.triage()
         (self.repo / 'tests/test_changed.py').write_text('def test_g(): assert True\n')
         self.commit('a correction that adds a vacuous test of the same name')
-        self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
+        self.matrix('tests', [('ONE = 1', 'ONE = 2', 'test_g')], where='values.py', enumeration='echo 1')
         directory = Path(self.flow('status')['directory'])
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['results'][0]['tests'], ['tests/test_g.py'])
@@ -1689,7 +1698,7 @@ class ReviewFlowTests(unittest.TestCase):
         # The same test made to fail with the older one is credited, and the correction opens.
         (self.repo / 'tests/test_changed.py').write_text('from test_g import test_g as g\ndef test_g(): g()\n')
         self.commit('a correction whose test fails with the fix reverted')
-        self.matrix('tests', [('1 == 1', '1 == 2', 'test_g')], where='tests/test_g.py')
+        self.matrix('tests', [('ONE = 1', 'ONE = 2', 'test_g')], where='values.py', enumeration='echo 1')
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_changed.py': ['test_g'], 'tests/test_g.py': ['test_g']})
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)
@@ -1973,9 +1982,9 @@ class ReviewFlowTests(unittest.TestCase):
         os.environ['PYTEST_ADDOPTS'] = '-qq'
         self.addCleanup(os.environ.pop, 'PYTEST_ADDOPTS', None)
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests/test_g.py').write_text('def test_g(): assert 1 == 1\n')
+        (self.repo / 'tests/test_g.py').write_text(TEST_G)
         self.commit('a correction that changes a test, under a project that sets addopts')
-        self.matrix('tests/test_g.py', [('1 == 1', '1 == 2', 'test_g')])
+        self.matrix('tests/test_g.py', [('ONE = 1', 'ONE = 2', 'test_g')], where='values.py', enumeration='echo 1')
         directory = Path(self.flow('status')['directory'])
         record = json.loads((directory / ('matrix-' + self.git('rev-parse', 'HEAD') + '.json')).read_text())
         self.assertEqual(record['tests'], {'tests/test_g.py': ['test_g']})
@@ -2004,10 +2013,10 @@ class ReviewFlowTests(unittest.TestCase):
         self.start(ok=False, correction=True, reason='   ')
         # Adding the regression on top of the same candidate lifts the requirement.
         (self.repo / 'tests').mkdir()
-        (self.repo / 'tests/test_fix.py').write_text('def test_fix(): assert 1 == 1\n')
+        (self.repo / 'tests/test_fix.py').write_text('from values import ONE\ndef test_fix(): assert ONE == 1\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add regression')
-        self.matrix('tests/test_fix.py', [('1 == 1', '1 == 2', 'test_fix')])
+        self.matrix('tests/test_fix.py', [('ONE = 1', 'ONE = 2', 'test_fix')], where='values.py', enumeration='echo 1')
         state = self.start(correction=True, reason='')
         self.assertEqual(state['round'], 2)
         self.assertEqual(state['regression_tests'], ['tests/test_fix.py'])
@@ -2461,9 +2470,9 @@ class ReviewFlowTests(unittest.TestCase):
         # with no correction contract at all, so the rule under test is never reached. An
         # earlier version of this case did exactly that and the runtime answered 0, not 2.
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests' / 'test_thing.py').write_text('def test_thing():\n    assert True\n')
+        (self.repo / 'tests' / 'test_thing.py').write_text('from values import ONE\ndef test_thing():\n    assert ONE == 1\n')
         self.commit('correction that changes a test')
-        self.matrix('tests/test_thing.py', [('assert True', 'assert False', 'test_thing')])
+        self.matrix('tests/test_thing.py', [('ONE = 1', 'ONE = 2', 'test_thing')], where='values.py', enumeration='echo 1')
 
         believed = [dict(command='python3 -m pytest tests/test_thing.py', expected='passes',
                          observed='passes')]

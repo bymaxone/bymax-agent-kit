@@ -349,10 +349,39 @@ class MeaningTests(unittest.TestCase):
         discriminating case. A rule that classifies text is pinned by the text: a case that
         errored in setup never ran, and counting the failure beside it as a catch hides it.
         """
-        self.assertEqual(matrix.outcome('1 failed, 3 errors in 0.20s'), 'error')
-        self.assertEqual(matrix.outcome('1 error in 0.04s'), 'error')
-        self.assertEqual(matrix.outcome('1 failed, 20 deselected in 0.11s'), 'failed')
-        self.assertEqual(matrix.outcome('1 passed, 20 deselected in 0.08s'), 'passed')
+        self.assertEqual(matrix.outcome(1, '1 failed, 3 errors in 0.20s'), 'error')
+        self.assertEqual(matrix.outcome(1, '1 error in 0.04s'), 'error')
+        self.assertEqual(matrix.outcome(1, '1 failed, 20 deselected in 0.11s'), 'failed')
+        self.assertEqual(matrix.outcome(0, '1 passed, 20 deselected in 0.08s'), 'passed')
+
+    def test_a_summary_its_exit_status_does_not_back_is_a_crash(self):
+        """The summary is the last line a run printed, and a plugin can print `1 failed` after
+        pytest's own; exit 0 beside it is a run that passed. Either disagreement is refused."""
+        self.assertEqual(matrix.outcome(0, '1 failed'), 'error')
+        self.assertEqual(matrix.outcome(1, '1 passed in 0.02s'), 'error')
+        bench = Bench(self, test=CASE.replace('    assert not over(9)\n', ''))
+        (bench.where / 'conftest.py').write_text(
+            'import sys\nsys.path.insert(0, ".")\n\n\ndef pytest_unconfigure(config):\n'
+            '    from thing import over\n    if over(0):\n        print("1 failed")\n')
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule())
+        self.assertIn('exit status and summary disagree', str(caught.exception))
+        self.assertEqual((bench.where / 'thing.py').read_text(), GUARDED)
+
+    def test_a_mutant_of_a_file_run_as_a_test_is_refused(self):
+        """Breaking a test makes it fail whatever the code it covers does, so a mutant there
+        would credit a vacuous test with a catch. Refused before anything runs, and a conftest
+        with it, whether the test path names the file or the directory holding it."""
+        bench = Bench(self)
+        (bench.where / 'conftest.py').write_text('LIMIT_SEEN = 1\n')
+        test = {'file': 'test_thing.py', 'anchor': 'assert over(11)', 'becomes': 'assert not over(11)',
+                'case': 'over_the_limit'}
+        fixture = {'file': 'conftest.py', 'anchor': 'LIMIT_SEEN = 1', 'becomes': 'LIMIT_SEEN = 2',
+                   'case': 'over_the_limit'}
+        for mutant, where in ((test, 'test_thing.py'), (test, '.'), (fixture, '.')):
+            with self.subTest(mutant['file'], where=where), self.assertRaises(SystemExit) as caught:
+                matrix.record(str(bench.where), bench.spec(rule(mutants=[mutant])), [where])
+            self.assertIn('which the matrix runs as a test', str(caught.exception))
 
     def test_a_caught_mutant_passes_and_the_tree_is_restored(self):
         bench = Bench(self)
