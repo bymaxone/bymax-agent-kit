@@ -354,6 +354,32 @@ class MeaningTests(unittest.TestCase):
         self.assertEqual(matrix.outcome(1, '1 failed, 20 deselected in 0.11s'), 'failed')
         self.assertEqual(matrix.outcome(0, '1 passed, 20 deselected in 0.08s'), 'passed')
 
+    def test_a_collect_that_never_ends_is_refused(self):
+        """A collect runs the repository's import-time code, and a loop there that only a
+        collect reaches never returns. Bounded, refused by name, and its process group dies."""
+        clean = matrix.CLEAN
+        matrix.CLEAN = 3
+        self.addCleanup(setattr, matrix, 'CLEAN', clean)
+        bench = Bench(self, test='import os, subprocess, sys\nif "--collect-only" in sys.argv:\n'
+                                 '    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])\n'
+                                 '    open("grandchild.pid", "w").write(str(child.pid))\n'
+                                 '    while True:\n        pass\n\n\ndef test_thing():\n    assert True\n')
+
+        def unbounded(*_):
+            raise AssertionError('the collect was never stopped')
+        previous = signal.signal(signal.SIGALRM, unbounded)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        self.addCleanup(signal.alarm, 0)
+        signal.alarm(30)
+        with self.assertRaises(SystemExit) as caught:
+            matrix.ids(str(bench.where), ['test_thing.py'])
+        signal.alarm(0)
+        self.assertIn('did not finish collecting', str(caught.exception))
+        time.sleep(0.5)
+        # The whole group, not pytest alone: a process the collect started dies with it.
+        with self.assertRaises(ProcessLookupError):
+            os.kill(int((bench.where / 'grandchild.pid').read_text()), 0)
+
     def test_a_mutant_outside_the_tracked_tree_is_refused(self):
         """A catch earned outside the candidate is not evidence about it: a helper outside the
         root, reached by `..` or an absolute path, and a file inside it git does not track, are

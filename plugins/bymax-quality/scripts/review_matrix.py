@@ -631,7 +631,20 @@ def collect_run(real, root, files, selector, token, box):
     env['BYMAX_COLLECT_OUT'] = str(Path(box, 'collected'))
     args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', name,
             *arguments(root, files)] + (['-k', selector] if selector else [])
-    return subprocess.run(args, cwd=real, capture_output=True, text=True, env=env), Path(env['BYMAX_COLLECT_OUT'])
+    # A collect runs the repository's import-time code, and a loop there never returns: bounded
+    # like a mutant run, with the group killed on any exit from the wait.
+    with subprocess.Popen(args, cwd=real, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, env=env, start_new_session=True) as child:
+        try:
+            out, err = child.communicate(timeout=CLEAN)
+        except subprocess.TimeoutExpired:
+            stop(child)
+            bail('pytest did not finish collecting %s in %ds. A collect that never ends names no '
+                 'test, and the matrix cannot run what it cannot list.' % (' '.join(files), CLEAN))
+        except BaseException:
+            stop(child)
+            raise
+    return subprocess.CompletedProcess(args, child.returncode, out, err), Path(env['BYMAX_COLLECT_OUT'])
 
 
 def reported(where, token):
