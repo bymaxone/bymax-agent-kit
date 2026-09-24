@@ -20,8 +20,8 @@ PUSH = FLOW.with_name('review_push.py')
 
 
 OLD_TEST = 'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7\n\n\n'
-# What a fixture's tests assert, in a module of its own: a mutant may not name a test file, so
-# each matrix mutates a value here and the test that reads it has to catch that.
+# What a fixture's tests assert lives in a module of its own: a mutant may not name a test file,
+# so a matrix mutates the value there and the test that reads it has to catch that.
 TEST_G = 'from values import ONE\ndef test_g(): assert ONE == 1\n'
 UNITTEST_TEST = ('import unittest\nfrom guard import LIMIT\n\n\nclass CalcTests(unittest.TestCase):\n'
                  '    def test_calc_old(self): assert LIMIT == 7\n')
