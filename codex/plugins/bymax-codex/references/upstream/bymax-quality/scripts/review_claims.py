@@ -343,9 +343,9 @@ def orphaned(base, head, cwd=None):
             lost |= {gone for gone in declared(before) if not defines(gone, after)}
 
     def alive(name):
-        # The whole word narrows which files are read and decides nothing: a name the tree
-        # counts can sit after a semicolon or in a chained assignment, which no line-anchored
-        # pattern reaches, and a docstring matches any pattern a definition does.
+        # The grep narrows which files are read and defines() decides: a name the tree counts
+        # can sit after a semicolon or in a chained assignment, which no line-anchored pattern
+        # reaches, so only the whole word is a search wide enough to narrow by.
         listed = git('grep', '-lw', '--', name, head, '--', '*.py', cwd=cwd)
         return any(defines(name, git('show', hit, cwd=cwd)) for hit in listed.split('\n') if hit)
 
