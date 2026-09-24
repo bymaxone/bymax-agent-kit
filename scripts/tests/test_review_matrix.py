@@ -2,9 +2,11 @@
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -115,21 +117,60 @@ class MeaningTests(unittest.TestCase):
 
     def test_a_mutant_that_hangs_a_case_is_stopped_and_restored(self):
         """A mutant that disables a loop's stop condition leaves pytest waiting forever, and
-        without a deadline the matrix never reaches the restore and the source stays
-        mutated. Each run under a mutant has a deadline; a case that never finishes under the
-        mutant is one the mutant changed, and the file is restored whatever happens."""
+        without a deadline the matrix never reaches the restore and the source stays mutated.
+        A run that never ends is refused like a crash, since it may hang before any test body
+        runs; its process group dies with it, and the file is restored whatever happens."""
         floor = matrix.FLOOR
         matrix.FLOOR = 3
         self.addCleanup(setattr, matrix, 'FLOOR', floor)
         guard = GUARDED + '\n\ndef done():\n    return True\n'
-        bench = Bench(self, guard=guard,
-                      test='import sys\nsys.path.insert(0, ".")\nfrom thing import done\n\n\n'
-                           'def test_waits():\n    while not done():\n        pass\n')
-        payload = bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'return True',
-                                           'becomes': 'return False', 'case': 'waits'}]))
-        self.assertTrue(payload['results'][0]['caught'])
-        self.assertIn('timed out', payload['results'][0]['saw'])
+        test = ('import os, subprocess, sys\nsys.path.insert(0, ".")\nfrom thing import done\n\n\n'
+                'def test_waits():\n    if not done():\n'
+                '        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])\n'
+                '        open("grandchild.pid", "w").write(str(child.pid))\n'
+                '    while not done():\n        pass\n')
+        bench = Bench(self, guard=guard, test=test)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'return True',
+                                     'becomes': 'return False', 'case': 'waits'}]))
+        self.assertIn('timed out', str(caught.exception))
         self.assertEqual((bench.where / 'thing.py').read_text(), guard)
+        # The whole group, not pytest alone: a process the test started dies with it.
+        grandchild = int((bench.where / 'grandchild.pid').read_text())
+        time.sleep(0.5)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(grandchild, 0)
+
+    def test_an_import_hang_is_not_a_catch(self):
+        """A mutant that hangs the module while it is imported stops the run before any test
+        body: counting the timeout as a catch credited a test that never ran."""
+        floor = matrix.FLOOR
+        matrix.FLOOR = 3
+        self.addCleanup(setattr, matrix, 'FLOOR', floor)
+        guard = GUARDED + '\n\nREADY = True\nwhile not READY:\n    pass\n'
+        bench = Bench(self, guard=guard, test=CASE)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'READY = True',
+                                     'becomes': 'READY = False', 'case': 'over_the_limit'}]))
+        self.assertIn('timed out', str(caught.exception))
+        self.assertEqual((bench.where / 'thing.py').read_text(), guard)
+
+    def test_an_interrupted_run_takes_its_pytest_with_it(self):
+        """In a session of its own pytest no longer hears the terminal's Ctrl-C, and an
+        interrupted matrix left it running. Whatever stops the wait stops the group too."""
+        bench = Bench(self, test='import os, time\n\n\ndef test_sleeps():\n'
+                                 '    open("pytest.pid", "w").write(str(os.getpid()))\n    time.sleep(600)\n')
+        def interrupt(*_):
+            raise KeyboardInterrupt
+        previous = signal.signal(signal.SIGALRM, interrupt)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        signal.alarm(3)
+        with self.assertRaises(KeyboardInterrupt):
+            matrix.run_case(str(bench.where), None, ['test_thing.py::test_sleeps'])
+        signal.alarm(0)
+        time.sleep(0.5)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(int((bench.where / 'pytest.pid').read_text()), 0)
 
     def test_a_case_that_collects_no_node_is_refused_by_name(self):
         """A case pytest finds nothing for has no baseline to pass and no node to run: refused
