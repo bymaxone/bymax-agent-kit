@@ -285,17 +285,16 @@ def review_marks(name, text):
     return marks(name, text)
 
 
-def defined(text):
-    """Names a python source defines: each def and class, async included, and each CONSTANT_CASE
-    name assigned, `LIMIT: int = 3` as much as `LIMIT = 3`.
-
-    Read from the syntax tree, because text shaped like an assignment is not one: a docstring
-    line `FLAG: set FLAG=1` or a dict entry `EACCES: f(retry=0),` read as text defines FLAG and
-    EACCES, and rewording that line reads as removing them. A file that does not parse is read
-    as text, so a half-written one still answers.
+def defines(name, text):
+    """Whether a python source defines this name: by its syntax tree where it parses, and where
+    it does not, by the name's whole word occurring anywhere in it. The text of a file that does
+    not parse only keeps a name alive, and a shape-reading of that text both misreads a docstring
+    line as a definition and misses a chained, semicolon or one-line one, so it reads no shape.
     """
     tree = parsed(text)
-    return written(text) if tree is None else declared(tree)
+    if tree is None:
+        return re.search(r'(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])' % re.escape(name), text) is not None
+    return name in declared(tree)
 
 
 def parsed(text):
@@ -307,14 +306,11 @@ def parsed(text):
         return None
 
 
-def written(text):
-    """The names defined() reads from a source that does not parse, read as text."""
-    found = set(re.findall(r'^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
-    return found | set(re.findall(r'^\s*([A-Z][A-Z0-9_]{2,})\s*(?::[^=\n]*)?=', text, re.MULTILINE))
-
-
 def declared(tree):
-    """The names defined() reads from a syntax tree."""
+    """Names a syntax tree defines: each def and class, async included, and each CONSTANT_CASE
+    name assigned, `LIMIT: int = 3` as much as `LIMIT = 3`. Read from the tree because text
+    shaped like an assignment is not one: a docstring line `FLAG: set FLAG=1` or a dict entry
+    `EACCES: f(retry=0),` is no definition, and rewording it removes none."""
     found, constant = set(), re.compile(r'[A-Z][A-Z0-9_]{2,}')
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -334,25 +330,24 @@ def declared(tree):
 def orphaned(base, head, cwd=None):
     """Names this delta removed from code and left defined nowhere in the tree.
 
-    Only the syntax tree makes a name lost. The text read of a file that does not parse is a
-    heuristic: a docstring line or a keyword argument shaped like a definition reads as one,
-    and a delta that rewords it reads as removing it, which refuses a candidate that removed
-    nothing. So text only keeps a name alive: as the head of a file whose head does not parse,
-    and as a file the alive search reads that does not parse. A file whose base does not parse
-    contributes no removal: a stated gap, because a heuristic that refuses is worse than none.
+    Only the syntax tree makes a name lost. The text of a file that does not parse only keeps
+    one alive, through defines(): as the head of a file whose head does not parse, and as a file
+    the alive search reads. A file whose base does not parse contributes no removal: a stated
+    gap, because a heuristic that refuses is worse than none.
     """
     lost = set()
     for name in touched(base, head, cwd=cwd):
         before = parsed(git('show', '%s:%s' % (base, name), cwd=cwd)) if name.endswith('.py') else None
         if before is not None:
-            lost |= declared(before) - defined(git('show', '%s:%s' % (head, name), cwd=cwd))
+            after = git('show', '%s:%s' % (head, name), cwd=cwd)
+            lost |= {gone for gone in declared(before) if not defines(gone, after)}
 
     def alive(name):
         # The whole word narrows which files are read and decides nothing: a name the tree
         # counts can sit after a semicolon or in a chained assignment, which no line-anchored
         # pattern reaches, and a docstring matches any pattern a definition does.
         listed = git('grep', '-lw', '--', name, head, '--', '*.py', cwd=cwd)
-        return any(name in defined(git('show', hit, cwd=cwd)) for hit in listed.split('\n') if hit)
+        return any(defines(name, git('show', hit, cwd=cwd)) for hit in listed.split('\n') if hit)
 
     return sorted(name for name in lost if not alive(name))
 
