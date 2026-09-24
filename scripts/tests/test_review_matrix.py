@@ -114,8 +114,8 @@ class MeaningTests(unittest.TestCase):
         self.assertIn('survived', str(caught.exception))
 
     def test_a_mutant_that_hangs_a_case_is_stopped_and_restored(self):
-        """Found by the PR review: a mutant that disables a loop's stop condition left pytest
-        waiting forever, so the matrix never reached the restore and the source stayed
+        """A mutant that disables a loop's stop condition leaves pytest waiting forever, and
+        without a deadline the matrix never reaches the restore and the source stays
         mutated. Each run under a mutant has a deadline; a case that never finishes under the
         mutant is one the mutant changed, and the file is restored whatever happens."""
         floor = matrix.FLOOR
