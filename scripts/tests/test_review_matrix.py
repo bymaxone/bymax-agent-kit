@@ -1,6 +1,7 @@
 """The matrix runner: what it refuses, and what it records."""
 import json
 import os
+import py_compile
 import shutil
 import signal
 import subprocess
@@ -71,6 +72,36 @@ class AnchorTests(unittest.TestCase):
                            mutants=[{'file': 'thing.py', 'anchor': 'LIMIT', 'becomes': '1',
                                      'case': 'over_the_limit'}]))
         self.assertIn('occurs 3 times', str(caught.exception))
+
+
+class BytecodeTests(unittest.TestCase):
+
+    def test_a_file_tracked_beneath_a_pycache_is_left_in_place(self):
+        """Bytecode is kept out of the runs without deleting anything: a directory named
+        __pycache__ may hold a file the repository tracks, and the matrix restores only the
+        file it mutated."""
+        bench = Bench(self)
+        kept = bench.where / 'fixtures' / '__pycache__' / 'kept.txt'
+        kept.parent.mkdir(parents=True)
+        kept.write_text('tracked\n')
+        for args in (['add', '-f', '-A'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A',
+                                           'commit', '-q', '-m', 'fixture']):
+            subprocess.run(['git', '-C', str(bench.where), *args], check=True)
+        self.assertEqual(bench.run(rule())['survivors'], [])
+        self.assertEqual(kept.read_text(), 'tracked\n')
+
+    def test_bytecode_already_in_the_tree_is_not_what_a_mutant_runs(self):
+        """A .pyc that never checks its source, compiled from the clean guard, sits where
+        CPython looks by default. Read, it would run the clean guard under every mutant and
+        report the mutant a survivor; the matrix must compile what the file now says."""
+        bench = Bench(self)
+        stale = bench.where / '__pycache__' / ('thing.%s.pyc' % sys.implementation.cache_tag)
+        py_compile.compile(str(bench.where / 'thing.py'), cfile=str(stale), doraise=True,
+                           invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+        for args in (['add', '-f', '-A'], ['-c', 'user.email=a@b.invalid', '-c', 'user.name=A',
+                                           'commit', '-q', '-m', 'stale bytecode']):
+            subprocess.run(['git', '-C', str(bench.where), *args], check=True)
+        self.assertEqual(bench.run(rule())['survivors'], [])
 
 
 class MeaningTests(unittest.TestCase):
