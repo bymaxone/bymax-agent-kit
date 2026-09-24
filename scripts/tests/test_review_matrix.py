@@ -354,6 +354,25 @@ class MeaningTests(unittest.TestCase):
         self.assertEqual(matrix.outcome(1, '1 failed, 20 deselected in 0.11s'), 'failed')
         self.assertEqual(matrix.outcome(0, '1 passed, 20 deselected in 0.08s'), 'passed')
 
+    def test_a_mutant_outside_the_tracked_tree_is_refused(self):
+        """A catch earned outside the candidate is not evidence about it: a helper outside the
+        root, reached by `..` or an absolute path, and a file inside it git does not track, are
+        refused before anything runs. The tracked guard is still accepted."""
+        bench = Bench(self)
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        (outside / 'support.py').write_text('ALLOWED = True\n')
+        (bench.where / 'loose.py').write_text('ALLOWED = True\n')
+        away = os.path.relpath(outside / 'support.py', bench.where)
+        for name, said in ((str(outside / 'support.py'), 'outside'), (away, 'outside'),
+                           ('loose.py', 'not tracked')):
+            mutant = {'file': name, 'anchor': 'ALLOWED = True', 'becomes': 'ALLOWED = False',
+                      'case': 'over_the_limit'}
+            with self.subTest(name), self.assertRaises(SystemExit) as caught:
+                bench.run(rule(mutants=[mutant]))
+            self.assertIn(said, str(caught.exception))
+        self.assertEqual(bench.run(rule())['survivors'], [])
+
     def test_the_test_directories_are_the_ones_the_campaign_reads(self):
         """The matrix refuses a helper under a test location, and the campaign's classifier
         decides what a test location is. Two lists of the same names drift apart silently; a
