@@ -211,7 +211,20 @@ def enumerated(root, rule):
                  'admission is the useful half: a rule nothing can enumerate is a mechanism '
                  'not yet understood well enough to correct.' % rule.get('rule'))
         return None
-    done = subprocess.run(how, shell=True, cwd=root, capture_output=True, text=True)
+    # Bounded like every run here: a command that waits for input or loops never returns, and
+    # the matrix, and the correction that needs it, would wait with it.
+    with subprocess.Popen(how, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          stdin=subprocess.DEVNULL, text=True, start_new_session=True) as child:
+        try:
+            out, _ = child.communicate(timeout=CLEAN)
+        except subprocess.TimeoutExpired:
+            stop(child)
+            bail('Rule %r: its enumeration command did not finish in %ds: %s'
+                 % (rule.get('rule'), CLEAN, how))
+        except BaseException:
+            stop(child)
+            raise
+    done = subprocess.CompletedProcess(how, child.returncode, out, '')
     rows = [row.strip() for row in done.stdout.split('\n') if row.strip()]
     counted = [n for n in without_total(rows, per_row(rows)) if n is not None]
     if done.returncode != 0 or not counted:
