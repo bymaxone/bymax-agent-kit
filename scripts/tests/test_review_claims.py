@@ -145,6 +145,20 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': '# tmp_value is scratch\n'})
         self.assertEqual(tree.retired(), [])
 
+    def test_a_name_the_file_imports_is_alive(self):
+        """Replacing a constant with an import of it removes nothing the prose can still name,
+        in each spelling an import binds a name. Dropping an import is not a definition removed:
+        the name usually lives in a package no search here can read."""
+        for head in ('from dependency import LIMIT_MAX\n', 'from dependency import OTHER as LIMIT_MAX\n',
+                     'import LIMIT_MAX\n', 'import LIMIT_MAX.sub\n'):
+            with self.subTest(head):
+                tree = Tree(self, {'a.py': 'LIMIT_MAX = 1\n# reads LIMIT_MAX\n'},
+                            {'a.py': head + '# reads LIMIT_MAX\n'})
+                self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'from dependency import OLD_LIMIT\n# uses OLD_LIMIT\n'},
+                    {'a.py': '# uses OLD_LIMIT\n'})
+        self.assertEqual(tree.retired(), [])
+
     def test_a_name_moved_in_any_shape_the_tree_counts_is_alive(self):
         """The tree counts a name after a semicolon or in a chained assignment, so the search
         for where it went must reach those lines too: a pattern anchored at the start of a line
