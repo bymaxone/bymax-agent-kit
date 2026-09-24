@@ -211,7 +211,7 @@ def enumerated(root, rule):
                  'admission is the useful half: a rule nothing can enumerate is a mechanism '
                  'not yet understood well enough to correct.' % rule.get('rule'))
         return None
-    # Bounded like every run here: a command that waits for input or loops never returns, and
+    # Bounded, with no stdin: a command that waits for input or loops never returns, and
     # the matrix, and the correction that needs it, would wait with it.
     with subprocess.Popen(how, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           stdin=subprocess.DEVNULL, text=True, start_new_session=True) as child:
