@@ -172,6 +172,14 @@ class RetiredNameTests(unittest.TestCase):
              '"""Environment:\n    OLD_LIMIT: set it to 1.\n"""\nprint "x"\n', []),
             ('a keyword argument dropped beside a line that does not parse',
              'import os\nos.environ.update(dict(\n    OLD_LIMIT="/opt",\n))\n', 'print "x"\n', []),
+            ('removed, a longer name kept beside a line that does not parse',
+             'OLD_LIMIT = 1\nOLD_LIMIT_MAX = 2\n', 'OLD_LIMIT_MAX = 2\nprint "x"\n', ['README.md']),
+            ('a chained definition beside a line that does not parse',
+             'FIRST = OLD_LIMIT = 1\n', 'FIRST = OLD_LIMIT = 1\nprint "x"\n', []),
+            ('a definition after a semicolon beside a line that does not parse',
+             'x = 1; OLD_LIMIT = 2\n', 'x = 1; OLD_LIMIT = 2\nprint "x"\n', []),
+            ('a one-line compound definition beside a line that does not parse',
+             'if True: OLD_LIMIT = 2\n', 'if True: OLD_LIMIT = 2\ndef broken(:\n', []),
             ('a base that does not parse, ported', 'OLD_LIMIT = 1\nprint "x"\n', 'print("x")\n', []),
             ('a base that does not parse, half-written', 'OLD_LIMIT = 1\ndef broken(:\n', 'def broken(:\n', []),
         )
@@ -182,10 +190,12 @@ class RetiredNameTests(unittest.TestCase):
                 self.assertEqual(tree.retired(), [(where, 'OLD_LIMIT') for where in lost])
 
     def test_a_name_moved_into_a_file_that_does_not_parse_is_alive(self):
-        """The text read keeps a name alive where the tree cannot read the file at all."""
-        tree = Tree(self, {'a.py': 'LIMIT_MAX = 3\n', 'b.py': 'print "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'},
-                    {'a.py': '', 'b.py': 'LIMIT_MAX = 3\nprint "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'})
-        self.assertEqual(tree.retired(), [])
+        """The text keeps a name alive where the tree cannot read the file at all, in any shape."""
+        for shape in ('LIMIT_MAX = 3\n', 'FIRST = LIMIT_MAX = 3\n'):
+            with self.subTest(shape):
+                tree = Tree(self, {'a.py': shape, 'b.py': 'print "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'},
+                            {'a.py': '', 'b.py': shape + 'print "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'})
+                self.assertEqual(tree.retired(), [])
 
     def test_a_leading_bom_is_python(self):
         """A BOM is valid Python, so a file carrying one is read by its tree: a removal from it
