@@ -143,7 +143,7 @@ class MeaningTests(unittest.TestCase):
 
     def test_an_import_hang_is_not_a_catch(self):
         """A mutant that hangs the module while it is imported stops the run before any test
-        body: counting the timeout as a catch credited a test that never ran."""
+        body: counting the timeout as a catch would credit a test that never ran."""
         floor = matrix.FLOOR
         matrix.FLOOR = 3
         self.addCleanup(setattr, matrix, 'FLOOR', floor)
@@ -156,8 +156,8 @@ class MeaningTests(unittest.TestCase):
         self.assertEqual((bench.where / 'thing.py').read_text(), guard)
 
     def test_an_interrupted_run_takes_its_pytest_with_it(self):
-        """In a session of its own pytest no longer hears the terminal's Ctrl-C, and an
-        interrupted matrix left it running. Whatever stops the wait stops the group too."""
+        """In a session of its own pytest does not hear the terminal's Ctrl-C, so an
+        interrupted matrix would leave it running. Whatever stops the wait stops the group too."""
         bench = Bench(self, test='import os, time\n\n\ndef test_sleeps():\n'
                                  '    open("pytest.pid", "w").write(str(os.getpid()))\n    time.sleep(600)\n')
         def interrupt(*_):
