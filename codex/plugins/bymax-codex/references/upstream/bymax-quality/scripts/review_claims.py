@@ -290,7 +290,7 @@ def defined(text):
     name assigned, `LIMIT: int = 3` as much as `LIMIT = 3`.
 
     Read from the syntax tree, because text shaped like an assignment is not one: a docstring
-    line `FLAG: set it to 1` or a dict entry `EACCES: retry(),` read as text defines FLAG and
+    line `FLAG: set FLAG=1` or a dict entry `EACCES: f(retry=0),` read as text defines FLAG and
     EACCES, and rewording that line reads as removing them. A file that does not parse is read
     as text, so a half-written one still answers.
     """
