@@ -146,9 +146,9 @@ class RetiredNameTests(unittest.TestCase):
         self.assertEqual(tree.retired(), [])
 
     def test_a_name_the_file_imports_is_alive(self):
-        """Replacing a constant with an import of it removes nothing the prose can still name,
-        in each spelling an import binds a name. Dropping an import is not a definition removed:
-        the name usually lives in a package no search here can read."""
+        """Replacing a constant with an import of it removes nothing the prose can still name.
+        Dropping an import is not a definition removed: the name usually lives in a package no
+        search here can read."""
         for head in ('from dependency import LIMIT_MAX\n', 'from dependency import OTHER as LIMIT_MAX\n',
                      'import LIMIT_MAX\n', 'import LIMIT_MAX.sub\n'):
             with self.subTest(head):
