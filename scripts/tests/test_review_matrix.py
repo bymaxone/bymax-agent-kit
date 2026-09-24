@@ -359,7 +359,7 @@ class MeaningTests(unittest.TestCase):
         would hold the matrix, and the correction that needs it, for good. Bounded, refused by
         name, and the process it started dies with it."""
         clean = matrix.CLEAN
-        matrix.CLEAN = 3
+        matrix.CLEAN = 10
         self.addCleanup(setattr, matrix, 'CLEAN', clean)
         bench = Bench(self)
 
@@ -372,7 +372,7 @@ class MeaningTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(enumeration='sleep 600 & echo $! > enumerate.pid; wait'))
         signal.alarm(0)
-        self.assertIn('did not finish', str(caught.exception))
+        self.assertIn('enumeration command did not finish', str(caught.exception))
         time.sleep(0.5)
         with self.assertRaises(ProcessLookupError):
             os.kill(int((bench.where / 'enumerate.pid').read_text()), 0)
