@@ -293,7 +293,7 @@ def defines(name, text):
 
     A name the file imports or assigns is live here too: `from lib import LIMIT` in place of
     `LIMIT = 1`, or `old_helper = replacement` in place of its def, removes nothing a sentence
-    could still name. Only on this side: an import dropped or a variable reassigned is not a
+    could still name. Only on this side: a dropped import or lowercase assignment is not a
     definition removed, since the loss side reads only defs, classes and CONSTANT_CASE names.
     """
     tree = parsed(text)
@@ -303,7 +303,7 @@ def defines(name, text):
 
 
 def assigned(tree):
-    """Names an assignment binds in this tree, in any case, annotated ones with a value."""
+    """Names an assignment binds, not unpacked, in any case, annotated ones with a value."""
     return {target.id for node in ast.walk(tree)
             if isinstance(node, ast.Assign) or isinstance(node, ast.AnnAssign) and node.value is not None
             for target in (node.targets if isinstance(node, ast.Assign) else [node.target])

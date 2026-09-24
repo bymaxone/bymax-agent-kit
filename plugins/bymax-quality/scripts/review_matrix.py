@@ -632,7 +632,7 @@ def collect_run(real, root, files, selector, token, box):
     args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', name,
             *arguments(root, files)] + (['-k', selector] if selector else [])
     # A collect runs the repository's import-time code, and a loop there never returns: bounded
-    # like a mutant run, with the group killed on any exit from the wait.
+    # like a mutant run, its group killed if the wait times out or raises.
     with subprocess.Popen(args, cwd=real, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           text=True, env=env, start_new_session=True) as child:
         try:
