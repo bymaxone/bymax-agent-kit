@@ -354,6 +354,17 @@ class MeaningTests(unittest.TestCase):
         self.assertEqual(matrix.outcome(1, '1 failed, 20 deselected in 0.11s'), 'failed')
         self.assertEqual(matrix.outcome(0, '1 passed, 20 deselected in 0.08s'), 'passed')
 
+    def test_the_test_directories_are_the_ones_the_campaign_reads(self):
+        """The matrix refuses a helper under a test location, and the campaign's classifier
+        decides what a test location is. Two lists of the same names drift apart silently; a
+        name one reads and the other does not is a helper the matrix accepts."""
+        sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
+        import review_flow
+        for name in ('test', 'tests', 'spec', '__tests__', 'Spec', 'TESTS', 'testing', 'fixtures', 'src', 'specs'):
+            with self.subTest(name):
+                self.assertEqual(bool(review_flow.TEST_DIRECTORY.search(name + '/aid.py')),
+                                 name.lower() in matrix.TEST_DIRECTORIES)
+
     def test_the_test_directory_rule_reads_where_the_file_is(self):
         """A spelling is not a place: `..`, an absolute path and a symlink name the file where
         it is, relative to the root, and a directory above the root named test is not one the
@@ -408,13 +419,14 @@ class MeaningTests(unittest.TestCase):
                    'case': 'over_the_limit'}
         (bench.where / 'tests').mkdir()
         (bench.where / 'tests' / 'helper.py').write_text('ALLOWED = True\n')
-        (bench.where / 'Test').mkdir()
-        (bench.where / 'Test' / 'aid.py').write_text('ALLOWED = True\n')
+        for folder in ('Test', 'spec', '__tests__'):
+            (bench.where / folder).mkdir()
+            (bench.where / folder / 'aid.py').write_text('ALLOWED = True\n')
         helper = {'file': 'tests/helper.py', 'anchor': 'ALLOWED = True', 'becomes': 'ALLOWED = False',
                   'case': 'over_the_limit'}
-        aid = dict(helper, file='Test/aid.py')
+        aids = [(dict(helper, file=folder + '/aid.py'), 'test_thing.py') for folder in ('Test', 'spec', '__tests__')]
         for mutant, where in ((test, 'test_thing.py'), (test, '.'), (fixture, '.'),
-                              (helper, 'test_thing.py'), (aid, 'test_thing.py')):
+                              (helper, 'test_thing.py'), *aids):
             with self.subTest(mutant['file'], where=where), self.assertRaises(SystemExit) as caught:
                 matrix.record(str(bench.where), bench.spec(rule(mutants=[mutant])), [where])
             self.assertIn('which the matrix runs as a test', str(caught.exception))

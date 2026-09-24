@@ -48,6 +48,9 @@ SLACK, FLOOR, CLEAN = 10, 60, 1800
 # starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
 # The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
 PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
+# The directory names that mark a test location, compared without case. The campaign's own test
+# classifier reads the same names, and a case holds the two together.
+TEST_DIRECTORIES = frozenset(('test', 'tests', 'spec', '__tests__'))
 
 
 def pytest_env():
@@ -477,7 +480,7 @@ def untested(root, spec, files):
     Breaking a test makes it fail whatever the code it covers does, so `assert 1 == 1` mutated
     to `1 == 2` is caught, and a vacuous test would carry a correction's evidence; a helper the
     test imports does the same from one file over. So a conftest.py is refused, and any file
-    under a directory named tests or test. The directory's name and not its contents: a test
+    under a directory TEST_DIRECTORIES names. The directory's name and not its contents: a test
     kept beside the module it covers shares that module's directory, and refusing the
     directory of every collected test refused the code under review. A helper named neither
     way is a stated gap. The directory is read where the file is, relative to the root: a
@@ -489,7 +492,7 @@ def untested(root, spec, files):
             where = os.path.relpath(os.path.realpath(os.path.join(root, mutant['file'])), real)
             parts = [part.lower() for part in Path(where).parts[:-1]]
             if place(root, mutant['file']) in tests or Path(where).name == 'conftest.py' \
-                    or 'tests' in parts or 'test' in parts:
+                    or TEST_DIRECTORIES.intersection(parts):
                 bail('Mutant for %r mutates %s, which the matrix runs as a test or which tests '
                      'stand on. A catch there measures the test and not the rule: mutate the '
                      'code the test covers.' % (mutant['case'], mutant['file']))
