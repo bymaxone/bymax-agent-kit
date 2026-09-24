@@ -299,9 +299,10 @@ def defined(text):
 
 
 def parsed(text):
-    """The syntax tree of a python source, or None where it does not parse."""
+    """The syntax tree of a python source, or None where it does not parse. A leading BOM is
+    valid Python that ast.parse() refuses in a str, so it is dropped first."""
     try:
-        return ast.parse(text)
+        return ast.parse(text.removeprefix('\ufeff'))
     except (SyntaxError, ValueError):
         return None
 
@@ -333,18 +334,18 @@ def declared(tree):
 def orphaned(base, head, cwd=None):
     """Names this delta removed from code and left defined nowhere in the tree.
 
-    Both sides of a file are read by one reader: the syntax tree when both parse, the text when
-    either does not. Subtracting one reader's answer from the other's reads every line the text
-    read mistakes for a definition as removed, which a delta that only strips a BOM triggers.
-    A name is alive in any file defined() finds it in.
+    Only the syntax tree makes a name lost. The text read of a file that does not parse is a
+    heuristic: a docstring line or a keyword argument shaped like a definition reads as one,
+    and a delta that rewords it reads as removing it, which refuses a candidate that removed
+    nothing. So text only keeps a name alive: as the head of a file whose head does not parse,
+    and as a file the alive search reads that does not parse. A file whose base does not parse contributes no
+    removal: a stated gap, because a heuristic that refuses is worse than none.
     """
     lost = set()
     for name in touched(base, head, cwd=cwd):
-        if name.endswith('.py'):
-            before, after = (git('show', '%s:%s' % (rev, name), cwd=cwd) for rev in (base, head))
-            both = parsed(before) is not None and parsed(after) is not None
-            read = defined if both else written
-            lost |= read(before) - read(after)
+        before = parsed(git('show', '%s:%s' % (base, name), cwd=cwd)) if name.endswith('.py') else None
+        if before is not None:
+            lost |= declared(before) - defined(git('show', '%s:%s' % (head, name), cwd=cwd))
 
     def alive(name):
         # The whole word narrows which files are read and decides nothing: a name the tree
