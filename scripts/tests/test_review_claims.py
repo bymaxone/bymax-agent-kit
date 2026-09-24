@@ -119,7 +119,7 @@ class RetiredNameTests(unittest.TestCase):
         self.assertEqual(tree.retired(), [])
 
     def test_text_shaped_like_a_definition_defines_nothing(self):
-        """A docstring line `FLAG: set it to 1` and a dict entry `ERR_ONE: dict(),` look like
+        """A docstring line `FLAG: set FLAG=1` and a dict entry `ERR_ONE: f(retry=0),` look like
         annotated assignments to a regex. Rewording or removing either removes no definition,
         and the refusing tier must not say it did; nor may such a line elsewhere keep a name
         alive that the delta really removed."""
@@ -139,7 +139,7 @@ class RetiredNameTests(unittest.TestCase):
         self.assertEqual(tree.retired(), [('a.py', 'OLD_LIMIT'), ('b.py', 'OLD_LIMIT')])
 
     def test_only_a_constant_case_assignment_is_a_definition(self):
-        """A lowercase name assigned is a variable, as the text read has always held: removing
+        """A lowercase name assigned is a variable, in both reads: removing
         `tmp_value = 1` is not removing a definition a sentence could still assert."""
         tree = Tree(self, {'a.py': 'tmp_value = 1\n# tmp_value is scratch\n'},
                     {'a.py': '# tmp_value is scratch\n'})
