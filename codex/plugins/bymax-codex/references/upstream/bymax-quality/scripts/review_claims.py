@@ -290,11 +290,22 @@ def defines(name, text):
     it does not, by the name's whole word occurring anywhere in it. The text of a file that does
     not parse only keeps a name alive, and a shape-reading of that text both misreads a docstring
     line as a definition and misses a chained, semicolon or one-line one, so it reads no shape.
+
+    A name the file imports is live here too: replacing `LIMIT = 1` with `from lib import LIMIT`
+    removes nothing a sentence could still name. Only on this side: an import dropped is not a
+    definition removed, since the name usually lives in a package no search here can read.
     """
     tree = parsed(text)
     if tree is None:
         return re.search(r'(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])' % re.escape(name), text) is not None
-    return name in declared(tree)
+    return name in declared(tree) or name in imported(tree)
+
+
+def imported(tree):
+    """Names an import binds in this tree: `import a.b` binds `a`, and `as` binds its alias."""
+    return {alias.asname or alias.name.split('.')[0]
+            for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names if alias.name != '*'}
 
 
 def parsed(text):
