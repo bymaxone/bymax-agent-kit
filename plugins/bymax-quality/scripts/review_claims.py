@@ -291,14 +291,23 @@ def defines(name, text):
     not parse only keeps a name alive, and a shape-reading of that text both misreads a docstring
     line as a definition and misses a chained, semicolon or one-line one, so it reads no shape.
 
-    A name the file imports is live here too: replacing `LIMIT = 1` with `from lib import LIMIT`
-    removes nothing a sentence could still name. Only on this side: an import dropped is not a
-    definition removed, since the name usually lives in a package no search here can read.
+    A name the file imports or assigns is live here too: `from lib import LIMIT` in place of
+    `LIMIT = 1`, or `old_helper = replacement` in place of its def, removes nothing a sentence
+    could still name. Only on this side: an import dropped or a variable reassigned is not a
+    definition removed, since the loss side reads only defs, classes and CONSTANT_CASE names.
     """
     tree = parsed(text)
     if tree is None:
         return re.search(r'(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])' % re.escape(name), text) is not None
-    return name in declared(tree) or name in imported(tree)
+    return name in declared(tree) or name in imported(tree) or name in assigned(tree)
+
+
+def assigned(tree):
+    """Names an assignment binds in this tree, in any case, annotated ones with a value."""
+    return {target.id for node in ast.walk(tree)
+            if isinstance(node, ast.Assign) or isinstance(node, ast.AnnAssign) and node.value is not None
+            for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+            if isinstance(target, ast.Name)}
 
 
 def imported(tree):
