@@ -31,7 +31,9 @@ import os
 import re
 import shutil
 import secrets
+import signal
 import subprocess
+import time
 import tempfile
 import sys
 from pathlib import Path
@@ -41,6 +43,10 @@ from pathlib import Path
 # The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
 from review_collect import MARK
 
+# A run under a mutant may take this many times its clean run, and never less than FLOOR
+# seconds: a mutant that disables a stop condition otherwise leaves pytest waiting forever,
+# and the restore that follows it is never reached.
+SLACK, FLOOR, CLEAN = 10, 60, 1800
 PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
 
 
@@ -74,16 +80,27 @@ def caches(root):
         shutil.rmtree(path, ignore_errors=True)
 
 
-def run_case(root, selector, files):
+def run_case(root, selector, files, deadline=CLEAN):
     """Run one case: the selector over these paths, or with no selector one node id, which
     selects itself. CPython invalidates bytecode on (mtime seconds, size), so two mutants of
     the same size inside one second serve the previous one's result — and the direction that
-    lies is 'broke nothing', which manufactures a false claim that a rule is uncovered."""
+    lies is 'broke nothing', which manufactures a false claim that a rule is uncovered.
+
+    Past `deadline` seconds the whole process group is killed, pytest and whatever it started,
+    and the run reads as timed out.
+    """
     caches(root)
-    done = subprocess.run([*PYTEST, *arguments(root, files)] + (['-k', selector] if selector else []),
-                          cwd=root, capture_output=True, text=True, env=pytest_env())
-    tail = done.stdout.strip().splitlines()
-    return done.returncode, (tail[-1] if tail else done.stderr[-160:])
+    args = [*PYTEST, *arguments(root, files)] + (['-k', selector] if selector else [])
+    with subprocess.Popen(args, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, env=pytest_env(), start_new_session=True) as child:
+        try:
+            out, err = child.communicate(timeout=deadline)
+        except subprocess.TimeoutExpired:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.communicate()
+            return None, 'timed out after %ds' % deadline
+    tail = out.strip().splitlines()
+    return child.returncode, (tail[-1] if tail else err[-160:])
 
 
 def outcome(tail):
@@ -94,6 +111,9 @@ def outcome(tail):
     case never ran. Measured on this file's own fixtures — replacing a `def` line with a
     module-scope raise recorded two mutants as caught, and neither case had executed.
     """
+    # A case that never finishes under a mutant is one the mutant changed: it failed to end.
+    if tail.startswith('timed out'):
+        return 'failed'
     failed = re.search(r'(\d+) failed', tail)
     errored = re.search(r'(\d+) error', tail)
     # An error anywhere means some case did not run, whatever else the line says. Reading
@@ -234,7 +254,7 @@ def one(root, mutant, files, clean=None):
         # One pytest per node: run together under the selector, the summary line said some
         # test failed and not which, and a vacuous changed test was credited with what an
         # older test of the same name in another file caught.
-        runs = [(node, run_case(root, None, [node])[1]) for node in nodes_of_case]
+        runs = [(node, run_case(root, None, [node], deadline)[1]) for node, deadline in nodes_of_case]
     finally:
         path.write_bytes(original)
         caches(root)
@@ -250,10 +270,10 @@ def one(root, mutant, files, clean=None):
 
 
 def baseline(root, files, case):
-    """The nodes of the case shown to pass alone on the clean tree — alone, as it
-    then runs under the mutant. Shown passing together, a node that leaned on an earlier one's
-    side effect failed alone under a mutation of something else entirely, and that failure was
-    recorded as a catch.
+    """The nodes of the case shown to pass alone on the clean tree, as each then runs under a
+    mutant, with the deadline those runs get. Shown passing together, a node that leaned on an
+    earlier one's side effect failed alone under a mutation of something else entirely, and that
+    failure was recorded as a catch.
     """
     nodes = ids(root, files, case)
     if not nodes:
@@ -261,7 +281,9 @@ def baseline(root, files, case):
              % (case, ' '.join(files)))
     ran = []
     for node in nodes:
+        began = time.monotonic()
         clean_code, clean_tail = run_case(root, None, [node])
+        taken = time.monotonic() - began
         if clean_code != 0:
             bail('Case %r does not pass on the clean tree (%s: %s). A mutant that fails a case '
                  'which already fails measures nothing.' % (case, node, clean_tail))
@@ -269,7 +291,7 @@ def baseline(root, files, case):
         # the skip condition made the node run and fail, which read as a catch. A skipped node
         # is left out of the measurement, the way ran_alone() leaves it out of the demand.
         if outcome(clean_tail) == 'passed' and re.search(r'\d+ passed', clean_tail):
-            ran.append(node)
+            ran.append((node, max(FLOOR, int(SLACK * taken) + 1)))
     if not ran:
         bail('Case %r runs no test on the clean tree under %s: every node it collects is skipped '
              'there, and a case that never runs measures nothing.' % (case, ' '.join(files)))
