@@ -104,6 +104,31 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': 'async def fetch_data(x):\n    return x\n# calls fetch_data\n'})
         self.assertEqual(tree.retired(), [])
 
+    def test_an_annotated_constant_is_a_definition(self):
+        """`LIMIT: int = 3` assigns LIMIT as `LIMIT = 3` does. One case per read: annotated in
+        the base and removed, the definition read must count it; moved and annotated, the alive
+        grep must find it; annotated in place, nothing was removed and the gate must not say so."""
+        tree = Tree(self, {'a.py': 'LIMIT_MAX: int = 1\n# reads LIMIT_MAX\n'},
+                    {'a.py': '# reads LIMIT_MAX\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'LIMIT_MAX')])
+        tree = Tree(self, {'a.py': 'LIMIT_MAX = 1\n# reads LIMIT_MAX\n', 'b.py': 'Y = 2\n'},
+                    {'a.py': '# reads LIMIT_MAX\n', 'b.py': 'LIMIT_MAX: int = 1\nY = 2\n'})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'LIMIT_MAX = 1\n# reads LIMIT_MAX\n'},
+                    {'a.py': 'LIMIT_MAX: int = 1\n# reads LIMIT_MAX\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_a_comment_after_code_is_read_for_what_it_names(self):
+        """The line stays code for the split, and the comment on it still asserts: a removed
+        name left in `value = 2  # uses OLD_NAME` is a dangling reference like any other. Only
+        the comment is read, so a name in the code before it is the suite's to catch."""
+        tree = Tree(self, {'a.py': 'OLD_NAME = 1\nvalue = 2  # uses OLD_NAME\n'},
+                    {'a.py': 'value = 2  # uses OLD_NAME\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'OLD_NAME')])
+        tree = Tree(self, {'a.py': 'OLD_NAME = 1\nvalue = OLD_NAME  # a note\n'},
+                    {'a.py': 'value = OLD_NAME  # a note\n'})
+        self.assertEqual(tree.retired(), [])
+
     def test_a_definition_removed_in_a_rename_is_still_reported(self):
         """Found by a reviewer: git reports a rename as its destination alone, so a definition
         removed in the same commit sat in a path the base does not have, nothing read it as
@@ -172,6 +197,17 @@ class RetiredNameTests(unittest.TestCase):
         self.assertEqual(split['prose'], [])
         self.assertIn('enabled = later()  # explanation',
                       [text.strip() for _, at, text in split['code'] if at > 0])
+
+    def test_a_command_block_in_markdown_is_code(self):
+        """A fenced `bash` block in a command file is what a model runs verbatim. Filed under
+        prose with the rest of the file, a delta changing one was told it had changed no code;
+        the sentence around it is still prose."""
+        tree = Tree(self, {'cmd.md': '# Push\n\n```bash\ngit push origin HEAD\n```\n'},
+                    {'cmd.md': '# Push it\n\n```bash\ngit push -u origin HEAD\n```\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertEqual(sorted(text for _, _, text in split['code']),
+                         ['git push -u origin HEAD', 'git push origin HEAD'])
+        self.assertEqual(sorted(text for _, _, text in split['prose']), ['# Push', '# Push it'])
 
     def test_a_change_with_no_lines_is_neither_added_nor_removed(self):
         """A file that changed while no line did gets coordinate 0, because naming a line
