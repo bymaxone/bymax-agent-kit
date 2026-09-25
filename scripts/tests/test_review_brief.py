@@ -157,8 +157,8 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
         self.assertIn('most likely never joined', said)
 
     def test_the_brief_shows_a_line_saying_a_removed_name_is_gone(self):
-        """A line naming a removed name beside a removal word refuses nothing, so the brief is the
-        only place it reaches a reviewer; replacing that call with `[]` passes every other case."""
+        """A line naming a removed name only in clauses saying it is gone refuses nothing, so
+        the brief alone shows it to a reviewer; replacing that call with `[]` fails only this case."""
         base = self.commit({'a.py': 'OLD_HELPER = 1\n'})
         head = self.commit({'a.py': '', 'NOTES.md': '`OLD_HELPER` removes the entry.\n'})
         said = review_delta.claims_coverage({'review_base': base, 'head': head})

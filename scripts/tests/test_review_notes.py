@@ -10,7 +10,7 @@ from test_review_claims import Tree, claims
 
 
 class RemovalNoteTests(unittest.TestCase):
-    """A line saying the name is gone is reported, never refused and never passed in silence."""
+    """A line whose every clause naming the name says it is gone is reported, not refused."""
 
     # Notes, and live claims that hold the word: no reading of the sentence tells them apart for
     # every sentence, so each is a reviewer's to judge.
