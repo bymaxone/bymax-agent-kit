@@ -21,7 +21,7 @@ Detect the stack and follow the matching track:
 
 ---
 
-## 0. Simplicity ladder — run BEFORE writing code
+## 0. Simplicity ladder — run *before* writing code
 
 Understanding comes first: read the code the change touches and trace the real flow. Then, before writing anything, stop at the **first rung that holds**:
 

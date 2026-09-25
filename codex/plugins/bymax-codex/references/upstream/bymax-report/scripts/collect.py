@@ -268,14 +268,14 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
 
 
 def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
-    """Whether this repository caught the ref up with another one AFTER that moment.
+    """Whether this repository caught the ref up with another one after that moment.
 
     A reflog says when the ref moved *here*, so it is a record of delivery only where the
     move and the delivery are the same event. That is not a property of the ref's name: a
     remote-tracking ref moved by ``update by push`` moved because the work landed, and a
     local branch moved by ``pull`` moved because we caught up. It is not a property of the
-    whole history either. A sync BEFORE the period is history: someone's work arrived, and
-    where the ref stood last week is still what we put there. A sync AFTER it says something
+    whole history either. A sync before the period is history: someone's work arrived, and
+    where the ref stood last week is still what we put there. A sync after it says something
     later corrected our view of that week. Testing every entry confused the two and sent a
     delivering ref back to the dates, which reported work pushed the week after as delivered
     inside it. What each entry is, is ``moved_by_syncing``'s question.
