@@ -1,5 +1,5 @@
 """Git access layer: read repository state without a shell, and the one refusal every step
-of the review runtime raises. Shared by the orchestration and the evidence it reads."""
+of the review runtime raises."""
 import subprocess
 
 

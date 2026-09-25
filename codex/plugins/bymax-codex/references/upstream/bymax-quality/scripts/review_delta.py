@@ -1,6 +1,6 @@
 """Delta layer: what a candidate's delta shows its reviewers, code first, then what the claims
 checker settled and what the delta did to tests; and the refusal for prose a command already
-disproves. Read by the orchestration in review_flow when it writes the brief and opens a round."""
+disproves."""
 import review_claims
 from review_evidence import merged_in_tests, tests_changed
 from review_git import require
@@ -112,9 +112,8 @@ def claims_settled(base, head):
     """Refuse a candidate whose own prose asserts something a command already disproves.
 
     The suite runs against code; the mutation matrix runs against rules; nothing ran against
-    sentences, and sentences are where this package's correction rounds went. Each refusal
-    here was measured on a real delta, and each was found by a reviewer a round later, at
-    the cost of a candidate.
+    sentences, and sentences are where this package's correction rounds went. What it refuses
+    was measured on a real delta, found by a reviewer a round later at the cost of a candidate.
     """
     gone = review_claims.retired(base, head)
     require(not gone, 'Prose asserts a name this delta removed from the code: '
@@ -125,11 +124,8 @@ def claims_settled(base, head):
 def delta_view(state):
     """The delta as a reviewer is asked to read it: code first, then what the checks settled.
 
-    Built for EVERY round. These three lived inside correction_brief, which returns early on
-    round one, so the round that reads the whole delta received none of them while the
-    changelog said every reviewer receives them. Round one is where the last of them matters
-    most: on a repository of languages these checks cannot read, "they read NOTHING in N
-    changed files" is the sentence that stops silence from reading as clean, and it was
-    absent from exactly the reading that covers the most ground.
+    Built for EVERY round, round one included: on a repository of languages these checks
+    cannot read, claims_coverage's "they read NOTHING in N changed files" is the sentence that
+    stops silence from reading as clean, and round one is the reading that covers the most ground.
     """
     return '\n'.join([code_view(state), claims_coverage(state), regression_note(state)])
