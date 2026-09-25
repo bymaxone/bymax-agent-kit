@@ -380,7 +380,7 @@ class MeaningTests(unittest.TestCase):
 
     def test_a_run_keeps_only_the_tail_of_its_output(self):
         """A run that prints without end must not grow the process that restores the mutated
-        file: each stream keeps its last KEEP characters, and the summary line is still read
+        file: each stream keeps its last KEEP bytes, and the summary line is still read
         from a run that printed far more than that past pytest's capture."""
         kept = []
         matrix.keep_tail(io.BytesIO(b'x' * (3 * matrix.KEEP) + b'last'), kept)
