@@ -27,7 +27,10 @@ class RemovalNoteTests(unittest.TestCase):
                'Removed `A_HELPER`, `OLD_HELPER` and `B_HELPER`.',
                'Removed `A_HELPER`, `OLD_HELPER` in 2.0.', '`OLD_HELPER` removed.',
                '`OLD_HELPER` removed, see `NEW_HELPER`.', '`OLD_HELPER` and `A_HELPER` removed in 2.0.',
-               'The `OLD_HELPER` helper removed in 2.0.')
+               'The `OLD_HELPER` helper removed in 2.0.', '`OLD_HELPER` was removed — do not use it.',
+               'Deleted `review_flow.py` and `OLD_HELPER`.',
+               '`OLD_HELPER` and `wait --not-ready` were removed.',
+               '`OLD_HELPER` and `A_HELPER` were removed together.')
     LIVE = ('Set `OLD_HELPER` first. The old cache was removed.',
             '`OLD_HELPER` runs `git worktree remove`.', '`OLD_HELPER` is not removed.',
             '`OLD_HELPER` was never deleted.',
