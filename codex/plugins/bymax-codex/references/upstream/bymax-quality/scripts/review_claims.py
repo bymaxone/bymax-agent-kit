@@ -436,18 +436,18 @@ def retired(base, head, cwd=None):
 
     Matching the largest published study of this defect, which scanned over 3,000 GitHub
     projects and found most of them carry an outdated code-element reference at some point.
-    A line that also says the name is gone refuses nothing: noted_removals() reports it.
+    A line records_removal() accepts refuses nothing: noted_removals() reports it.
     """
     return sorted({(name, token) for name, token, line in mentions(base, head, cwd=cwd)
                    if not records_removal(line, token)})
 
 
 def noted_removals(base, head, cwd=None):
-    """Lines naming a name this delta removed that also say it is gone, for a reviewer to judge.
+    """Lines naming a name this delta removed that records_removal() accepts, to be judged.
 
     Such a line may be a migration note, "`OLD_HELPER` was removed; use `NEW_HELPER`", or a live
-    claim that holds the word, "`OLD_HELPER` removes the entry". Four reviews of a grammar meant
-    to tell them apart each found sentences it read wrong, in both directions: refusing a true
+    claim that holds the word, "`OLD_HELPER` removes the entry". Every review of a grammar meant
+    to tell them apart found sentences it read wrong, in both directions: refusing a true
     note blocks the delivery, and passing a live claim hides it. Reported, the line does neither.
     """
     return sorted((name, token, line.strip()) for name, token, line in mentions(base, head, cwd=cwd)
