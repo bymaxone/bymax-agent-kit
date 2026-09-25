@@ -156,6 +156,15 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
         self.assertIn('REPORTED, not refusing', said)
         self.assertIn('most likely never joined', said)
 
+    def test_the_brief_shows_a_line_saying_a_removed_name_is_gone(self):
+        """A line naming a removed name beside a removal word refuses nothing, so the brief is the
+        only place it reaches a reviewer; replacing that call with `[]` passes every other case."""
+        base = self.commit({'a.py': 'OLD_HELPER = 1\n'})
+        head = self.commit({'a.py': '', 'NOTES.md': '`OLD_HELPER` removes the entry.\n'})
+        said = review_delta.claims_coverage({'review_base': base, 'head': head})
+        self.assertIn('NOTES.md names `OLD_HELPER`, which this delta removed', said)
+        self.assertIn('"`OLD_HELPER` removes the entry."', said)
+
     def test_the_code_view_marks_an_addition_a_removal_and_a_change_with_no_line(self):
         """A removal reached reviewers through the format an addition uses, and a file that
         changed without any line changing was then announced as one too. Three states, three
