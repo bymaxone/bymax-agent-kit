@@ -43,13 +43,13 @@ def execute(directory, owner_fd, flow, reviewer):
     reviewer ever saw. Both predicates are the runtime's, called here rather than copied.
     """
     opening = flow.read_state(directory)
-    flow.gate_first(opening)
+    flow.gate_first(opening, directory)
     flow.substitute_allowed(opening, reviewer)
     state, attempts = reserve(directory, flow, reviewer)
     target = directory / f"{reviewer}-{state['round']}-{state[attempts]}.json"
     log = target.with_suffix('.log')
     schema = Path(__file__).with_name('review-report.schema.json').read_text()
-    task = (flow.prompt(state) + '\nThe caller supplied this exact committed diff below. '
+    task = (flow.prompt(state, directory) + '\nThe caller supplied this exact committed diff below. '
             'You have Read/Grep/Glob only; inspect surrounding files with those tools, not Bash.\n'
             + flow.git_raw('diff', '--no-ext-diff', '--no-textconv', state['review_base'], state['head'], '--'))
     raw = target.with_suffix('.output.json')

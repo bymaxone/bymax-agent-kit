@@ -1104,7 +1104,7 @@ improves the health of the code even when it is imperfect, and let a nit be a ni
 correct change hostage to text no test can check is the failure mode this field exists to end."""
 
 
-def gate_first(state):
+def gate_first(state, directory):
     """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
 
     Both adapters call this before reserving their attempt. It raises from inside prompt(),
@@ -1136,11 +1136,16 @@ def gate_first(state):
             'These gates failed on this candidate: ' + '; '.join(failed) + '. Fix the candidate, '
             're-run them, and only then ask for a review: reviewers read a tree its own gates '
             'already accept.')
+    # start() runs these at the freeze, and a campaign an earlier runtime froze under this
+    # policy never met them, while the prompt tells both reviewers the claims check ran. Asked
+    # again here, before either reads; on a candidate that met them they change nothing.
+    claims_settled(state['review_base'], state['head'])
+    matrix_first(state, directory)
 
 
-def prompt(state):
+def prompt(state, directory):
     """Build the same bounded read-only task for both independent reviewers."""
-    gate_first(state)
+    gate_first(state, directory)
     return f'''Review only; do not edit, commit, push, invoke review skills, or launch other reviewers.
 Read applicable AGENTS.md and CLAUDE.md constraints. Do not execute their implementation or push workflows.
 Candidate HEAD: {state['head']}.
@@ -1631,7 +1636,7 @@ def execute_codex(directory, owner_fd):
     already spent there is no review left to run, and the question that remains — whether
     this machine has a reviewer at all — is answered by an availability probe instead.
     """
-    gate_first(read_state(directory))   # before the attempt is reserved, never after
+    gate_first(read_state(directory), directory)   # before the attempt is reserved, never after
     exhausted = spent(directory)
     if exhausted is not None:
         return availability(directory, exhausted, owner_fd)
@@ -1655,7 +1660,7 @@ def execute_codex(directory, owner_fd):
                        'read-only', '--ephemeral', '--output-schema', str(schema),
                        '--output-last-message', str(report), '-']
             with log.open('w') as output:
-                result = subprocess.run(command, input=prompt(state), text=True,
+                result = subprocess.run(command, input=prompt(state, directory), text=True,
                                         stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
             if result.returncode == 0:
                 with locked(directory):
@@ -1753,7 +1758,7 @@ def main():
             state = read_state(directory)
             if args.action == 'prompt':
                 current(state)
-                print(prompt(state))
+                print(prompt(state, directory))
                 return
             if args.action == 'lessons':
                 print(lessons(state))
