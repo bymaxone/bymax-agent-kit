@@ -43,8 +43,17 @@ GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
 # The forms that report a removal. GONE also reads a promise or a behaviour, "removes",
 # "no longer", which says what a name does rather than that it is gone.
-RECORDED = re.compile(r'\b(removed|deleted|dropped|gone)\b', re.IGNORECASE)
-AUXILIARY = re.compile(r'(?:(?:has|have|had) )?(?:is|are|was|were|been|be)', re.IGNORECASE)
+RECORDED = re.compile(r'\b(removed|deleted|dropped|gone|no longer)\b', re.IGNORECASE)
+# The text a removal note puts between the name and its verb, names already read as N. Two
+# words before the auxiliary are not in it, which is what keeps another clause's removal out.
+LISTED = r'(?:(?:,|and|or|&) N )*'
+AFTER = re.compile(r'%s(?:[a-z]+ )?(?:(?:has|have|had) (?:[a-z]+ )?been |(?:is|are|was|were|be|got) )'
+                   r'(?:[a-z]+ )?' % LISTED)
+BEFORE = re.compile(r'(?:: )?(?:(?:the|a|an) )?(?:N (?:(?:,|and|or|&) )?)*')
+# What may follow a name reached across a comma, or a form with no auxiliary: more names, then
+# a preposition and whatever it governs. "`OLD_HELPER` removed the entries" has an object instead.
+TAIL = re.compile(r'%s(?:(?:in|from|for|since|as|with|to|on|at|by|after|before|because|during|until) .*)?'
+                  % LISTED)
 # Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
 
@@ -464,32 +473,60 @@ def retired(base, head, cwd=None):
 
 
 def records_removal(line, token):
-    """Whether this line records that the name is gone rather than asserting it. "`OLD_HELPER` was
-    removed; use `NEW_HELPER`" is a migration note, true of the tree it sits in, while
-    "`OLD_HELPER` removes the entry" says what it does. So only a form that reports a removal
-    counts, and only when it is this name's: in the clause naming it, outside every quoted span,
-    with no negation in the clause, and with nothing between the two but other names listed with
-    it and, after the name, an auxiliary: "`A` and `OLD_HELPER` were removed", "is gone".
-    "`OLD_HELPER` stays, but `NEW_HELPER` was removed" and "`OLD_HELPER` removed the entries" are
-    live claims.
-    """
+    """Whether this line only records that the name is gone. "`OLD_HELPER` was removed; use
+    `NEW_HELPER`" is a migration note, true of the tree it sits in, while "`OLD_HELPER` removes the
+    entry" says what it does. Every clause naming it must be a note of its removal, so a live
+    second sentence naming it keeps the line live."""
     # A period ends a clause only where no word follows it: `review_flow.py` is one name.
-    for clause in re.split(r'\.(?!\w)|;|—', line):
-        quoted = [m.span() for m in re.finditer(r'`[^`]*`', clause)]
-        verbs = [m for m in RECORDED.finditer(clause) if not any(a <= m.start() < b for a, b in quoted)]
-        if not verbs or re.search(r'\b(not|never|without|cannot|rather than)\b',
-                                  re.sub(r'`[^`]*`', ' ', clause), re.IGNORECASE):
-            continue
-        for named in re.finditer(r'\b%s\b' % re.escape(token), clause):
-            start, end = next(((a, b) for a, b in quoted if a <= named.start() < b), named.span())
-            for verb in verbs:
-                after = verb.start() >= end
-                between = re.sub(r'`[^`]*`', ' ', clause[end:verb.start()] if after else clause[verb.end():start])
-                rest = ' '.join(w for w in re.findall(r'\w+|[^\w\s]', between)
-                                if not code_shaped(w) and w.lower() not in ('and', 'or', ',', ':', '&'))
-                if (not after and not rest) or (after and AUXILIARY.fullmatch(rest)):
-                    return True
-    return False
+    named = [clause for clause in re.split(r'\.(?!\w)|;|—', line)
+             if re.search(r'\b%s\b' % re.escape(token), clause)]
+    return bool(named) and all(noted(clause, token) for clause in named)
+
+
+def noted(clause, token):
+    """Whether each mention of the name in this clause is the subject or object of a form that
+    reports a removal: outside every quoted span, with no negation in the clause, and with the
+    text between the two read by a small grammar. Before the name, other names listed with it
+    and an article: "Deleted the `A` and `OLD_HELPER`"; a name reached across a comma counts only
+    when what follows it is more names or a preposition, since a comma may end a clause. After
+    the name, those names, one noun, then an auxiliary with one adverb: "The `OLD_HELPER` helper
+    has now been removed", or no auxiliary when nothing is the verb's object: "`OLD_HELPER`
+    removed in 2.0". Anything else is a live claim, among them "`OLD_HELPER` stays, but
+    `NEW_HELPER` was removed", "Removed `NEW_HELPER`, `OLD_HELPER` stays" and "`OLD_HELPER`
+    removed the entries".
+    """
+    quoted = [m.span() for m in re.finditer(r'`[^`]*`', clause)]
+    verbs = [m for m in RECORDED.finditer(clause) if not any(a <= m.start() < b for a, b in quoted)]
+    if not verbs or re.search(r'\b(not|never|without|cannot|rather than)\b',
+                              re.sub(r'`[^`]*`', ' ', clause), re.IGNORECASE):
+        return False
+    for named in re.finditer(r'\b%s\b' % re.escape(token), clause):
+        start, end = next(((a, b) for a, b in quoted if a <= named.start() < b), named.span())
+        if not any(pairs(clause, start, end, verb) for verb in verbs):
+            return False
+    return True
+
+
+def pairs(clause, start, end, verb):
+    """Whether this removal form and this mention of the name read as one note."""
+    if verb.start() >= end:
+        gap = words(clause[end:verb.start()])
+        return bool(AFTER.fullmatch(gap)) or (not gap and bool(TAIL.fullmatch(upto_comma(clause, verb.end()))))
+    gap = words(clause[verb.end():start])
+    return bool(BEFORE.fullmatch(gap)) and (',' not in gap or bool(TAIL.fullmatch(upto_comma(clause, end))))
+
+
+def upto_comma(clause, at):
+    """The words from `at` to the next comma or the end of the clause."""
+    return words(clause[at:].split(',', 1)[0])
+
+
+def words(text):
+    """The text as the grammar reads it: each quoted span and code-shaped word as N, the rest
+    lowercased, emphasis marks dropped, every token followed by one space."""
+    text = re.sub(r'`[^`]*`', ' N ', text)
+    return ''.join(('N' if w == 'N' or code_shaped(w) else w.lower()) + ' '
+                   for w in re.findall(r'\w+|[^\w\s]', text) if w != '*')
 
 
 def claimed(line, quote):
