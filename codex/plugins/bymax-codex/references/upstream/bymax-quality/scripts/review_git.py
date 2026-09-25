@@ -1,5 +1,5 @@
-"""Git access layer: read repository state without a shell, and the one refusal every step
-of the review runtime raises."""
+"""Git access layer: read repository state without a shell, and the refusal a review step
+raises."""
 import subprocess
 
 
@@ -9,7 +9,7 @@ def git(*args):
 
 
 def git_raw(*args):
-    """The same, untrimmed: a NUL-delimited listing is bytes, and stripping edits a name.
+    """The same, untrimmed: a NUL-delimited listing is exact, and stripping edits a name.
 
     A path may legitimately begin or end with whitespace, and trimming one silently
     collapses it onto its neighbour — which is how a file no finding named became
