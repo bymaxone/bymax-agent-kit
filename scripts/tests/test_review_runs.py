@@ -110,8 +110,14 @@ class RunTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(enumeration='python3 -c "print(\'1\\\\n\' * %d)"' % matrix.KEEP))
         self.assertIn('which is not a count', str(caught.exception))
+        # Bytes that are not UTF-8 are measured as bytes: decoded and re-encoded, each would count
+        # three, and a short output would read as one that filled the tail.
+        self.assertEqual(matrix.enumerated(str(bench.where), {
+            'rule': 'bytes', 'enumeration': 'python3 -c "import sys; sys.stdout.buffer.write('
+                                            'bytes([255]) * 30000 + bytes([10, 49, 10]))"'}), 1)
+        # Ten seconds, not five: the same deadline bounds the collect bench.run makes first.
         clean = matrix.CLEAN
-        matrix.CLEAN = 5
+        matrix.CLEAN = 10
         self.addCleanup(setattr, matrix, 'CLEAN', clean)
         began = time.monotonic()
         with self.assertRaises(SystemExit) as caught:
