@@ -525,7 +525,7 @@ def upto_comma(clause, at):
 
 def words(text):
     """The text as the grammar reads it: each quoted span and code-shaped word as N, the rest
-    lowercased, emphasis marks dropped, every token followed by one space."""
+    lowercased, asterisks dropped, every token followed by one space."""
     text = re.sub(r'`[^`]*`', ' N ', text)
     return ''.join(('N' if w == 'N' or code_shaped(w) else w.lower()) + ' '
                    for w in re.findall(r'\w+|[^\w\s]', text) if w != '*')
