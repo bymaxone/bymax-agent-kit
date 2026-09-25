@@ -40,6 +40,10 @@ from review_markdown import outside_code
 
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
+# A note also records a removal as a rename or a replacement. claimed() reads GONE alone: "replaces
+# `X`" says nothing about whether `X` is still in the tree, so it must not refuse on that word.
+NOTED = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone|'
+                   r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?)\b', re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
 # Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
@@ -485,7 +489,7 @@ def records_removal(line, token):
     # A period ends a clause only where no word follows it: `review_flow.py` is one name.
     named = [clause for clause in re.split(r'\.(?!\w)|;|—', line)
              if re.search(r'\b%s\b' % re.escape(token), clause)]
-    return all(GONE.search(re.sub(r'`[^`]*`', ' ', clause)) for clause in named)
+    return all(NOTED.search(re.sub(r'`[^`]*`', ' ', clause)) for clause in named)
 
 
 def claimed(line, quote):
