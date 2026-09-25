@@ -35,6 +35,7 @@ import signal
 import subprocess
 import time
 import tempfile
+import threading
 import sys
 from pathlib import Path
 
@@ -51,6 +52,9 @@ PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cach
 # The directory names that mark a test location, compared without case. The campaign's own test
 # classifier reads the same names, and a case holds the two together.
 TEST_DIRECTORIES = frozenset(('test', 'tests', 'spec', '__tests__'))
+# What a run keeps of each stream, in bytes: the summary line outcome() reads is the last one, and a run
+# that prints without end must not grow the process that restores the mutated file.
+KEEP = 1 << 16
 
 
 def pytest_env():
@@ -92,35 +96,77 @@ def run_case(root, selector, files, deadline=CLEAN):
     detach, and the run reads as timed out.
     """
     args = [*PYTEST, *arguments(root, files)] + (['-k', selector] if selector else [])
+    tails = {'out': [], 'err': []}
     with tempfile.TemporaryDirectory() as empty, \
             subprocess.Popen(args, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             text=True, env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
+                             bufsize=0, env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
                              start_new_session=True) as child:
+        # Unbuffered, so no read holds a lock: closing a buffered pipe waits on the lock a
+        # blocked reader holds, and a detached descendant keeping the pipe open held it for good.
+        readers = [threading.Thread(target=keep_tail, args=(stream, tails[key]), daemon=True)
+                   for key, stream in (('out', child.stdout), ('err', child.stderr))]
+        for reader in readers:
+            reader.start()
         try:
-            out, err = child.communicate(timeout=deadline)
+            child.wait(timeout=deadline)
         except subprocess.TimeoutExpired:
-            stop(child)
+            halt(child, readers)
             return None, 'timed out after %ds' % deadline
         except BaseException:
             # In a session of its own pytest does not hear the terminal's Ctrl-C, so an
             # interrupted matrix would leave it running under the mutant.
-            stop(child)
+            halt(child, readers)
             raise
+        drained(readers)
+    out, err = (tails['out'] or [''])[0], (tails['err'] or [''])[0]
     tail = out.strip().splitlines()
     return child.returncode, (tail[-1] if tail else err[-160:])
+
+
+def keep_tail(stream, into):
+    """Read a stream to its end and keep only its last KEEP bytes, decoded. A run that prints
+    without end would otherwise hold all of it in the process that restores the mutated file."""
+    kept = b''
+    try:
+        for chunk in iter(lambda: stream.read(8192), b''):
+            kept = (kept + chunk)[-KEEP:]
+    except (OSError, ValueError):
+        pass
+    into.append(kept.decode('utf-8', 'replace'))
+
+
+def halt(child, readers):
+    """stop() for a run whose pipes readers drain: kill the group, then give the readers a
+    bounded wait, since a detached descendant may hold the pipes for good."""
+    kill_group(child)
+    child.wait()
+    drained(readers)
+
+
+def drained(readers):
+    """Wait for the readers to reach the end of their pipes, five seconds in all: a detached
+    descendant may keep a pipe open after the run ends, and the run must not wait for it."""
+    limit = time.monotonic() + 5
+    for reader in readers:
+        reader.join(timeout=max(0, limit - time.monotonic()))
 
 
 def stop(child):
     """Kill the child's process group, or the child alone where the group is already gone,
     and wait a bounded time for its pipes: a detached descendant may hold them for good."""
-    try:
-        os.killpg(child.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        child.kill()
+    kill_group(child)
     try:
         child.communicate(timeout=5)
     except subprocess.TimeoutExpired:
         pass
+
+
+def kill_group(child):
+    """Kill the child's process group, or the child alone where the group is already gone."""
+    try:
+        os.killpg(child.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        child.kill()
 
 
 def outcome(code, tail):
