@@ -319,10 +319,10 @@ class MeaningTests(unittest.TestCase):
         decides what a test location is. Two lists of the same names drift apart silently; a
         name one reads and the other does not is a helper the matrix accepts."""
         sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
-        import review_flow
+        import review_evidence
         for name in ('test', 'tests', 'spec', '__tests__', 'Spec', 'TESTS', 'testing', 'fixtures', 'src', 'specs'):
             with self.subTest(name):
-                self.assertEqual(bool(review_flow.TEST_DIRECTORY.search(name + '/aid.py')),
+                self.assertEqual(bool(review_evidence.TEST_DIRECTORY.search(name + '/aid.py')),
                                  name.lower() in matrix.TEST_DIRECTORIES)
 
     def test_the_test_directory_rule_reads_where_the_file_is(self):

@@ -194,7 +194,7 @@ class RunTests(unittest.TestCase):
         that answer: beside a neighbour that loops on import, the changed test must come back
         unanswered, None, so the gate refuses rather than opens."""
         sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
-        import review_flow
+        import review_evidence
         clean = matrix.CLEAN
         matrix.CLEAN = 3
         self.addCleanup(setattr, matrix, 'CLEAN', clean)
@@ -209,7 +209,7 @@ class RunTests(unittest.TestCase):
         here = os.getcwd()
         os.chdir(bench.where)
         self.addCleanup(os.chdir, here)
-        self.assertIsNone(review_flow.collects_a_test('tests/test_a.py'))
+        self.assertIsNone(review_evidence.collects_a_test('tests/test_a.py'))
 
 
 

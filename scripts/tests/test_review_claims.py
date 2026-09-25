@@ -178,7 +178,15 @@ class RetiredNameTests(unittest.TestCase):
         for head in ('old_helper = print\n', 'old_helper: object = print\n',
                      'old_helper, other = print, len\n', '[old_helper, *rest] = [print]\n',
                      'for old_helper in [print]:\n    pass\n', 'with open(__file__) as old_helper:\n    pass\n',
-                     '(old_helper := print)\n', 'try:\n    pass\nexcept Exception as old_helper:\n    pass\n'):
+                     '(old_helper := print)\n', 'try:\n    pass\nexcept Exception as old_helper:\n    pass\n',
+                     # Held as strings on their nodes, never as a name in a store position.
+                     'def process(old_helper):\n    return old_helper\n', 'run = lambda old_helper: 0\n',
+                     'def process(*old_helper):\n    pass\n', 'def process(*, old_helper):\n    pass\n',
+                     'def process(**old_helper):\n    pass\n', 'def process[old_helper]():\n    pass\n',
+                     'match print:\n    case old_helper:\n        pass\n',
+                     'match print:\n    case int() as old_helper:\n        pass\n',
+                     'match []:\n    case [*old_helper]:\n        pass\n',
+                     'match {}:\n    case {**old_helper}:\n        pass\n'):
             with self.subTest(head):
                 tree = Tree(self, {'a.py': 'def old_helper(x):\n    return x\n# calls old_helper\n'},
                             {'a.py': head + '# calls old_helper\n'})

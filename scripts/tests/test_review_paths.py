@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
-import review_flow
+import review_evidence
 
 
 
@@ -48,9 +48,9 @@ class QuotedTestPathTests(unittest.TestCase):
         here = os.getcwd()
         os.chdir(where)
         self.addCleanup(os.chdir, here)
-        self.assertEqual(review_flow.tests_changed(base, head),
+        self.assertEqual(review_evidence.tests_changed(base, head),
                          (['tests/test_café.py'], ['tests/test_gone_é.py']))
-        self.assertEqual(review_flow.merged_in_tests(base, head), ['tests/test_side_ñ.py'])
+        self.assertEqual(review_evidence.merged_in_tests(base, head), ['tests/test_side_ñ.py'])
 
 
 if __name__ == '__main__':

@@ -312,14 +312,19 @@ def wildcard(tree):
 
 
 def assigned(tree):
-    """Names a binding creates in this tree, in any case: every name in a store position and the
-    name an except clause binds. A bare annotation, `x: int`, binds nothing."""
+    """Names a binding creates in this tree, in any case: every name in a store position, each
+    parameter of a def or lambda, the name an except clause binds, each name a match pattern
+    captures, and each type parameter. Those last four are held as strings on their nodes, not
+    as names in a store position. A bare annotation, `x: int`, binds nothing."""
     bare = {id(node.target) for node in ast.walk(tree)
             if isinstance(node, ast.AnnAssign) and node.value is None}
     stored = {node.id for node in ast.walk(tree)
               if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and id(node) not in bare}
-    return stored | {node.name for node in ast.walk(tree)
-                     if isinstance(node, ast.ExceptHandler) and node.name}
+    held = (ast.ExceptHandler, ast.MatchAs, ast.MatchStar) + tuple(
+        getattr(ast, kind) for kind in ('TypeVar', 'ParamSpec', 'TypeVarTuple') if hasattr(ast, kind))
+    return (stored | {node.arg for node in ast.walk(tree) if isinstance(node, ast.arg)}
+            | {node.name for node in ast.walk(tree) if isinstance(node, held) and node.name}
+            | {node.rest for node in ast.walk(tree) if isinstance(node, ast.MatchMapping) and node.rest})
 
 
 def imported(tree):
