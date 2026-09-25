@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
-# The bench is the matrix module's, imported whether this file is run by path or by module.
+# The bench is test_review_matrix's, imported whether this file is run by path or by module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import review_matrix as matrix
 from test_review_matrix import CASE, GUARDED, Bench, rule
