@@ -972,6 +972,10 @@ def matrix_run(args, directory, state):
     # state in hand still describes the round before.
     head = clean_head()
     where = directory / ('matrix-' + head + '.json')
+    # Gone before the attempt, not replaced after it: a run refused before it writes, by an
+    # anchor, a spec or a collect, would otherwise leave an earlier run's record for start to
+    # accept as the measurement of a spec it never ran.
+    where.unlink(missing_ok=True)
     return review_matrix.record(git('rev-parse', '--show-toplevel'), args.spec,
                                 list(args.paths), out=str(where))
 
