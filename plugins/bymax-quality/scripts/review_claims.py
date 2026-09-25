@@ -41,6 +41,8 @@ from review_markdown import outside_code
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
+# Both spellings of a Markdown file, as the rest of the runtime reads them.
+MARKDOWN = ('.md', '.markdown')
 
 
 def root(cwd=None):
@@ -72,7 +74,7 @@ def prose(name, text):
     A comment after code is read too, as its own text and without its line: `x = f()  # uses
     OLD_NAME` still names OLD_NAME, while marks() keeps that line under code for the split.
     """
-    if name.endswith('.md'):
+    if name.endswith(MARKDOWN):
         return outside_code(text)
     if not name.endswith('.py'):
         return ''
@@ -102,7 +104,7 @@ def marks(name, text):
     and the code-to-prose ratio the reviewers are shown. Two classifiers would drift, and the
     drift would be invisible until one of them read a line of code as a sentence.
     """
-    if name.endswith('.md'):
+    if name.endswith(MARKDOWN):
         # A code block's lines are code, read by the walker prose() reads them with. A fenced
         # `bash` block in a command file is what a model runs verbatim, and filing it under
         # prose told the reviewers that a delta changing one had changed no code.
@@ -154,7 +156,7 @@ def authored(name):
     return not name.startswith(GENERATED)
 
 
-READABLE = ('.md', '.py')
+READABLE = MARKDOWN + ('.py',)
 
 
 def touched(base, head, cwd=None):
@@ -392,7 +394,7 @@ def orphaned(base, head, cwd=None):
 def historical(name):
     """Whether a file is release history. A changelog is append-only, and an entry naming a
     symbol since removed is true of the release it records, so it asserts nothing live."""
-    return Path(name).name.lower() == 'changelog.md'
+    return Path(name).name.lower() in ('changelog' + suffix for suffix in MARKDOWN)
 
 
 def code_shaped(token):
@@ -441,7 +443,8 @@ def retired(base, head, cwd=None):
             continue
         # NUL-separated, because git quotes a path it prints one to a line, and the quoted
         # spelling of café.md named no file: the dangling mention there went unreported.
-        listed = git('grep', '-z', '-lw', '--', token, head, '--', '*.py', '*.md', cwd=cwd)
+        listed = git('grep', '-z', '-lw', '--', token, head, '--', '*.py',
+                     *('*' + suffix for suffix in MARKDOWN), cwd=cwd)
         # Filtered here as well as in touched(): the search that finds the dangling mention is
         # a different search from the one that finds the removal, and excluding the generated
         # copy in only one of them leaves the other reporting a file that asserts nothing of
@@ -449,10 +452,28 @@ def retired(base, head, cwd=None):
         for name in sorted({p.split(':', 1)[-1] for p in listed.split('\0')
                             if p and authored(p.split(':', 1)[-1])
                             and not historical(p.split(':', 1)[-1])}):
-            if re.search(r'\b%s\b' % token,
-                         prose(name, git('show', '%s:%s' % (head, name), cwd=cwd))):
+            said = prose(name, git('show', '%s:%s' % (head, name), cwd=cwd)).split('\n')
+            if any(re.search(r'\b%s\b' % token, line) and not records_removal(line, token)
+                   for line in said):
                 found.append((name, token))
     return sorted(found)
+
+
+def records_removal(line, token):
+    """Whether this line records that the name is gone rather than asserting it: a removal verb
+    in the clause naming it, outside every quoted span and not negated there. "`OLD_HELPER` was
+    removed; use `NEW_HELPER`" is a migration note, true of the tree it sits in. A clause that
+    uses the name without such a verb is still a live claim, whatever the rest of the line says.
+    """
+    # A period ends a clause only where no word follows it: `review_flow.py` is one name.
+    for clause in re.split(r'\.(?!\w)|;|—', line):
+        if not re.search(r'\b%s\b' % token, clause):
+            continue
+        words = re.sub(r'`[^`]*`', ' ', clause)
+        if GONE.search(words) and not re.search(r'\b(not|never|without|cannot|rather than)\b',
+                                                words, re.IGNORECASE):
+            return True
+    return False
 
 
 def claimed(line, quote):

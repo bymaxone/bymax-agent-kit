@@ -604,7 +604,7 @@ class UnkeptPromiseTests(unittest.TestCase):
         """A changelog is append-only: an entry naming a symbol since removed is true of the
         release it records. Only the file named CHANGELOG.md, in any case and directory, is
         history; the same sentence in a README is a live claim."""
-        for name in ('CHANGELOG.md', 'docs/ChangeLog.md'):
+        for name in ('CHANGELOG.md', 'docs/ChangeLog.md', 'CHANGELOG.markdown'):
             with self.subTest(name):
                 tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n', name: 'Version 1 added `OLD_HELPER`.\n'},
                             {'a.py': '', name: 'Version 1 added `OLD_HELPER`.\n'})
@@ -612,6 +612,31 @@ class UnkeptPromiseTests(unittest.TestCase):
         tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n', 'README.md': 'Version 1 added `OLD_HELPER`.\n'},
                     {'a.py': '', 'README.md': 'Version 1 added `OLD_HELPER`.\n'})
         self.assertEqual(tree.retired(), [('README.md', 'OLD_HELPER')])
+
+    def test_a_markdown_file_in_either_spelling_is_read(self):
+        """README.markdown is prose the way README.md is: a dangling mention there is found by
+        the search over the tree, and its words are read, not skipped as a file of no kind."""
+        tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n', 'README.markdown': 'Set `OLD_HELPER` first.\n'},
+                    {'a.py': '', 'README.markdown': 'Set `OLD_HELPER` first.\n'})
+        self.assertEqual(tree.retired(), [('README.markdown', 'OLD_HELPER')])
+        # Changed by the delta, it is a file this module reads, and its lines are prose.
+        tree = Tree(self, {'README.markdown': 'Old.\n'}, {'README.markdown': 'New.\n'})
+        self.assertEqual(claims.opaque(tree.base, tree.head, cwd=str(tree.where)), [])
+        self.assertEqual(claims.marks('README.markdown', 'New.\n'), claims.marks('README.md', 'New.\n'))
+
+    def test_a_line_recording_the_removal_asserts_nothing_live(self):
+        """A migration note is true of the tree it sits in. A clause naming the name without a
+        removal verb, a verb inside another quoted span, and a negated one are live claims."""
+        for note in ('`OLD_HELPER` was removed; use `NEW_HELPER`.\n', 'Deleted `OLD_HELPER` in 2.0.\n',
+                     'OLD_HELPER is gone — read NEW_HELPER.\n'):
+            with self.subTest(note):
+                tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n'}, {'a.py': '', 'README.md': note})
+                self.assertEqual(tree.retired(), [])
+        for live in ('Set `OLD_HELPER` first. The old cache was removed.\n',
+                     '`OLD_HELPER` runs `git worktree remove`.\n', '`OLD_HELPER` is not removed.\n'):
+            with self.subTest(live):
+                tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n'}, {'a.py': '', 'README.md': live})
+                self.assertEqual(tree.retired(), [('README.md', 'OLD_HELPER')])
 
     def test_a_claimed_removal_whose_quote_survives_is_reported(self):
         """Measured on another repository on this loop: a triage disposition certifying a

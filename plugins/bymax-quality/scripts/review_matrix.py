@@ -96,31 +96,45 @@ def run_case(root, selector, files, deadline=CLEAN):
     detach, and the run reads as timed out.
     """
     args = [*PYTEST, *arguments(root, files)] + (['-k', selector] if selector else [])
-    tails = {'out': [b''], 'err': [b'']}
     with tempfile.TemporaryDirectory() as empty, \
             subprocess.Popen(args, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              bufsize=0, env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
                              start_new_session=True) as child:
-        # Unbuffered, so no read holds a lock: closing a buffered pipe waits on the lock a
-        # blocked reader holds, and a detached descendant keeping the pipe open held it for good.
-        readers = [threading.Thread(target=keep_tail, args=(stream, tails[key]), daemon=True)
-                   for key, stream in (('out', child.stdout), ('err', child.stderr))]
-        for reader in readers:
-            reader.start()
-        try:
-            child.wait(timeout=deadline)
-        except subprocess.TimeoutExpired:
-            halt(child, readers)
-            return None, 'timed out after %ds' % deadline
-        except BaseException:
-            # In a session of its own pytest does not hear the terminal's Ctrl-C, so an
-            # interrupted matrix would leave it running under the mutant.
-            halt(child, readers)
-            raise
+        code, out, err = tailed(child, deadline)
+    if code is None:
+        return None, 'timed out after %ds' % deadline
+    tail = out.strip().splitlines()
+    return code, (tail[-1] if tail else err[-160:])
+
+
+def tailed(child, deadline):
+    """Wait up to `deadline` seconds for a child started in a session of its own with unbuffered
+    stdout and stderr pipes, keeping each stream's last KEEP bytes as it is read. Returns the
+    exit status and both tails, decoded, with the status None past the deadline, when the group
+    is killed. Anything else that stops the wait kills the group and propagates.
+
+    Unbuffered, so no read holds a lock: closing a buffered pipe waits on the lock a blocked
+    reader holds, and a detached descendant keeping the pipe open held it for good.
+    """
+    tails = {'out': [b''], 'err': [b'']}
+    readers = [threading.Thread(target=keep_tail, args=(stream, tails[key]), daemon=True)
+               for key, stream in (('out', child.stdout), ('err', child.stderr))]
+    for reader in readers:
+        reader.start()
+    code = None
+    try:
+        code = child.wait(timeout=deadline)
+    except subprocess.TimeoutExpired:
+        halt(child, readers)
+    except BaseException:
+        # In a session of its own the child does not hear the terminal's Ctrl-C, so an
+        # interrupted matrix would leave it running, under a mutant or in a collect.
+        halt(child, readers)
+        raise
+    else:
         drained(readers)
     out, err = (tails[key][0].decode('utf-8', 'replace') for key in ('out', 'err'))
-    tail = out.strip().splitlines()
-    return child.returncode, (tail[-1] if tail else err[-160:])
+    return code, out, err
 
 
 def keep_tail(stream, into):
@@ -696,21 +710,17 @@ def collect_run(real, root, files, selector, token, box):
     env['BYMAX_COLLECT_OUT'] = str(Path(box, 'collected'))
     args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', name,
             *arguments(root, files)] + (['-k', selector] if selector else [])
-    # A collect runs the repository's import-time code, and a loop there never returns: bounded
-    # like a mutant run, its group killed if the wait times out or raises.
+    # A collect runs the repository's import-time code, and a loop there never returns, nor does
+    # a plugin that prints without end: bounded like a mutant run in time and in what it keeps,
+    # its group killed if the wait times out or raises.
     with subprocess.Popen(args, cwd=real, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          text=True, env=env, start_new_session=True) as child:
-        try:
-            out, err = child.communicate(timeout=CLEAN)
-        except subprocess.TimeoutExpired:
-            stop(child)
-            raise Unfinished('BLOCKED: pytest did not finish collecting %s in %ds. A collect that '
-                             'never ends names no test, and the matrix cannot run what it cannot '
-                             'list.' % (' '.join(files), CLEAN))
-        except BaseException:
-            stop(child)
-            raise
-    return subprocess.CompletedProcess(args, child.returncode, out, err), Path(env['BYMAX_COLLECT_OUT'])
+                          bufsize=0, env=env, start_new_session=True) as child:
+        code, out, err = tailed(child, CLEAN)
+    if code is None:
+        raise Unfinished('BLOCKED: pytest did not finish collecting %s in %ds. A collect that '
+                         'never ends names no test, and the matrix cannot run what it cannot '
+                         'list.' % (' '.join(files), CLEAN))
+    return subprocess.CompletedProcess(args, code, out, err), Path(env['BYMAX_COLLECT_OUT'])
 
 
 def reported(where, token):

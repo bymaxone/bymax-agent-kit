@@ -2,9 +2,11 @@
 bounded by a deadline, stopped with their process group, and read."""
 import io
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -161,6 +163,22 @@ class RunTests(unittest.TestCase):
         self.assertLess(time.monotonic() - began, 25)
         self.assertEqual(code, 0)
         self.assertIn('1 passed', tail)
+
+    def test_a_collect_keeps_only_the_tail_of_what_it_prints(self):
+        """A plugin that prints through collection must not grow the process that reads the
+        collect: each stream keeps its last KEEP bytes, and the collect still names its tests."""
+        bench = Bench(self)
+        (bench.where / 'conftest.py').write_text(
+            'def pytest_collection_modifyitems(config, items):\n'
+            '    capture = config.pluginmanager.getplugin("capturemanager")\n'
+            '    with capture.global_and_fixture_disabled():\n'
+            '        print("x" * %d)\n        print("last")\n' % (3 * matrix.KEEP))
+        box = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, box, True)
+        done, _ = matrix.collect_run(str(bench.where), str(bench.where), ['test_thing.py'], None, 't0k', box)
+        self.assertLessEqual(len(done.stdout), matrix.KEEP)
+        self.assertIn('\nlast\n', done.stdout)
+        self.assertEqual(matrix.ids(str(bench.where), ['test_thing.py']), ['test_thing.py::test_over_the_limit'])
 
     def test_a_collect_that_never_ends_is_refused(self):
         """A collect runs the repository's import-time code, and a loop there that only a
