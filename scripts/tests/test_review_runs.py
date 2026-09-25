@@ -102,6 +102,23 @@ class RunTests(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(int((bench.where / 'enumerate.pid').read_text()), 0)
 
+    def test_an_enumeration_that_prints_past_a_count_is_refused(self):
+        """An enumeration is read through the bounded tail a run is, so one that prints without
+        end holds KEEP bytes rather than all of it until the deadline. Output that fills the
+        tail is not a count, and is refused by name rather than counted as the rows left in it."""
+        bench = Bench(self)
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='python3 -c "print(\'1\\\\n\' * %d)"' % matrix.KEEP))
+        self.assertIn('which is not a count', str(caught.exception))
+        clean = matrix.CLEAN
+        matrix.CLEAN = 5
+        self.addCleanup(setattr, matrix, 'CLEAN', clean)
+        began = time.monotonic()
+        with self.assertRaises(SystemExit) as caught:
+            bench.run(rule(enumeration='yes 1'))
+        self.assertIn('enumeration command did not finish', str(caught.exception))
+        self.assertLess(time.monotonic() - began, 60)
+
     def test_a_run_keeps_only_the_tail_of_its_output(self):
         """A run that prints without end must not grow the process that restores the mutated
         file: each stream keeps its last KEEP bytes, and the summary line is still read
