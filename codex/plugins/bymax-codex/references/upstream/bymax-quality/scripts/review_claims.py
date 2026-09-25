@@ -41,6 +41,10 @@ from review_markdown import outside_code
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
+# The forms that report a removal. GONE also reads a promise or a behaviour, "removes",
+# "no longer", which says what a name does rather than that it is gone.
+RECORDED = re.compile(r'\b(removed|deleted|dropped|gone)\b', re.IGNORECASE)
+AUXILIARY = re.compile(r'(?:(?:has|have|had) )?(?:is|are|was|were|been|be)', re.IGNORECASE)
 # Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
 
@@ -460,19 +464,31 @@ def retired(base, head, cwd=None):
 
 
 def records_removal(line, token):
-    """Whether this line records that the name is gone rather than asserting it: a removal verb
-    in the clause naming it, outside every quoted span and not negated there. "`OLD_HELPER` was
-    removed; use `NEW_HELPER`" is a migration note, true of the tree it sits in. A verb in a
-    clause that does not name it records nothing.
+    """Whether this line records that the name is gone rather than asserting it. "`OLD_HELPER` was
+    removed; use `NEW_HELPER`" is a migration note, true of the tree it sits in, while
+    "`OLD_HELPER` removes the entry" says what it does. So only a form that reports a removal
+    counts, and only when it is this name's: in the clause naming it, outside every quoted span,
+    with no negation in the clause, and with nothing between the two but other names listed with
+    it and, after the name, an auxiliary: "`A` and `OLD_HELPER` were removed", "is gone".
+    "`OLD_HELPER` stays, but `NEW_HELPER` was removed" and "`OLD_HELPER` removed the entries" are
+    live claims.
     """
     # A period ends a clause only where no word follows it: `review_flow.py` is one name.
     for clause in re.split(r'\.(?!\w)|;|—', line):
-        if not re.search(r'\b%s\b' % token, clause):
+        quoted = [m.span() for m in re.finditer(r'`[^`]*`', clause)]
+        verbs = [m for m in RECORDED.finditer(clause) if not any(a <= m.start() < b for a, b in quoted)]
+        if not verbs or re.search(r'\b(not|never|without|cannot|rather than)\b',
+                                  re.sub(r'`[^`]*`', ' ', clause), re.IGNORECASE):
             continue
-        words = re.sub(r'`[^`]*`', ' ', clause)
-        if GONE.search(words) and not re.search(r'\b(not|never|without|cannot|rather than)\b',
-                                                words, re.IGNORECASE):
-            return True
+        for named in re.finditer(r'\b%s\b' % re.escape(token), clause):
+            start, end = next(((a, b) for a, b in quoted if a <= named.start() < b), named.span())
+            for verb in verbs:
+                after = verb.start() >= end
+                between = re.sub(r'`[^`]*`', ' ', clause[end:verb.start()] if after else clause[verb.end():start])
+                rest = ' '.join(w for w in re.findall(r'\w+|[^\w\s]', between)
+                                if not code_shaped(w) and w.lower() not in ('and', 'or', ',', ':', '&'))
+                if (not after and not rest) or (after and AUXILIARY.fullmatch(rest)):
+                    return True
     return False
 
 
