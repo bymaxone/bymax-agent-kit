@@ -547,7 +547,7 @@ def unkept(base, head, cwd=None):
                 surviving = [p.split(':', 1)[-1] for p in hit.split('\0')
                              if p and authored(p.split(':', 1)[-1])
                              and p.split(':', 1)[-1] != name]
-                # The phrase must have existed BEFORE. Nothing can be removed that was never
+                # The phrase must have existed before. Nothing can be removed that was never
                 # there, so a sentence quoting text this same delta wrote is narrating, not
                 # claiming — which is what produced every false positive measured here: a
                 # changelog quoting `69 passed` as an example from a file the commit created.

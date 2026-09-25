@@ -152,7 +152,7 @@ def payload(root=None):
 
 
 def complete(carried):
-    """Refuse a short payload or an untracked extra BEFORE the first write, by what git tracks.
+    """Refuse a short payload or an untracked extra before the first write, by what git tracks.
 
     Deriving what to copy removed the one thing the hand-kept tuple did well: failing when a
     file was absent. An installer that reports success while planting a runtime missing a

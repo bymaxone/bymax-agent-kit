@@ -283,7 +283,7 @@ This rule is **identical** to the one enforced by the `tester` skill. Tests writ
 
 ## Important Notes
 
-**MANDATORY**: Tests must be written BEFORE implementation. The TDD cycle is:
+**MANDATORY**: Tests must be written *before* implementation. The TDD cycle is:
 
 1. **RED** - Write failing test
 2. **GREEN** - Implement to pass

@@ -1107,7 +1107,7 @@ correct change hostage to text no test can check is the failure mode this field 
 def gate_first(state):
     """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
 
-    Both adapters call this BEFORE reserving their attempt. It raises from inside prompt(),
+    Both adapters call this before reserving their attempt. It raises from inside prompt(),
     which they evaluate only as the subprocess input, so reserving first spent an attempt on a
     refusal that never reached a reviewer — two of them exhausted the per-candidate budget with
     nothing read, after which execute_codex diverts to an availability probe and reports a
