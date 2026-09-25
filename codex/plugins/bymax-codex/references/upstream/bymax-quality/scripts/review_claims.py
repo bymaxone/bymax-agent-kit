@@ -41,7 +41,7 @@ from review_markdown import outside_code
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
-# Both spellings of a Markdown file, as the rest of the runtime reads them.
+# Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
 
 
@@ -462,8 +462,8 @@ def retired(base, head, cwd=None):
 def records_removal(line, token):
     """Whether this line records that the name is gone rather than asserting it: a removal verb
     in the clause naming it, outside every quoted span and not negated there. "`OLD_HELPER` was
-    removed; use `NEW_HELPER`" is a migration note, true of the tree it sits in. A clause that
-    uses the name without such a verb is still a live claim, whatever the rest of the line says.
+    removed; use `NEW_HELPER`" is a migration note, true of the tree it sits in. A verb in a
+    clause that does not name it records nothing.
     """
     # A period ends a clause only where no word follows it: `review_flow.py` is one name.
     for clause in re.split(r'\.(?!\w)|;|—', line):
