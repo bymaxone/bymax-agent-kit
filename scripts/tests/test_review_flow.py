@@ -1517,6 +1517,20 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertIn('results mutated tests/other.py',
                       self.start(ok=False, correction=True, reason='').stderr)
 
+    def test_a_refused_rerun_leaves_no_earlier_record_behind(self):
+        """A matrix run again on the same head and refused before it writes, here by an anchor
+        that occurs nowhere, leaves no record: the earlier run's would be accepted by start as
+        the measurement of a spec it never ran."""
+        record, _ = self.measured_record()
+        spec = self.root / 'revised-matrix.json'
+        spec.write_text(json.dumps([{'rule': 'fixture: a revised spec', 'enumeration': 'echo 1',
+                                     'mutants': [{'file': 'values.py', 'anchor': 'ABSENT = 0',
+                                                  'becomes': 'ABSENT = 1', 'case': 'test_g'}]}]))
+        refused = self.flow('matrix', '--spec', str(spec), 'tests/test_g.py', ok=False)
+        self.assertIn('occurs 0 times', refused.stderr)
+        self.assertFalse(record.exists())
+        self.assertIn('no measured mutation matrix exists', self.start(ok=False, correction=True, reason='').stderr)
+
     def measured_record(self):
         """A correction that changes a test, its matrix run for real, and the record it wrote:
         what the forgeries below start from. Returns (record path, its contents)."""

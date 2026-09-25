@@ -295,11 +295,20 @@ def defines(name, text):
     `LIMIT = 1`, or `old_helper = replacement` in place of its def, removes nothing a sentence
     could still name. Only on this side: a dropped import or lowercase assignment is not a
     definition removed, since the loss side reads only defs, classes and CONSTANT_CASE names.
+    A wildcard import keeps every name alive: which names it binds is the imported module's to
+    say, and that module may be nowhere in this tree.
     """
     tree = parsed(text)
     if tree is None:
         return re.search(r'(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])' % re.escape(name), text) is not None
-    return name in declared(tree) or name in imported(tree) or name in assigned(tree)
+    return (name in declared(tree) or name in imported(tree) or name in assigned(tree)
+            or wildcard(tree))
+
+
+def wildcard(tree):
+    """Whether this tree imports with `from module import *`."""
+    return any(alias.name == '*' for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+               for alias in node.names)
 
 
 def assigned(tree):

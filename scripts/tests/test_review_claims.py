@@ -159,6 +159,19 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': '# uses OLD_LIMIT\n'})
         self.assertEqual(tree.retired(), [])
 
+    def test_a_wildcard_import_keeps_a_name_alive(self):
+        """`from pathlib import *` in place of `class Path` still binds Path at run time, and
+        which names a wildcard binds is the imported module's to say. Without it, the class
+        removed is a name lost."""
+        # In the file the class left, and in another file the search for where it went reads.
+        for head in ({'a.py': 'from pathlib import *\n# builds a Path\n', 'b.py': ''},
+                     {'a.py': '# builds a Path\n', 'b.py': 'from pathlib import *\nPath\n'}):
+            with self.subTest(head):
+                tree = Tree(self, {'a.py': 'class Path:\n    pass\n# builds a Path\n', 'b.py': ''}, head)
+                self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'class Path:\n    pass\n# builds a Path\n'}, {'a.py': '# builds a Path\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'Path')])
+
     def test_a_name_the_file_assigns_is_alive(self):
         """A def refactored into a binding still binds the name a sentence names; a bare
         annotation and a name only read bind nothing."""
