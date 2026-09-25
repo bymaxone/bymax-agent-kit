@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -382,15 +383,40 @@ class MeaningTests(unittest.TestCase):
         """A run that prints without end must not grow the process that restores the mutated
         file: each stream keeps its last KEEP bytes, and the summary line is still read
         from a run that printed far more than that past pytest's capture."""
-        kept = []
+        kept = [b'']
         matrix.keep_tail(io.BytesIO(b'x' * (3 * matrix.KEEP) + b'last'), kept)
         self.assertEqual(len(kept[0]), matrix.KEEP)
-        self.assertTrue(kept[0].endswith('last'))
+        self.assertTrue(kept[0].endswith(b'last'))
         bench = Bench(self, test='def test_loud(capsys):\n    with capsys.disabled():\n'
                                  '        print("x" * %d)\n' % (3 * matrix.KEEP))
         code, tail = matrix.run_case(str(bench.where), None, ['test_thing.py'])
         self.assertEqual(code, 0)
         self.assertIn('1 passed', tail)
+
+    def test_a_reader_keeps_what_it_read_before_the_end(self):
+        """The end of a pipe may never come: a descendant can hold it open, and on Linux closing
+        it does not wake a blocked read. What was read before must already be kept, since that
+        is where pytest's summary line is."""
+        class Stalled:
+            def __init__(self):
+                self.sent, self.gate = False, threading.Event()
+
+            def read(self, _):
+                if not self.sent:
+                    self.sent = True
+                    return b'1 passed in 0.01s'
+                self.gate.wait()
+                return b''
+        stream, kept = Stalled(), [b'']
+        reader = threading.Thread(target=matrix.keep_tail, args=(stream, kept), daemon=True)
+        reader.start()
+        waited = time.monotonic() + 5
+        while not kept[0] and time.monotonic() < waited:
+            time.sleep(0.01)
+        self.assertTrue(reader.is_alive())
+        self.assertEqual(kept[0], b'1 passed in 0.01s')
+        stream.gate.set()
+        reader.join(5)
 
     def test_a_descendant_holding_the_pipe_does_not_hold_the_run(self):
         """A process the test detaches from pytest's group can keep the run's pipes open after
