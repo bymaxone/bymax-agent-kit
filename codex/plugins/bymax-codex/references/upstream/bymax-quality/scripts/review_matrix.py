@@ -96,7 +96,7 @@ def run_case(root, selector, files, deadline=CLEAN):
     detach, and the run reads as timed out.
     """
     args = [*PYTEST, *arguments(root, files)] + (['-k', selector] if selector else [])
-    tails = {'out': [], 'err': []}
+    tails = {'out': [b''], 'err': [b'']}
     with tempfile.TemporaryDirectory() as empty, \
             subprocess.Popen(args, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              bufsize=0, env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
@@ -118,21 +118,22 @@ def run_case(root, selector, files, deadline=CLEAN):
             halt(child, readers)
             raise
         drained(readers)
-    out, err = (tails['out'] or [''])[0], (tails['err'] or [''])[0]
+    out, err = (tails[key][0].decode('utf-8', 'replace') for key in ('out', 'err'))
     tail = out.strip().splitlines()
     return child.returncode, (tail[-1] if tail else err[-160:])
 
 
 def keep_tail(stream, into):
-    """Read a stream to its end and keep only its last KEEP bytes, decoded. A run that prints
-    without end would otherwise hold all of it in the process that restores the mutated file."""
-    kept = b''
+    """Read a stream to its end, keeping only its last KEEP bytes in into[0] as it goes. A run
+    that prints without end would otherwise hold all of it in the process that restores the
+    mutated file. Kept as it goes and not at the end: beside a descendant holding the pipe the
+    end never comes, and on Linux closing the pipe does not wake a blocked read, so a tail
+    published only there was lost with the summary line in it."""
     try:
         for chunk in iter(lambda: stream.read(8192), b''):
-            kept = (kept + chunk)[-KEEP:]
+            into[0] = (into[0] + chunk)[-KEEP:]
     except (OSError, ValueError):
         pass
-    into.append(kept.decode('utf-8', 'replace'))
 
 
 def halt(child, readers):
