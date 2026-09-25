@@ -20,7 +20,7 @@ class MatrixGateTests(FlowBench):
         """bail() refused by raising SystemExit with a message, which exits 1, while every
         other refusal in the runtime exits 2 — so a caller keying on 2 for BLOCKED read a
         surviving mutant as a different class of failure. It also made these refusals
-        untestable here: this helper asserts 2, so no case could reach them through the CLI."""
+        untestable: the bench's flow() asserts 2, so no case could reach them through the CLI."""
         self.start()
         spec = self.root / 'empty-matrix.json'
         spec.write_text('[]')
@@ -28,10 +28,10 @@ class MatrixGateTests(FlowBench):
         self.assertIn('non-empty list of rules', refused.stderr)
 
     def test_a_correction_that_changes_a_test_needs_a_measured_matrix(self):
-        """Every refusal of matrix_first, because a gate nobody tries is decoration.
+        """Refusals of matrix_first, because a gate nobody tries is decoration.
 
         Reported by a reviewer: replacing this function's body with `return` left the suite
-        green, so four refusals guarded nothing anyone had checked.
+        green, so its refusals guarded nothing anyone had checked.
         """
         self.start()
         self.report('claude')

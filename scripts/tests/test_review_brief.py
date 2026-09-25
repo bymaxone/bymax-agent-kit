@@ -49,14 +49,14 @@ class BriefTests(FlowBench):
 class BriefShowsTheDeltaTests(unittest.TestCase):
     """What the brief RENDERS, which no case reached until now.
 
-    Both reviewers found the same hole from two directions: the matrix mutates review_claims
-    and review_matrix, so the two halves of the brief that live in review_delta were uncovered. Replacing
-    the removal check's call with `[]` and collapsing the three-state marker to a constant both
-    left the suite green, and each restores a defect a reviewer had already filed once.
+    Both reviewers found the same hole from two directions: two halves of the brief that live
+    in review_delta were uncovered. Replacing the removal check's call with `[]` and collapsing
+    the three-state marker to a constant both left the suite green, and each restores a defect
+    a reviewer had already filed once.
     """
 
     def setUp(self):
-        """Enter a two-commit repository: both functions read the process cwd, not an argument."""
+        """Enter a two-commit repository: the functions under test read the process cwd."""
         self.where = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: shutil.rmtree(self.where, ignore_errors=True))
         for command in (['init', '-q'], ['config', 'user.email', 'c@example.invalid'],

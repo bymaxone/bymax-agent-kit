@@ -1,6 +1,6 @@
 """Evidence layer: which tests a candidate's delta changed and who wrote them, and the measured
-mutation matrix a correction that changes a test must carry. Read by the orchestration in
-review_flow, and bound to the candidate it measured, never to what an author said about it."""
+mutation matrix a correction that changes a test must carry, bound to the candidate it
+measured and never to what an author said about it."""
 import contextlib
 import json
 from pathlib import Path
