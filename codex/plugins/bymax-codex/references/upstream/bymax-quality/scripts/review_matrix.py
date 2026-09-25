@@ -128,7 +128,7 @@ def keep_tail(stream, into):
     that prints without end would otherwise hold all of it in the process that restores the
     mutated file. Kept as it goes and not at the end: beside a descendant holding the pipe the
     end never comes, and on Linux closing the pipe does not wake a blocked read, so a tail
-    published only there was lost with the summary line in it."""
+    published only there is lost with the summary line in it."""
     try:
         for chunk in iter(lambda: stream.read(8192), b''):
             into[0] = (into[0] + chunk)[-KEEP:]
