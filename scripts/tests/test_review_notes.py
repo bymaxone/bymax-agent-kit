@@ -26,7 +26,8 @@ class RemovalNoteTests(unittest.TestCase):
                '`OLD_HELPER` removed in 2.0.', '**Removed** `OLD_HELPER`.',
                'Removed `A_HELPER`, `OLD_HELPER` and `B_HELPER`.',
                'Removed `A_HELPER`, `OLD_HELPER` in 2.0.', '`OLD_HELPER` removed.',
-               '`OLD_HELPER` removed, see `NEW_HELPER`.')
+               '`OLD_HELPER` removed, see `NEW_HELPER`.', '`OLD_HELPER` and `A_HELPER` removed in 2.0.',
+               'The `OLD_HELPER` helper removed in 2.0.')
     LIVE = ('Set `OLD_HELPER` first. The old cache was removed.',
             '`OLD_HELPER` runs `git worktree remove`.', '`OLD_HELPER` is not removed.',
             '`OLD_HELPER` was never deleted.',
@@ -46,7 +47,8 @@ class RemovalNoteTests(unittest.TestCase):
             'Removed `NEW_HELPER`, `OLD_HELPER` stays.',
             '`OLD_HELPER` was removed. Call `OLD_HELPER` first.',
             'Removed `NEW_HELPER`, `OLD_HELPER` works as before.',
-            '`OLD_HELPER` was removed, then `OLD_HELPER` came back.')
+            '`OLD_HELPER` was removed, then `OLD_HELPER` came back.',
+            '`OLD_HELPER` will be removed in 3.0.')
 
     def test_a_line_recording_the_removal_asserts_nothing_live(self):
         """A migration note is true of the tree it sits in, and only a note is: a form reporting

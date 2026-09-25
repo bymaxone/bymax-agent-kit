@@ -47,8 +47,9 @@ RECORDED = re.compile(r'\b(removed|deleted|dropped|gone|no longer)\b', re.IGNORE
 # The text a removal note puts between the name and its verb, names already read as N. Two
 # words before the auxiliary are not in it, which is what keeps another clause's removal out.
 LISTED = r'(?:(?:,|and|or|&) N )*'
-AFTER = re.compile(r'%s(?:[a-z]+ )?(?:(?:has|have|had) (?:[a-z]+ )?been |(?:is|are|was|were|be|got) )'
+AFTER = re.compile(r'%s(?:[a-z]+ )?(?:(?:has|have|had) (?:[a-z]+ )?been |(?:is|are|was|were) )'
                    r'(?:[a-z]+ )?' % LISTED)
+ELIDED = re.compile(r'%s(?:[a-z]+ )?' % LISTED)
 BEFORE = re.compile(r'(?:: )?(?:(?:the|a|an) )?(?:N (?:(?:,|and|or|&) )?)*')
 # What may follow a name reached across a comma, or a form with no auxiliary: more names, then
 # a preposition and whatever it governs. "`OLD_HELPER` removed the entries" has an object instead.
@@ -488,7 +489,7 @@ def noted(clause, token):
     reports a removal: outside every quoted span, with no negation in the clause, and with the
     text between the two read by a small grammar. Before the name, other names listed with it
     and an article: "Deleted the `A` and `OLD_HELPER`"; a name reached across a comma counts only
-    when what follows it is more names or a preposition, since a comma may end a clause. After
+    when only more names or a preposition follow it, since a comma may end a clause. After
     the name, those names, one noun, then an auxiliary with one adverb: "The `OLD_HELPER` helper
     has now been removed", or no auxiliary when nothing is the verb's object: "`OLD_HELPER`
     removed in 2.0". Anything else is a live claim, among them "`OLD_HELPER` stays, but
@@ -511,7 +512,8 @@ def pairs(clause, start, end, verb):
     """Whether this removal form and this mention of the name read as one note."""
     if verb.start() >= end:
         gap = words(clause[end:verb.start()])
-        return bool(AFTER.fullmatch(gap)) or (not gap and bool(TAIL.fullmatch(upto_comma(clause, verb.end()))))
+        return bool(AFTER.fullmatch(gap)) or bool(ELIDED.fullmatch(gap)
+                                                  and TAIL.fullmatch(upto_comma(clause, verb.end())))
     gap = words(clause[verb.end():start])
     return bool(BEFORE.fullmatch(gap)) and (',' not in gap or bool(TAIL.fullmatch(upto_comma(clause, end))))
 
