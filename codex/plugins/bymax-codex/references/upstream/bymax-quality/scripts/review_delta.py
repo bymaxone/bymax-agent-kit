@@ -92,6 +92,10 @@ def claims_coverage(state):
     for where, quote, still in review_claims.unkept(base, head):
         said.append('REPORTED, not refusing: %s says `%s` is gone and it is in %s. Judge it; '
                     'it cannot hold a receipt.' % (where, quote, still))
+    for where, token, line in review_claims.noted_removals(base, head):
+        said.append('REPORTED, not refusing: %s names `%s`, which this delta removed, in a line '
+                    'that also says it is gone: "%s". Judge whether it records the removal or '
+                    'still asserts the name; it cannot hold a receipt.' % (where, token, line[:160]))
     if unread:
         said.append('They read Python and Markdown only, so they read NOTHING in %d changed '
                     'file(s) of other kinds (%s). For those the checks are silent, which is not '
