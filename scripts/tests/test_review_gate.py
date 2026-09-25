@@ -92,6 +92,25 @@ class MatrixGateTests(FlowBench):
         self.assertIn('results mutated tests/other.py',
                       self.start(ok=False, correction=True, reason='').stderr)
 
+    def test_a_candidate_frozen_without_the_gates_meets_them_before_a_reviewer_reads(self):
+        """A campaign an earlier runtime froze under this policy never met the matrix or the
+        claims check, while the prompt tells both reviewers they ran. Each is asked again before
+        a reviewer reads: here the record goes after the freeze, and then a head whose prose
+        names a name it removed is written into the frozen state by hand."""
+        record, _ = self.measured_record()
+        self.start(correction=True, reason='')
+        self.checks()
+        record.unlink()
+        self.assertIn('no measured mutation matrix exists', self.flow('prompt', ok=False).stderr)
+        (self.repo / 'values.py').write_text('ONE = 1\n')
+        (self.repo / 'README.md').write_text('Set `TWO` first.\n')
+        self.commit('a head no start froze')
+        directory = Path(self.flow('status')['directory'])
+        state = json.loads((directory / 'state.json').read_text())
+        state['head'] = self.git('rev-parse', 'HEAD')
+        (directory / 'state.json').write_text(json.dumps(state))
+        self.assertIn('Prose asserts a name this delta removed', self.flow('prompt', ok=False).stderr)
+
     def test_a_refused_rerun_leaves_no_earlier_record_behind(self):
         """A matrix run again on the same head and refused before it writes, here by an anchor
         that occurs nowhere, leaves no record: the earlier run's would be accepted by start as
