@@ -1,4 +1,5 @@
 """The matrix runner: what it refuses, and what it records."""
+import io
 import json
 import os
 import py_compile
@@ -376,6 +377,43 @@ class MeaningTests(unittest.TestCase):
         time.sleep(0.5)
         with self.assertRaises(ProcessLookupError):
             os.kill(int((bench.where / 'enumerate.pid').read_text()), 0)
+
+    def test_a_run_keeps_only_the_tail_of_its_output(self):
+        """A run that prints without end must not grow the process that restores the mutated
+        file: each stream keeps its last KEEP characters, and the summary line is still read
+        from a run that printed far more than that past pytest's capture."""
+        kept = []
+        matrix.keep_tail(io.BytesIO(b'x' * (3 * matrix.KEEP) + b'last'), kept)
+        self.assertEqual(len(kept[0]), matrix.KEEP)
+        self.assertTrue(kept[0].endswith('last'))
+        bench = Bench(self, test='def test_loud(capsys):\n    with capsys.disabled():\n'
+                                 '        print("x" * %d)\n' % (3 * matrix.KEEP))
+        code, tail = matrix.run_case(str(bench.where), None, ['test_thing.py'])
+        self.assertEqual(code, 0)
+        self.assertIn('1 passed', tail)
+
+    def test_a_descendant_holding_the_pipe_does_not_hold_the_run(self):
+        """A process the test detaches from pytest's group can keep the run's pipes open after
+        pytest ends. The run must still end, with what it read: closing a pipe must not wait on
+        the reader blocked in it."""
+        bench = Bench(self, test='import subprocess, sys\n\n\ndef test_detach(capsys):\n'
+                                 '    with capsys.disabled():\n'
+                                 '        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(40)"],\n'
+                                 '                                 start_new_session=True)\n'
+                                 '    open("detached.pid", "w").write(str(child.pid))\n')
+        pid = bench.where / 'detached.pid'
+
+        def reap():
+            try:
+                os.kill(int(pid.read_text()), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
+        self.addCleanup(reap)
+        began = time.monotonic()
+        code, tail = matrix.run_case(str(bench.where), None, ['test_thing.py'])
+        self.assertLess(time.monotonic() - began, 25)
+        self.assertEqual(code, 0)
+        self.assertIn('1 passed', tail)
 
     def test_a_collect_that_never_ends_is_refused(self):
         """A collect runs the repository's import-time code, and a loop there that only a
