@@ -151,8 +151,8 @@ def keep_tail(stream, into):
 
 
 def halt(child, readers):
-    """stop() for a run whose pipes readers drain: kill the group, then give the readers a
-    bounded wait, since a detached descendant may hold the pipes for good."""
+    """Stop a run whose pipes readers drain: kill the group, then give the readers a bounded
+    wait, since a detached descendant may hold the pipes for good."""
     kill_group(child)
     child.wait()
     drained(readers)
@@ -164,16 +164,6 @@ def drained(readers):
     limit = time.monotonic() + 5
     for reader in readers:
         reader.join(timeout=max(0, limit - time.monotonic()))
-
-
-def stop(child):
-    """Kill the child's process group, or the child alone where the group is already gone,
-    and wait a bounded time for its pipes: a detached descendant may hold them for good."""
-    kill_group(child)
-    try:
-        child.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
 
 
 def kill_group(child):
@@ -273,19 +263,20 @@ def enumerated(root, rule):
                  'not yet understood well enough to correct.' % rule.get('rule'))
         return None
     # Bounded, with no stdin: a command that waits for input or loops never returns, and
-    # the matrix, and the correction that needs it, would wait with it.
+    # the matrix, and the correction that needs it, would wait with it. Bounded in what it
+    # keeps too, since one that prints without end would hold it all until the deadline.
     with subprocess.Popen(how, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          stdin=subprocess.DEVNULL, text=True, start_new_session=True) as child:
-        try:
-            out, _ = child.communicate(timeout=CLEAN)
-        except subprocess.TimeoutExpired:
-            stop(child)
-            bail('Rule %r: its enumeration command did not finish in %ds: %s'
-                 % (rule.get('rule'), CLEAN, how))
-        except BaseException:
-            stop(child)
-            raise
-    done = subprocess.CompletedProcess(how, child.returncode, out, '')
+                          stdin=subprocess.DEVNULL, bufsize=0, start_new_session=True) as child:
+        code, out, _ = tailed(child, CLEAN)
+    if code is None:
+        bail('Rule %r: its enumeration command did not finish in %ds: %s'
+             % (rule.get('rule'), CLEAN, how))
+    # A count is a few bytes, and only a tail is kept: output that filled it is not a count,
+    # and counting the rows left in it would count a fragment.
+    if len(out.encode()) >= KEEP:
+        bail('Rule %r: its enumeration command printed %d bytes or more, which is not a count: %s'
+             % (rule.get('rule'), KEEP, how))
+    done = subprocess.CompletedProcess(how, code, out, '')
     rows = [row.strip() for row in done.stdout.split('\n') if row.strip()]
     counted = [n for n in without_total(rows, per_row(rows)) if n is not None]
     if done.returncode != 0 or not counted:
