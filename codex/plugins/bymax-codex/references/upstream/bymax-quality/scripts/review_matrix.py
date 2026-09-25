@@ -100,7 +100,7 @@ def run_case(root, selector, files, deadline=CLEAN):
             subprocess.Popen(args, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              bufsize=0, env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
                              start_new_session=True) as child:
-        code, out, err = tailed(child, deadline)
+        code, out, err, _ = tailed(child, deadline)
     if code is None:
         return None, 'timed out after %ds' % deadline
     tail = out.strip().splitlines()
@@ -110,8 +110,9 @@ def run_case(root, selector, files, deadline=CLEAN):
 def tailed(child, deadline):
     """Wait up to `deadline` seconds for a child started in a session of its own with unbuffered
     stdout and stderr pipes, keeping each stream's last KEEP bytes as it is read. Returns the
-    exit status and both tails, decoded, with the status None past the deadline, when the group
-    is killed. Anything else that stops the wait kills the group and propagates.
+    exit status, both tails decoded, and whether stdout filled its tail, read from the bytes
+    kept rather than the text; the status is None past the deadline, when the group is killed.
+    Anything else that stops the wait kills the group and propagates.
 
     Unbuffered, so no read holds a lock: closing a buffered pipe waits on the lock a blocked
     reader holds, and a detached descendant keeping the pipe open held it for good.
@@ -134,7 +135,7 @@ def tailed(child, deadline):
     else:
         drained(readers)
     out, err = (tails[key][0].decode('utf-8', 'replace') for key in ('out', 'err'))
-    return code, out, err
+    return code, out, err, len(tails['out'][0]) >= KEEP
 
 
 def keep_tail(stream, into):
@@ -267,13 +268,13 @@ def enumerated(root, rule):
     # keeps too, since one that prints without end would hold it all until the deadline.
     with subprocess.Popen(how, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           stdin=subprocess.DEVNULL, bufsize=0, start_new_session=True) as child:
-        code, out, _ = tailed(child, CLEAN)
+        code, out, _, filled = tailed(child, CLEAN)
     if code is None:
         bail('Rule %r: its enumeration command did not finish in %ds: %s'
              % (rule.get('rule'), CLEAN, how))
     # A count is a few bytes, and only a tail is kept: output that filled it is not a count,
     # and counting the rows left in it would count a fragment.
-    if len(out.encode()) >= KEEP:
+    if filled:
         bail('Rule %r: its enumeration command printed %d bytes or more, which is not a count: %s'
              % (rule.get('rule'), KEEP, how))
     done = subprocess.CompletedProcess(how, code, out, '')
@@ -706,7 +707,7 @@ def collect_run(real, root, files, selector, token, box):
     # its group killed if the wait times out or raises.
     with subprocess.Popen(args, cwd=real, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           bufsize=0, env=env, start_new_session=True) as child:
-        code, out, err = tailed(child, CLEAN)
+        code, out, err, _ = tailed(child, CLEAN)
     if code is None:
         raise Unfinished('BLOCKED: pytest did not finish collecting %s in %ds. A collect that '
                          'never ends names no test, and the matrix cannot run what it cannot '
