@@ -48,13 +48,20 @@ SLACK, FLOOR, CLEAN = 10, 60, 1800
 # `-o addopts=` first: a project's own addopts would otherwise reach every pytest this runtime
 # starts, and one `-q` more or a `-v` changes the lines the collect and the outcome read.
 # The environment's PYTEST_ADDOPTS is the same option by another door, cleared in pytest_env().
-PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q', '-p', 'no:cacheprovider']
+# The cache provider stays loaded, since a case may take its `cache` fixture; cached_in() points
+# it at a directory the run owns, so nothing it writes lands in the tree under review.
+PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q']
 # The directory names that mark a test location, compared without case. The campaign's own test
 # classifier reads the same names, and a case holds the two together.
 TEST_DIRECTORIES = frozenset(('test', 'tests', 'spec', '__tests__'))
 # What a run keeps of each stream, in bytes: the summary line outcome() reads is the last one, and a run
 # that prints without end must not grow the process that restores the mutated file.
 KEEP = 1 << 16
+
+
+def cached_in(scratch):
+    """The option that keeps pytest's cache under `scratch`, a directory the run removes."""
+    return ['-o', 'cache_dir=' + os.path.join(scratch, 'cache')]
 
 
 def pytest_env():
@@ -97,8 +104,9 @@ def run_case(root, selector, files, deadline=CLEAN):
     """
     args = [*PYTEST, *arguments(root, files)] + (['-k', selector] if selector else [])
     with tempfile.TemporaryDirectory() as empty, \
-            subprocess.Popen(args, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             bufsize=0, env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
+            subprocess.Popen(args + cached_in(empty), cwd=root, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, bufsize=0,
+                             env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
                              start_new_session=True) as child:
         code, out, err, _ = tailed(child, deadline)
     if code is None:
@@ -700,7 +708,7 @@ def collect_run(real, root, files, selector, token, box):
     env['PYTHONPATH'] = os.pathsep.join([box, env['PYTHONPATH']]) if env.get('PYTHONPATH') else box
     env['BYMAX_COLLECT_TOKEN'] = token
     env['BYMAX_COLLECT_OUT'] = str(Path(box, 'collected'))
-    args = [*PYTEST, '--collect-only', '--rootdir', real, '-p', name,
+    args = [*PYTEST, *cached_in(box), '--collect-only', '--rootdir', real, '-p', name,
             *arguments(root, files)] + (['-k', selector] if selector else [])
     # A collect runs the repository's import-time code, and a loop there never returns, nor does
     # a plugin that prints without end: bounded like a mutant run in time and in what it keeps,

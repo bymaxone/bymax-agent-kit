@@ -125,6 +125,21 @@ class RunTests(unittest.TestCase):
         self.assertIn('enumeration command did not finish', str(caught.exception))
         self.assertLess(time.monotonic() - began, 60)
 
+    def test_a_case_may_take_the_cache_fixture_and_leaves_no_cache_in_the_tree(self):
+        """pytest's cache provider stays loaded, so a case taking its `cache` fixture runs here as it
+        does under plain pytest, and what the provider writes lands in a directory of the run's own:
+        the collect's too, which a conftest can write to while collecting."""
+        test = CASE + '\n\ndef test_remembers(cache):\n    cache.set("bench/seen", 1)\n    assert not over(9)\n'
+        bench = Bench(self, test=test)
+        (bench.where / 'conftest.py').write_text('def pytest_collection_modifyitems(config, items):\n'
+                                                 '    config.cache.set("bench/collected", len(items))\n')
+        subprocess.run(['git', '-C', str(bench.where), 'add', 'conftest.py'], check=True)
+        subprocess.run(['git', '-C', str(bench.where), '-c', 'user.email=a@b.invalid', '-c',
+                        'user.name=A', 'commit', '-q', '-m', 'conftest'], check=True)
+        bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'value > LIMIT', 'becomes': 'True',
+                                 'case': 'remembers'}]))
+        self.assertFalse((bench.where / '.pytest_cache').exists())
+
     def test_a_run_keeps_only_the_tail_of_its_output(self):
         """A run that prints without end must not grow the process that restores the mutated
         file: each stream keeps its last KEEP bytes, and the summary line is still read

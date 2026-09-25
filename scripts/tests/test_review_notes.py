@@ -19,7 +19,9 @@ class RemovalNoteTests(unittest.TestCase):
                 '`OLD_HELPER` is no longer exported.', '**Removed** `OLD_HELPER`.',
                 '`OLD_HELPER` removes the entry.', 'Removed `NEW_HELPER` and `OLD_HELPER` stays.',
                 "We haven't removed `OLD_HELPER` yet.", '`OLD_HELPER` was removed; call `NEW_HELPER` first.',
-                'Deleted `review_flow.py` and `OLD_HELPER`.')
+                'Deleted `review_flow.py` and `OLD_HELPER`.', '`OLD_HELPER` was renamed to `NEW_HELPER`.',
+                'Rename `OLD_HELPER` to `NEW_HELPER`.', 'Replaced `OLD_HELPER` with `NEW_HELPER`.',
+                '`NEW_HELPER` supersedes `OLD_HELPER`.')
     # A clause naming the name with no removal word outside a quoted span asserts it.
     REFUSED = ('Call `OLD_HELPER` first.', 'Set `OLD_HELPER` first. The old cache was removed.',
                '`OLD_HELPER` runs `git worktree remove`.', 'Run `OLD_HELPER --deleted` to list them.',
@@ -36,6 +38,8 @@ class RemovalNoteTests(unittest.TestCase):
         for line in self.REFUSED:
             with self.subTest(line):
                 self.assertFalse(claims.records_removal(line, 'OLD_HELPER'))
+        # A rename is a note, not a claim of removal: its new name is still in the tree by design.
+        self.assertFalse(claims.claimed('Replaced the loader with `NEW_HELPER`.', 'NEW_HELPER'))
         # And through the search over the tree: one refuses, the other is reported.
         tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n'},
                     {'a.py': '', 'README.md': self.REPORTED[0] + '\n', 'USAGE.md': self.REFUSED[0] + '\n'})
