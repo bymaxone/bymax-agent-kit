@@ -94,7 +94,7 @@ class MatrixGateTests(FlowBench):
 
     def test_a_candidate_frozen_without_the_gates_meets_them_before_a_reviewer_reads(self):
         """A campaign an earlier runtime froze under this policy never met the matrix or the
-        claims check, while the prompt tells both reviewers they ran. Each is asked again before
+        claims check, while the prompt says the latter ran. Each is asked again before
         a reviewer reads: here the record goes after the freeze, and then a head whose prose
         names a name it removed is written into the frozen state by hand."""
         record, _ = self.measured_record()
