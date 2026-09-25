@@ -579,6 +579,19 @@ class UnkeptPromiseTests(unittest.TestCase):
                      'NOTES.md': 'We removed `most likely never joined` from the message.\n'})
         self.assertEqual(tree.unkept(), [('NOTES.md', 'most likely never joined', 'café.md')])
 
+    def test_release_history_asserts_nothing_live(self):
+        """A changelog is append-only: an entry naming a symbol since removed is true of the
+        release it records. Only the file named CHANGELOG.md, in any case and directory, is
+        history; the same sentence in a README is a live claim."""
+        for name in ('CHANGELOG.md', 'docs/ChangeLog.md'):
+            with self.subTest(name):
+                tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n', name: 'Version 1 added `OLD_HELPER`.\n'},
+                            {'a.py': '', name: 'Version 1 added `OLD_HELPER`.\n'})
+                self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n', 'README.md': 'Version 1 added `OLD_HELPER`.\n'},
+                    {'a.py': '', 'README.md': 'Version 1 added `OLD_HELPER`.\n'})
+        self.assertEqual(tree.retired(), [('README.md', 'OLD_HELPER')])
+
     def test_a_claimed_removal_whose_quote_survives_is_reported(self):
         """Measured on another repository on this loop: a triage disposition certifying a
         correction, written without opening the file, whose sentence was still in HEAD. A

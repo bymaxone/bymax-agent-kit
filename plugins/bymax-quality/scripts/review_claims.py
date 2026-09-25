@@ -375,6 +375,12 @@ def orphaned(base, head, cwd=None):
     return sorted(name for name in lost if not alive(name))
 
 
+def historical(name):
+    """Whether a file is release history. A changelog is append-only, and an entry naming a
+    symbol since removed is true of the release it records, so it asserts nothing live."""
+    return Path(name).name.lower() == 'changelog.md'
+
+
 def code_shaped(token):
     """Whether a name could only be a code reference, never an ordinary English word.
 
@@ -427,7 +433,8 @@ def retired(base, head, cwd=None):
         # copy in only one of them leaves the other reporting a file that asserts nothing of
         # its own.
         for name in sorted({p.split(':', 1)[-1] for p in listed.split('\0')
-                            if p and authored(p.split(':', 1)[-1])}):
+                            if p and authored(p.split(':', 1)[-1])
+                            and not historical(p.split(':', 1)[-1])}):
             if re.search(r'\b%s\b' % token,
                          prose(name, git('show', '%s:%s' % (head, name), cwd=cwd))):
                 found.append((name, token))
