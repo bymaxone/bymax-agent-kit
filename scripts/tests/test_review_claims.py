@@ -628,14 +628,17 @@ class UnkeptPromiseTests(unittest.TestCase):
                'OLD_HELPER is gone — read NEW_HELPER.', '`OLD_HELPER` has been dropped.',
                'Removed: `OLD_HELPER`.', '`OLD_HELPER` and `OTHER_HELPER` were removed.',
                '`OTHER_HELPER`, `OLD_HELPER` were deleted.',
-               'We removed `OLD_HELPER` in favour of `NEW_HELPER`.', 'Deleted `OTHER_HELPER` and `OLD_HELPER`.')
+               'We removed `OLD_HELPER` in favour of `NEW_HELPER`.', 'Deleted `OTHER_HELPER` and `OLD_HELPER`.',
+               '`OLD_HELPER` was removed; do not use it.')
     LIVE = ('Set `OLD_HELPER` first. The old cache was removed.', '`OLD_HELPER` runs `git worktree remove`.',
             '`OLD_HELPER` is not removed.', '`OLD_HELPER` was never deleted.',
             '`OLD_HELPER` remains required, but `NEW_HELPER` was removed.',
             'OLD_HELPER remains required but NEW_HELPER was removed.', '`OLD_HELPER` removes the entry.',
             '`OLD_HELPER` no longer retries.', 'Call `OLD_HELPER` to delete the cache.',
             '# OLD_HELPER deletes the lock file', '`OLD_HELPER` removed the stale entries.',
-            '`OLD_HELPER` drops the table.', 'Removed the cache, then call `OLD_HELPER`.')
+            '`OLD_HELPER` drops the table.', 'Removed the cache, then call `OLD_HELPER`.',
+            'Removes `OLD_HELPER` entries from the cache.', 'Run `OLD_HELPER --deleted` to list them.',
+            'We have not removed `OLD_HELPER`.')
 
     def test_a_line_recording_the_removal_asserts_nothing_live(self):
         """A migration note is true of the tree it sits in, and only a note is: a form reporting
