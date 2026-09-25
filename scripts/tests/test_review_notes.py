@@ -38,7 +38,7 @@ class RemovalNoteTests(unittest.TestCase):
         for line in self.REFUSED:
             with self.subTest(line):
                 self.assertFalse(claims.records_removal(line, 'OLD_HELPER'))
-        # A rename is a note, not a claim of removal: its new name is still in the tree by design.
+        # A replacement is a note, not a claim of removal: its new name is still in the tree by design.
         self.assertFalse(claims.claimed('Replaced the loader with `NEW_HELPER`.', 'NEW_HELPER'))
         # And through the search over the tree: one refuses, the other is reported.
         tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n'},
