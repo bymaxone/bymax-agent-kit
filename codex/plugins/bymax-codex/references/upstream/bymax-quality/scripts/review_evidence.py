@@ -266,9 +266,8 @@ def collects_a_test(path):
     import review_matrix
     root = git('rev-parse', '--show-toplevel')
     # Not by suffix: a conftest can collect tests from a file of any format, and a YAML case
-    # read as unrunnable left the correction that changed it with no matrix asked. But a file
-    # that is not Python is never asked alone: with no pytest there is nothing to
-    # ask, and asked alone pytest finds no collector for it, which says nothing either way.
+    # read as unrunnable left the correction that changed it with no matrix asked. With no
+    # pytest, a file that is not Python is no test pytest collects.
     python = path.endswith('.py')
     if not Path(root, path).is_file() or not python and importlib.util.find_spec('pytest') is None:
         return False
@@ -286,13 +285,25 @@ def collects_a_test(path):
             return True
     except (SystemExit, review_matrix.Unfinished):
         return None
-    if not python:
-        return False
+    return asked_alone(root, path, python)
+
+
+def asked_alone(root, path, python):
+    """What pytest says of this file named on its own, once its directory could not answer.
+
+    Named alone, a Python file always collects, so collecting fine says only that it is not the
+    file that failed: not a test module. A file of another format that nothing collects is
+    refused as matching no collector, which is an answer; one a plugin collects and cannot load
+    fails another way, which is not.
+    """
+    import review_matrix
     try:
-        review_matrix.ids(root, [path])
-    except SystemExit:
+        found = review_matrix.ids(root, [path])
+    except review_matrix.Unfinished:
         return None
-    return False
+    except SystemExit as refusal:
+        return False if not python and 'no match in any of' in str(refusal) else None
+    return not python and bool(found)
 
 
 def tests_added(base, names):
