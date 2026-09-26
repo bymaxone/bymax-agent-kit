@@ -13,7 +13,8 @@ not tamper-proof and is not claimed to be: once the path and the token leave the
 what remains is code that goes looking for them, which is tampering with one's own review.
 
 The header precedes any id, so a plugin that never ran is told apart from one that
-collected nothing, rather than both reading as silence.
+collected nothing, rather than both reading as silence. A walk cut short writes no header, so
+it reads as a plugin that never ran rather than as the ids it reached.
 """
 import os
 
@@ -27,6 +28,17 @@ _WHERE = os.environ.pop('BYMAX_COLLECT_OUT', None)
 _TOKEN = os.environ.pop('BYMAX_COLLECT_TOKEN', None)
 
 
+_WALKED = []
+
+
+def pytest_collection_modifyitems(session, config, items):
+    """Mark the walk complete. pytest reaches this hook only when it finished, and calls
+    pytest_collection_finish from a `finally`: a neighbour raising SystemExit or
+    KeyboardInterrupt while it is imported ends the walk, and the items collected so far were
+    reported as if they were all of them."""
+    _WALKED.append(True)
+
+
 def pytest_collection_finish(session):
     """Write the token, then the node ids it vouches for, one per line.
 
@@ -35,7 +47,7 @@ def pytest_collection_finish(session):
     about to drop, and a caller asking which nodes a case collects got every node in the file.
     """
     where, token = _WHERE, _TOKEN
-    if not where or not token:
+    if not where or not token or not _WALKED:
         return
     with open(where, 'a', encoding='utf-8') as out:
         out.write('%s %s\n' % (MARK, token))
