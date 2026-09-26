@@ -66,7 +66,8 @@ def collected_elsewhere(paths):
 
     Each directory is asked once. Where that collect fails, each file is asked as
     collects_a_test() asks it, and one it cannot answer for is kept: matrix_first() then refuses
-    it by name, on the rounds that ask for a matrix and no others. Refusing here blocked every
+    it by name, on the rounds that ask for a matrix and no others. Where it ran out of time,
+    every file is kept unasked, since each ask would wait out the same deadline again. Refusing here blocked every
     round, round one included, for a module beside a broken test. With no pytest to ask, nothing
     here is a test pytest collects.
     """
@@ -77,11 +78,13 @@ def collected_elsewhere(paths):
     wanted = {path for path in paths if path.endswith('.py') and Path(root, path).is_file()}
     found = set()
     for where in sorted({str(Path(path).parent) for path in wanted}):
+        here = [path for path in wanted if str(Path(path).parent) == where]
         try:
             found.update(review_matrix.nodes(root, [where]))
-        except (SystemExit, review_matrix.Unfinished):
-            found.update(path for path in wanted if str(Path(path).parent) == where
-                         and collects_a_test(path) is not False)
+        except review_matrix.Unfinished:
+            found.update(here)
+        except SystemExit:
+            found.update(path for path in here if collects_a_test(path) is not False)
     return wanted & found
 
 
@@ -276,10 +279,8 @@ def collects_a_test(path):
     try:
         if path in review_matrix.nodes(root, where, tolerant=True):
             return True
-    except review_matrix.Unfinished:
+    except (SystemExit, review_matrix.Unfinished):
         return None
-    except SystemExit:
-        pass
     try:
         review_matrix.ids(root, [path])
     except SystemExit:

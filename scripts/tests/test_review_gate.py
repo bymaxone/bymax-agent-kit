@@ -161,6 +161,31 @@ class MatrixGateTests(FlowBench):
                 refused = self.start(ok=False, correction=True, reason='').stderr
                 self.assertIn('pytest could not say whether checks/check_g.py', refused)
 
+    def test_a_neighbour_that_ends_the_collect_is_no_answer(self):
+        """A module that ends the process while pytest collects leaves the collector unreported,
+        and checks/check_g.py collecting fine alone then read as code: no matrix was asked."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'pytest.ini').write_text('[pytest]\npython_files = check_*.py\n')
+        (self.repo / 'checks').mkdir()
+        (self.repo / 'checks/check_boom.py').write_text('import os\nos._exit(3)\n')
+        (self.repo / 'checks/check_g.py').write_text(TEST_G)
+        self.commit('a correction beside a module that ends the collect')
+        refused = self.start(ok=False, correction=True, reason='').stderr
+        self.assertIn('pytest could not say whether checks/check_boom.py, checks/check_g.py', refused)
+
+    def test_a_directory_out_of_time_keeps_its_files_unasked(self):
+        """Asking each file of a directory whose collect ran out of time waits out the same
+        deadline once per file; they are kept for matrix_first() to refuse instead."""
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        with mock.patch.object(review_matrix, 'nodes', side_effect=review_matrix.Unfinished('late')), \
+                mock.patch.object(review_evidence, 'collects_a_test', side_effect=AssertionError('asked')):
+            self.assertEqual(review_evidence.collected_elsewhere(['values.py']), {'values.py'})
+
     def test_a_module_beside_a_broken_test_is_asked_alone(self):
         """A failed directory collect says nothing about the module beside it: asked alone,
         pkg/app.py is code, and round one's prompt is built."""
