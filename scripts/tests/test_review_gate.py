@@ -162,8 +162,8 @@ class MatrixGateTests(FlowBench):
                 self.assertIn('pytest could not say whether checks/check_g.py', refused)
 
     def test_a_module_beside_a_broken_test_is_asked_alone(self):
-        """A failed directory collect says nothing about the module beside it: asked alone, as
-        collects_a_test() asks, pkg/app.py is code, and round one's prompt is built."""
+        """A failed directory collect says nothing about the module beside it: asked alone,
+        pkg/app.py is code, and round one's prompt is built."""
         (self.repo / 'pkg').mkdir()
         (self.repo / 'pkg/test_app.py').write_text('import missing_module\n')
         (self.repo / 'pkg/app.py').write_text('X = 1\n')
