@@ -619,6 +619,13 @@ class MatrixGateTests(FlowBench):
         self.commit('a correction whose test directory no longer collects')
         said = self.start(correction=True, reason='', ok=False)
         self.assertIn('pytest could not say whether', said.stdout + said.stderr)
+        # The test itself failing to import: the collector reports, without it, and only the
+        # file asked alone can say this is the file that failed.
+        (self.repo / 'tests/conftest.py').write_text('')
+        (self.repo / 'tests/test_calc.py').write_text('import nothing_that_exists\n' + OLD_TEST)
+        self.commit('a correction whose test no longer imports')
+        said = self.start(correction=True, reason='', ok=False)
+        self.assertIn('pytest could not say whether tests/test_calc.py', said.stdout + said.stderr)
 
     def test_a_test_the_correction_added_is_what_must_have_caught(self):
         """What a correction adds is a gate it asserts, and which tests it added is asked of

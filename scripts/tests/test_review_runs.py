@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
 # The bench is test_review_matrix's, imported whether this file is run by path or by module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import review_evidence
 import review_matrix as matrix
 from test_review_matrix import CASE, GUARDED, Bench, rule
 
@@ -139,6 +140,25 @@ class RunTests(unittest.TestCase):
         bench.run(rule(mutants=[{'file': 'thing.py', 'anchor': 'value > LIMIT', 'becomes': 'True',
                                  'case': 'remembers'}]))
         self.assertFalse((bench.where / '.pytest_cache').exists())
+
+    def test_a_directory_out_of_time_is_asked_once(self):
+        """A directory whose collect runs out of time keeps its changed files unasked: asking each
+        of them again waited out the same deadline twice more per file."""
+        clean = matrix.CLEAN
+        matrix.CLEAN = 3
+        self.addCleanup(setattr, matrix, 'CLEAN', clean)
+        bench = Bench(self)
+        (bench.where / 'pkg').mkdir()
+        (bench.where / 'pkg' / 'conftest.py').write_text('while True:\n    pass\n')
+        for name in ('a.py', 'b.py'):
+            (bench.where / 'pkg' / name).write_text('X = 1\n')
+        cwd = os.getcwd()
+        os.chdir(bench.where)
+        self.addCleanup(os.chdir, cwd)
+        began = time.monotonic()
+        self.assertEqual(review_evidence.collected_elsewhere(['pkg/a.py', 'pkg/b.py']),
+                         {'pkg/a.py', 'pkg/b.py'})
+        self.assertLess(time.monotonic() - began, 9)
 
     def test_a_run_keeps_only_the_tail_of_its_output(self):
         """A run that prints without end must not grow the process that restores the mutated
