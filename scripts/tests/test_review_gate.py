@@ -178,7 +178,7 @@ class MatrixGateTests(FlowBench):
 
     def test_a_directory_out_of_time_keeps_its_files_unasked(self):
         """Asking each file of a directory whose collect ran out of time waits out the same
-        deadline once per file; they are kept for matrix_first() to refuse instead."""
+        deadline once per file; they are kept unasked instead."""
         cwd = os.getcwd()
         os.chdir(self.repo)
         self.addCleanup(os.chdir, cwd)
