@@ -355,9 +355,10 @@ def imported(tree):
 
 def parsed(text):
     """The syntax tree of a python source, or None where it does not parse. A leading BOM is
-    valid Python that ast.parse() refuses in a str, so it is dropped first."""
+    valid Python that ast.parse() refuses in a str; git() decodes a blob carrying one as
+    utf-8-sig, which drops it."""
     try:
-        return ast.parse(text.removeprefix('\ufeff'))
+        return ast.parse(text)
     except (SyntaxError, ValueError):
         return None
 
