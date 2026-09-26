@@ -265,7 +265,9 @@ def collects_a_test(path):
     """
     import review_matrix
     root = git('rev-parse', '--show-toplevel')
-    if not path.endswith('.py') or not Path(root, path).is_file():
+    # Not by suffix: a conftest can collect tests from a file of any format, and a YAML case
+    # read as unrunnable left the correction that changed it with no matrix asked.
+    if not Path(root, path).is_file():
         return False
     where = [str(Path(path).parent) or '.']
     # A collect that ran out of time answered nothing, and the file alone collecting fine would
