@@ -2,6 +2,7 @@
 mutation matrix a correction that changes a test must carry, bound to the candidate it
 measured and never to what an author said about it."""
 import contextlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -61,31 +62,26 @@ def tests_changed(base, head):
 def collected_elsewhere(paths):
     """The Python files among these that pytest collects a test from where they sit, though no
     spelling TEST_PATH knows names them: a repository that sets `python_files = check_*.py`
-    tells pytest, and only pytest reads it. Each directory is asked strictly first; a collect
-    that failed still answers for the files it collected, and a changed file it did not collect
-    refuses its directory. Read as "no test here", a conftest that stopped the collect or a test that
-    failed to import made a test the project names its own way into code, and asked no matrix.
+    tells pytest, and only pytest reads it.
+
+    Each directory is asked once. Where that collect fails, each file is asked as
+    collects_a_test() asks it, and one it cannot answer for is kept: matrix_first() then refuses
+    it by name, on the rounds that ask for a matrix and no others. Refusing here blocked every
+    round, round one included, for a module beside a broken test. With no pytest to ask, nothing
+    here is a test pytest collects.
     """
     import review_matrix
+    if importlib.util.find_spec('pytest') is None:
+        return set()
     root = git('rev-parse', '--show-toplevel')
     wanted = {path for path in paths if path.endswith('.py') and Path(root, path).is_file()}
-    found, unanswered = set(), []
+    found = set()
     for where in sorted({str(Path(path).parent) for path in wanted}):
         try:
             found.update(review_matrix.nodes(root, [where]))
-            continue
-        except review_matrix.Unfinished:
-            unanswered.append(where)
-            continue
-        except SystemExit:
-            pass
-        with contextlib.suppress(SystemExit, review_matrix.Unfinished):
-            found.update(review_matrix.nodes(root, [where], tolerant=True))
-        if any(str(Path(path).parent) == where and path not in found for path in wanted):
-            unanswered.append(where)
-    require(not unanswered, 'pytest could not say whether the Python files this delta changed in '
-            '%s hold a test, so nothing here can say whether it changed one. Fix the collect '
-            'there, then run this again.' % ', '.join(unanswered))
+        except (SystemExit, review_matrix.Unfinished):
+            found.update(path for path in wanted if str(Path(path).parent) == where
+                         and collects_a_test(path) is not False)
     return wanted & found
 
 

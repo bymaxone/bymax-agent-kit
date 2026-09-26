@@ -7,10 +7,13 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 # The bench is test_review_flow's, imported whether this file is run by path or by module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_review_flow import OLD_TEST, TEST_G, FlowBench
+import review_evidence
+import review_matrix
 
 
 class MatrixGateTests(FlowBench):
@@ -156,8 +159,26 @@ class MatrixGateTests(FlowBench):
                 (self.repo / 'checks/check_g.py').write_text(test)
                 self.commit('a correction whose test directory cannot be collected: ' + conftest + test)
                 refused = self.start(ok=False, correction=True, reason='').stderr
-                self.assertIn('pytest could not say whether the Python files this delta changed in checks',
-                              refused)
+                self.assertIn('pytest could not say whether checks/check_g.py', refused)
+
+    def test_a_module_beside_a_broken_test_is_asked_alone(self):
+        """A failed directory collect says nothing about the module beside it: asked alone, as
+        collects_a_test() asks, pkg/app.py is code, and round one's prompt is built."""
+        (self.repo / 'pkg').mkdir()
+        (self.repo / 'pkg/test_app.py').write_text('import missing_module\n')
+        (self.repo / 'pkg/app.py').write_text('X = 1\n')
+        self.commit('a module beside a broken test')
+        self.start()
+        self.checks()
+        prompt = self.flow('prompt').stdout
+        self.assertIn('Tests changed in this delta: pkg/test_app.py.', prompt)
+
+    def test_with_no_pytest_nothing_is_a_collected_test(self):
+        """A runtime whose Python has no pytest cannot ask it, and nothing is a test it collects;
+        refusing there blocked every round of a delta that touched a Python file."""
+        with mock.patch('importlib.util.find_spec', return_value=None), \
+                mock.patch.object(review_matrix, 'nodes', side_effect=AssertionError('asked pytest')):
+            self.assertEqual(review_evidence.collected_elsewhere(['values.py']), set())
 
     def test_a_refused_rerun_leaves_no_earlier_record_behind(self):
         """A matrix run again on the same head and refused before it writes, here by an anchor
