@@ -143,7 +143,7 @@ class RunTests(unittest.TestCase):
 
     def test_a_directory_out_of_time_is_asked_once(self):
         """A directory whose collect runs out of time keeps its changed files unasked: asking each
-        of them again waited out the same deadline twice more per file."""
+        of them again would wait out the same deadline again."""
         clean = matrix.CLEAN
         matrix.CLEAN = 3
         self.addCleanup(setattr, matrix, 'CLEAN', clean)
