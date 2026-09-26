@@ -34,8 +34,8 @@ _WALKED = []
 def pytest_collection_modifyitems(session, config, items):
     """Mark the walk complete. pytest reaches this hook only when it finished, and calls
     pytest_collection_finish from a `finally`: a neighbour raising SystemExit or
-    KeyboardInterrupt while it is imported ends the walk, and the items collected so far were
-    reported as if they were all of them."""
+    KeyboardInterrupt while it is imported ends the walk, and the items collected so far would
+    read as all of them."""
     _WALKED.append(True)
 
 
