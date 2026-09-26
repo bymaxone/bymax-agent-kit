@@ -193,8 +193,8 @@ def outcome(code, tail):
     case never ran. Measured on this file's own fixtures — replacing a `def` line with a
     module-scope raise recorded two mutants as caught, and neither case had executed.
 
-    The summary line alone is not the verdict either: it is the last line a run printed, and a
-    plugin in the repository under review can print `1 failed` after it. A failure is pytest's
+    The summary line alone is not the verdict either: it is the last summary-shaped line a run
+    printed, and a plugin in the repository under review can print one after it. A failure is pytest's
     exit 1 with a summary saying so, a pass is exit 0 with no failure in it, and a run whose two
     disagree is refused like a crash.
     """
