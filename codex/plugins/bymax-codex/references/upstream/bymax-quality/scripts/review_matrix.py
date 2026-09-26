@@ -58,7 +58,7 @@ TEST_DIRECTORIES = frozenset(('test', 'tests', 'spec', '__tests__'))
 # that prints without end must not grow the process that restores the mutated file.
 KEEP = 1 << 16
 # pytest's -q summary line, read wherever it sits: a conftest's pytest_unconfigure prints after it.
-SUMMARY = re.compile(r'^(?:no tests ran|\d+ [a-z]+(?:, \d+ [a-z]+)*) in \d+(?:\.\d+)?s\b')
+SUMMARY = re.compile(r'^(?:no tests ran|\d+ [a-z]+(?: [a-z]+)?(?:, \d+ [a-z]+(?: [a-z]+)?)*) in \d+(?:\.\d+)?s\b')
 
 
 def cached_in(scratch):
