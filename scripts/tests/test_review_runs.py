@@ -182,11 +182,12 @@ class RunTests(unittest.TestCase):
         self.assertEqual((code, tail.split(' in ')[0]), (0, '1 passed, 2 subtests passed'))
 
     def test_every_wording_of_no_collector_is_no_test(self):
-        """pytest refuses a file nothing collects in words that changed between versions and
-        causes: read in only one of them, a data file went back to no answer in the others."""
+        """pytest refuses a file nothing collects in words that changed between versions: read in
+        only one, a data file went back to no answer. A collect whose every collector failed is
+        no answer, whatever file it names."""
         for said, answer in (('(no match in any of [<Dir tests>])', False),
                              ("(no name '/r/tests/data.json' in any of [<Module x>])", False),
-                             ('ERROR: found no collectors for /r/tests/data.json', False),
+                             ('ERROR: found no collectors for /r/tests/data.json', None),
                              ('no tests collected, 1 error in 0.07s', None)):
             refusal = SystemExit('BLOCKED: pytest could not collect tests/data.json (exit 4): ' + said)
             with self.subTest(said=said), mock.patch.object(matrix, 'ids', side_effect=refusal):
