@@ -176,6 +176,9 @@ class MatrixGateTests(FlowBench):
     def test_with_no_pytest_nothing_is_a_collected_test(self):
         """A runtime whose Python has no pytest cannot ask it, and nothing is a test it collects;
         refusing there blocked every round of a delta that touched a Python file."""
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
         with mock.patch('importlib.util.find_spec', return_value=None), \
                 mock.patch.object(review_matrix, 'nodes', side_effect=AssertionError('asked pytest')):
             self.assertEqual(review_evidence.collected_elsewhere(['values.py']), set())
