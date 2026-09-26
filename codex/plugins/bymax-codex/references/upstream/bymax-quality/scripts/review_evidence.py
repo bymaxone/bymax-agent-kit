@@ -61,17 +61,27 @@ def tests_changed(base, head):
 def collected_elsewhere(paths):
     """The Python files among these that pytest collects a test from where they sit, though no
     spelling TEST_PATH knows names them: a repository that sets `python_files = check_*.py`
-    tells pytest, and only pytest reads it. Each directory is asked once. One that cannot
-    answer refuses by name: read as "no test here", a conftest that
-    stops the collect made a test the project names its own way into code, and asked no matrix."""
+    tells pytest, and only pytest reads it. Each directory is asked once, strictly; a collect
+    that failed still answers for the files it collected, and a changed file it did not collect
+    refuses by name. Read as "no test here", a conftest that stopped the collect or a test that
+    failed to import made a test the project names its own way into code, and asked no matrix.
+    """
     import review_matrix
     root = git('rev-parse', '--show-toplevel')
     wanted = {path for path in paths if path.endswith('.py') and Path(root, path).is_file()}
     found, unanswered = set(), []
     for where in sorted({str(Path(path).parent) for path in wanted}):
         try:
+            found.update(review_matrix.nodes(root, [where]))
+            continue
+        except review_matrix.Unfinished:
+            unanswered.append(where)
+            continue
+        except SystemExit:
+            pass
+        with contextlib.suppress(SystemExit, review_matrix.Unfinished):
             found.update(review_matrix.nodes(root, [where], tolerant=True))
-        except (SystemExit, review_matrix.Unfinished):
+        if any(str(Path(path).parent) == where and path not in found for path in wanted):
             unanswered.append(where)
     require(not unanswered, 'pytest could not say whether the Python files this delta changed in '
             '%s hold a test, so nothing here can say whether it changed one. Fix the collect '
