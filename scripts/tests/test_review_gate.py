@@ -224,6 +224,24 @@ class MatrixGateTests(FlowBench):
         self.addCleanup(os.chdir, cwd)
         self.assertIs(review_evidence.collects_a_test('tests/case.yaml'), True)
 
+    def test_a_file_that_is_not_python_is_answered_by_its_directory(self):
+        """Asked alone, pytest finds no collector for a data file, and with no pytest there is
+        nothing to ask: read as no answer, either refused every correction of a Jest suite or of
+        a fixture beside a broken test."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_broken.py').write_text('import missing_module\n')
+        (self.repo / 'tests/data.json').write_text('{}\n')
+        (self.repo / 'src/__tests__').mkdir(parents=True)
+        (self.repo / 'src/__tests__/widget.test.ts').write_text('test("w", () => {});\n')
+        self.commit('a fixture beside a broken test, and a Jest test')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        self.assertIs(review_evidence.collects_a_test('tests/data.json'), False)
+        with mock.patch('importlib.util.find_spec', return_value=None), \
+                mock.patch.object(review_matrix, 'nodes', side_effect=AssertionError('asked pytest')):
+            self.assertIs(review_evidence.collects_a_test('src/__tests__/widget.test.ts'), False)
+
     def test_a_module_beside_a_broken_test_is_asked_alone(self):
         """A failed directory collect says nothing about the module beside it: asked alone,
         pkg/app.py is code, and round one's prompt is built."""
