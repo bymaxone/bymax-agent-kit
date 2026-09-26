@@ -19,6 +19,8 @@ PROSE_SUFFIXES = ('.md', '.markdown', '.adoc')
 # Plain text and data formats are test material only inside a test directory:
 # tests/golden/expected.txt and tests/fixtures/data.json count, openapi/v1.spec.yaml does not.
 INSIDE_ONLY_SUFFIXES = ('.txt', '.rst', '.yaml', '.yml', '.json', '.toml')
+# pytest's refusal of a file nothing collects: 8 and later, 7, and a neighbour's hook raising.
+NO_COLLECTOR = r'no match in any of|no name .* in any of|found no collectors for'
 
 
 def is_test_path(path):
@@ -302,7 +304,7 @@ def asked_alone(root, path, python):
     except review_matrix.Unfinished:
         return None
     except SystemExit as refusal:
-        return False if not python and 'no match in any of' in str(refusal) else None
+        return False if not python and re.search(NO_COLLECTOR, str(refusal)) else None
     return not python and bool(found)
 
 

@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -179,6 +180,17 @@ class RunTests(unittest.TestCase):
             '            with self.subTest(value=value):\n                self.assertTrue(over(value))\n')
         code, tail = matrix.run_case(str(bench.where), None, ['test_sub.py::Sub::test_sub'])
         self.assertEqual((code, tail.split(' in ')[0]), (0, '1 passed, 2 subtests passed'))
+
+    def test_every_wording_of_no_collector_is_no_test(self):
+        """pytest refuses a file nothing collects in words that changed between versions and
+        causes: read in only one of them, a data file went back to no answer in the others."""
+        for said, answer in (('(no match in any of [<Dir tests>])', False),
+                             ("(no name '/r/tests/data.json' in any of [<Module x>])", False),
+                             ('ERROR: found no collectors for /r/tests/data.json', False),
+                             ('no tests collected, 1 error in 0.07s', None)):
+            refusal = SystemExit('BLOCKED: pytest could not collect tests/data.json (exit 4): ' + said)
+            with self.subTest(said=said), mock.patch.object(matrix, 'ids', side_effect=refusal):
+                self.assertIs(review_evidence.asked_alone('.', 'tests/data.json', False), answer)
 
     def test_a_run_keeps_only_the_tail_of_its_output(self):
         """A run that prints without end must not grow the process that restores the mutated
