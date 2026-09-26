@@ -61,9 +61,9 @@ def tests_changed(base, head):
 def collected_elsewhere(paths):
     """The Python files among these that pytest collects a test from where they sit, though no
     spelling TEST_PATH knows names them: a repository that sets `python_files = check_*.py`
-    tells pytest, and only pytest reads it. Each directory is asked once, strictly; a collect
+    tells pytest, and only pytest reads it. Each directory is asked strictly first; a collect
     that failed still answers for the files it collected, and a changed file it did not collect
-    refuses by name. Read as "no test here", a conftest that stopped the collect or a test that
+    refuses its directory. Read as "no test here", a conftest that stopped the collect or a test that
     failed to import made a test the project names its own way into code, and asked no matrix.
     """
     import review_matrix
