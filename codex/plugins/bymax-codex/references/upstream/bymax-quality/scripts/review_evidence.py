@@ -65,7 +65,7 @@ def collected_elsewhere(paths):
     tells pytest, and only pytest reads it.
 
     Each directory is asked once. Where that collect fails, each file is asked as
-    collects_a_test() asks it, and one it cannot answer for is kept: matrix_first() then refuses
+    collects_a_test() asks it, and one it cannot rule out is kept: matrix_first() then refuses
     it by name, on the rounds that ask for a matrix and no others. Where it ran out of time,
     every file is kept unasked, since each ask would wait out the same deadline again. Refusing
     here blocked every round, round one included, for a module beside a broken test. With no

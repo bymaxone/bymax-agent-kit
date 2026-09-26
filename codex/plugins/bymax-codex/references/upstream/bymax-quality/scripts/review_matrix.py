@@ -687,7 +687,7 @@ def ids(root, files, selector=None, tolerant=False):
         # A collect that pytest completed and the plugin did not report is not an empty
         # directory: the plugin did not run. Answering [] there would say "no test here". Nor
         # is a tolerant one that died before reporting: a neighbour that ends the process
-        # leaves nothing collected, and the file alone collecting fine then read as a module.
+        # leaves nothing collected.
         if vouched is None and (tolerant or done.returncode in (0, 5)):
             bail('pytest collected %s and its collector never reported what it found, so nothing '
                  'here can say what was collected. Something in the repository under review kept '
