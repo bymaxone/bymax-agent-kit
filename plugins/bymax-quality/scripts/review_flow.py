@@ -1136,9 +1136,17 @@ def gate_first(state, directory):
             'These gates failed on this candidate: ' + '; '.join(failed) + '. Fix the candidate, '
             're-run them, and only then ask for a review: reviewers read a tree its own gates '
             'already accept.')
-    # start() runs these at the freeze, and a campaign an earlier runtime froze under this
-    # policy never met them, while the prompt tells both reviewers the claims check ran. Asked
-    # again here, before either reads; on a candidate that met them they change nothing.
+    settled(state, directory)
+
+
+def settled(state, directory):
+    """The claims check and the matrix, asked again before a reviewer reads and before a receipt.
+
+    start() runs them at the freeze, and a campaign an earlier runtime froze under this policy
+    never met them, while the prompt tells both reviewers the claims check ran; one that had
+    already been reviewed reaches finish() without either. On a candidate that met them at the
+    freeze they change nothing.
+    """
     claims_settled(state['review_base'], state['head'])
     matrix_first(state, directory)
 
@@ -1424,6 +1432,7 @@ def finish(directory, state):
     latest = {tuple(c['command']): c for c in state['checks']}
     require(all(tuple(c) in latest for c in state['required_checks']), 'A declared project gate was not executed.')
     require(all(c['exit_code'] == 0 and Path(c['log']).exists() for c in latest.values()), 'Required check failed or log missing.')
+    settled(state, directory)
     state['cleared'] = True
     save(directory, state)
 

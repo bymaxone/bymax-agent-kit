@@ -52,8 +52,25 @@ def tests_changed(base, head):
     removed = [p for p in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=D',
                                   base, head).split('\0') if p]
     mine = written_here(base, head)
-    return ([name for name in changed if is_test_path(name) and name in mine],
+    ours = [name for name in changed if name in mine]
+    elsewhere = collected_elsewhere([name for name in ours if not is_test_path(name)])
+    return ([name for name in ours if is_test_path(name) or name in elsewhere],
             [name for name in removed if is_test_path(name)])
+
+
+def collected_elsewhere(paths):
+    """The Python files among these that pytest collects a test from where they sit, though no
+    spelling TEST_PATH knows names them: a repository that sets `python_files = check_*.py`
+    tells pytest, and only pytest reads it. Each directory is asked once, and one that cannot
+    answer names none, since these files are code until pytest says otherwise."""
+    import review_matrix
+    root = git('rev-parse', '--show-toplevel')
+    wanted = {path for path in paths if path.endswith('.py') and Path(root, path).is_file()}
+    found = set()
+    for where in sorted({str(Path(path).parent) for path in wanted}):
+        with contextlib.suppress(SystemExit, review_matrix.Unfinished):
+            found.update(review_matrix.nodes(root, [where], tolerant=True))
+    return wanted & found
 
 
 def merged_in_tests(base, head):
