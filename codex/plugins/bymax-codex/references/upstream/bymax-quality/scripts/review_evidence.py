@@ -62,7 +62,7 @@ def collected_elsewhere(paths):
     """The Python files among these that pytest collects a test from where they sit, though no
     spelling TEST_PATH knows names them: a repository that sets `python_files = check_*.py`
     tells pytest, and only pytest reads it. Each directory is asked once. One that cannot
-    answer refuses by name, as collects_a_test() does: read as "no test here", a conftest that
+    answer refuses by name: read as "no test here", a conftest that
     stops the collect made a test the project names its own way into code, and asked no matrix."""
     import review_matrix
     root = git('rev-parse', '--show-toplevel')
