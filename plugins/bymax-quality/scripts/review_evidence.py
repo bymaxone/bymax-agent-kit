@@ -315,17 +315,19 @@ def archived(revision):
     """That revision's tree, unpacked outside the repository. Out of the object store rather
     than through a worktree, so nothing is added to this repository's bookkeeping and no
     checkout of it is touched."""
-    where = tempfile.mkdtemp()
+    # The archive sits beside the tree it unpacks, never in it: a tracked tree.tar at the root
+    # was written over it and then deleted with it.
+    box = tempfile.mkdtemp()
     try:
-        packed = Path(where, 'tree.tar')
+        where, packed = Path(box, 'tree'), Path(box, 'tree.tar')
+        where.mkdir()
         with packed.open('wb') as handle:
             subprocess.run(['git', 'archive', revision], stdout=handle, check=True,
                            cwd=git('rev-parse', '--show-toplevel'))
-        subprocess.run(['tar', '-xf', str(packed), '-C', where], check=True)
-        packed.unlink()
-        yield where
+        subprocess.run(['tar', '-xf', str(packed), '-C', str(where)], check=True)
+        yield str(where)
     finally:
-        shutil.rmtree(where, ignore_errors=True)
+        shutil.rmtree(box, ignore_errors=True)
 
 
 def caught_with_the_changed_test(kept, wanted):

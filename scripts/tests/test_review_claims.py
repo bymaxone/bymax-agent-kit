@@ -71,6 +71,18 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': '# reads FOREIGN, not the tuple\nX = 1\n'})
         self.assertEqual(tree.retired(), [('a.py', 'FOREIGN')])
 
+    def test_a_python_file_is_read_in_the_encoding_it_declares(self):
+        """A Latin-1 source declared by PEP 263 is valid Python. Decoded by the process locale
+        it raised before retired() could answer, and every step that asks it stopped."""
+        tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n'}, {'a.py': ''})
+        (tree.where / 'b.py').write_bytes(b'# -*- coding: latin-1 -*-\n# OLD_HELPER is kept\n'
+                                          b'NAME = "caf\xe9"\n')
+        run(tree.where, 'add', '-A')
+        run(tree.where, 'commit', '-q', '-m', 'a Latin-1 source')
+        tree.head = claims.git('rev-parse', 'HEAD', cwd=str(tree.where)).strip()
+        self.assertIn('caf\xe9', claims.git('show', tree.head + ':b.py', cwd=str(tree.where)))
+        self.assertEqual(tree.retired(), [('b.py', 'OLD_HELPER')])
+
     def test_a_name_that_still_exists_somewhere_else_is_not_reported(self):
         """Moved is not deleted. The check is about a name nothing defines any more, so a
         constant that migrated to another module is silence, not a finding."""

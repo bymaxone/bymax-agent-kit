@@ -196,6 +196,18 @@ class MatrixGateTests(FlowBench):
                 mock.patch.object(review_evidence, 'collects_a_test', side_effect=AssertionError('asked')):
             self.assertEqual(review_evidence.collected_elsewhere(['values.py']), {'values.py'})
 
+    def test_a_tracked_tree_tar_survives_the_archive(self):
+        """The base is unpacked from an archive; a tracked tree.tar at its root was written over
+        that archive and deleted with it, and a conftest needing it no longer collected."""
+        (self.repo / 'tree.tar').write_text('fixture\n')
+        self.commit('a tracked tree.tar')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        with review_evidence.archived('HEAD') as where:
+            kept = Path(where, 'tree.tar')
+            self.assertEqual(kept.read_text() if kept.is_file() else None, 'fixture\n')
+
     def test_a_module_beside_a_broken_test_is_asked_alone(self):
         """A failed directory collect says nothing about the module beside it: asked alone,
         pkg/app.py is code, and round one's prompt is built."""
