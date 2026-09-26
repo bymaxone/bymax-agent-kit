@@ -171,8 +171,8 @@ class MatrixGateTests(FlowBench):
         (self.repo / 'pytest.ini').write_text('[pytest]\npython_files = check_*.py\n')
         (self.repo / 'checks').mkdir()
         (self.repo / 'checks/check_g.py').write_text(TEST_G)
-        # Ending the process leaves no report; raising ends the walk with a report of what it
-        # had reached, which a walk that completed is told apart from.
+        # Ending the process leaves no report; raising cuts the walk short, which must not
+        # read as a walk that completed.
         for boom in ('import os\nos._exit(3)\n', 'import sys\nsys.exit(3)\n',
                      'import sys\nsys.exit(0)\n', 'raise KeyboardInterrupt\n'):
             with self.subTest(boom=boom):
