@@ -170,11 +170,17 @@ class MatrixGateTests(FlowBench):
         self.triage()
         (self.repo / 'pytest.ini').write_text('[pytest]\npython_files = check_*.py\n')
         (self.repo / 'checks').mkdir()
-        (self.repo / 'checks/check_boom.py').write_text('import os\nos._exit(3)\n')
         (self.repo / 'checks/check_g.py').write_text(TEST_G)
-        self.commit('a correction beside a module that ends the collect')
-        refused = self.start(ok=False, correction=True, reason='').stderr
-        self.assertIn('pytest could not say whether checks/check_boom.py, checks/check_g.py', refused)
+        # Ending the process leaves no report; raising ends the walk with a report of what it
+        # had reached, which a walk that completed is told apart from.
+        for boom in ('import os\nos._exit(3)\n', 'import sys\nsys.exit(3)\n',
+                     'import sys\nsys.exit(0)\n', 'raise KeyboardInterrupt\n'):
+            with self.subTest(boom=boom):
+                (self.repo / 'checks/check_boom.py').write_text(boom)
+                self.commit('a correction beside a module that ends the collect: ' + boom)
+                refused = self.start(ok=False, correction=True, reason='').stderr
+                self.assertIn('pytest could not say whether checks/check_boom.py, checks/check_g.py',
+                              refused)
 
     def test_a_directory_out_of_time_keeps_its_files_unasked(self):
         """Asking each file of a directory whose collect ran out of time waits out the same
