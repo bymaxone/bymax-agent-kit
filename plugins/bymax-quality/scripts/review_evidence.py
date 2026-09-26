@@ -267,7 +267,7 @@ def collects_a_test(path):
     root = git('rev-parse', '--show-toplevel')
     # Not by suffix: a conftest can collect tests from a file of any format, and a YAML case
     # read as unrunnable left the correction that changed it with no matrix asked. But a file
-    # that is not Python is answered by its directory alone: with no pytest there is nothing to
+    # that is not Python is never asked alone: with no pytest there is nothing to
     # ask, and asked alone pytest finds no collector for it, which says nothing either way.
     python = path.endswith('.py')
     if not Path(root, path).is_file() or not python and importlib.util.find_spec('pytest') is None:
