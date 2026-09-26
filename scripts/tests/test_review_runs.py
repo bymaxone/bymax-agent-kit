@@ -160,6 +160,19 @@ class RunTests(unittest.TestCase):
                          {'pkg/a.py', 'pkg/b.py'})
         self.assertLess(time.monotonic() - began, 9)
 
+    def test_output_after_the_summary_does_not_hide_it(self):
+        """A conftest printing from pytest_unconfigure speaks after pytest's summary; read as the
+        last line, a real failure became an error and every mutant it caught was rejected."""
+        bench = Bench(self)
+        (bench.where / 'conftest.py').write_text('def pytest_unconfigure(config):\n'
+                                                 '    print("cleanup complete")\n')
+        subprocess.run(['git', '-C', str(bench.where), 'add', 'conftest.py'], check=True)
+        subprocess.run(['git', '-C', str(bench.where), '-c', 'user.email=a@b.invalid', '-c',
+                        'user.name=A', 'commit', '-q', '-m', 'conftest'], check=True)
+        code, tail = matrix.run_case(str(bench.where), None, ['test_thing.py::test_over_the_limit'])
+        self.assertEqual((code, tail.split(' in ')[0]), (0, '1 passed'))
+        bench.run(rule())
+
     def test_a_run_keeps_only_the_tail_of_its_output(self):
         """A run that prints without end must not grow the process that restores the mutated
         file: each stream keeps its last KEEP bytes, and the summary line is still read

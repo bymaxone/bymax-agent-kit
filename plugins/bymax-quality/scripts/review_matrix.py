@@ -54,9 +54,11 @@ PYTEST = [sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q']
 # The directory names that mark a test location, compared without case. The campaign's own test
 # classifier reads the same names, and a case holds the two together.
 TEST_DIRECTORIES = frozenset(('test', 'tests', 'spec', '__tests__'))
-# What a run keeps of each stream, in bytes: the summary line outcome() reads is the last one, and a run
+# What a run keeps of each stream, in bytes: the summary line outcome() reads is near its end, and a run
 # that prints without end must not grow the process that restores the mutated file.
 KEEP = 1 << 16
+# pytest's -q summary line, read wherever it sits: a conftest's pytest_unconfigure prints after it.
+SUMMARY = re.compile(r'^(?:no tests ran|\d+ [a-z]+(?:, \d+ [a-z]+)*) in \d+(?:\.\d+)?s\b')
 
 
 def cached_in(scratch):
@@ -112,7 +114,7 @@ def run_case(root, selector, files, deadline=CLEAN):
     if code is None:
         return None, 'timed out after %ds' % deadline
     tail = out.strip().splitlines()
-    return code, (tail[-1] if tail else err[-160:])
+    return code, ([line for line in tail if SUMMARY.match(line)] or tail or [err[-160:]])[-1]
 
 
 def tailed(child, deadline):

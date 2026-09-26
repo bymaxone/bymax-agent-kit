@@ -354,14 +354,14 @@ class MeaningTests(unittest.TestCase):
                 self.assertTrue(refused(name))
 
     def test_a_summary_its_exit_status_does_not_back_is_a_crash(self):
-        """The summary is the last line a run printed, and a plugin can print `1 failed` after
-        pytest's own; exit 0 beside it is a run that passed. Either disagreement is refused."""
+        """A plugin can print a summary-shaped `1 failed in 0.01s` after pytest's own, and it is
+        the one read; exit 0 beside it is a run that passed. Either disagreement is refused."""
         self.assertEqual(matrix.outcome(0, '1 failed'), 'error')
         self.assertEqual(matrix.outcome(1, '1 passed in 0.02s'), 'error')
         bench = Bench(self, test=CASE.replace('    assert not over(9)\n', ''))
         (bench.where / 'conftest.py').write_text(
             'import sys\nsys.path.insert(0, ".")\n\n\ndef pytest_unconfigure(config):\n'
-            '    from thing import over\n    if over(0):\n        print("1 failed")\n')
+            '    from thing import over\n    if over(0):\n        print("1 failed in 0.01s")\n')
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule())
         self.assertIn('exit status and summary disagree', str(caught.exception))
