@@ -238,6 +238,16 @@ class MatrixGateTests(FlowBench):
         os.chdir(self.repo)
         self.addCleanup(os.chdir, cwd)
         self.assertIs(review_evidence.collects_a_test('tests/data.json'), False)
+        # A file a plugin collects and cannot load is no answer, where one nothing collects is False.
+        (self.repo / 'tests/conftest.py').write_text(
+            'import pytest\n\n\nclass Cases(pytest.File):\n    def collect(self):\n'
+            '        raise ValueError("unreadable")\n\n\n'
+            'def pytest_collect_file(parent, file_path):\n    if file_path.suffix == ".yaml":\n'
+            '        return Cases.from_parent(parent, path=file_path)\n')
+        (self.repo / 'tests/test_bad.yaml').write_text('a: [1\n')
+        self.commit('a YAML case a plugin cannot load')
+        self.assertIsNone(review_evidence.collects_a_test('tests/test_bad.yaml'))
+        self.assertIs(review_evidence.collects_a_test('tests/data.json'), False)
         with mock.patch('importlib.util.find_spec', return_value=None), \
                 mock.patch.object(review_matrix, 'nodes', side_effect=AssertionError('asked pytest')):
             self.assertIs(review_evidence.collects_a_test('src/__tests__/widget.test.ts'), False)
