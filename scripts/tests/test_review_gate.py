@@ -208,6 +208,22 @@ class MatrixGateTests(FlowBench):
             kept = Path(where, 'tree.tar')
             self.assertEqual(kept.read_text() if kept.is_file() else None, 'fixture\n')
 
+    def test_a_test_pytest_collects_from_another_format_is_a_test(self):
+        """A conftest can collect cases from YAML. Asked by suffix, tests/case.yaml read as
+        unrunnable, and the correction changing it ran with no matrix."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/conftest.py').write_text(
+            'import pytest\n\n\nclass Case(pytest.Item):\n    def runtest(self):\n        pass\n\n\n'
+            'class Cases(pytest.File):\n    def collect(self):\n        yield Case.from_parent(self, name="case")\n\n\n'
+            'def pytest_collect_file(parent, file_path):\n    if file_path.suffix == ".yaml":\n'
+            '        return Cases.from_parent(parent, path=file_path)\n')
+        (self.repo / 'tests/case.yaml').write_text('expect: 1\n')
+        self.commit('a case pytest collects from YAML')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        self.assertIs(review_evidence.collects_a_test('tests/case.yaml'), True)
+
     def test_a_module_beside_a_broken_test_is_asked_alone(self):
         """A failed directory collect says nothing about the module beside it: asked alone,
         pkg/app.py is code, and round one's prompt is built."""

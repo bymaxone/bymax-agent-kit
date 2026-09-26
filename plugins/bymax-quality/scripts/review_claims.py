@@ -49,6 +49,12 @@ QUOTED = re.compile(r'`([^`\n]{4,80})`')
 MARKDOWN = ('.md', '.markdown')
 
 
+def markdown(name):
+    """Whether a file is Markdown, whatever case its suffix is spelled in: README.MD is live
+    documentation, and a case-sensitive match read none of it."""
+    return name.lower().endswith(MARKDOWN)
+
+
 def root(cwd=None):
     """The worktree these questions are about, not the directory the process happens to be in.
 
@@ -91,7 +97,7 @@ def prose(name, text):
     A comment after code is read too, as its own text and without its line: `x = f()  # uses
     OLD_NAME` still names OLD_NAME, while marks() keeps that line under code for the split.
     """
-    if name.endswith(MARKDOWN):
+    if markdown(name):
         return outside_code(text)
     if not name.endswith('.py'):
         return ''
@@ -121,7 +127,7 @@ def marks(name, text):
     and the code-to-prose ratio the reviewers are shown. Two classifiers would drift, and the
     drift would be invisible until one of them read a line of code as a sentence.
     """
-    if name.endswith(MARKDOWN):
+    if markdown(name):
         # A code block's lines are code, read by the walker prose() reads them with. A fenced
         # `bash` block in a command file is what a model runs verbatim, and filing it under
         # prose told the reviewers that a delta changing one had changed no code.
@@ -173,9 +179,6 @@ def authored(name):
     return not name.startswith(GENERATED)
 
 
-READABLE = MARKDOWN + ('.py',)
-
-
 def touched(base, head, cwd=None):
     """Files this delta changed whose prose this module can read.
 
@@ -184,7 +187,7 @@ def touched(base, head, cwd=None):
     read as removed at all.
     """
     listed = git('diff', '--name-only', '--no-renames', '-z', base, head, cwd=cwd)
-    return [n for n in listed.split('\0') if n.endswith(READABLE) and authored(n)]
+    return [n for n in listed.split('\0') if (markdown(n) or n.endswith('.py')) and authored(n)]
 
 
 def opaque(base, head, cwd=None):
@@ -199,7 +202,7 @@ def opaque(base, head, cwd=None):
     """
     listed = git('diff', '--name-only', '--no-renames', '-z', base, head, cwd=cwd)
     return [n for n in listed.split('\0')
-            if n and not n.endswith(READABLE) and authored(n)]
+            if n and not (markdown(n) or n.endswith('.py')) and authored(n)]
 
 
 def sides(name, base, head, cwd=None):
@@ -482,7 +485,7 @@ def mentions(base, head, cwd=None):
         # NUL-separated, because git quotes a path it prints one to a line, and the quoted
         # spelling of café.md named no file: the dangling mention there went unreported.
         listed = git('grep', '-z', '-lw', '--', token, head, '--', '*.py',
-                     *('*' + suffix for suffix in MARKDOWN), cwd=cwd)
+                     *(':(icase)*' + suffix for suffix in MARKDOWN), cwd=cwd)
         # Filtered here as well as in touched(): the search that finds the dangling mention is
         # a different search from the one that finds the removal, and excluding the generated
         # copy in only one of them leaves the other reporting a file that asserts nothing of

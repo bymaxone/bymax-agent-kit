@@ -47,6 +47,13 @@ class RemovalNoteTests(unittest.TestCase):
         self.assertEqual(claims.noted_removals(tree.base, tree.head, cwd=str(tree.where)),
                          [('README.md', 'OLD_HELPER', self.REPORTED[0])])
 
+    def test_a_markdown_suffix_is_read_in_any_case(self):
+        """README.MD is live documentation. Matched by case, it was neither read as prose nor
+        searched, and a removed name it still asserted refused nothing."""
+        tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n'},
+                    {'a.py': '', 'README.MD': 'Call `OLD_HELPER` first.\n'})
+        self.assertEqual(tree.retired(), [('README.MD', 'OLD_HELPER')])
+
 
 if __name__ == '__main__':
     unittest.main()
