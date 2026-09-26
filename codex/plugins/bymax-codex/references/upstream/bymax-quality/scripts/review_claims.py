@@ -63,9 +63,22 @@ def root(cwd=None):
 
 
 def git(*args, cwd=None):
-    """stdout of a git command, or '' when git refuses — an absent side, never a crash."""
-    done = subprocess.run(['git', *args], capture_output=True, text=True, cwd=root(cwd))
-    return done.stdout if done.returncode == 0 else ''
+    """stdout of a git command, or '' when git refuses — an absent side, never a crash.
+
+    Read as bytes. A Python blob is decoded by the encoding it declares (PEP 263), and anything
+    else as UTF-8 with what does not decode replaced: decoded by the process locale, a Latin-1
+    source raised before any check could answer, and every step that asks one stopped with it.
+    """
+    done = subprocess.run(['git', *args], capture_output=True, cwd=root(cwd))
+    if done.returncode != 0:
+        return ''
+    if args[:1] == ('show',) and args[-1].endswith('.py'):
+        try:
+            declared = tokenize.detect_encoding(io.BytesIO(done.stdout).readline)[0]
+            return done.stdout.decode(declared)
+        except (SyntaxError, LookupError, UnicodeDecodeError):
+            pass
+    return done.stdout.decode('utf-8', 'replace')
 
 
 def prose(name, text):
