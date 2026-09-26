@@ -178,7 +178,7 @@ changed; never a generic "update files".
 - **No attribution footer** — no `Co-Authored-By` trailer, no "generated with" line.
   The message is exactly title + body, nothing else.
 
-Validate the title length BEFORE committing, then commit from a temp file
+Validate the title length *before* committing, then commit from a temp file
 (robust against quoting):
 
 ```bash

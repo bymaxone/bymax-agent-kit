@@ -3,8 +3,10 @@
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
 import shlex
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -136,11 +138,59 @@ def overlays(targets, home, backup_dir):
         print('Local source overlay installed:', path)
 
 
+def payload(root=None):
+    """Every file the runtime needs beside review_flow.py, read from the package.
+
+    Derived rather than listed. A hand-kept tuple decided this until now, and a runtime
+    script nobody copies is a gate that does not exist — silently, because the flow imports
+    it only when the case it guards occurs. `.sh` is excluded deliberately: codex-review.sh
+    is a repository entrypoint, not part of the runtime planted in $HOME.
+    """
+    where = (root or ROOT) / 'plugins/bymax-quality/scripts'
+    return sorted(path for path in where.iterdir()
+                  if path.suffix in ('.py', '.json') and path.is_file())
+
+
+def complete(carried):
+    """Refuse a short payload or an untracked extra before the first write, by what git tracks.
+
+    Deriving what to copy removed the one thing the hand-kept tuple did well: failing when a
+    file was absent. An installer that reports success while planting a runtime missing a
+    module leaves every repository unguarded, silently.
+
+    The expected set is not a second hand-kept list — that was the first correction here, and
+    it named three files while review_flow imports five, so the guard passed on a payload that
+    could not be imported. It is the package's own tracked contents.
+    """
+    listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '--',
+                             'plugins/bymax-quality/scripts'], capture_output=True)
+    tracked = {name.split('/')[-1] for name in os.fsdecode(listed.stdout).split('\0')
+               if name.endswith(('.py', '.json'))}
+    # An unchecked exit made the expectation empty outside a checkout — a `git archive`
+    # export would install a payload missing review_flow.py itself and report success. An
+    # expectation nothing could answer is not an expectation.
+    if listed.returncode != 0 or not tracked:
+        raise SystemExit('Refusing to install: this package is not a git checkout, so what it '
+                         'should carry cannot be read. Install from a clone.')
+    names = {path.name for path in carried}
+    missing = tracked - names
+    if missing:
+        raise SystemExit('Refusing to install: the package is missing %s, which git tracks '
+                         'beside the runtime.' % ', '.join(sorted(missing)))
+    # An untracked file beside the runtime is installed with it, and one named after a standard
+    # module (json.py) shadows it and stops review_flow.py from importing, guard and all.
+    extra = names - tracked
+    if extra:
+        raise SystemExit('Refusing to install: %s beside the runtime is not tracked by git, and '
+                         'would be installed with it. Remove it or track it.' % ', '.join(sorted(extra)))
+
+
 def install(home, overlay):
     """Apply a prevalidated policy/settings merge with recoverable file backups."""
     home = home.resolve()
     settings_path, policy_path = home / 'settings.json', home / 'CLAUDE.md'
     settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+    complete(payload())
     updated_policy = policy(policy_path.read_text() if policy_path.exists() else '')
     runtime = home / 'bymax-review'
     updated_settings = hook_settings(settings, runtime / 'review_push.py', home)
@@ -157,9 +207,8 @@ def install(home, overlay):
     runtime.mkdir(parents=True, exist_ok=True)
     # review_flow.start installs review_prepush.py from beside itself, so the hook
     # source must travel with the runtime or no repository ever gets the hook.
-    for name in ('review_flow.py', 'review_push.py', 'review_prepush.py', 'review_delivery.py',
-                 'review_claude.py', 'review-report.schema.json'):
-        shutil.copy2(ROOT / 'plugins/bymax-quality/scripts' / name, runtime / name)
+    for source in payload():
+        shutil.copy2(source, runtime / source.name)
     settings_path.write_text(json.dumps(updated_settings, indent=2) + '\n')
     policy_path.write_text(updated_policy)
     legacy = home / 'hooks/code-review-clear.sh'

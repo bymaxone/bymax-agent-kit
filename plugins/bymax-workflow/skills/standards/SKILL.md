@@ -1,6 +1,6 @@
 ---
 name: standards
-description: Universal coding standards reference (TypeScript and Rust tracks) — simplicity ladder (reuse-first / YAGNI, run before writing code), type/lint discipline, naming conventions, doc policy (JSDoc / rustdoc), layered architecture, typed error handling, English-only comments, conventional commits. Load this BEFORE writing any non-trivial code, reviewing a PR, or scaffolding a new project. Other skills (/bymax-workflow:plan, /bymax-quality:tdd, /bymax-quality:code-review, /bymax-bootstrap:bootstrap) reference this.
+description: Universal coding standards reference (TypeScript and Rust tracks) — simplicity ladder (reuse-first / YAGNI, run before writing code), type/lint discipline, naming conventions, doc policy (JSDoc / rustdoc), layered architecture, typed error handling, English-only comments, conventional commits. Load this before writing any non-trivial code, reviewing a PR, or scaffolding a new project. Other skills (/bymax-workflow:plan, /bymax-quality:tdd, /bymax-quality:code-review, /bymax-bootstrap:bootstrap) reference this.
 user-invocable: true
 ---
 
@@ -21,7 +21,7 @@ Detect the stack and follow the matching track:
 
 ---
 
-## 0. Simplicity ladder — run BEFORE writing code
+## 0. Simplicity ladder — run *before* writing code
 
 Understanding comes first: read the code the change touches and trace the real flow. Then, before writing anything, stop at the **first rung that holds**:
 
