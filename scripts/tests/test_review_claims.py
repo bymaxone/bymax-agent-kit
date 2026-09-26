@@ -83,6 +83,25 @@ class RetiredNameTests(unittest.TestCase):
         self.assertIn('caf\xe9', claims.git('show', tree.head + ':b.py', cwd=str(tree.where)))
         self.assertEqual(tree.retired(), [('b.py', 'OLD_HELPER')])
 
+    def test_bytes_no_encoding_accounts_for_are_read_replaced(self):
+        """A diff of a Latin-1 source, and a Python blob declaring nothing that is not UTF-8,
+        decode with the bytes replaced: read strictly, either raised and stopped every step."""
+        tree = Tree(self, {'a.py': 'X = 1\n'}, {'a.py': 'X = 1\n'})
+        at = str(tree.where)
+
+        def commit(name, body):
+            (tree.where / name).write_bytes(body)
+            run(tree.where, 'add', '-A')
+            run(tree.where, 'commit', '-q', '-m', name)
+            return claims.git('rev-parse', 'HEAD', cwd=at).strip()
+        latin = b'# -*- coding: latin-1 -*-\n'
+        before = commit('b.py', latin + b'NAME = "caf\xe9"\n')
+        after = commit('b.py', latin + b'NAME = "caf\xe9s"\n')
+        self.assertIn(('b.py', 2, 'NAME = "caf\ufffds"'), claims.split_delta(before, after, cwd=at)['code'])
+        # Past the two lines detect_encoding() reads, so its UTF-8 default passes and the decode fails.
+        bare = commit('u.py', b'X = 1\nY = 2\nNAME = "caf\xe9"\n')
+        self.assertIn('caf\ufffd', claims.git('show', bare + ':u.py', cwd=at))
+
     def test_a_name_that_still_exists_somewhere_else_is_not_reported(self):
         """Moved is not deleted. The check is about a name nothing defines any more, so a
         constant that migrated to another module is silence, not a finding."""
