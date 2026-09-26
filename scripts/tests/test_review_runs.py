@@ -183,7 +183,7 @@ class RunTests(unittest.TestCase):
 
     def test_every_wording_of_no_collector_is_no_test(self):
         """pytest refuses a file nothing collects in words that changed between versions: read in
-        only one, a data file went back to no answer. A collect whose every collector failed is
+        only one, a data file gets no answer. A collect whose every collector failed is
         no answer, whatever file it names."""
         for said, answer in (('(no match in any of [<Dir tests>])', False),
                              ("(no name '/r/tests/data.json' in any of [<Module x>])", False),
