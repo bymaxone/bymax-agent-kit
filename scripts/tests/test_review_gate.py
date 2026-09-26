@@ -112,8 +112,8 @@ class MatrixGateTests(FlowBench):
         self.assertIn('Prose asserts a name this delta removed', self.flow('prompt', ok=False).stderr)
 
     def test_a_reviewed_candidate_frozen_without_the_gates_meets_them_before_its_receipt(self):
-        """The same state reviewed and triaged before this runtime was installed calls no
-        reviewer again, so finish() is where the two are asked before the receipt."""
+        """A state reviewed and triaged before this runtime was installed calls no
+        reviewer again, so finish() is where the matrix is asked before the receipt."""
         record, _ = self.measured_record()
         self.start(correction=True, reason='')
         self.checks()
