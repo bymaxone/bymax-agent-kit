@@ -670,8 +670,8 @@ def ids(root, files, selector=None, tolerant=False):
     report banner, or, from a conftest below the collected directory, ahead of every real id.
 
     Tolerantly, a run that failed still answers with whatever it collected before failing, so a
-    directory one broken file would otherwise silence still answers; a run that collected
-    nothing answers nothing, whatever it exited with.
+    directory one broken file would otherwise silence still answers; a run whose collector never
+    reported is refused, whatever it exited with.
     """
     # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
     # every id against the argument's own directory instead — a bare name for a file under
@@ -685,8 +685,10 @@ def ids(root, files, selector=None, tolerant=False):
                  ((done.stdout + done.stderr).strip().splitlines() or ['no output'])[-1]))
         vouched = reported(where, token)
         # A collect that pytest completed and the plugin did not report is not an empty
-        # directory: the plugin did not run. Answering [] there would say "no test here".
-        if vouched is None and done.returncode in (0, 5):
+        # directory: the plugin did not run. Answering [] there would say "no test here". Nor
+        # is a tolerant one that died before reporting: a neighbour that ends the process
+        # leaves nothing collected, and the file alone collecting fine then read as a module.
+        if vouched is None and (tolerant or done.returncode in (0, 5)):
             bail('pytest collected %s and its collector never reported what it found, so nothing '
                  'here can say what was collected. Something in the repository under review kept '
                  'it from reporting.' % ' '.join(files))
