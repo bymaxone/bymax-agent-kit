@@ -172,7 +172,7 @@ class RunTests(unittest.TestCase):
         code, tail = matrix.run_case(str(bench.where), None, ['test_thing.py::test_over_the_limit'])
         self.assertEqual((code, tail.split(' in ')[0]), (0, '1 passed'))
         bench.run(rule())
-        # A case with subtests is summed up in two-word labels, `2 subtests passed`.
+        # A case with subtests gets a two-word label, `2 subtests passed`.
         (bench.where / 'test_sub.py').write_text(
             'import sys, unittest\nsys.path.insert(0, ".")\nfrom thing import over\n\n\n'
             'class Sub(unittest.TestCase):\n    def test_sub(self):\n        for value in (11, 12):\n'
