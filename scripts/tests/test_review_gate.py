@@ -138,6 +138,21 @@ class MatrixGateTests(FlowBench):
         self.assertIn('no measured mutation matrix exists', missing)
         self.assertIn('checks/check_g.py', missing)
 
+    def test_a_directory_pytest_cannot_answer_for_is_refused_by_name(self):
+        """A conftest that ends the collect before it reports leaves pytest unable to say whether
+        checks/check_g.py holds a test. Read as "no test here", the correction ran with no matrix."""
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'pytest.ini').write_text('[pytest]\npython_files = check_*.py\n')
+        (self.repo / 'checks').mkdir()
+        (self.repo / 'checks/conftest.py').write_text('import os\nos._exit(0)\n')
+        (self.repo / 'checks/check_g.py').write_text(TEST_G)
+        self.commit('a correction whose test directory cannot be collected')
+        refused = self.start(ok=False, correction=True, reason='').stderr
+        self.assertIn('pytest could not say whether the Python files this delta changed in checks', refused)
+
     def test_a_refused_rerun_leaves_no_earlier_record_behind(self):
         """A matrix run again on the same head and refused before it writes, here by an anchor
         that occurs nowhere, leaves no record: the earlier run's would be accepted by start as
