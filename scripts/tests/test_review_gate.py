@@ -171,6 +171,10 @@ class MatrixGateTests(FlowBench):
         (self.repo / 'pytest.ini').write_text('[pytest]\npython_files = check_*.py\n')
         (self.repo / 'checks').mkdir()
         (self.repo / 'checks/check_g.py').write_text(TEST_G)
+        # A walk that completes answers: the test is named, and a matrix asked for it.
+        self.commit('a correction whose test collects')
+        asked = self.start(ok=False, correction=True, reason='').stderr
+        self.assertIn('no measured mutation matrix exists', asked)
         # Ending the process leaves no report; raising cuts the walk short, which must not
         # read as a walk that completed.
         for boom in ('import os\nos._exit(3)\n', 'import sys\nsys.exit(3)\n',
