@@ -112,7 +112,7 @@ class NotUtf8Tests(unittest.TestCase):
 
     def test_a_latin1_line_reaches_the_claude_reviewer(self):
         """The Claude adapter hands its reviewer the full diff, and a Latin-1 line in it raised
-        before the reviewer ran. It arrives as the bytes the file holds."""
+        before the reviewer ran. It arrives as UTF-8, the byte that is not spelled out."""
         sys.path.insert(0, str(ROOT / 'scripts/tests'))
         import test_review_flow
         bench = test_review_flow.FlowBench('setUp')
@@ -139,7 +139,8 @@ class NotUtf8Tests(unittest.TestCase):
         run = subprocess.run([sys.executable, str(FLOW), 'claude'], cwd=bench.repo, env=env,
                              capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn(b'+caf\xe9\n', capture.read_bytes())
+        self.assertIn(b'+caf\\xe9\n', capture.read_bytes())
+        capture.read_bytes().decode('utf-8')
 
     def test_the_command_line_prints_a_name_that_is_not_utf8(self):
         """What the runtime prints — a prompt — can carry such a name as an escape,
@@ -152,6 +153,31 @@ class NotUtf8Tests(unittest.TestCase):
                              env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(run.stdout, b'tests/test_caf\xe9.py\n')
+
+
+class ReaderTextTests(unittest.TestCase):
+    """What a reviewer's stdin receives, and what a digest reads, for a name that is not UTF-8."""
+
+    def test_a_reader_is_handed_valid_utf8_with_the_byte_spelled_out(self):
+        """Codex refuses stdin that is not valid UTF-8 before any model reads it, so handing it the
+        original bytes spent every attempt on a candidate carrying such a name."""
+        text = review_git.for_a_reader('Tests changed: tests/test_caf\udce9.py and caf\u00e9.md')
+        self.assertEqual(text, 'Tests changed: tests/test_caf\\xe9.py and caf\u00e9.md')
+        text.encode('utf-8')
+
+    def test_a_digest_names_a_file_whose_name_is_not_utf8(self):
+        """The digest a prose record binds to encoded each name strictly, so a Latin-1 file that
+        added prose stopped the pass. Skipped where the filesystem refuses such a name."""
+        import review_matrix
+        where = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, where, True)
+        try:
+            descriptor = os.open(os.path.join(os.fsencode(str(where)), b'caf\xe9.py'), os.O_CREAT | os.O_WRONLY)
+        except OSError:
+            self.skipTest('this filesystem refuses a name that is not UTF-8')
+        os.write(descriptor, b'x = 1\n')
+        os.close(descriptor)
+        self.assertEqual(len(review_matrix.digest(str(where), ['caf\udce9.py'])), 64)
 
 
 if __name__ == '__main__':

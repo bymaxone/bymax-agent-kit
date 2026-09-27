@@ -3,10 +3,14 @@ raises."""
 import subprocess
 import sys
 
-# Text handed to a model or printed for one. A path or a line that is not valid UTF-8 reaches
-# the runtime as surrogate escapes (see git_raw), which a strict encoder refuses; the reader
-# gets the original bytes back.
-FOR_A_READER = {'encoding': 'utf-8', 'errors': 'surrogateescape'}
+
+def for_a_reader(text):
+    """Text as a model reads it: the bytes git gave, as UTF-8, with a byte that is not UTF-8
+    spelled \\xNN. git_raw() keeps such a byte as a surrogate escape, and Codex refuses stdin
+    that is not valid UTF-8 before any model reads it, so the bytes themselves cannot be handed
+    on. Encoded back through the filesystem encoding first, because that is how git_raw() read
+    them: re-encoding the decoded text as UTF-8 garbled a UTF-8 name under a Latin-1 locale."""
+    return text.encode(sys.getfilesystemencoding(), 'surrogateescape').decode('utf-8', 'backslashreplace')
 
 
 def git(*args):
@@ -25,7 +29,7 @@ def git_raw(*args):
     escapes. A repository may hold a path or a line that is not valid UTF-8 — a Latin-1 name
     committed on Linux, a Latin-1 source — and decoding strictly raised before any step could
     answer. The escapes reach git again as the original bytes, since
-    an argument is encoded the same way; a reader is handed them through FOR_A_READER.
+    an argument is encoded the same way; a reader is handed them through for_a_reader().
     """
     return subprocess.check_output(['git', *args], encoding=sys.getfilesystemencoding(),
                                    errors='surrogateescape')
