@@ -558,15 +558,15 @@ class EnvelopeShapeTests(unittest.TestCase):
     def test_a_standalone_directive_moved_between_identical_statements_is_not_prose(self):
         """A directive on a line of its own governs what follows it, and the text of the next
         statement cannot tell two identical ones apart."""
-        start = '# pylint: disable=invalid-name\nA = 1\nA = 1\n'
+        start = 'B = 0\n# pylint: disable=invalid-name\nA = 1\nA = 1\n'
         bench = Bench(self, {'thing.py': start})
-        bench.write('A = 1\n# pylint: disable=invalid-name\nA = 1\n')
+        bench.write('B = 0\nA = 1\n# pylint: disable=invalid-name\nA = 1\n')
         self.assertIn('a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
     def test_a_directive_moved_off_its_line_is_not_prose(self):
-        """`# noqa` covers the line it ends; on a line of its own above, it covers nothing."""
+        """`# noqa` covers the line it ends; on a line of its own below, it covers nothing."""
         bench = Bench(self, {'thing.py': 'x = f()  # noqa\n'})
-        bench.write('# noqa\nx = f()\n')
+        bench.write('x = f()\n# noqa\n')
         self.assertIn('a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
     def test_a_directive_rewritten_in_place_is_not_prose(self):
