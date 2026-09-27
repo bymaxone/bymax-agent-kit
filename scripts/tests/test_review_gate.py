@@ -497,6 +497,71 @@ class MatrixGateTests(FlowBench):
         return self.matrix('tests', [('LIMIT = 7', 'LIMIT = 8', 'test_calc')],
                            where='guard.py', enumeration='echo 1')
 
+    def an_edited_regression(self):
+        """A guard, the test that pins it and a bound on it beside that test; then a correction
+        that moves the guard and edits the pinning test to the new value. The edited test exists
+        on both sides, so which nodes the delta added says nothing about it, while run against
+        the previous candidate's code it fails: it is this correction's regression."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_bound(): assert LIMIT > 0\n')
+        self.commit('a guard, the test that pins it and a bound beside it')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'guard.py').write_text('LIMIT = 8\n')
+        (self.repo / 'tests/test_calc.py').write_text(
+            OLD_TEST.replace('LIMIT == 7', 'LIMIT == 8') + 'def test_calc_bound(): assert LIMIT > 0\n')
+        self.commit('a correction that moves the guard and edits the test that pins it')
+
+    def test_an_edited_regression_that_fails_before_the_fix_must_catch(self):
+        """An edited regression was demanded nothing, because the demand was which nodes the
+        delta added, and a correction could open a round on a neighbour's catch. Run against the
+        previous candidate's code it fails, so it is asked for like an added one."""
+        self.an_edited_regression()
+        self.matrix('tests', [('LIMIT = 8', 'LIMIT = -1', 'test_calc_bound')],
+                    where='guard.py', enumeration='echo 1')
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_old',
+                      self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_an_edited_regression_that_catches_opens_the_round(self):
+        """The positive control: the same edited regression, measured catching the guard."""
+        self.an_edited_regression()
+        self.matrix('tests', [('LIMIT = 8', 'LIMIT = 9', 'test_calc_old')],
+                    where='guard.py', enumeration='echo 1')
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_correction_that_repairs_only_a_test_is_told_to_the_reviewers(self):
+        """A correction that repairs a test and no code has no node that fails before it, and is
+        not refused for that: the test it edits is still asked to catch by the file rule. Both
+        reviewers are told no changed test fails before the correction, since for one that
+        changes code that is what a vacuous edit looks like."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST.replace('LIMIT == 7', 'LIMIT == 7 and LIMIT < 10'))
+        self.commit('a correction that tightens the test and changes no code')
+        self.guard_matrix()
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+        self.checks()
+        self.assertIn('No test this correction changed fails before it', self.text('prompt'))
+
+    def test_a_test_file_the_previous_tree_cannot_import_falls_back_to_added_nodes(self):
+        """A test that imports what the fix adds cannot be collected on the previous tree, so
+        which of its nodes the fix concerns cannot be asked there. Demanding all of them would
+        ask the unrelated neighbour to catch a mutant; the added node is asked for instead, and
+        the file is named to both reviewers."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'guard.py').write_text('LIMIT = 7\nHIGH = 9\n')
+        (self.repo / 'tests/test_calc.py').write_text(
+            'from guard import HIGH\n' + OLD_TEST + 'def test_calc_high(): assert HIGH == 9\n')
+        self.commit('a correction whose test imports what it adds')
+        self.matrix('tests', [('HIGH = 9', 'HIGH = 10', 'test_calc_high')],
+                    where='guard.py', enumeration='echo 1')
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+        self.checks()
+        prompt = self.text('prompt')
+        self.assertIn('Not asked, because the previous tree could not collect them: tests/test_calc.py', prompt)
+
     def test_the_test_the_delta_changed_is_the_test_that_must_catch(self):
         """Found by a reviewer: a file is credited when any node of it failed, so a vacuous
         test added beside a test that already discriminated made the record say the file

@@ -838,7 +838,9 @@ def start(args, directory):
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
     claims_settled(state['review_base'], head)
-    matrix_first(state, directory)
+    measured = matrix_first(state, directory)
+    if measured:
+        state['regression_measured'] = measured
     prose_first(state, directory)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
@@ -1037,6 +1039,14 @@ def correction_brief(state):
     if state.get('removed_tests'):
         lines.append('Tests removed in this delta: ' + ', '.join(state['removed_tests'])
                      + '. A removed test is not regression evidence; judge whether its removal is justified.')
+    measured = state.get('regression_measured')
+    if measured and not measured['failing_before']:
+        lines.append('No test this correction changed fails before it: run against the previous '
+                     "candidate's code, every node of the changed test files passed. That is right for a "
+                     'correction that repairs a test and no code; for one that changes code, judge whether '
+                     'its regression proves anything.'
+                     + (' Not asked, because the previous tree could not collect them: '
+                        + ', '.join(measured['unread_before']) + '.' if measured['unread_before'] else ''))
     return '\n'.join(lines)
 
 
