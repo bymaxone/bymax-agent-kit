@@ -10,7 +10,7 @@ import os
 import subprocess
 
 import review_claims
-from review_git import clean_head, git, git_raw, require
+from review_git import FOR_A_READER, clean_head, git, git_raw, require
 
 
 PROSE_TOOLS = 'Read,Grep,Glob,Edit'
@@ -90,7 +90,7 @@ def read_with(task, log):
     try:
         with log.open('w') as out:
             done = subprocess.run(prose_command(git('rev-parse', '--show-toplevel')), input=task,
-                                  text=True, stdout=out, stderr=subprocess.STDOUT, timeout=900)
+                                  **FOR_A_READER, stdout=out, stderr=subprocess.STDOUT, timeout=900)
     except subprocess.TimeoutExpired:
         raise ValueError('The prose pass timed out; inspect ' + str(log) + '. ' + LEFT) from None
     require(done.returncode == 0, 'The prose pass failed; inspect ' + str(log) + '. ' + LEFT)

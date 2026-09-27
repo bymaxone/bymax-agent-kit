@@ -11,8 +11,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
+import review_claims
 import review_evidence
+import review_git
 
+FLOW = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
 
 
 class QuotedTestPathTests(unittest.TestCase):
@@ -51,6 +54,104 @@ class QuotedTestPathTests(unittest.TestCase):
         self.assertEqual(review_evidence.tests_changed(base, head),
                          (['tests/test_café.py'], ['tests/test_gone_é.py']))
         self.assertEqual(review_evidence.merged_in_tests(base, head), ['tests/test_side_ñ.py'])
+
+
+def commit_with(where, base, files):
+    """A commit on top of `base` holding these files, byte names to byte contents, built without
+    the worktree: a filesystem such as APFS refuses a name that is not valid UTF-8, while a
+    commit made on Linux carries one and a clone of it has to be read anyway."""
+    env = dict(os.environ, GIT_INDEX_FILE=str(where / '.git' / 'scratch-index'),
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+    run = lambda *a, **k: subprocess.run(['git', '-C', str(where), *a], check=True,
+                                          capture_output=True, env=env, **k).stdout.strip()
+    run('read-tree', base)
+    for name, content in files.items():
+        blob = run('hash-object', '-w', '--stdin', input=content).decode()
+        run('update-index', '--add', '--index-info', input=b'100644 ' + blob.encode() + b'\t' + name + b'\n')
+    tree = run('write-tree').decode()
+    return run('commit-tree', tree, '-p', base, '-m', 'bytes').decode()
+
+
+class NotUtf8Tests(unittest.TestCase):
+    """A name or a line that is not valid UTF-8 — a Latin-1 name committed on Linux, a Latin-1
+    source — raised UnicodeDecodeError out of the first strict read, and the campaign stopped on
+    a repository it had every reason to review."""
+
+    def setUp(self):
+        self.where = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.where, True)
+        here = os.getcwd()
+        os.chdir(self.where)
+        self.addCleanup(os.chdir, here)
+        self.git('init', '-q', '-b', 'main')
+        self.git('commit', '-q', '--allow-empty', '-m', 'base')
+        self.base = self.git('rev-parse', 'HEAD')
+
+    def git(self, *args):
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1',
+                   GIT_AUTHOR_NAME='A', GIT_AUTHOR_EMAIL='a@b.invalid',
+                   GIT_COMMITTER_NAME='A', GIT_COMMITTER_EMAIL='a@b.invalid')
+        return subprocess.run(['git', *args], cwd=self.where, check=True, capture_output=True,
+                              text=True, env=env).stdout.strip()
+
+    def test_a_latin1_test_name_is_read_and_names_the_same_file_to_git(self):
+        """The name comes back with its byte kept as a surrogate escape, and handed to git again
+        it resolves the same blob: the state and the prompts can carry it, and git still finds it."""
+        head = commit_with(self.where, self.base, {b'tests/test_caf\xe9.py': b'def test_x(): pass\n'})
+        self.assertEqual(review_evidence.tests_changed(self.base, head), (['tests/test_caf\udce9.py'], []))
+        self.assertEqual(review_git.git('cat-file', '-p', head + ':tests/test_caf\udce9.py'),
+                         'def test_x(): pass')
+
+    def test_the_claims_checker_reads_the_prose_of_a_latin1_name(self):
+        """A replaced byte names no file, so both sides of the name read empty and its prose
+        went unread; kept as an escape, the head side is read."""
+        head = commit_with(self.where, self.base, {b'notes-caf\xe9.md': b'The `OLD_NAME` flag.\n'})
+        name = 'notes-caf\udce9.md'
+        self.assertIn(name, review_claims.touched(self.base, head))
+        self.assertIn('OLD_NAME', review_claims.sides(name, self.base, head)[1])
+
+    def test_a_latin1_line_reaches_the_claude_reviewer(self):
+        """The Claude adapter hands its reviewer the full diff, and a Latin-1 line in it raised
+        before the reviewer ran. It arrives as the bytes the file holds."""
+        sys.path.insert(0, str(ROOT / 'scripts/tests'))
+        import test_review_flow
+        bench = test_review_flow.FlowBench('setUp')
+        bench.setUp()
+        self.addCleanup(bench.doCleanups)
+        (bench.repo / 'legacy.txt').write_bytes(b'caf\xe9\n')
+        bench.commit('latin-1 line')
+        state = bench.start(autonomous=True)
+        for command in state['required_checks']:
+            bench.flow('check', '--', *command)
+        directory = self.where / 'bin'
+        directory.mkdir()
+        capture = self.where / 'prompt.txt'
+        report = dict(status='completed', head=state['head'], base=state['review_base'],
+                      summary='read', findings=[], resolutions=[])
+        binary = directory / 'claude'
+        binary.write_text('#!%s\nimport sys, json, pathlib\n'
+                          'pathlib.Path(%r).write_bytes(sys.stdin.buffer.read())\n'
+                          'print(json.dumps(dict(structured_output=%r, is_error=False)))\n'
+                          % (sys.executable, str(capture), report))
+        binary.chmod(0o755)
+        env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'])
+        env.pop('CLAUDECODE', None)
+        run = subprocess.run([sys.executable, str(FLOW), 'claude'], cwd=bench.repo, env=env,
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(b'+caf\xe9\n', capture.read_bytes())
+
+    def test_the_command_line_prints_a_name_that_is_not_utf8(self):
+        """What the runtime prints — a prompt, a status — can carry such a name as an escape,
+        which a strict stdout refuses; it is printed as the bytes of the name."""
+        script = ('import sys; sys.path.insert(0, %r)\n'
+                  'import review_flow\n'
+                  'review_flow.main = lambda: print("tests/test_caf\\udce9.py")\n'
+                  'review_flow.cli()\n' % str(FLOW.parent))
+        run = subprocess.run([sys.executable, '-c', script], capture_output=True, timeout=30,
+                             env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout, b'tests/test_caf\xe9.py\n')
 
 
 if __name__ == '__main__':
