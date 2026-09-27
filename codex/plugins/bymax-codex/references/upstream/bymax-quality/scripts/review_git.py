@@ -1,16 +1,33 @@
 """Git access layer: read repository state without a shell, and the refusal a review step
 raises."""
+import codecs
 import subprocess
 import sys
 
 
 def for_a_reader(text):
-    """Text as a model reads it: the bytes git gave, as UTF-8, with a byte that is not UTF-8
-    spelled \\xNN. git_raw() keeps such a byte as a surrogate escape, and Codex refuses stdin
-    that is not valid UTF-8 before any model reads it, so the bytes themselves cannot be handed
-    on. Encoded back through the filesystem encoding first, because that is how git_raw() read
-    them: re-encoding the decoded text as UTF-8 garbled a UTF-8 name under a Latin-1 locale."""
-    return text.encode(sys.getfilesystemencoding(), 'surrogateescape').decode('utf-8', 'backslashreplace')
+    """Text as a model reads it: valid UTF-8, what git gave read back as the bytes it was, and a
+    byte that is not UTF-8 spelled \\xNN. Codex refuses stdin that is not valid UTF-8 before any
+    model reads it, so the bytes git_raw() keeps as surrogate escapes cannot be handed on raw.
+
+    Each character goes back through the filesystem encoding git_raw() read with, so a UTF-8 name
+    read under a Latin-1 locale reaches the reader as itself; one that encoding cannot hold — an
+    em dash in the runtime's own sentences — goes as its UTF-8, since it never came from git. A
+    character of the Latin-1 range written in the runtime's own text would come out spelled under
+    a Latin-1 locale; none is, outside comments.
+    """
+    return text.encode(sys.getfilesystemencoding(), 'bymax-reader').decode('utf-8', 'backslashreplace')
+
+
+def as_given(error):
+    """Encode what the filesystem encoding cannot: a surrogate escape as the byte it stands for,
+    anything else as its UTF-8."""
+    part = error.object[error.start:error.end]
+    return b''.join(bytes([ord(c) - 0xDC00]) if 0xDC80 <= ord(c) <= 0xDCFF else c.encode('utf-8')
+                    for c in part), error.end
+
+
+codecs.register_error('bymax-reader', as_given)
 
 
 def git(*args):

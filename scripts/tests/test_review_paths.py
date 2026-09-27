@@ -165,6 +165,15 @@ class ReaderTextTests(unittest.TestCase):
         self.assertEqual(text, 'Tests changed: tests/test_caf\\xe9.py and caf\u00e9.md')
         text.encode('utf-8')
 
+    def test_under_a_latin1_locale_the_reader_gets_what_git_gave(self):
+        """git_raw() reads through the filesystem encoding, so under Latin-1 a UTF-8 name arrives
+        as two characters, and the runtime's own em dashes cannot be encoded back through it at
+        all: the whole prompt raised. Each reaches the reader as itself."""
+        from unittest import mock
+        with mock.patch.object(review_git.sys, 'getfilesystemencoding', return_value='iso8859-1'):
+            text = review_git.for_a_reader('check \u2014 caf\u00c3\u00a9.md and plain ascii')
+        self.assertEqual(text, 'check \u2014 caf\u00e9.md and plain ascii')
+
     def test_a_digest_names_a_file_whose_name_is_not_utf8(self):
         """The digest a prose record binds to encoded each name strictly, so a Latin-1 file that
         added prose stopped the pass. Skipped where the filesystem refuses such a name."""
