@@ -341,7 +341,7 @@ def failing_before(base, changed, names):
     not be asked: the head's copy of each file, run node by node against the base's tree.
 
     A regression claims to fail before its fix, and this asks exactly that. Which nodes a delta
-    added cannot answer it: an edited regression exists on both sides, so it was demanded
+    added cannot answer it: an edited regression exists on both sides, so it is demanded
     nothing. A node that fails or errors here is this correction's to prove, and must have
     caught a mutant. A node that passes here is not demanded, since a correction that repairs a
     test and no code has none that fails; its added nodes are demanded anyway.
