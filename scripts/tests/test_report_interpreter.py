@@ -23,11 +23,11 @@ def barred(tree):
 
 
 class InterpreterTests(unittest.TestCase):
-    """Every module the collector imports loads where the collector does."""
+    """No module in the collector's directory evaluates an annotation spelled with `|` on import."""
 
     def test_an_annotation_spelled_with_a_bar_is_never_evaluated(self):
         """`str | None` evaluated at import raises before Python 3.10, and a module the collector
-        imports without deferring its annotations crashed it there before it read anything."""
+        imports without deferring its annotations crashes it there before it reads anything."""
         for path in sorted(SCRIPTS.glob('*.py')):
             tree = ast.parse(path.read_text())
             deferred = any(isinstance(node, ast.ImportFrom) and node.module == '__future__'
