@@ -183,7 +183,8 @@ class EnvelopeTests(unittest.TestCase):
             self.assertEqual(bench.offences(), [])
         bench.write(fenced, name='A.md')
         for after in (indented.replace('    one\n\n', '    one\n\n\n'),
-                      indented.replace('    one\n\n', '    one\n')):
+                      indented.replace('    one\n\n', '    one\n'),
+                      indented.replace('    one\n\n', '    one\n   \n')):
             bench.write(after, name='B.md')
             self.assertIn('B.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
 
