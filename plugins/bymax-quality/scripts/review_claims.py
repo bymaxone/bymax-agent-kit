@@ -29,6 +29,7 @@ conclusion is reached again. The state of the art for that reaches AUC-PR 0.73-0
 detector, not a gate. Every check here is a command.
 """
 import ast
+import difflib
 import io
 import re
 import subprocess
@@ -43,7 +44,11 @@ GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|
 # A note also records a removal as a rename or a replacement. claimed() reads GONE alone: "replaces
 # `X`" says nothing about whether `X` is still in the tree, so it must not refuse on that word.
 NOTED = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone|'
-                   r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?)\b', re.IGNORECASE)
+                   r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?)\b',
+                   re.IGNORECASE)
+# A move or a new state records a removal only with its target: "`X` is now `Y`" is a note, while
+# "`X` is now enabled" and "`X` moved to the top" describe X as live.
+TARGETED = re.compile(r'\b(moved to|is now)\s+`', re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
 # Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
@@ -81,16 +86,20 @@ def git(*args, cwd=None):
     done = subprocess.run(['git', *args], capture_output=True, cwd=root(cwd))
     if done.returncode != 0:
         return ''
-    # Every call here that lists names asks for them NUL-separated, and no call that reads content does.
     if '-z' in args:
         return done.stdout.decode(sys.getfilesystemencoding(), 'surrogateescape')
-    if args[:1] == ('show',) and args[-1].endswith('.py'):
+    return decoded(args[-1] if args[:1] == ('show',) else '', done.stdout)
+
+
+def decoded(name, data):
+    """A file's bytes as text: a Python source by the encoding it declares (PEP 263), anything
+    else as UTF-8 with what does not decode replaced."""
+    if name.endswith('.py'):
         try:
-            declared = tokenize.detect_encoding(io.BytesIO(done.stdout).readline)[0]
-            return done.stdout.decode(declared)
+            return data.decode(tokenize.detect_encoding(io.BytesIO(data).readline)[0])
         except (SyntaxError, LookupError, UnicodeDecodeError):
             pass
-    return done.stdout.decode('utf-8', 'replace')
+    return data.decode('utf-8', 'replace')
 
 
 def prose(name, text):
@@ -105,13 +114,21 @@ def prose(name, text):
     """
     if markdown(name):
         return outside_code(text)
+    said = prose_rows(name, text)
+    return '\n'.join(said[n] for n in sorted(said))
+
+
+def prose_rows(name, text):
+    """The prose of a file by the row it sits on, counted from 1: what prose() reads, where it is."""
+    if markdown(name):
+        return dict(enumerate(outside_code(text).split('\n'), 1))
     if not name.endswith('.py'):
-        return ''
+        return {}
     lines = text.split('\n')
     said = {n: lines[n - 1] for n in marks(name, text) if 0 < n <= len(lines)}
     for row, note in trailing(text).items():
         said.setdefault(row, note)
-    return '\n'.join(said[n] for n in sorted(said))
+    return said
 
 
 def trailing(text):
@@ -221,9 +238,16 @@ def added(base, head, cwd=None):
     """Prose this delta added, per file: the lines present after and absent before."""
     out = {}
     for name in touched(base, head, cwd=cwd):
-        before, after = sides(name, base, head, cwd=cwd)
-        old = set(before.split('\n'))
-        fresh = [line for line in after.split('\n') if line.strip() and line not in old]
+        # The prose on the rows this delta wrote, read from the file's own diff: a comment moved
+        # verbatim onto another function is new prose where it landed, and comparing the prose
+        # alone called it nothing, since its text existed before.
+        old = git('show', '%s:%s' % (base, name), cwd=cwd).split('\n')
+        new = git('show', '%s:%s' % (head, name), cwd=cwd)
+        runs = difflib.SequenceMatcher(None, old, new.split('\n'), autojunk=False).get_opcodes()
+        landed = {row + 1 for kind, _, _, start, end in runs if kind in ('insert', 'replace')
+                  for row in range(start, end)}
+        said = prose_rows(name, new)
+        fresh = [said[row] for row in sorted(said) if row in landed and said[row].strip()]
         if fresh:
             out[name] = '\n'.join(fresh)
     return out
@@ -510,9 +534,19 @@ def records_removal(line, token):
     clause naming it without such a word asserts it; "`OLD_HELPER` runs `git worktree remove`"
     is one, since the word is the quoted command's."""
     # A period ends a clause only where no word follows it: `review_flow.py` is one name.
-    named = [clause for clause in re.split(r'\.(?!\w)|;|—', line)
-             if re.search(r'\b%s\b' % re.escape(token), clause)]
-    return all(NOTED.search(re.sub(r'`[^`]*`', ' ', clause)) for clause in named)
+    parts = re.split(r'(\.(?!\w)|;|—)', line)
+    clauses, marks = parts[0::2], parts[1::2]
+    names = lambda clause: re.search(r'\b%s\b' % re.escape(token), clause)
+    says = lambda clause: NOTED.search(re.sub(r'`[^`]*`', ' ', clause)) or TARGETED.search(clause)
+    named = []
+    for at, clause in enumerate(clauses):
+        if not names(clause):
+            continue
+        # A dash after a clause that only names it says what happened to it — "`X` — removed in
+        # 2.0" — unless the clause after the dash names it again, which is a claim of its own.
+        after = clauses[at + 1] if at < len(marks) and marks[at] == '—' else None
+        named.append(clause + ' ' + after if not says(clause) and after and not names(after) else clause)
+    return all(says(clause) for clause in named)
 
 
 def claimed(line, quote):
@@ -609,6 +643,9 @@ def report(base, head, cwd=None):
     for name, quote, where in broken:
         print('UNKEPT   %s claims removal of `%s`, still present in %s — reported, not refused'
               % (name, quote, where))
+    for name, token, line in noted_removals(base, head, cwd=cwd):
+        print('NOTED    %s says %s is gone, which this delta removed — reported for a reviewer to '
+              'judge: %s' % (name, token, line))
     rest = unchecked(base, head, cwd=cwd)
     print('\n%d assertion(s) added; %d refusing, %d reported. No command here settles the '
           'rest:' % (len(rest), len(gone), len(broken)))

@@ -11,7 +11,10 @@ FENCE = re.compile(r'^(?P<indent> *)(?P<run>`{3,}|~{3,})(?P<info>.*)$')
 NESTING = 100
 ITEM = re.compile(r'^ *(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$))+')
 TAG = re.compile(r'<(?:(?P<close>/?)(?P<name>[A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)|!--|\?|![A-Za-z]|!\[CDATA\[)')
-ALONE = re.compile(r'</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>\s*$')
+# A complete open or closing tag, as CommonMark defines one: a looser spelling such as `<a b=>`
+# or `</a b>` is text, and read as a tag it started an HTML block that hid the fence under it.
+ATTRIBUTE = r'(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:[^\s"\'=<>`]+|\'[^\']*\'|"[^"]*"))?)'
+ALONE = re.compile(r'(?:<[A-Za-z][A-Za-z0-9-]*' + ATTRIBUTE + r'*\s*/?>|</[A-Za-z][A-Za-z0-9-]*\s*>)\s*$')
 # CommonMark's block-level names: opened or closed, these start an HTML block anywhere.
 BLOCK_TAGS = frozenset("""
     address article aside base basefont blockquote body caption center col colgroup dd details
@@ -69,7 +72,11 @@ def code_mask(text):
         before = walk.fenced()
         parts = [part.expandtabs(4) for part in line.removesuffix('\r').split('\r')]
         blanked = [walk.read(part) != part for part in parts]
-        kinds.append('code' if any(blanked) and (before or walk.fenced()) else
+        # A fence the line closed without being its closer — a quote's fence ended by a line the
+        # quote does not hold — leaves that line to what it is on its own: indented code here.
+        ended = before and not walk.fenced() and not FENCE.match(line.lstrip(' >\t'))
+        kinds.append('indented' if any(blanked) and ended else
+                     'code' if any(blanked) and (before or walk.fenced()) else
                      'indented' if any(blanked) else 'held' if before and walk.fenced() else None)
     mask = [kind is not None for kind in kinds]
     run = []
@@ -142,7 +149,7 @@ class Walk:
             return self.read(line)
         if html(line.lstrip(' '), self.para):
             self.html, self.para = ending(line.lstrip(' ')), False
-            if self.html is not True and self.html in line.lower()[line.lower().index('<') + 1:]:
+            if self.html is not True and ends(self.html, line[line.index('<') + 1:]):
                 self.html = False
             return line
         self.fence = opens(line)
@@ -194,7 +201,7 @@ class Walk:
         if self.html is True and stripped and indent >= self.content:
             return line
         if self.html and self.html is not True and (not stripped or indent >= self.content):
-            self.html = False if self.html in line.lower() else self.html
+            self.html = False if ends(self.html, line) else self.html
             return line
         self.html = False
         return None
@@ -316,8 +323,15 @@ def ending(text):
             return end
     if re.match(r'<![A-Za-z]', text):
         return '>'
+    # A raw-text block ends at the first closing tag of any RAW_TAGS name, not only its own.
     raw = re.match(r'<(pre|script|style|textarea)(?=[\s>]|$)', lowered)
-    return '</%s>' % raw.group(1) if raw else True
+    return tuple('</%s>' % name for name in sorted(RAW_TAGS)) if raw else True
+
+
+def ends(end, text):
+    """Whether this text closes an HTML block whose end is `end`, one closer or a tuple of them."""
+    lowered = text.lower()
+    return any(closer in lowered for closer in (end if isinstance(end, tuple) else (end,)))
 
 
 def html(text, para):
