@@ -14,7 +14,7 @@ def for_a_reader(text):
     read under a Latin-1 locale reaches the reader as itself; one that encoding cannot hold — an
     em dash in the runtime's own sentences — goes as its UTF-8, since it never came from git. A
     character of the Latin-1 range written in the runtime's own text would come out spelled under
-    a Latin-1 locale; none is, outside comments.
+    a Latin-1 locale.
     """
     return text.encode(sys.getfilesystemencoding(), 'bymax-reader').decode('utf-8', 'backslashreplace')
 

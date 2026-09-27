@@ -168,7 +168,7 @@ class ReaderTextTests(unittest.TestCase):
     def test_under_a_latin1_locale_the_reader_gets_what_git_gave(self):
         """git_raw() reads through the filesystem encoding, so under Latin-1 a UTF-8 name arrives
         as two characters, and the runtime's own em dashes cannot be encoded back through it at
-        all: the whole prompt raised. Each reaches the reader as itself."""
+        all. Each reaches the reader as itself."""
         from unittest import mock
         with mock.patch.object(review_git.sys, 'getfilesystemencoding', return_value='iso8859-1'):
             text = review_git.for_a_reader('check \u2014 caf\u00c3\u00a9.md and plain ascii')
