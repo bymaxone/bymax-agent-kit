@@ -1836,7 +1836,7 @@ def cli():
     what a waiver may claim about this machine is decided by the probe, never by an
     argument, an environment variable or a $PATH the caller spelled.
     """
-    # A prompt or a report can carry a path that is not valid UTF-8, as surrogate escapes.
+    # A prompt can carry a path that is not valid UTF-8, as surrogate escapes.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, 'reconfigure'):
             stream.reconfigure(errors=FOR_A_READER['errors'])

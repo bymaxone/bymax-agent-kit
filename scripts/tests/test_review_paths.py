@@ -142,7 +142,7 @@ class NotUtf8Tests(unittest.TestCase):
         self.assertIn(b'+caf\xe9\n', capture.read_bytes())
 
     def test_the_command_line_prints_a_name_that_is_not_utf8(self):
-        """What the runtime prints — a prompt, a status — can carry such a name as an escape,
+        """What the runtime prints — a prompt — can carry such a name as an escape,
         which a strict stdout refuses; it is printed as the bytes of the name."""
         script = ('import sys; sys.path.insert(0, %r)\n'
                   'import review_flow\n'

@@ -24,7 +24,7 @@ def git_raw(*args):
     Decoded as the filesystem encodes names, with what does not decode kept as surrogate
     escapes. A repository may hold a path or a line that is not valid UTF-8 — a Latin-1 name
     committed on Linux, a Latin-1 source — and decoding strictly raised before any step could
-    answer. The escapes survive the JSON state and reach git again as the original bytes, since
+    answer. The escapes reach git again as the original bytes, since
     an argument is encoded the same way; a reader is handed them through FOR_A_READER.
     """
     return subprocess.check_output(['git', *args], encoding=sys.getfilesystemencoding(),
