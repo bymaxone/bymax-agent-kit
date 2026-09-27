@@ -355,7 +355,8 @@ def failing_before(base, changed, names):
     copy of it would fail them for a reason that is not the fix.
 
     An unpacked tree has no .git, so a test that reads the repository fails in it whatever the
-    fix. A node counts only if the head, unpacked the same way, passes it.
+    fix. A node counts only if the head, unpacked the same way, runs it and passes: a skip exits
+    zero too, and a regression the fix skips proves nothing about it.
     """
     import review_matrix
     root = git('rev-parse', '--show-toplevel')
@@ -380,8 +381,7 @@ def failing_before(base, changed, names):
                     failing.append(node)
     if failing:
         with archived('HEAD') as newer:
-            failing = [node for node in failing
-                       if review_matrix.outcome(*review_matrix.run_case(newer, None, [node])) == 'passed']
+            failing = [node for node in failing if review_matrix.ran_alone(newer, [node])]
     return sorted(failing), unread
 
 

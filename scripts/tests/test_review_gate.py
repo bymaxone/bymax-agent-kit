@@ -563,6 +563,25 @@ class MatrixGateTests(FlowBench):
         self.assertEqual(review_evidence.failing_before(before, ['tests/test_git.py'], ['tests/test_git.py']),
                          ([], []))
 
+    def test_a_node_the_head_skips_does_not_fail_before(self):
+        """A skip exits zero, so a regression that fails on the previous tree and is skipped once
+        the fix lands read as passing there, and the reviewers were told it fails before the fix."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_limit.py').write_text('from guard import LIMIT\n\n\ndef test_limit():\n    assert LIMIT\n')
+        self.commit('a guard and its test')
+        before = self.git('rev-parse', 'HEAD')
+        (self.repo / 'guard.py').write_text('LIMIT = 8\n')
+        (self.repo / 'tests/test_limit.py').write_text(
+            'import pytest\nfrom guard import LIMIT\n\n\n@pytest.mark.skipif(LIMIT == 8, reason="moved")\n'
+            'def test_limit():\n    assert LIMIT == 99\n')
+        self.commit('a fix under which its edited test is skipped')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        self.assertEqual(review_evidence.failing_before(before, ['tests/test_limit.py'], ['tests/test_limit.py']),
+                         ([], []))
+
     def test_a_test_file_the_previous_tree_cannot_import_falls_back_to_added_nodes(self):
         """A test that imports what the fix adds cannot be collected on the previous tree, so
         which of its nodes the fix concerns cannot be asked there. Demanding all of them would
