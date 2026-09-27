@@ -128,8 +128,8 @@ def isolated():
 
 
 class CollectBench(unittest.TestCase):
-    """A fixture repository and a fake HOME with both session stores. It holds no test, so the
-    suites that share it collect nothing from it."""
+    """A fixture repository and the path of a fake HOME. It holds no test, so the suites that
+    share it collect nothing from it."""
 
     def setUp(self):
         self.m = load()
@@ -159,8 +159,8 @@ class CollectBench(unittest.TestCase):
 
 
 class CollectTests(CollectBench):
-    """One collect over the bench: what it admits as a request, a commit or a pull request, and
-    what it says shipped. The skill's shell block is test_report_skill_block's."""
+    """Cases that run the collector and read what it returns. The skill's shell block is
+    test_report_skill_block's."""
 
     def claude_line(self, text, **extra):
         base = {'type': 'user', 'timestamp': noon('2026-09-16'), 'cwd': str(self.repo), 'sessionId': 'abcdef1234',

@@ -1,5 +1,4 @@
-"""Gate layer for what the standup reads from its arguments and from a subject line: the
-period a spelling resolves to, and the type and scope a Conventional Commits subject carries.
+"""Gate layer for what the standup parses from its arguments, a commit subject and a ref name.
 """
 import datetime as dt
 from pathlib import Path

@@ -1,5 +1,5 @@
 """Gate layer for the standup skill's shell block: how it claims the arguments another turn
-wrote, and what it refuses before the collector runs.
+wrote, and what it refuses.
 
 The block is run as the model runs it, from SKILL.md, in a fake HOME, so each case pins what the
 shell does rather than what the document says it does.
@@ -16,7 +16,7 @@ from test_report_collect import ROOT, CollectBench, isolated
 
 
 class SkillBlockTests(CollectBench):
-    """The block between the arguments file and the collect."""
+    """The block, from the arguments file through the collect."""
 
     def skill_block(self):
         text = (ROOT / 'plugins/bymax-report/skills/standup/SKILL.md').read_text()
@@ -52,7 +52,7 @@ class SkillBlockTests(CollectBench):
         """The arguments wait in a directory both runs can write to, so reading a file in place
         left a window where a second run could overwrite it between the first run's reads, mixing
         one run's period with another's repository. The block claims it with a rename first, which
-        is atomic, and reads a copy outside that directory. Measured by a `sed` on PATH that
+        is atomic, and reads the file where the rename put it. Measured by a `sed` on PATH that
         records which path it was handed: one inside the directory means the window is open."""
         home = self.tmp / 'h-claim'; home.mkdir(parents=True, exist_ok=True)
         binx = self.tmp / 'claim-bin'; binx.mkdir(parents=True, exist_ok=True)
