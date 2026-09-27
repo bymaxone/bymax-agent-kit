@@ -65,4 +65,8 @@ def clean_head():
     # under any of them would start a pass on the author's edits.
     import review_prose
     require(not review_prose.changed(), 'Commit the intended candidate first; worktree is dirty.')
+    # The listing above compares the tree with HEAD through an index of its own, so a change
+    # staged and then reverted in the tree reads as clean there, and the next commit takes it.
+    require(not git_raw('diff', '--cached', '--name-only', '-z'),
+            'Commit the intended candidate first; the index differs from HEAD.')
     return git('rev-parse', 'HEAD')
