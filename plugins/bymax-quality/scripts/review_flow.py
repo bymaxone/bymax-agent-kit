@@ -16,6 +16,9 @@ import time
 
 import review_delivery
 from review_delivery import scope_of as scope
+from review_delta import claims_settled, delta_view
+from review_evidence import is_test_path, matrix_first, matrix_run, tests_changed
+from review_git import clean_head, git, git_raw, require
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
@@ -23,33 +26,6 @@ from review_prepush import (CODEX_LOCATIONS, WAIVER_TTL, explain, resolve_codex,
                             reviewers_needed, satisfied, waiver_ok)
 
 POLICY = 2
-
-
-def git(*args):
-    """Read Git state without invoking a shell, trimmed for the usual single-value answer."""
-    return git_raw(*args).strip()
-
-
-def git_raw(*args):
-    """The same, untrimmed: a NUL-delimited listing is bytes, and stripping edits a name.
-
-    A path may legitimately begin or end with whitespace, and trimming one silently
-    collapses it onto its neighbour — which is how a file no finding named became
-    invisible to the rule that exists to catch it.
-    """
-    return subprocess.check_output(['git', *args], text=True)
-
-
-def require(condition, message):
-    """Reject an incomplete or stale review operation."""
-    if not condition:
-        raise ValueError(message)
-
-
-def clean_head():
-    """Resolve a candidate only when tracked and untracked work is clean."""
-    require(not git('status', '--porcelain'), 'Commit the intended candidate first; worktree is dirty.')
-    return git('rev-parse', 'HEAD')
 
 
 def location():
@@ -860,6 +836,8 @@ def start(args, directory):
                  retrospectives=old.get('retrospectives', []) if old else [],
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
+    claims_settled(state['review_base'], head)
+    matrix_first(state, directory)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
     save(directory, state)
@@ -889,28 +867,12 @@ def review_range(directory):
     return f"{state['review_base']}..{state['head']}" if head == state['head'] else ''
 
 
-TEST_PATH = re.compile(r'(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]+\.py$|_test\.|\.test\.|\.spec\.', re.IGNORECASE)
 # Triage and resolution keys are reviewer::<id>. No path begins with `claude::`,
 # `claude-b::` or `codex::`, so a copied key is recognised by its prefix alone and a
 # finding on a real file under a codex/ directory can never be mistaken for one.
 SEPARATOR = '::'
 SUBSTITUTE = 'claude-b'
 REVIEWERS = ('claude' + SEPARATOR, SUBSTITUTE + SEPARATOR, 'codex' + SEPARATOR)
-
-
-TEST_DIRECTORY = re.compile(r'(^|/)(tests?|spec|__tests__)/', re.IGNORECASE)
-PROSE_SUFFIXES = ('.md', '.markdown', '.adoc')
-# Plain text and data formats are test material only inside a test directory:
-# tests/golden/expected.txt and tests/fixtures/data.json count, openapi/v1.spec.yaml does not.
-INSIDE_ONLY_SUFFIXES = ('.txt', '.rst', '.yaml', '.yml', '.json', '.toml')
-
-
-def is_test_path(path):
-    """A test by location or name; prose never, text and data only inside a test directory."""
-    lower = path.lower()
-    if not TEST_PATH.search(path) or lower.endswith(PROSE_SUFFIXES):
-        return False
-    return bool(TEST_DIRECTORY.search(path)) or not lower.endswith(INSIDE_ONLY_SUFFIXES)
 
 
 def key(reviewer, finding_id):
@@ -1000,30 +962,35 @@ def correction_contract(args, old, head):
             'The previous correction introduced these findings, and no probe names them: '
             + ', '.join(uncovered) + '. Add a probe entry per finding with "covers": "<id>", '
             'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
-    # Added or modified only: deleting the test that caught a defect is not a regression.
-    # Renames are not detected, so a renamed test is listed under its new path as added
-    # instead of vanishing from the list both reviewers see.
-    changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', old['head'], head).splitlines()
-    tests = [p for p in changed if is_test_path(p)]
-    # Deleted tests never count as evidence, but reviewers must see them to judge the deletion.
-    removed = [p for p in git('diff', '--name-only', '--no-renames', '--diff-filter=D',
-                              old['head'], head).splitlines() if is_test_path(p)]
+    tests, removed = tests_changed(old['head'], head)
     reason = (args.no_regression_reason or '').strip()
+    a_regression_or_a_reason(tests, reason, probe)
+    return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
+                regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
+
+
+def a_regression_or_a_reason(tests, reason, probe):
+    """What a correction owes about the tests it changed, or about changing none.
+
+    Nothing here is owed about a test a merge carried in. Refusing on one fired on an ordinary
+    merge of the base branch, and letting it through when the correction changed a test of its
+    own let the other shape pass in silence — one condition wrong in both directions, because a
+    carried test is exactly as unattributable either way. What the runtime cannot know it says
+    to both reviewers instead of enforcing.
+
+    Believing a case exercises the fix does not make it evidence. Reverting the change and
+    watching the case fail costs seconds, so the round asks for that output rather than for
+    the belief.
+    """
     require(tests or reason,
             'This correction touches no test. Add the failing regression first, or record why '
             'that is infeasible with --no-regression-reason "<why>".')
-    # A case the author believes exercises the fix is not evidence that it does. Measured across
-    # two campaigns on two repositories: every such belief that was checked turned out wrong, and
-    # a reviewer checked it every time. Reverting the change and watching the case fail costs
-    # seconds, so the round asks for that output rather than for the belief.
     shown = [p for p in probe if isinstance(p.get('without_fix'), str) and p['without_fix'].strip()]
     require(not tests or shown,
             'This correction changes ' + ', '.join(tests) + ' and no probe entry shows a case '
             'failing without the fix. Revert the production change, run the case, and record what '
             'failed in a probe entry\'s "without_fix". A case that was never watched fail is not '
             'evidence that it would.')
-    return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
-                regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
 
 
 def correction_brief(state):
@@ -1065,13 +1032,6 @@ def correction_brief(state):
                  '(a project gate, a browser, a network) is a limitation to state in your summary, not '
                  'a reason to report incomplete: the caller runs and records the declared gates.\n'
                  + json.dumps(state.get('probe', []), indent=1))
-    if state.get('regression_tests'):
-        lines.append('Tests changed in this delta: ' + ', '.join(state['regression_tests'])
-                     + '. A test whose expectation was flipped rather than added must be justified '
-                     'in the triage evidence; report an unjustified flip.')
-    else:
-        lines.append('No test changed in this delta. Recorded reason: '
-                     + state.get('no_regression_reason', '') + '. Judge whether that is justified.')
     if state.get('removed_tests'):
         lines.append('Tests removed in this delta: ' + ', '.join(state['removed_tests'])
                      + '. A removed test is not regression evidence; judge whether its removal is justified.')
@@ -1144,10 +1104,10 @@ improves the health of the code even when it is imperfect, and let a nit be a ni
 correct change hostage to text no test can check is the failure mode this field exists to end."""
 
 
-def gate_first(state):
+def gate_first(state, directory):
     """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
 
-    Both adapters call this BEFORE reserving their attempt. It raises from inside prompt(),
+    Both adapters call this before reserving their attempt. It raises from inside prompt(),
     which they evaluate only as the subprocess input, so reserving first spent an attempt on a
     refusal that never reached a reviewer — two of them exhausted the per-candidate budget with
     nothing read, after which execute_codex diverts to an availability probe and reports a
@@ -1176,11 +1136,24 @@ def gate_first(state):
             'These gates failed on this candidate: ' + '; '.join(failed) + '. Fix the candidate, '
             're-run them, and only then ask for a review: reviewers read a tree its own gates '
             'already accept.')
+    settled(state, directory)
 
 
-def prompt(state):
+def settled(state, directory):
+    """The claims check and the matrix, asked again before a reviewer reads and before a receipt.
+
+    start() runs them at the freeze, and a campaign an earlier runtime froze under this policy
+    never met them, while the prompt tells both reviewers the claims check ran; one that had
+    already been reviewed reaches finish() without either. On a candidate that met them at the
+    freeze they change nothing.
+    """
+    claims_settled(state['review_base'], state['head'])
+    matrix_first(state, directory)
+
+
+def prompt(state, directory):
     """Build the same bounded read-only task for both independent reviewers."""
-    gate_first(state)
+    gate_first(state, directory)
     return f'''Review only; do not edit, commit, push, invoke review skills, or launch other reviewers.
 Read applicable AGENTS.md and CLAUDE.md constraints. Do not execute their implementation or push workflows.
 Candidate HEAD: {state['head']}.
@@ -1201,6 +1174,7 @@ denies $TMPDIR, where such tools write their caches. Whatever you cannot execute
 state in your summary, never a reason to report incomplete. Read, trace and reason instead.
 Previous dispositions (recheck fixes; do not reopen rejected findings without new evidence):
 {json.dumps(state['previous_triage'])}
+{delta_view(state)}
 {correction_brief(state)}
 {FINDING_RULES}
 On correction rounds inspect only the delta, its effects and verification of previous fixes.
@@ -1458,6 +1432,7 @@ def finish(directory, state):
     latest = {tuple(c['command']): c for c in state['checks']}
     require(all(tuple(c) in latest for c in state['required_checks']), 'A declared project gate was not executed.')
     require(all(c['exit_code'] == 0 and Path(c['log']).exists() for c in latest.values()), 'Required check failed or log missing.')
+    settled(state, directory)
     state['cleared'] = True
     save(directory, state)
 
@@ -1670,7 +1645,7 @@ def execute_codex(directory, owner_fd):
     already spent there is no review left to run, and the question that remains — whether
     this machine has a reviewer at all — is answered by an availability probe instead.
     """
-    gate_first(read_state(directory))   # before the attempt is reserved, never after
+    gate_first(read_state(directory), directory)   # before the attempt is reserved, never after
     exhausted = spent(directory)
     if exhausted is not None:
         return availability(directory, exhausted, owner_fd)
@@ -1694,7 +1669,7 @@ def execute_codex(directory, owner_fd):
                        'read-only', '--ephemeral', '--output-schema', str(schema),
                        '--output-last-message', str(report), '-']
             with log.open('w') as output:
-                result = subprocess.run(command, input=prompt(state), text=True,
+                result = subprocess.run(command, input=prompt(state, directory), text=True,
                                         stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
             if result.returncode == 0:
                 with locked(directory):
@@ -1762,6 +1737,9 @@ def parser():
     tri.add_argument('--report', required=True)
     gate = sub.add_parser('check')
     gate.add_argument('command', nargs=argparse.REMAINDER)
+    mut = sub.add_parser('matrix')
+    mut.add_argument('--spec', required=True, help='the matrix: rules, their enumeration, their mutants')
+    mut.add_argument('paths', nargs='+', help='test paths the cases live in')
     return cli
 
 
@@ -1789,10 +1767,20 @@ def main():
             state = read_state(directory)
             if args.action == 'prompt':
                 current(state)
-                print(prompt(state))
+                print(prompt(state, directory))
                 return
             if args.action == 'lessons':
                 print(lessons(state))
+                return
+            if args.action == 'matrix':
+                # A refusal from the matrix is a refusal: review_matrix says why by raising
+                # SystemExit, which the handler around this one does not catch, so this one
+                # exited 1 where every sibling exits 2. Re-raised as what that handler reads,
+                # with the prefix it adds stripped so the message carries it once.
+                try:
+                    print(json.dumps(matrix_run(args, directory, state), indent=2))
+                except SystemExit as refused:
+                    raise ValueError(str(refused.code).removeprefix('BLOCKED: ')) from None
                 return
             if args.action in ('record', 'triage', 'check'):
                 globals()[args.action](args, directory, state)

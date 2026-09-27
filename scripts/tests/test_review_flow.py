@@ -19,8 +19,17 @@ sys.path.insert(0, str(FLOW.parent))
 PUSH = FLOW.with_name('review_push.py')
 
 
-class ReviewFlowTests(unittest.TestCase):
-    """Model candidate changes and independent reviewer evidence through the CLI."""
+OLD_TEST = 'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7\n\n\n'
+# What a fixture's tests assert lives in a module of its own: a mutant may not name a test file,
+# so a matrix mutates the value there and the test that reads it has to catch that.
+TEST_G = 'from values import ONE\ndef test_g(): assert ONE == 1\n'
+UNITTEST_TEST = ('import unittest\nfrom guard import LIMIT\n\n\nclass CalcTests(unittest.TestCase):\n'
+                 '    def test_calc_old(self): assert LIMIT == 7\n')
+
+
+class FlowBench(unittest.TestCase):
+    """A fixture repository and the helpers that drive the review runtime in it. It holds no
+    test, so the suites that share it collect nothing from it."""
 
     def setUp(self):
         """Create a private Git fixture and context outside the candidate tree."""
@@ -40,6 +49,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.git('init', '-q')
         self.git('config', 'user.name', 'Fixture')
         self.git('config', 'user.email', 'fixture@example.invalid')
+        (self.repo / 'values.py').write_text('ONE = 1\nTWO = 2\n')
         self.commit('base')
         self.base = self.git('rev-parse', 'HEAD')
         self.context = self.root / 'context.md'
@@ -109,6 +119,24 @@ class ReviewFlowTests(unittest.TestCase):
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
+
+    def matrix(self, path, cases, also=(), where=None, enumeration=None):
+        """Run a real mutation matrix in the fixture repo.
+
+        A correction that changes a test must carry a measured matrix, and a fixture that
+        wrote the record by hand would make the gate satisfiable by typing — which is the
+        defect the gate exists to remove. `cases` is (anchor, becomes, case) per function the file
+        defines, so the enumeration command and the mutant count agree by construction — a
+        case that mutates a guard rather than a test file counts its own way instead.
+        """
+        spec = self.root / 'matrix.json'
+        spec.write_text(json.dumps([{
+            'rule': 'fixture: one mutant per case the file defines',
+            'enumeration': enumeration or 'grep -c "def test_" %s' % (where or path),
+            'mutants': [{'file': where or path, 'anchor': anchor, 'becomes': becomes, 'case': case}
+                        for anchor, becomes, case in cases]}]))
+        return self.flow('matrix', '--spec', str(spec), path, *also)
+
 
     def start(self, ok=True, correction=False, design=False, probe=None, reason='fixture: no test needed',
               nit='fixture: no blocking finding in play', widen='', answers=(), extend='', autonomous=False):
@@ -200,6 +228,10 @@ class ReviewFlowTests(unittest.TestCase):
                                 env=self.codex_env() if locations is not None else None)
         self.assertEqual(result.returncode, 0 if ok else 2, result.stderr)
         return result
+
+
+class ReviewFlowTests(FlowBench):
+    """Model candidate changes and independent reviewer evidence through the CLI."""
 
     def test_requires_both_reviewers_and_checks(self):
         """One reviewer or missing gates cannot clear a candidate."""
@@ -434,6 +466,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.checks()
         prompt = self.flow('prompt')
         self.assertIn('DESIGN ROUND', prompt.stdout)
+
 
     def test_correction_round_carries_the_authors_probe(self):
         """The author's own probe is required, validated, and shown to both reviewers."""
@@ -827,7 +860,8 @@ class ReviewFlowTests(unittest.TestCase):
         self.assertEqual(self.start(correction=True, design=True)['reopened'], ['guard:spelling'])
 
     def test_test_path_classification(self):
-        """Jest's __tests__ and Python's test_ files count; a spec document does not."""
+        """Jest's __tests__ and Python's test_ files count; a spec document does not. Whether
+        a case can be named in one is the demand's business rather than this rule's."""
         import importlib.util
         spec = importlib.util.spec_from_file_location('flow', FLOW)
         flow = importlib.util.module_from_spec(spec)
@@ -1365,7 +1399,7 @@ class ReviewFlowTests(unittest.TestCase):
     def test_renamed_test_counts_under_its_new_path(self):
         """A renamed and extended test is regression evidence, listed where it now lives."""
         (self.repo / 'tests').mkdir()
-        (self.repo / 'tests/test_old.py').write_text('def test_a(): pass\n')
+        (self.repo / 'tests/test_old.py').write_text('from values import ONE\ndef test_a(): assert ONE == 1\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'existing test')
         self.start()
@@ -1373,13 +1407,21 @@ class ReviewFlowTests(unittest.TestCase):
         self.report('codex')
         self.triage()
         (self.repo / 'tests/test_old.py').rename(self.repo / 'tests/test_new.py')
-        (self.repo / 'tests/test_new.py').write_text('def test_a(): pass\ndef test_b(): pass\n')
+        (self.repo / 'tests/test_new.py').write_text(
+            'from values import ONE, TWO\ndef test_a(): assert ONE == 1\ndef test_b(): assert TWO == 2\n')
         self.git('add', '-A')
         self.git('commit', '-qm', 'rename and extend')
+        # Each mutant changes a case's BODY. Replacing a signature makes the module stop
+        # importing, which the runner refuses as a crash rather than a measurement — and two
+        # of these fixtures did exactly that, recording "caught" for cases that never ran.
+        self.matrix('tests/test_new.py', [('ONE = 1', 'ONE = 2', 'test_a'),
+                                          ('TWO = 2', 'TWO = 3', 'test_b')],
+                    where='values.py', enumeration='echo 2')
         state = self.start(correction=True, reason='')
         self.assertEqual(state['regression_tests'], ['tests/test_new.py'])
         self.checks()
         self.assertIn('tests/test_new.py', self.flow('prompt').stdout)
+
 
     def test_correction_without_tests_needs_a_recorded_reason(self):
         """A correction that touches no test must say why, and the reason reaches reviewers."""
@@ -1393,9 +1435,10 @@ class ReviewFlowTests(unittest.TestCase):
         self.start(ok=False, correction=True, reason='   ')
         # Adding the regression on top of the same candidate lifts the requirement.
         (self.repo / 'tests').mkdir()
-        (self.repo / 'tests/test_fix.py').write_text('def test_fix(): pass\n')
+        (self.repo / 'tests/test_fix.py').write_text('from values import ONE\ndef test_fix(): assert ONE == 1\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add regression')
+        self.matrix('tests/test_fix.py', [('ONE = 1', 'ONE = 2', 'test_fix')], where='values.py', enumeration='echo 1')
         state = self.start(correction=True, reason='')
         self.assertEqual(state['round'], 2)
         self.assertEqual(state['regression_tests'], ['tests/test_fix.py'])
@@ -1849,8 +1892,9 @@ class ReviewFlowTests(unittest.TestCase):
         # with no correction contract at all, so the rule under test is never reached. An
         # earlier version of this case did exactly that and the runtime answered 0, not 2.
         (self.repo / 'tests').mkdir(exist_ok=True)
-        (self.repo / 'tests' / 'test_thing.py').write_text('def test_thing():\n    assert True\n')
+        (self.repo / 'tests' / 'test_thing.py').write_text('from values import ONE\ndef test_thing():\n    assert ONE == 1\n')
         self.commit('correction that changes a test')
+        self.matrix('tests/test_thing.py', [('ONE = 1', 'ONE = 2', 'test_thing')], where='values.py', enumeration='echo 1')
 
         believed = [dict(command='python3 -m pytest tests/test_thing.py', expected='passes',
                          observed='passes')]

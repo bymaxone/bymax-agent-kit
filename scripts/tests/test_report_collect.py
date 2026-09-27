@@ -586,7 +586,7 @@ class CollectTests(unittest.TestCase):
         # The collector is a stub that records being called, because the real one fails on
         # `--out /collect.json` for anyone who cannot write to the root directory, and then
         # the unguarded block stops for that reason instead of this one. What the guard
-        # must do is stop BEFORE the collector, whoever is running.
+        # must do is stop before the collector, whoever is running.
         home = self.tmp / 'h-notmp'; home.mkdir(parents=True, exist_ok=True)
         plugin = self.tmp / 'stub-plugin'; (plugin / 'scripts').mkdir(parents=True)
         called, out = home / 'called', home / 'out-path'

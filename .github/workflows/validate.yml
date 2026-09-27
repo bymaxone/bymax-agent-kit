@@ -41,6 +41,11 @@ jobs:
         # parser whose verdict differed from PyYAML's in both directions.
         run: python3 -m pip install --break-system-packages pyyaml
 
+      - name: Install pytest
+        # The review runtime's mutation matrix runs each case through pytest, and the
+        # matrix's own tests run a matrix; without it every one of them errored here.
+        run: python3 -m pip install --break-system-packages pytest
+
       - name: Run validate.sh
         # Delegates to `claude plugin validate` for marketplace/plugin manifests, then
         # checks shell-script executable bits, shellcheck, command/skill/agent
