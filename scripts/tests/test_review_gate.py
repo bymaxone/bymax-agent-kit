@@ -545,6 +545,26 @@ class MatrixGateTests(FlowBench):
         self.checks()
         self.assertIn('No test this correction changed fails before it', self.text('prompt'))
 
+    def test_a_node_that_fails_only_outside_a_checkout_is_not_demanded(self):
+        """The previous tree is unpacked from the object store with no .git, so a test that reads
+        the repository fails there whatever the fix. Unpacked the same way, the head fails it
+        too, and a failure both sides share says nothing about the fix."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_git.py').write_text(
+            'import pathlib, subprocess\n\n\ndef test_tracked():\n'
+            '    root = pathlib.Path(__file__).resolve().parents[1]\n'
+            '    assert subprocess.run(["git", "-C", str(root), "ls-files"], capture_output=True).stdout\n')
+        self.commit('a test that reads the repository')
+        before = self.git('rev-parse', 'HEAD')
+        with (self.repo / 'tests/test_git.py').open('a') as handle:
+            handle.write('\n\ndef test_new():\n    assert 1 + 1 == 2\n')
+        self.commit('a correction that adds a node beside it')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        self.assertEqual(review_evidence.failing_before(before, ['tests/test_git.py'], ['tests/test_git.py']),
+                         ([], []))
+
     def test_a_test_file_the_previous_tree_cannot_import_falls_back_to_added_nodes(self):
         """A test that imports what the fix adds cannot be collected on the previous tree, so
         which of its nodes the fix concerns cannot be asked there. Demanding all of them would

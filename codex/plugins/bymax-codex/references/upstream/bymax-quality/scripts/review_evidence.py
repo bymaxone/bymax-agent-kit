@@ -353,6 +353,9 @@ def failing_before(base, changed, names):
     Every test path the delta changed is copied, not only the files asked: a conftest or a
     helper the head's tests need is a test path pytest collects nothing from, and the base's
     copy of it would fail them for a reason that is not the fix.
+
+    An unpacked tree has no .git, so a test that reads the repository fails in it whatever the
+    fix. A node counts only if the head, unpacked the same way, passes it.
     """
     import review_matrix
     root = git('rev-parse', '--show-toplevel')
@@ -375,6 +378,10 @@ def failing_before(base, changed, names):
                 code, tail = review_matrix.run_case(older, None, [node])
                 if review_matrix.outcome(code, tail) != 'passed':
                     failing.append(node)
+    if failing:
+        with archived('HEAD') as newer:
+            failing = [node for node in failing
+                       if review_matrix.outcome(*review_matrix.run_case(newer, None, [node])) == 'passed']
     return sorted(failing), unread
 
 
