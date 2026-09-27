@@ -168,6 +168,25 @@ class EnvelopeTests(unittest.TestCase):
         bench.write(indented.replace('echo safe', 'rm -rf x'), name='B.md')
         self.assertIn('B.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
 
+    def test_a_blank_line_inside_a_code_block_is_code(self):
+        """An empty line after a trailing backslash splits a command in two, and one inside a
+        heredoc changes its body; a blank line with prose on either side is still prose."""
+        fenced = '# Run\n\nThen:\n\n```bash\ngit push \\\n  origin\n```\n\nSaid.\n\n```sh\nls\n```\n'
+        indented = '# Run\n\nThen:\n\n    one\n\n    two\n\nSaid.\n'
+        bench = Bench(self, {'A.md': fenced, 'B.md': indented})
+        for after in (fenced.replace('git push \\\n', 'git push \\\n\n'),
+                      fenced.replace('git push \\\n', 'git push \\\n   \n')):
+            bench.write(after, name='A.md')
+            self.assertIn('A.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
+        for after in (fenced.replace('Then:\n\n', 'Then:\n\n\n'), fenced.replace('Said.\n\n', 'Said.\n\n\n')):
+            bench.write(after, name='A.md')
+            self.assertEqual(bench.offences(), [])
+        bench.write(fenced, name='A.md')
+        for after in (indented.replace('    one\n\n', '    one\n\n\n'),
+                      indented.replace('    one\n\n', '    one\n')):
+            bench.write(after, name='B.md')
+            self.assertIn('B.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
+
     def test_a_directive_moved_to_another_statement_is_not_prose(self):
         """The same `# noqa` on another statement suppresses another
         diagnostic, and a list of the comment strings alone read the move as no change."""
