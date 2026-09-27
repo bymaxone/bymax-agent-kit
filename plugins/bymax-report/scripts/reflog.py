@@ -1,6 +1,6 @@
 """Where a branch stood at a moment, read from its reflog, and whether that record can be trusted.
 
-The collector's delivery questions rest on this: a reflog says where a ref stood only where no
+A reflog says where a ref stood only where no
 move since was this repository catching up with another one, since a catch-up means our view of
 that moment was corrected afterwards. Which moves are catch-ups is read from the messages git
 writes, which do not follow the reader's language.
@@ -68,10 +68,9 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
     no operand at all is read as a catch-up, since nothing says it was local.
 
     Anything left over is read as local, because the actions that are not on either list —
-    ``commit``, ``update by push``, ``am``, ``cherry-pick`` — move a ref because the work landed
-    here.
+    ``commit``, ``update by push``, ``am``, ``cherry-pick`` — move a ref because the work landed.
 
-    An entry carrying no action at all is the one ``GIT_REFLOG_ACTION=`` produces, and what
+    An entry carrying no action at all is one ``GIT_REFLOG_ACTION=`` produces, and what
     it hides depends on which ref moved. A push writes ``update by push`` on the tracking ref
     whatever that variable says, so on a ref under ``refs/remotes/`` a blank entry is a fetch,
     and a catch-up. On a local branch it is our own merge or reset — or a pull, which is a
