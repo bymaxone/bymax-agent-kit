@@ -202,6 +202,9 @@ class EnvelopeTests(unittest.TestCase):
         bench = Bench(self, {'E.md': unclosed})
         bench.write(unclosed.replace('> ls\n\n', '> ls\n  \n'), name='E.md')
         self.assertEqual(bench.offences(), [])
+        # Inside the quote the fence still holds a blank line, with no code line after it.
+        bench.write(unclosed.replace('> ls\n\n', '> ls\n>\n\n'), name='E.md')
+        self.assertIn('E.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
 
     def test_a_directive_moved_to_another_statement_is_not_prose(self):
         """The same `# noqa` on another statement suppresses another
