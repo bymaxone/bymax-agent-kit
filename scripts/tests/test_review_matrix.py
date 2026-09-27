@@ -641,6 +641,7 @@ class EnumerationCountTests(unittest.TestCase):
         for _ in range(64):
             tally.feed(b'1' * matrix.KEEP)
         self.assertLessEqual(len(tally.rest), matrix.KEEP)
+        self.assertIsNone(tally.total())
 
     def test_a_file_named_total_keeps_its_count(self):
         """Dropping the row by its label alone discarded a real file and then refused the

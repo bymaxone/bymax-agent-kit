@@ -57,6 +57,7 @@ TEST_DIRECTORIES = frozenset(('test', 'tests', 'spec', '__tests__'))
 # What a run keeps of each stream, in bytes: the summary line outcome() reads is near its end, and a run
 # that prints without end must not grow the process that restores the mutated file.
 KEEP = 1 << 16
+COUNT_DIGITS = 18
 # pytest's -q summary line, read wherever it sits: a conftest's pytest_unconfigure prints after it.
 SUMMARY = re.compile(r'^(?:no tests ran|\d+ [a-z]+(?: [a-z]+)?(?:, \d+ [a-z]+(?: [a-z]+)?)*) in \d+(?:\.\d+)?s\b')
 
@@ -233,12 +234,15 @@ def per_row(rows):
     in the row says which number is the answer.
     """
     out = []
+    # A count is a handful of digits; a run past COUNT_DIGITS is no count, and past 4,300 int()
+    # refuses to read it at all.
+    number = lambda word: word.isdigit() and len(word) <= COUNT_DIGITS
     for row in rows:
         tail = row.rsplit(':', 1)[-1].strip()
-        if tail.isdigit():
+        if number(tail):
             out.append(int(tail))
             continue
-        digits = [word for word in row.split() if word.isdigit()]
+        digits = [word for word in row.split() if number(word)]
         out.append(int(digits[0]) if digits else None)
     return out
 
