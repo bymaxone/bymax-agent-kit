@@ -45,7 +45,7 @@ from pathlib import Path
 CONVENTIONAL = re.compile(r'^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<summary>.+)$')
 REFLOG_STAMP = re.compile(r'@\{(\d+)\}')
 # Reflog actions that always mean this repository caught the ref up with another one, and
-# the three that mean it only depending on where the ref was sent: `merge origin/main`,
+# those that mean it only depending on where the ref was sent: `merge origin/main`,
 # `reset: moving to origin/main` and `branch: Reset to origin/main` are catch-ups, the same
 # words sent to `feat/x` or `HEAD~1` are local, and the action word is the same on both sides.
 # A rebase rewrites the delivery branch onto a commit it names only by id, which no longer says
@@ -53,7 +53,7 @@ REFLOG_STAMP = re.compile(r'@\{(\d+)\}')
 # one reports work as shipped on the strength of a record the rebase replaced.
 SYNCED = ('fetch', 'pull', 'clone', 'rebase')
 TOWARD = ('merge', 'reset', 'branch')
-# Where each of the three writes the ref it moved to, after the colon when not before it.
+# Where an action in TOWARD writes the ref it moved to, after the colon when not before it.
 DESTINATION = (' moving to ', ' Reset to ', ' Created from ')
 # An operand spelled as an object id says what the ref moved to and not whose it was.
 OBJECT_ID = re.compile(r'[0-9a-f]{7,64}')
@@ -230,14 +230,13 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
     ``push``. Git writes those words into the file, so they do not follow the reader's
     language.
 
-    ``fetch``, ``pull``, ``clone`` and ``rebase`` are always a catch-up, whatever the ref is
-    called.
+    An action in ``SYNCED`` is always a catch-up, whatever the ref is called.
 
-    ``merge``, ``reset`` and ``branch`` are a catch-up or local work depending on where the ref
-    was sent, and the action word cannot tell: the operands can. A merge names them before the
+    An action in ``TOWARD`` is a catch-up or local work depending on where the ref was sent,
+    and the action word cannot tell: the operands can. A merge names them before the
     colon, every one of them, and an octopus merge is a catch-up when any operand is; a reset
     names one after ``moving to``, and ``branch`` after ``Reset to`` or ``Created from``. What
-    each operand is, is ``names_another_repository``'s question. An action from the three with
+    each operand is, is ``names_another_repository``'s question. An action from ``TOWARD`` with
     no operand at all is read as a catch-up, since nothing says it was local.
 
     Anything left over is read as local, because the actions that are not on either list —
@@ -325,9 +324,7 @@ def reflog_tip(repo: Path, ref: str, when: str) -> str | None:
     Where no move since that moment was this repository syncing, the reflog is the record of
     where the ref stood and the only one that sees a fast-forward, which creates no object and
     stamps no date. Where a move since was a catch-up, our view of that moment was corrected
-    afterwards, and a reflog that begins after it has nothing on record for it. ``--`` ends the
-    revisions where the command takes paths too: an untracked path spelled like the ref
-    otherwise makes git refuse.
+    afterwards, and a reflog that begins after it has nothing on record for it.
     """
     cutoff = dt.datetime.fromisoformat(when).timestamp()
     if synced_since(repo, ref, cutoff) or not reflog_reaches(repo, ref, cutoff):
@@ -427,8 +424,8 @@ def landed_in_period(repo: Path, ref: str | None, since: dt.date, until: dt.date
     Selecting by author date alone misses work written before the period that reached the
     branch inside it: a fast-forward moves the ref without rewriting the commit, so no date
     records the landing. The reflog does, at both ends of the period, and the difference is
-    what landed. Where it cannot say at either end, the answer is None and the commits are
-    selected by author date alone, which the sentence says.
+    what landed. Where it cannot say at one end or the other, the answer is None and the
+    commits are selected by author date alone, which the sentence says.
     """
     if ref is None:
         return None, 'no default branch resolves here, so commits are selected by author date alone'
@@ -537,8 +534,9 @@ def commit_shas(repo: Path, prs: list[dict]) -> int:
 def collect_prs(repo: Path, since: dt.date, until: dt.date, author: str | None = None) -> tuple[list[dict], str]:
     """Pull requests merged or opened in the period, and a coverage note for the reader.
 
-    ``author`` keeps one GitHub login before the commits are read, because that read is one
-    ``gh pr view`` per pull request and another person's pull request is not read for anything.
+    ``author`` keeps the logins containing it before the commits are read, because that read
+    is one ``gh pr view`` per pull request and another person's pull request is not read for
+    anything.
     """
     fields = 'number,title,body,state,createdAt,mergedAt,closedAt,headRefName,url,author'
     cmd = ['gh', 'pr', 'list', '--state', 'all', '--limit', str(PR_LIMIT),

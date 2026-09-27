@@ -81,8 +81,8 @@ class CountingGateTests(unittest.TestCase):
     """The gate that holds each refusal counter to a case has to refuse what it cannot see."""
 
     def test_a_counter_a_line_trace_cannot_isolate_is_refused_by_line(self):
-        """Three shapes a line trace reaches without running the store, each measured green
-        before this: the short-circuit, the one-line if body, and the except binding."""
+        """Shapes a line trace reaches without running the store, each of which a gate
+        collecting only stores left green."""
         shapes = {
             'short-circuit': 'def f(p, unread):\n    if p is None and (unread := unread + 1):\n        pass\n',
             'one-line if body': 'def f(p, unread):\n    for x in p:\n        if x is None: unread += 1; continue\n',
@@ -414,9 +414,9 @@ class CollectTests(unittest.TestCase):
         The trace sees lines, so a store sharing its line with something that can be skipped is
         reached without running: `if x and (unread := unread + 1):` short-circuits, and
         `if x: unread += 1; continue` puts the store in the body of an `if` on the if's own line.
-        Measured, both left this gate green. `except E as unread` binds the name with no store
-        node at all. `stores_of` refuses all three by line, so a counter written that way fails
-        here, loud, instead of passing unmeasured."""
+        Measured, a gate collecting only stores left both green. `except E as unread` binds the
+        name with no store node at all. `stores_of` refuses each by line, so a counter written
+        that way fails here, loud, instead of passing unmeasured."""
         lines, first = inspect.getsourcelines(self.m.commit_shas)
         return {first + line - 1 for line in stores_of(textwrap.dedent(''.join(lines)), 'unread')}
 
@@ -1262,8 +1262,8 @@ class CollectTests(unittest.TestCase):
 
     def test_a_branch_reset_to_the_remote_after_the_period_leaves_the_week_unknown(self):
         """`git checkout -B main upstream/main` writes `branch: Reset to upstream/main`, a
-        catch-up the classifier read as local: the reflog was trusted, it stood where we were
-        before the catch-up, and the week's delivered work came back unshipped."""
+        catch-up; read as local, the reflog was trusted, it stood where we were before the
+        catch-up, and the week's delivered work came back unshipped."""
         data = self.m.collect(self.repo_that_caught_up_after_the_period('checkout-B'),
                               self.since, self.until, self.home, use_gh=False)
         shipped = {c['subject']: c['shipped'] for c in data['commits']}
@@ -1271,9 +1271,9 @@ class CollectTests(unittest.TestCase):
         self.assertIn('unknown', data['coverage']['shipped'])
 
     def test_work_written_in_the_week_and_pushed_after_it_is_never_shipped_by_its_date(self):
-        """Issue #41's second finding: without a record of the push, the commit dates carry
-        the day the work was written, which reads as delivered inside the week. They can only
-        say what had not shipped, so this is unknown, and never shipped."""
+        """Without a record of the push, the commit dates carry the day the work was written,
+        which reads as delivered inside the week. They can only say what had not shipped, so
+        this is unknown, and never shipped."""
         repo = self.repo_that_delivers_by_pushing()
         for log in (repo / '.git/logs').rglob('*'):
             if log.is_file():
@@ -1284,10 +1284,7 @@ class CollectTests(unittest.TestCase):
         self.assertIn('commit dates', data['coverage']['shipped'])
 
     def repo_that_landed_old_work_in_the_period(self):
-        """A delivery branch whose reflog covers the whole period and before it. Four pieces of
-        work: one written and landed before the week, one written before and fast-forwarded in
-        during it, a branch written before and merged during it, and one written in the week and
-        landed after it."""
+        """A delivery branch whose reflog covers the whole period and before it."""
         repo = self.tmp / 'landing' / 'app'; repo.mkdir(parents=True)
         env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
                'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
@@ -1311,10 +1308,10 @@ class CollectTests(unittest.TestCase):
         return repo.resolve()
 
     def test_work_that_landed_in_the_period_is_collected_whenever_it_was_written(self):
-        """Issue #41's first finding: the period filter read the author date, and a
-        fast-forward moves the ref without rewriting the commit, so work written before the week
-        and landed in it was invisible. The reflog at both ends of the period says what the
-        branch received, and that is selected too; what was written and landed before is not."""
+        """A period filter on the author date misses work written before the week and landed
+        in it, because a fast-forward moves the ref without rewriting the commit. The reflog at
+        both ends of the period says what the branch received, and that is selected too; what
+        was written and landed before is not."""
         data = self.m.collect(self.repo_that_landed_old_work_in_the_period(), self.since, self.until,
                               self.home, use_gh=False)
         got = {c['subject']: (c['landed'], c['shipped']) for c in data['commits']}
@@ -1348,8 +1345,7 @@ class CollectTests(unittest.TestCase):
         return app.resolve()
 
     def test_where_nothing_recorded_both_ends_commits_are_selected_by_author_date(self):
-        """A reflog that begins after the period, one a catch-up corrected after its start, and
-        a clone made mid-week cannot say where the branch stood when the week began, so what
+        """None of these reflogs can say where the branch stood when the week began, so what
         landed is not claimed: every commit says None and the coverage names the fallback."""
         cases = {'a reflog that begins after the period': self.repo_whose_reflog_starts_after_the_period(),
                  'a clone that fetched after the week began': self.clone_that_fetched_late(),
@@ -1362,7 +1358,7 @@ class CollectTests(unittest.TestCase):
 
     def test_author_is_applied_before_the_commits_of_each_pull_request_are_read(self):
         """Reading a pull request's commits is one `gh pr view` each, and another person's pull
-        request is read for nothing once --author drops it."""
+        request is never read once --author drops it."""
         rows = [{'number': 5, 'title': 'feat: mine', 'createdAt': noon('2026-09-17'), 'author': {'login': 'dev'}},
                 {'number': 6, 'title': 'feat: theirs', 'createdAt': noon('2026-09-18'), 'author': {'login': 'other'}}]
         viewed = []
