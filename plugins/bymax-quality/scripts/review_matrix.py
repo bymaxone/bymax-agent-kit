@@ -297,6 +297,9 @@ class Tally:
     def feed(self, chunk):
         """Read the complete rows in this chunk, keeping the incomplete one for the next."""
         *rows, self.rest = (self.rest + chunk).split(b'\n')
+        # A row longer than a tail states no count anyone could read, and an output that never
+        # ends a line would otherwise grow here until the deadline.
+        self.rest = self.rest[-KEEP:]
         for row in rows:
             self.row(row)
 
