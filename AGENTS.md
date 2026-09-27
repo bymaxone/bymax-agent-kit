@@ -256,8 +256,9 @@ on most of every diff. `REVIEW.md` carries the same calibration for the other re
 
 **Severity.** Report a blocking finding only for a defect with a concrete trigger in code
 that runs: `plugins/*/scripts/*`, `plugins/*/hooks/*.sh`, `scripts/*.py`, `scripts/*.sh`,
-`codex/scripts/*.py`, `codex/plugins/bymax-codex/scripts/*.py`, a fenced `bash` block a
-model runs verbatim, or a gate under `scripts/tests/` or `codex/tests/`. A finding
+`scripts/lib/*.py`, `personal/*.sh`, `codex/scripts/*.py`,
+`codex/plugins/bymax-codex/scripts/*.py`, a fenced `bash` block a model runs verbatim, or a
+gate under `scripts/tests/` or `codex/tests/`. A finding
 about wording, ordering, a count, or a comment naming a review round is a nit at most, and
 after the first review of a pull request report blocking findings only.
 

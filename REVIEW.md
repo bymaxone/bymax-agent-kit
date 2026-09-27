@@ -10,7 +10,8 @@ calibrating severity for that is the whole point of this file.
 Reserve 🔴 Important for a defect with a concrete trigger in code that runs:
 
 - `plugins/*/scripts/*`, `plugins/*/hooks/*.sh`, `scripts/*.py`, `scripts/*.sh`,
-  `codex/scripts/*.py`, `codex/plugins/bymax-codex/scripts/*.py`
+  `scripts/lib/*.py`, `personal/*.sh`, `codex/scripts/*.py`,
+  `codex/plugins/bymax-codex/scripts/*.py`
 - a fenced `bash` block inside a command or skill document, which a model runs verbatim
 - a gate under `scripts/tests/` or `codex/tests/` that would stop failing on the defect it
   protects
