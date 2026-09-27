@@ -1,7 +1,7 @@
 # CLAUDE.md — bymax-agent-kit
 
 Quick rules for Claude Code in this repository. The full agent guidance, including the
-review rules both PR bots apply, is `AGENTS.md`, imported here so there is one source:
+review rules Codex applies, is `AGENTS.md`, imported here so there is one source:
 
 @AGENTS.md
 
@@ -14,11 +14,11 @@ This file adds only what is specific to working here with Claude Code.
 - **Product**: instruction text — commands, skills and agents as Markdown under `plugins/`,
   packaged twice: a Claude Code marketplace at the root, a Codex marketplace under `codex/`.
 - **Runtimes**: Python 3.10+ (`plugins/*/scripts/`, `scripts/`, `codex/scripts/`) and
-  POSIX shell (`plugins/*/hooks/`, `plugins/*/scripts/*.sh`, `scripts/*.sh`).
-- **Tests**: `unittest` suites under `scripts/tests/` and `codex/tests/`; pytest is needed
-  only by the review runtime's mutation matrix.
-- **Validation deps**: the `claude` CLI and PyYAML are required; shellcheck and the Codex CLI
-  are optional locally and required in CI.
+  Bash (`plugins/*/hooks/`, `plugins/*/scripts/*.sh`, `scripts/*.sh`).
+- **Tests**: `unittest` suites under `scripts/tests/` and `codex/tests/`; the review runtime
+  and its suites also run pytest.
+- **Validation deps**: those `.github/workflows/validate.yml` installs; shellcheck and the
+  Codex CLI are optional locally and required in CI.
 
 ---
 

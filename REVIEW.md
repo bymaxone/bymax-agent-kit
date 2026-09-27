@@ -25,8 +25,8 @@ defects introduced by the previous correction to that same prose.
 Treat these as 🔴 Important even though they look stylistic; no gate here catches them:
 
 - A new suppression: `# noqa`, `# type: ignore`, or a per-line `shellcheck disable`. The
-  tree carries exactly one accepted disable, in `plugins/bymax-quality/hooks/secret-scanner.sh`,
-  with its reason on the line above; a new one without that reason is a finding.
+  accepted shape is the disable in `plugins/bymax-quality/hooks/secret-scanner.sh`, with its
+  reason in the comment beside it; a new one without a reason is a finding.
 - A hardcoded credential, API key or token anywhere, including test fixtures.
 - `--no-verify` or another hook-bypass flag added to a script, hook or command document.
 - A change to a file under `plugins/<name>/commands/`, `skills/` or `agents/` without a bump
