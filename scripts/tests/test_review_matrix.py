@@ -635,8 +635,8 @@ class EnumerationCountTests(unittest.TestCase):
         self.assertEqual(sum(self.count('       1 one.txt\n       0 two.txt\n       1 total\n')), 1)
 
     def test_a_row_that_never_ends_is_held_to_a_tail(self):
-        """An output that never ends a line is not a count, and the unfinished row it leaves
-        grew without bound until the deadline stopped it."""
+        """An output that never ends a line leaves an unfinished row, and that row grew
+        without bound until the deadline stopped it."""
         tally = matrix.Tally()
         for _ in range(64):
             tally.feed(b'1' * matrix.KEEP)

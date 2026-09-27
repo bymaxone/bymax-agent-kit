@@ -37,7 +37,7 @@ def command(schema):
 def execute(directory, owner_fd, flow, reviewer):
     """Supply the frozen diff and record only a completed matching structured report.
 
-    The runtime's refusals run before the attempt is reserved, for the same reason:
+    The task is built and the substitute checked before the attempt is reserved:
     flow.prompt() raises when the declared gates have not passed, and record refuses the
     substitute without a waiver the runtime's own probe wrote. Reserving first spent an attempt on a
     refusal no reviewer ever saw. The predicates are the runtime's, called here rather than copied.
