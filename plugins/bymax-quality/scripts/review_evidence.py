@@ -344,8 +344,7 @@ def failing_before(base, changed, names):
     added cannot answer it: an edited regression exists on both sides, so it was demanded
     nothing. A node that fails or errors here is this correction's to prove, and must have
     caught a mutant. A node that passes here is not demanded, since a correction that repairs a
-    test and no code has none that fails; its added nodes are demanded anyway, and an edited
-    node that passes here is told to both reviewers when no changed node fails at all.
+    test and no code has none that fails; its added nodes are demanded anyway.
 
     A file the base tree cannot collect — it imports what the fix adds — cannot say which of
     its nodes the fix concerns: demanding all of them would ask its unrelated neighbours to
