@@ -428,6 +428,9 @@ def only_prose_cut(before, after):
     return all(held is PROSE for held in rest)
 
 
+# What places a token rather than being one: a directive's position counts only the rest.
+LAYOUT = {tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
+          tokenize.ENDMARKER}
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
 
 
@@ -437,17 +440,29 @@ def directives(text):
     tree never sees it; a reader that replaced a comment with `# noqa` was recorded as
     prose-only. The statement travels with it — the code before it on its line, or the next
     line of code when it stands alone — because the same `# noqa` moved to another statement
-    suppresses another diagnostic, and a list of the strings alone read that as no change."""
+    suppresses another diagnostic, and a list of the strings alone read that as no change.
+
+    Its place is the count of code tokens before it, docstrings left out so that cutting one
+    moves nothing: two identical statements are told apart by it. Whether anything at all comes
+    first travels too, since a `# type: ignore` with nothing before it ignores the whole module."""
     lines = text.split('\n')
     found = []
     try:
+        docstrings = [(node.body[0].lineno, node.body[0].col_offset,
+                       node.body[0].end_lineno, node.body[0].end_col_offset)
+                      for node in ast.walk(ast.parse(text)) if isinstance(node, SCOPED)
+                      and ast.get_docstring(node, clean=False) is not None]
+        code, anything = 0, False
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
             if tok.type == tokenize.COMMENT and DIRECTIVE.search(tok.string):
                 row, col = tok.start
                 beside = tok.line[:col].strip()
                 below = '' if beside else next((l.strip() for l in lines[row:]
                                                 if l.strip() and not l.strip().startswith('#')), '')
-                found.append((beside, below, tok.string))
+                found.append((code, anything, beside, below, tok.string))
+            elif tok.type not in LAYOUT:
+                anything = True
+                code += not any((d[0], d[1]) <= tok.start and tok.end <= (d[2], d[3]) for d in docstrings)
     except (SyntaxError, tokenize.TokenError):
         return None
     return found

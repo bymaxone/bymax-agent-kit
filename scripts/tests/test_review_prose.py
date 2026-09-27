@@ -547,6 +547,27 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench.write(start.replace('# It is read once.\n', ''))
         self.assertEqual(bench.offences(), [])
 
+    def test_an_ignore_moved_to_an_identical_statement_is_not_prose(self):
+        """A directive named by its statement's text alone read a move between two identical
+        statements as no change, once the tree stopped carrying each ignore's line."""
+        start = 'def a(v):\n    y = h(v)  # type: ignore\n\n\ndef b(v):\n    y = h(v)\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write('def a(v):\n    y = h(v)\n\n\ndef b(v):\n    y = h(v)  # type: ignore\n')
+        self.assertIn('a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
+
+    def test_a_docstring_cut_before_a_module_ignore_is_not_prose(self):
+        """With nothing before it, a `# type: ignore` on a line of its own ignores the whole
+        module, so deleting the docstring above one widens it. A docstring deleted anywhere
+        else leaves every directive where it was."""
+        start = '"""The module."""\n# type: ignore\nx = f()\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('"""The module."""\n', ''))
+        self.assertIn('a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
+        elsewhere = 'def a():\n    """Doc."""\n    return 1\n\n\nx = f()  # type: ignore\n'
+        bench = Bench(self, {'thing.py': elsewhere})
+        bench.write(elsewhere.replace('    """Doc."""\n', ''))
+        self.assertEqual(bench.offences(), [])
+
     def test_a_block_moved_past_its_paragraph_is_not_prose(self):
         """Every code line kept, a fenced block moved ahead of the paragraph it depends on read as
         no change. Cutting the paragraph between two blocks is still a cut."""
