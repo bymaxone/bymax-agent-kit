@@ -51,6 +51,7 @@ import tokenize
 from pathlib import Path
 
 import review_claims
+import review_markdown
 
 RULES = """Correct prose that is FALSE about the code, and cut prose that cannot stay true.
 Keep every sentence that says WHY — a decision, a constraint, a rejected alternative. Those
@@ -360,25 +361,11 @@ def instructs(text):
         if end is not None:
             found.append('\n'.join(lines[:end + 1]))
             lines = lines[end + 1:]
-    fence = None
-    for line in lines:
-        hit = FENCE.match(line)
-        if fence is None:
-            if hit and not (hit.group(1)[0] == '`' and '`' in hit.group(2)):
-                fence = (hit.group(1)[0], len(hit.group(1)))
-                found.append(line)
-        else:
-            found.append(line)
-            # A closing fence is the same character, at least as long, and nothing after it
-            # but whitespace: a line like ```not-a-close is content, and what follows it is
-            # still inside the block. Reading the first three characters alone closed the
-            # block there and let the command after it go unread.
-            if hit and hit.group(1)[0] == fence[0] and len(hit.group(1)) >= fence[1] and not hit.group(2).strip():
-                fence = None
-    return found
-
-
-FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})(.*)$')
+    # Code is what CommonMark calls code, read by the walk every other Markdown check uses: a
+    # fence inside a list item sits past column three, and a four-space indent is a block of
+    # its own, and a line pattern that missed either let an edit there pass as prose.
+    seen = review_markdown.outside_code('\n'.join(lines)).split('\n')
+    return found + [line for line, kept in zip(lines, seen) if kept != line]
 
 
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)

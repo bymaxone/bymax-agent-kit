@@ -10,7 +10,7 @@ import os
 import subprocess
 
 import review_claims
-from review_git import clean_head, git, require
+from review_git import clean_head, git, git_raw, require
 
 
 PROSE_TOOLS = 'Read,Grep,Glob,Edit'
@@ -110,12 +110,19 @@ def prose_verify(base, head, directory, ignored_before=None):
     if broken:
         raise ValueError('The pass left the envelope:\n  ' + '\n  '.join(broken) + '\n' + LEFT)
     changed = review_prose.changed()
-    files = review_claims.touched(base, head)
+    files = bound(base, head)
     record = dict(base=base, head=head, files=files, digest=review_matrix.digest(root, files),
                   cut=review_prose.cut(), changed=changed,
                   outcome='corrected' if changed else 'unchanged')
     (directory / ('prose-' + head + '.json')).write_text(json.dumps(record, indent=2) + '\n')
     return record
+
+
+def bound(base, head):
+    """The touched files the candidate still has. Without renames a deletion, and a rename's
+    old side, are touched paths with no bytes to digest and no prose to bind."""
+    kept = set(git_raw('diff', '--name-only', '--no-renames', '-z', '--diff-filter=d', base, head).split('\0'))
+    return [name for name in review_claims.touched(base, head) if name in kept]
 
 
 def prose_first(state, directory):
@@ -137,7 +144,7 @@ def prose_first(state, directory):
         # The candidate's own set, not the pass's: a record over the files the pass saw says
         # nothing about a file committed afterwards, whose prose would reach reviewers under a
         # note saying a reader had seen it.
-        if set(kept['files']) != set(review_claims.touched(base, head)):
+        if set(kept['files']) != set(bound(base, head)):
             continue
         if review_matrix.digest(root, kept['files']) == kept.get('digest'):
             state['prose'] = dict(record=path.name, files=len(kept['files']), cut=kept['cut'],
