@@ -528,8 +528,8 @@ class EnvelopeShapeTests(unittest.TestCase):
         self.assertEqual(bench.offences(), [])
 
     def test_a_sentence_closed_inside_markup_is_counted(self):
-        """A stop followed by `**`, a backtick or a quote ends a sentence too; read as needing a
-        space after it, a joined line made room for a bold sentence that passed as no growth."""
+        """A stop followed by `**`, a backtick or a quote still ends a sentence, so joining lines
+        to make room for a bold sentence still counts as growth."""
         notes = '# Notes\n\nThe limit is ten.\nIt holds for every caller.\n'
         bench = Bench(self, {'NOTES.md': notes})
         bench.write(notes.replace('The limit is ten.\nIt holds for every caller.\n',
