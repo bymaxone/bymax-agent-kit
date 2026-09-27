@@ -81,7 +81,9 @@ def git(*args, cwd=None):
     done = subprocess.run(['git', *args], capture_output=True, cwd=root(cwd))
     if done.returncode != 0:
         return ''
-    if '--name-only' in args:
+    # Every call here that lists names asks for them NUL-separated, and no call that reads
+    # content does: `diff --name-only`, `grep -lw` and `grep -Fl` alike.
+    if '-z' in args:
         return done.stdout.decode(sys.getfilesystemencoding(), 'surrogateescape')
     if args[:1] == ('show',) and args[-1].endswith('.py'):
         try:

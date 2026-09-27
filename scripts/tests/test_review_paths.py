@@ -61,7 +61,9 @@ def commit_with(where, base, files):
     the worktree: a filesystem such as APFS refuses a name that is not valid UTF-8, while a
     commit made on Linux carries one and a clone of it has to be read anyway."""
     env = dict(os.environ, GIT_INDEX_FILE=str(where / '.git' / 'scratch-index'),
-               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1',
+               GIT_AUTHOR_NAME='A', GIT_AUTHOR_EMAIL='a@b.invalid',
+               GIT_COMMITTER_NAME='A', GIT_COMMITTER_EMAIL='a@b.invalid')
     run = lambda *a, **k: subprocess.run(['git', '-C', str(where), *a], check=True,
                                           capture_output=True, env=env, **k).stdout.strip()
     run('read-tree', base)
@@ -109,6 +111,14 @@ class NotUtf8Tests(unittest.TestCase):
         name = 'notes-caf\udce9.md'
         self.assertIn(name, review_claims.touched(self.base, head))
         self.assertIn('OLD_NAME', review_claims.sides(name, self.base, head)[1])
+
+    def test_a_definition_that_survives_in_a_latin1_file_is_not_retired(self):
+        """The names `git grep -l` lists were read with replacement, so the file still defining a
+        name read as absent and the name was reported removed, which refuses the candidate."""
+        base = commit_with(self.where, self.base, {b'a.py': b'OLD_NAME = 1\n', b'other\xe9.py': b'OLD_NAME = 1\n',
+                                                     b'README.md': b'Call `OLD_NAME` first.\n'})
+        head = commit_with(self.where, base, {b'a.py': b'x = 1\n'})
+        self.assertEqual(review_claims.retired(base, head, cwd=str(self.where)), [])
 
     def test_a_latin1_line_reaches_the_claude_reviewer(self):
         """The Claude adapter hands its reviewer the full diff, and a Latin-1 line in it raised
