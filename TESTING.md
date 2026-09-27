@@ -18,6 +18,9 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | Installer drops user configuration or omits runtime dependencies | `scripts/tests/test_review_install.py` and installed-runtime execution |
 | Codex misses staged/untracked changes or pins wrong revisions | `codex/tests/test_review_scope.py` |
 | Standup collector admits a harness-written line as a request, misses a worktree session, or loses a commit to git's `--since` cutoff | `scripts/tests/test_report_collect.py` |
+| Standup skill block reads another run's arguments, runs the collect with no temporary directory, or leaves a failed collect's directory behind | `scripts/tests/test_report_skill_block.py` |
+| Standup period resolves a typo to a default week, or a subject's type or scope, or a ref's branch name, is misread | `scripts/tests/test_report_period.py` |
+| Standup collector loads a module the `python3` a machine has cannot parse, or whose annotations it cannot evaluate | `scripts/tests/test_report_interpreter.py` |
 | Bundle drifts, package cannot be installed or skills are undiscoverable | `codex/tests/test_bundle.py`, `test_install.py` and isolated CLI skill discovery |
 
 Instruction text also needs behavioral evaluation: a valid Markdown/YAML document may
