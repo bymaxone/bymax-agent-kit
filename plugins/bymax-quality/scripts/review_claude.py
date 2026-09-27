@@ -37,21 +37,23 @@ def command(schema):
 def execute(directory, owner_fd, flow, reviewer):
     """Supply the frozen diff and record only a completed matching structured report.
 
-    Two things are checked before the attempt is reserved, for the same reason: flow.prompt()
-    raises when the declared gates have not passed, and record refuses the substitute without a
-    waiver the runtime's own probe wrote. Reserving first spent an attempt on a refusal no
-    reviewer ever saw. Both predicates are the runtime's, called here rather than copied.
+    Everything that can refuse runs before the attempt is reserved, for the same reason:
+    flow.prompt() raises when the declared gates have not passed — and runs them again, so a
+    collect that fails the second time is a refusal too — and record refuses the substitute
+    without a waiver the runtime's own probe wrote. Reserving first spent an attempt on a
+    refusal no reviewer ever saw. The predicates are the runtime's, called here rather than copied.
     """
     opening = flow.read_state(directory)
-    flow.gate_first(opening, directory)
     flow.substitute_allowed(opening, reviewer)
+    task = (flow.prompt(opening, directory) + '\nThe caller supplied this exact committed diff below. '
+            'You have Read/Grep/Glob only; inspect surrounding files with those tools, not Bash.\n'
+            + flow.git_raw('diff', '--no-ext-diff', '--no-textconv', opening['review_base'], opening['head'], '--'))
     state, attempts = reserve(directory, flow, reviewer)
+    flow.require(all(state[key] == opening[key] for key in ('head', 'round', 'review_base')),
+                 'The campaign moved while this review was being prepared; run it again.')
     target = directory / f"{reviewer}-{state['round']}-{state[attempts]}.json"
     log = target.with_suffix('.log')
     schema = Path(__file__).with_name('review-report.schema.json').read_text()
-    task = (flow.prompt(state, directory) + '\nThe caller supplied this exact committed diff below. '
-            'You have Read/Grep/Glob only; inspect surrounding files with those tools, not Bash.\n'
-            + flow.git_raw('diff', '--no-ext-diff', '--no-textconv', state['review_base'], state['head'], '--'))
     raw = target.with_suffix('.output.json')
     with raw.open('w') as output, log.open('w') as errors:
         result = subprocess.run(command(schema), input=task, text=True, stdout=output,

@@ -104,14 +104,19 @@ class RunTests(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(int((bench.where / 'enumerate.pid').read_text()), 0)
 
-    def test_an_enumeration_that_prints_past_a_count_is_refused(self):
-        """An enumeration is read through the bounded tail a run is, so one that prints without
-        end holds KEEP bytes rather than all of it until the deadline. Output that fills the
-        tail is not a count, and is refused by name rather than counted as the rows left in it."""
+    def test_an_enumeration_longer_than_a_tail_is_counted_whole(self):
+        """A `grep -c` over a large tree prints a row per file, and read through the bounded tail
+        a run is, output that filled it was refused as no count at all. The rows are counted as
+        they arrive instead, and nothing but their sums is kept."""
         bench = Bench(self)
+        rows = 5000
+        self.assertEqual(matrix.enumerated(str(bench.where), {
+            'rule': 'wide', 'enumeration': 'python3 -c "print(\'\\\\n\'.join(\'dir/module_%%05d.py:1\' %% n '
+                                           'for n in range(%d)))"' % rows}), rows)
+        self.assertGreater(rows * len('dir/module_00000.py:1\n'), matrix.KEEP)
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(enumeration='python3 -c "print(\'1\\\\n\' * %d)"' % matrix.KEEP))
-        self.assertIn('which is not a count', str(caught.exception))
+        self.assertIn('enumerates %d case(s)' % matrix.KEEP, str(caught.exception))
         # Bytes that are not UTF-8 are measured as bytes: decoded and re-encoded, each would count
         # three, and a short output would read as one that filled the tail.
         self.assertEqual(matrix.enumerated(str(bench.where), {

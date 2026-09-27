@@ -1647,15 +1647,21 @@ def execute_codex(directory, owner_fd):
     already spent there is no review left to run, and the question that remains — whether
     this machine has a reviewer at all — is answered by an availability probe instead.
     """
-    gate_first(read_state(directory), directory)   # before the attempt is reserved, never after
+    opening = read_state(directory)
+    gate_first(opening, directory)   # before the attempt is reserved, never after
     exhausted = spent(directory)
     if exhausted is not None:
         return availability(directory, exhausted, owner_fd)
+    # Built before the attempt is reserved: prompt() runs the gates again, and a collect that
+    # fails the second time would otherwise spend the attempt on a review nobody ran.
+    task = prompt(opening, directory)
     state = reserve_codex(directory)
     report = directory / f"codex-{state['round']}-{state['codex_attempts']}.json"
     log = report.with_suffix('.log')
     schema = directory / 'report-schema.json'
     try:
+        require(all(state[key] == opening[key] for key in ('head', 'round', 'review_base')),
+                'The campaign moved while this review was being prepared; run it again.')
         binary = resolve_codex()
         if binary is None:
             waive(directory, state, 'absent', '', '', '')
@@ -1671,7 +1677,7 @@ def execute_codex(directory, owner_fd):
                        'read-only', '--ephemeral', '--output-schema', str(schema),
                        '--output-last-message', str(report), '-']
             with log.open('w') as output:
-                result = subprocess.run(command, input=prompt(state, directory), text=True,
+                result = subprocess.run(command, input=task, text=True,
                                         stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
             if result.returncode == 0:
                 with locked(directory):

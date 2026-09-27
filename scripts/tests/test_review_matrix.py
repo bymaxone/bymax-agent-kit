@@ -608,8 +608,11 @@ class EnumerationCountTests(unittest.TestCase):
     """
 
     def count(self, out):
-        rows = [row.strip() for row in out.split('\n') if row.strip()]
-        return [n for n in matrix.without_total(rows, matrix.per_row(rows)) if n is not None]
+        """What the runtime counts from this output, read the way it reads a command's."""
+        tally = matrix.Tally()
+        tally.feed(out.encode())
+        total = tally.total()
+        return [] if total is None else [total]
 
     def test_grep_prints_the_count_after_a_colon_and_digits_inside_the_path(self):
         """`mod_v2.py:0` states 0. Adding every digit token read the 2 out of the name and

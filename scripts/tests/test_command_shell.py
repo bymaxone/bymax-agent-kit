@@ -308,12 +308,29 @@ class PushCommandBehaviourTests(unittest.TestCase):
         self.resolve = self.block_with('bymax-push-default"\n')   # the block that writes it
         self.base = self.block_with('REVIEW_BASE=""')
         self.guard = self.block_with('skipping the PR')
+        self.commit = self.block_with('TOO LONG')
 
     def block_with(self, needle):
         """The one block that carries this marker."""
         found = [block for block in self.blocks if needle in block]
         self.assertEqual(len(found), 1, f'expected exactly one block containing {needle!r}')
         return found[0]
+
+    def test_a_title_over_the_limit_commits_nothing(self):
+        """The block printed TOO LONG and went on to `git commit` anyway, so the refusal was a
+        line of output the commit had already made moot."""
+        repo = self.repo(commits=1)
+        (repo / 'f').write_text('changed\n')
+        subprocess.run(['git', 'add', 'f'], cwd=repo, env=self.env, check=True)
+        message = Path(self.temp.name) / 'message.txt'
+        block = self.commit.replace('msg=$(mktemp); # write the full message to "$msg"', 'msg=%s' % message)
+        for title, refused in (('fix(scope): ' + 'x' * 70, True), ('fix(scope): a short title', False)):
+            with self.subTest(refused=refused):
+                message.write_text(title + '\n\n- body\n')
+                before = self.git(repo, 'rev-parse', 'HEAD')
+                done = subprocess.run(['bash', '-c', block], cwd=repo, env=self.env, capture_output=True, text=True)
+                self.assertEqual(done.returncode != 0, refused, done.stdout + done.stderr)
+                self.assertEqual(self.git(repo, 'rev-parse', 'HEAD') == before, refused)
 
     def repo(self, commits=2, branch='main'):
         """A repository with its own history, isolated from the machine's git config."""

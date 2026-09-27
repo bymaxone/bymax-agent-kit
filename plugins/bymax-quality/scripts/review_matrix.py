@@ -117,7 +117,7 @@ def run_case(root, selector, files, deadline=CLEAN):
     return code, ([line for line in tail if SUMMARY.match(line)] or tail or [err[-160:]])[-1]
 
 
-def tailed(child, deadline):
+def tailed(child, deadline, feed=None):
     """Wait up to `deadline` seconds for a child started in a session of its own with unbuffered
     stdout and stderr pipes, keeping each stream's last KEEP bytes as it is read. Returns the
     exit status, both tails decoded, and whether stdout filled its tail, read from the bytes
@@ -125,10 +125,12 @@ def tailed(child, deadline):
     Anything else that stops the wait kills the group and propagates.
 
     Unbuffered, so no read holds a lock: closing a buffered pipe waits on the lock a blocked
-    reader holds, and a detached descendant keeping the pipe open held it for good.
+    reader holds, and a detached descendant keeping the pipe open held it for good. `feed`, when
+    given, also receives every chunk of stdout as it is read, for a reader that needs all of it.
     """
     tails = {'out': [b''], 'err': [b'']}
-    readers = [threading.Thread(target=keep_tail, args=(stream, tails[key]), daemon=True)
+    readers = [threading.Thread(target=keep_tail, args=(stream, tails[key], feed if key == 'out' else None),
+                                daemon=True)
                for key, stream in (('out', child.stdout), ('err', child.stderr))]
     for reader in readers:
         reader.start()
@@ -148,7 +150,7 @@ def tailed(child, deadline):
     return code, out, err, len(tails['out'][0]) >= KEEP
 
 
-def keep_tail(stream, into):
+def keep_tail(stream, into, feed=None):
     """Read a stream to its end, keeping only its last KEEP bytes in into[0] as it goes. A run
     that prints without end would otherwise hold all of it in the process that restores the
     mutated file. Kept as it goes and not at the end: beside a descendant holding the pipe the
@@ -157,6 +159,8 @@ def keep_tail(stream, into):
     try:
         for chunk in iter(lambda: stream.read(8192), b''):
             into[0] = (into[0] + chunk)[-KEEP:]
+            if feed is not None:
+                feed(chunk)
     except (OSError, ValueError):
         pass
 
@@ -239,27 +243,6 @@ def per_row(rows):
     return out
 
 
-def without_total(rows, got):
-    """`wc -l a b` appends an aggregate row, and adding it answered 8 for 4 on a real rule.
-
-    It is dropped by what MAKES it an aggregate — the last row of a multi-file run, labelled
-    `total`, holding the sum of the rows above it — and never by the label alone. `wc -l total`
-    is a one-row run over a file named `total`, and a version matching the label discarded its
-    real count and then refused the rule for having answered nothing: a gate refusing a command
-    that answered, which is worse than no gate.
-
-    The gap left is STATED: in a multi-file run, a file named `total` listed last whose length
-    equals the sum of all the others is read as the aggregate. That under-counts, and an
-    under-count is the direction that lets a short mutant list through.
-    """
-    if len(rows) < 2 or rows[-1].split()[-1] != 'total':
-        return got
-    above = [n for n in got[:-1] if n is not None]
-    if got[-1] is not None and len(above) == len(got) - 1 and got[-1] == sum(above):
-        return got[:-1]
-    return got
-
-
 def enumerated(root, rule):
     """How many cases the rule's own enumeration command says exist, or None when it is not
     a command — which the author must then say in words rather than leave to the default."""
@@ -278,26 +261,66 @@ def enumerated(root, rule):
     # keeps too, since one that prints without end would hold it all until the deadline.
     with subprocess.Popen(how, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           stdin=subprocess.DEVNULL, bufsize=0, start_new_session=True) as child:
-        code, out, _, filled = tailed(child, CLEAN)
+        tally = Tally()
+        code, _, _, _ = tailed(child, CLEAN, feed=tally.feed)
     if code is None:
         bail('Rule %r: its enumeration command did not finish in %ds: %s'
              % (rule.get('rule'), CLEAN, how))
-    # A count is a few bytes, and only a tail is kept: output that filled it is not a count,
-    # and counting the rows left in it would count a fragment.
-    if filled:
-        bail('Rule %r: its enumeration command printed %d bytes or more, which is not a count: %s'
-             % (rule.get('rule'), KEEP, how))
-    done = subprocess.CompletedProcess(how, code, out, '')
-    rows = [row.strip() for row in done.stdout.split('\n') if row.strip()]
-    counted = [n for n in without_total(rows, per_row(rows)) if n is not None]
-    if done.returncode != 0 or not counted:
+    total = tally.total()
+    if code != 0 or total is None:
         bail('Rule %r: its enumeration command produced no count (exit %d). A command that '
-             'answers nothing is not an enumeration: %s' % (rule.get('rule'), done.returncode, how))
+             'answers nothing is not an enumeration: %s' % (rule.get('rule'), code, how))
     # The total, not the largest. `grep -c pattern one.py two.py` prints a count per file, and
     # taking the maximum under-counted every multi-file rule — measured on this delta's own
     # cwd rule, which enumerated 2 against 3 real call sites, so the short-by-N refusal never
     # fired and the third site shipped with no mutant.
-    return sum(counted)
+    return total
+
+
+class Tally:
+    """The count an enumeration states, read as its rows arrive rather than from a tail: a
+    `grep -c` over a large tree prints a row per file, and a tail holds only the last of them.
+    It keeps running sums and the last row, never the rows, so an output without end holds
+    nothing but its numbers until the deadline stops it.
+
+    `wc -l a b` appends an aggregate row, and adding it answered 8 for 4 on a real rule. It is
+    dropped by what MAKES it an aggregate — the last row of a multi-row run, labelled `total`,
+    holding the sum of every row above it, each of which stated a count — and never by the label
+    alone: `wc -l total` is a one-row run over a file named `total`, and discarding its count
+    refused a rule that had answered. The gap left is stated: in a multi-file run, a file named
+    `total` listed last whose length equals the sum of the others is read as the aggregate. That
+    under-counts, and an under-count is the direction that lets a short mutant list through.
+    """
+
+    def __init__(self):
+        self.rest, self.rows, self.stated, self.above, self.last, self.label = b'', 0, 0, 0, None, ''
+
+    def feed(self, chunk):
+        """Read the complete rows in this chunk, keeping the incomplete one for the next."""
+        *rows, self.rest = (self.rest + chunk).split(b'\n')
+        for row in rows:
+            self.row(row)
+
+    def row(self, raw):
+        """Move the previous last row above, and hold this one as the last."""
+        text = raw.decode('utf-8', 'replace').strip()
+        if not text:
+            return
+        if self.rows and self.last is not None:
+            self.stated, self.above = self.stated + 1, self.above + self.last
+        self.rows, self.last, self.label = self.rows + 1, per_row([text])[0], text.split()[-1]
+
+    def total(self):
+        """The rows' sum, the unterminated last row included and an aggregate left out; None
+        where no row stated a count."""
+        if self.rest:
+            self.row(self.rest)
+            self.rest = b''
+        aggregate = (self.rows > 1 and self.label == 'total' and self.last is not None
+                     and self.stated == self.rows - 1 and self.last == self.above)
+        if aggregate or self.last is None:
+            return self.above if self.stated else None
+        return self.above + self.last
 
 
 def apply_mutant(root, mutant):
