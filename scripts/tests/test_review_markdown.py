@@ -191,9 +191,18 @@ class CodeBlockTests(unittest.TestCase):
          '- a\n- - -\n\n    OLD_HELPER()'),
         ('a tilde fence whose info string holds a backtick',
          '~~~ python`ok\nOLD_HELPER()\n~~~'),
+        # Measured against CommonMark: a raw-text block ends at the first closing tag of any of
+        # the four raw-text names, and a tag CommonMark does not call complete starts no block.
+        ('a fence after a raw-text block another raw closer ended',
+         '<script>\n</textarea>\n```\nOLD_HELPER()\n```'),
+        ('a fence after an attribute with an empty value', '<a b=>\n```\nOLD_HELPER()\n```'),
+        ('a fence after a closing tag with an attribute', '</a b>\n```\nOLD_HELPER()\n```'),
+        ('a fence after an unterminated quoted value', '<a b="c>\n```\nOLD_HELPER()\n```'),
     )
 
     ASSERTIONS = (
+        ('a fence inside the HTML block a complete tag opens',
+         '<a b="c">\n```\nWe removed OLD_HELPER.\n```'),
         ('a mention on its own', 'The OLD_HELPER is gone.'),
         ('a continuation four spaces under a list marker',
          '- Status\n\n    We removed OLD_HELPER from the API.'),

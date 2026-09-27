@@ -514,5 +514,75 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(prose.prepare(base, head, cwd=str(bench.where)), '')
 
 
+class EnvelopeShapeTests(unittest.TestCase):
+    """Edits the envelope admitted while they changed what a file says or does."""
+
+    def test_lines_joined_to_fit_a_new_sentence_are_growth(self):
+        """Markdown prose was counted in lines, so joining two made room for a sentence that
+        passed as no growth. A reworded sentence keeps its count."""
+        notes = '# Notes\n\nThe limit is ten.\nIt holds for every caller.\n'
+        bench = Bench(self, {'NOTES.md': notes})
+        bench.write(notes.replace('The limit is ten.\n', 'The limit is ten. It is checked twice. '), name='NOTES.md')
+        self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
+        bench.write(notes.replace('The limit is ten.', 'The limit is ten, set per caller.'), name='NOTES.md')
+        self.assertEqual(bench.offences(), [])
+
+    def test_a_type_comment_is_what_a_type_checker_reads(self):
+        """`# type: List[int]` is the annotation a type checker reads, and the tree compared
+        without type comments called a changed one prose. A line of prose that begins `# type:`
+        on its own is still prose."""
+        start = 'from typing import List\nx = []  # type: List[int]\n# type: the kind of cache this holds\ny = 1\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('List[int]', 'List[str]'))
+        self.assertIn('behaviour changed, not prose', ' | '.join(bench.offences()))
+        bench.write(start.replace('the kind of cache this holds', 'what the cache keeps'))
+        self.assertEqual(bench.offences(), [])
+
+    def test_a_block_moved_past_its_paragraph_is_not_prose(self):
+        """Every code line kept, a fenced block moved ahead of the paragraph it depends on read as
+        no change. Cutting the paragraph between two blocks is still a cut."""
+        doc = '# Run\n\nFirst export the token.\n\n```sh\nexport T=1\n```\n\nThen push.\n\n```sh\ngit push\n```\n'
+        bench = Bench(self, {'RUN.md': doc})
+        moved = doc.replace('First export the token.\n\n```sh\nexport T=1\n```\n',
+                            '```sh\nexport T=1\n```\n\nFirst export the token.\n')
+        bench.write(moved, name='RUN.md')
+        self.assertIn('RUN.md: its frontmatter or a fenced block changed, or moved', ' | '.join(bench.offences()))
+        bench.write(doc.replace('Then push.\n\n', ''), name='RUN.md')
+        self.assertEqual(bench.offences(), [])
+
+    def test_a_source_in_its_declared_encoding_is_read(self):
+        """A Latin-1 source read by the locale raised out of the envelope instead of answering."""
+        start = b'# -*- coding: latin-1 -*-\n# caf\xe9 counts the visits\nvisits = 0\n'
+        bench = Bench(self, {})
+        (bench.where / 'legacy.py').write_bytes(start)
+        subprocess.run(['git', '-C', str(bench.where), 'add', '-A'], check=True)
+        subprocess.run(['git', '-C', str(bench.where), '-c', 'user.email=a@b.invalid', '-c', 'user.name=A',
+                        'commit', '-q', '-m', 'legacy'], check=True)
+        (bench.where / 'legacy.py').write_bytes(start.replace(b'counts the visits', b'counts visits'))
+        self.assertEqual(bench.offences(), [])
+
+    def test_a_staged_change_the_tree_reverted_is_not_a_clean_head(self):
+        """The envelope's listing compares the tree with HEAD through an index of its own, so a
+        change staged and then reverted in the tree read as clean, and the next commit took it."""
+        import review_git
+        bench = Bench(self)
+        bench.write(START + 'EXTRA = 1\n')
+        subprocess.run(['git', '-C', str(bench.where), 'add', 'thing.py'], check=True)
+        bench.write(START)
+        here = os.getcwd()
+        os.chdir(bench.where)
+        self.addCleanup(os.chdir, here)
+        with self.assertRaisesRegex(ValueError, 'the index differs from HEAD'):
+            review_git.clean_head()
+
+    def test_a_blank_line_after_a_quote_its_fence_ended_is_code(self):
+        """A quote's unclosed fence ends at a line the quote does not hold, and an indented line
+        there is code of its own. Read as the fence's line, the blank run after it was prose."""
+        doc = '# Run\n\n> ```sh\n> ls\n    one\n\n    two\n'
+        bench = Bench(self, {'E.md': doc})
+        bench.write(doc.replace('    one\n\n', '    one\n\n\n'), name='E.md')
+        self.assertIn('E.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
+
+
 if __name__ == '__main__':
     unittest.main()
