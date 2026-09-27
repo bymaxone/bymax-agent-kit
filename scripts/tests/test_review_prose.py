@@ -170,23 +170,28 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_a_blank_line_inside_a_code_block_is_code(self):
         """An empty line after a trailing backslash splits a command in two, and one inside a
-        heredoc changes its body; a blank line with prose on either side is still prose."""
+        heredoc changes its body, whatever container holds the block; a blank line beside prose
+        is prose, and so is a whole paragraph between two blocks."""
         fenced = '# Run\n\nThen:\n\n```bash\ngit push \\\n  origin\n```\n\nSaid.\n\n```sh\nls\n```\n'
+        quoted = '# Run\n\n> ```bash\n> git push \\\n>   origin\n> ```\n\nSaid.\n'
+        listed = '# Run\n\n1. Push:\n\n   ```bash\n   git push \\\n     origin\n   ```\n\nSaid.\n'
         indented = '# Run\n\nThen:\n\n    one\n\n    two\n\nSaid.\n'
-        bench = Bench(self, {'A.md': fenced, 'B.md': indented})
-        for after in (fenced.replace('git push \\\n', 'git push \\\n\n'),
-                      fenced.replace('git push \\\n', 'git push \\\n   \n')):
-            bench.write(after, name='A.md')
-            self.assertIn('A.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
-        for after in (fenced.replace('Then:\n\n', 'Then:\n\n\n'), fenced.replace('Said.\n\n', 'Said.\n\n\n')):
+        bench = Bench(self, {'A.md': fenced, 'B.md': indented, 'C.md': quoted, 'D.md': listed})
+        refused = [('A.md', fenced, fenced.replace('git push \\\n', 'git push \\\n\n')),
+                   ('A.md', fenced, fenced.replace('git push \\\n', 'git push \\\n   \n')),
+                   ('C.md', quoted, quoted.replace('> git push \\\n', '> git push \\\n>\n')),
+                   ('D.md', listed, listed.replace('   git push \\\n', '   git push \\\n\n')),
+                   ('B.md', indented, indented.replace('    one\n\n', '    one\n\n\n')),
+                   ('B.md', indented, indented.replace('    one\n\n', '    one\n')),
+                   ('B.md', indented, indented.replace('    one\n\n', '    one\n   \n'))]
+        for name, before, after in refused:
+            bench.write(after, name=name)
+            self.assertIn(name + ': its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
+            bench.write(before, name=name)
+        for after in (fenced.replace('Then:\n\n', 'Then:\n\n\n'), fenced.replace('Said.\n\n', 'Said.\n\n\n'),
+                      fenced.replace('\nSaid.\n', '')):
             bench.write(after, name='A.md')
             self.assertEqual(bench.offences(), [])
-        bench.write(fenced, name='A.md')
-        for after in (indented.replace('    one\n\n', '    one\n\n\n'),
-                      indented.replace('    one\n\n', '    one\n'),
-                      indented.replace('    one\n\n', '    one\n   \n')):
-            bench.write(after, name='B.md')
-            self.assertIn('B.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
 
     def test_a_directive_moved_to_another_statement_is_not_prose(self):
         """The same `# noqa` on another statement suppresses another

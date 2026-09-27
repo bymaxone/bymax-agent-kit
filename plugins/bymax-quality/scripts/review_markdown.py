@@ -55,6 +55,34 @@ def outside_code(text):
     return '\n'.join(out)
 
 
+
+def code_mask(text):
+    """Per line, whether it belongs to a code block, blank lines included.
+
+    outside_code blanks what it can see is code and leaves every blank line as it is, so a blank
+    line inside a block reads like one outside it. The walk knows the difference: a line it holds
+    in an open fence, its own or a quote's, before and after reading it is inside that fence, and
+    a run of whitespace between two lines of one indented block belongs to that block.
+    """
+    walk, lines, kinds = Walk(), text.split('\n'), []
+    for line in lines:
+        before = walk.fenced()
+        parts = [part.expandtabs(4) for part in line.removesuffix('\r').split('\r')]
+        blanked = [walk.read(part) != part for part in parts]
+        kinds.append('code' if any(blanked) and (before or walk.fenced()) else
+                     'indented' if any(blanked) else 'held' if before and walk.fenced() else None)
+    mask = [kind is not None for kind in kinds]
+    run = []
+    for index, line in enumerate(lines):
+        if kinds[index] is None and not line.strip(' >\t\r'):
+            run.append(index)
+            continue
+        if run and run[0] > 0 and kinds[run[0] - 1] == 'indented' and kinds[index] == 'indented':
+            for held in run:
+                mask[held] = True
+        run = []
+    return mask
+
 class Walk:
     """One container read line by line: the document, or a block quote inside it.
 
@@ -72,6 +100,10 @@ class Walk:
     def content(self):
         """The column the innermost open list item's content starts at, or 0 outside a list."""
         return self.items[-1] if self.items else 0
+
+    def fenced(self):
+        """Whether a fence is open here or in the quote this walk holds."""
+        return self.fence is not None or (self.quote is not None and self.quote.fenced())
 
     def read(self, line):
         """This line as prose sees it: the line, or a blank where it is code."""
