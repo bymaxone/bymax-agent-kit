@@ -60,7 +60,7 @@ def code_mask(text):
     """Per line, whether it belongs to a code block, blank lines included.
 
     outside_code blanks what it can see is code and leaves every blank line as it is, so a blank
-    line inside a block reads like one outside it. The walk knows the difference: a line it holds
+    line inside a block reads like one outside it. A line the walk holds
     in an open fence, its own or a quote's, before and after reading it is inside that fence, and
     a run of blank lines between two lines of indented code is code too.
     """
