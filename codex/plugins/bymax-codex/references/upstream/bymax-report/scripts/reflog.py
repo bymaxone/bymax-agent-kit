@@ -5,6 +5,8 @@ move since was this repository catching up with another one, since a catch-up me
 that moment was corrected afterwards. Which moves are catch-ups is read from the messages git
 writes, which do not follow the reader's language.
 """
+from __future__ import annotations
+
 import datetime as dt
 from pathlib import Path
 import re
