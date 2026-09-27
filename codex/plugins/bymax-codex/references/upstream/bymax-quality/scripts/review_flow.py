@@ -1647,38 +1647,23 @@ def execute_codex(directory, owner_fd):
     already spent there is no review left to run, and the question that remains — whether
     this machine has a reviewer at all — is answered by an availability probe instead.
     """
-    gate_first(read_state(directory), directory)   # before the attempt is reserved, never after
+    opening = read_state(directory)
+    gate_first(opening, directory)   # before the attempt is reserved, never after
     exhausted = spent(directory)
     if exhausted is not None:
         return availability(directory, exhausted, owner_fd)
+    # Built before the attempt is reserved: prompt() runs the gates again, and a collect that
+    # fails the second time would otherwise spend the attempt on a review nobody ran.
+    task = prompt(opening, directory)
     state = reserve_codex(directory)
-    report = directory / f"codex-{state['round']}-{state['codex_attempts']}.json"
-    log = report.with_suffix('.log')
-    schema = directory / 'report-schema.json'
     try:
+        require(all(state[key] == opening[key] for key in ('head', 'round', 'review_base')),
+                'The campaign moved while this review was being prepared; run it again.')
         binary = resolve_codex()
         if binary is None:
             waive(directory, state, 'absent', '', '', '')
         else:
-            schema.write_text(Path(__file__).with_name('review-report.schema.json').read_text())
-            # The resolved absolute path, never the bare name: the binary a waiver names must
-            # be the installed one, not whatever a single command's $PATH pointed at.
-            profile = escalation(state)
-            if profile:
-                print('Decisive round: this Codex pass uses the ' + ESCALATED_PROFILE
-                      + ' profile from ' + str(codex_home()) + '.', file=sys.stderr)
-            command = [binary, 'exec', *profile, '-c', 'approval_policy="never"', '--sandbox',
-                       'read-only', '--ephemeral', '--output-schema', str(schema),
-                       '--output-last-message', str(report), '-']
-            with log.open('w') as output:
-                result = subprocess.run(command, input=prompt(state, directory), text=True,
-                                        stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
-            if result.returncode == 0:
-                with locked(directory):
-                    latest = read_state(directory)
-                    record(argparse.Namespace(reviewer='codex', report=str(report)), directory, latest)
-            else:
-                codex_outcome(directory, state, log, binary)
+            run_codex(directory, state, task, binary, owner_fd)
     finally:
         with locked(directory):
             latest = read_state(directory)
@@ -1686,6 +1671,32 @@ def execute_codex(directory, owner_fd):
                 latest['codex_running'] = False
                 save(directory, latest)
     return latest
+
+
+def run_codex(directory, state, task, binary, owner_fd):
+    """One read-only Codex pass over the task, recorded when it completes. The binary is the
+    resolved absolute path, never the bare name: the binary a waiver names must be the installed
+    one, not whatever a single command's $PATH pointed at."""
+    report = directory / f"codex-{state['round']}-{state['codex_attempts']}.json"
+    log = report.with_suffix('.log')
+    schema = directory / 'report-schema.json'
+    schema.write_text(Path(__file__).with_name('review-report.schema.json').read_text())
+    profile = escalation(state)
+    if profile:
+        print('Decisive round: this Codex pass uses the ' + ESCALATED_PROFILE
+              + ' profile from ' + str(codex_home()) + '.', file=sys.stderr)
+    command = [binary, 'exec', *profile, '-c', 'approval_policy="never"', '--sandbox',
+               'read-only', '--ephemeral', '--output-schema', str(schema),
+               '--output-last-message', str(report), '-']
+    with log.open('w') as output:
+        result = subprocess.run(command, input=task, text=True,
+                                stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
+    if result.returncode == 0:
+        with locked(directory):
+            latest = read_state(directory)
+            record(argparse.Namespace(reviewer='codex', report=str(report)), directory, latest)
+    else:
+        codex_outcome(directory, state, log, binary)
 
 
 def codex_check():
