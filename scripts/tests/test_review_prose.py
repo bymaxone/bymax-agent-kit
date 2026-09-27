@@ -192,6 +192,16 @@ class EnvelopeTests(unittest.TestCase):
                       fenced.replace('\nSaid.\n', '')):
             bench.write(after, name='A.md')
             self.assertEqual(bench.offences(), [])
+        bench.write(fenced, name='A.md')
+        # A blank line beside an indented block, and the one that ends an unclosed quoted fence.
+        for after in (indented.replace('Then:\n\n', 'Then:\n\n\n'), indented.replace('    two\n\n', '    two\n\n\n')):
+            bench.write(after, name='B.md')
+            self.assertEqual(bench.offences(), [])
+        bench.write(indented, name='B.md')
+        unclosed = '# Run\n\n> ```bash\n> ls\n\nSaid.\n'
+        bench = Bench(self, {'E.md': unclosed})
+        bench.write(unclosed.replace('> ls\n\n', '> ls\n  \n'), name='E.md')
+        self.assertEqual(bench.offences(), [])
 
     def test_a_directive_moved_to_another_statement_is_not_prose(self):
         """The same `# noqa` on another statement suppresses another
