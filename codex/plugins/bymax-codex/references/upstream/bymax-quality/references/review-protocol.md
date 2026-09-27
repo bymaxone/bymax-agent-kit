@@ -56,7 +56,7 @@ The context must contain:
   state a machine has and no other machine does, at the tooling layer and at the data layer.
 
 **Before `start`, the prose is read by someone who never saw the author's reasoning.** A
-false sentence used to cost a whole round — freeze, two reviewers, triage, a correction —
+false sentence costs a whole round — freeze, two reviewers, triage, a correction —
 and measured on the campaign that shipped the claims checks, the corrections answering prose
 findings wrote 203 lines of prose against 19 of code: the answer to a prose finding was more
 prose. So `python3 "$FLOW" prose --base <merge-base-sha>` runs on the committed, not yet
