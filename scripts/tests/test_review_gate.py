@@ -546,9 +546,7 @@ class MatrixGateTests(FlowBench):
         self.assertIn('No test this correction changed fails before it', self.text('prompt'))
 
     def test_a_node_that_fails_only_outside_a_checkout_is_not_demanded(self):
-        """The previous tree is unpacked from the object store with no .git, so a test that reads
-        the repository fails there whatever the fix. Unpacked the same way, the head fails it
-        too, and a failure both sides share says nothing about the fix."""
+        """A failure both sides share says nothing about the fix."""
         (self.repo / 'tests').mkdir(exist_ok=True)
         (self.repo / 'tests/test_git.py').write_text(
             'import pathlib, subprocess\n\n\ndef test_tracked():\n'

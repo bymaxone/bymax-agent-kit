@@ -98,7 +98,7 @@ class NotUtf8Tests(unittest.TestCase):
 
     def test_a_latin1_test_name_is_read_and_names_the_same_file_to_git(self):
         """The name comes back with its byte kept as a surrogate escape, and handed to git again
-        it resolves the same blob: the state and the prompts can carry it, and git still finds it."""
+        it resolves the same blob."""
         head = commit_with(self.where, self.base, {b'tests/test_caf\xe9.py': b'def test_x(): pass\n'})
         self.assertEqual(review_evidence.tests_changed(self.base, head), (['tests/test_caf\udce9.py'], []))
         self.assertEqual(review_git.git('cat-file', '-p', head + ':tests/test_caf\udce9.py'),
@@ -153,8 +153,7 @@ class NotUtf8Tests(unittest.TestCase):
         capture.read_bytes().decode('utf-8')
 
     def test_the_command_line_prints_a_name_that_is_not_utf8(self):
-        """What the runtime prints — a prompt — can carry such a name as an escape,
-        which a strict stdout refuses; it is printed as the bytes of the name."""
+        """It is printed as the bytes of the name."""
         script = ('import sys; sys.path.insert(0, %r)\n'
                   'import review_flow\n'
                   'review_flow.main = lambda: print("tests/test_caf\\udce9.py")\n'
@@ -169,16 +168,13 @@ class ReaderTextTests(unittest.TestCase):
     """What a reviewer's stdin receives, and what a digest reads, for a name that is not UTF-8."""
 
     def test_a_reader_is_handed_valid_utf8_with_the_byte_spelled_out(self):
-        """Codex refuses stdin that is not valid UTF-8 before any model reads it, so handing it the
-        original bytes spent every attempt on a candidate carrying such a name."""
+        """Handing it the original bytes spent every attempt on a candidate carrying such a name."""
         text = review_git.for_a_reader('Tests changed: tests/test_caf\udce9.py and caf\u00e9.md')
         self.assertEqual(text, 'Tests changed: tests/test_caf\\xe9.py and caf\u00e9.md')
         text.encode('utf-8')
 
     def test_under_a_latin1_locale_the_reader_gets_what_git_gave(self):
-        """git_raw() reads through the filesystem encoding, so under Latin-1 a UTF-8 name arrives
-        as two characters, and the runtime's own em dashes cannot be encoded back through it at
-        all. Each reaches the reader as itself."""
+        """Each reaches the reader as itself."""
         from unittest import mock
         with mock.patch.object(review_git.sys, 'getfilesystemencoding', return_value='iso8859-1'):
             text = review_git.for_a_reader('check \u2014 caf\u00c3\u00a9.md and plain ascii')
