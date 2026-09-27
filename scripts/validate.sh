@@ -190,7 +190,34 @@ for f in "${REQUIRED_FILES[@]}"; do
 done
 
 section "Testing bounded review and push guard behavior"
-python3 -m unittest discover -s scripts/tests -v || fail "review flow regression tests failed"
+# One process per module, several at once. Run one after another, the suite outgrew the
+# thirty minutes review_flow.py's check allows a gate, on a machine busy with other work.
+# Each module is its own interpreter, so nothing a case changes in one reaches another.
+test_logs="$(mktemp -d)"
+run_module() {
+  local name
+  name="$(basename "$1" .py)"
+  python3 -m unittest discover -s scripts/tests -p "${name}.py" -v > "${test_logs}/${name}.log" 2>&1 \
+    || : > "${test_logs}/${name}.failed"
+}
+for module in scripts/tests/test_*.py; do
+  [[ -e "${module}" ]] || continue
+  # Polled rather than `wait -n`, which the bash macOS ships (3.2) does not have.
+  while [[ "$(jobs -rp | wc -l)" -ge "${BYMAX_TEST_JOBS:-6}" ]]; do sleep 0.2; done
+  run_module "${module}" &
+done
+wait
+for log in "${test_logs}"/*.log; do
+  name="$(basename "${log}" .log)"
+  if [[ -e "${test_logs}/${name}.failed" ]]; then
+    cat "${log}"
+    fail "${name}: regression tests failed"
+  else
+    ok "${name}: $(grep -E '^Ran [0-9]+ tests?' "${log}" | tail -1)"
+  fi
+done
+[[ -n "$(ls "${test_logs}"/*.log 2>/dev/null)" ]] || fail "no test module ran"
+rm -rf "${test_logs}"
 
 # ---------------------------------------------------------------------------
 # 7. Summary
