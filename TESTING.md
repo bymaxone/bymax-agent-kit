@@ -9,6 +9,7 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | --- | --- |
 | Malformed manifests, frontmatter, missing resources | Claude validation, check-frontmatter and Codex package validator |
 | Shell snippets mutate scope, lose status or interpolate unsafe refs | `scripts/tests/test_command_shell.py` |
+| The suite runner in `validate.sh` passes while a module fails, or while no module ran | `scripts/tests/test_validate_runner.py` |
 | Stale/dirty review, incomplete reviewers, missing gates, bad triage | `scripts/tests/test_review_flow.py` |
 | Reopened finding, scope widening, changed/deleted tests, lost provenance | Review-flow behavioral tests |
 | Shell push spelling, multiple refs/tags, worktrees, foreign/custom hooks | `scripts/tests/test_review_prepush.py`, including actual pushes to isolated local remotes |
