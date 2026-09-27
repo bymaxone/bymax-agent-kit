@@ -38,7 +38,7 @@ class DoctorTests(unittest.TestCase):
 
 
     def test_every_module_the_installer_plants_is_checked(self):
-        """The doctor kept its own list of six, and a stale module outside it — the matrix, the
+        """The doctor kept its own list, and a stale module outside it — the matrix, the
         claims checker — read as installed."""
         with tempfile.TemporaryDirectory() as directory, patch.object(DOCTOR.Path, 'home', return_value=Path(directory)):
             runtime = Path(directory) / '.claude/bymax-review'

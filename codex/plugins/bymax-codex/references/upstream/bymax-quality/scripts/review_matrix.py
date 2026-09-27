@@ -280,8 +280,7 @@ def enumerated(root, rule):
 class Tally:
     """The count an enumeration states, read as its rows arrive rather than from a tail: a
     `grep -c` over a large tree prints a row per file, and a tail holds only the last of them.
-    It keeps running sums and the last row, never the rows, so an output without end holds
-    nothing but its numbers until the deadline stops it.
+    It keeps running sums and the last row rather than every row.
 
     `wc -l a b` appends an aggregate row, and adding it answered 8 for 4 on a real rule. It is
     dropped by what MAKES it an aggregate — the last row of a multi-row run, labelled `total`,

@@ -107,7 +107,7 @@ class RunTests(unittest.TestCase):
     def test_an_enumeration_longer_than_a_tail_is_counted_whole(self):
         """A `grep -c` over a large tree prints a row per file, and read through the bounded tail
         a run is, output that filled it was refused as no count at all. The rows are counted as
-        they arrive instead, and nothing but their sums is kept."""
+        they arrive instead."""
         bench = Bench(self)
         rows = 5000
         self.assertEqual(matrix.enumerated(str(bench.where), {

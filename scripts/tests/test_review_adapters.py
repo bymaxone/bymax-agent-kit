@@ -32,7 +32,7 @@ class AttemptTests(FlowBench):
     def test_a_task_that_cannot_be_built_spends_no_attempt(self):
         """Both adapters reserved the attempt and then built the task, whose prompt() runs the
         gates again: a collect that failed that second time spent an attempt on a review nobody
-        ran, and two of them spent the candidate's budget."""
+        ran, and enough of them spent the candidate's budget."""
         binary = self.fake_codex('#!/bin/sh\nexit 0\n')
         self.start()
         self.checks()

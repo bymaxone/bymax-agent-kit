@@ -37,10 +37,9 @@ def command(schema):
 def execute(directory, owner_fd, flow, reviewer):
     """Supply the frozen diff and record only a completed matching structured report.
 
-    Everything that can refuse runs before the attempt is reserved, for the same reason:
-    flow.prompt() raises when the declared gates have not passed — and runs them again, so a
-    collect that fails the second time is a refusal too — and record refuses the substitute
-    without a waiver the runtime's own probe wrote. Reserving first spent an attempt on a
+    The runtime's refusals run before the attempt is reserved, for the same reason:
+    flow.prompt() raises when the declared gates have not passed, and record refuses the
+    substitute without a waiver the runtime's own probe wrote. Reserving first spent an attempt on a
     refusal no reviewer ever saw. The predicates are the runtime's, called here rather than copied.
     """
     opening = flow.read_state(directory)
