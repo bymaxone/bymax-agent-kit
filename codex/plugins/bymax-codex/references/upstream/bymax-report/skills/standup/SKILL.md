@@ -130,13 +130,17 @@ What the file holds:
 - `prs`: pull requests merged or opened in the period, with title, body, state, head
   branch and the Conventional Commits type and scope parsed from the title. `shipped`
   is true only for one that merged in the period.
-- `commits`: non-merge commits in the period on any branch, remote branch or tag, with
-  `pr` set when a pull request explains them and `shipped` true only when the delivery
-  branch had reached them by the end of the period. `coverage.shipped` names the record
-  that decided it: the branch's reflog, which sees a branch moved without a merge, or
-  its commit dates, which cannot. A commit with `pr: null` is one no
-  pull request explains, which is not the same as one that shipped; its body is kept.
-  `shipped: null` means nothing decided what shipped, and `coverage.shipped` says why.
+- `commits`: non-merge commits on any branch, remote branch or tag that were authored in
+  the period or that the delivery branch received in it, with `pr` set when a pull request
+  explains them. `landed` is true for one the delivery branch received in the period, false
+  for one it did not, and null where nothing recorded it; `coverage.landed` says which.
+  `shipped` is true only when the delivery branch had reached the commit by the end of the
+  period. `coverage.shipped` names the record that decided it: the branch's reflog, which
+  sees a branch moved without a merge, or its commit dates, which can only say what had
+  not shipped — a commit they cannot rule out is `shipped: null`, and
+  `coverage.commits_unknown` counts them. A commit with `pr: null` is one no pull request
+  explains, which is not the same as one that shipped; its body is kept. `shipped: null`
+  means nothing decided whether that commit shipped, and `coverage.shipped` says why.
 - `requests`: what a person typed into Claude Code or Codex on this repository in
   the period, dated to the minute, with the git branch a Claude session was on.
   Pasted text from a third party — a client's message, a bug report — is a request
@@ -199,6 +203,8 @@ same change, and a commit whose `pr` names a pull request the file does not list
 number came from its own subject) is a bullet of its own. A pull request still open,
 one closed without merging, and a commit whose `shipped` is false are work
 in flight: they are evidence for a PROGRESS item that is still open, never an update.
+A commit whose `shipped` is null is neither: it is never an update on its own, and when
+`coverage.commits_unknown` is not zero the evidence says how many commits nothing decided.
 A branch merged during the period is shipped whatever its state is now, because the
 delivery branch had reached its commits by the period's end; where the merge squashed
 them it had reached the squashed commit instead, and that one carries the change.

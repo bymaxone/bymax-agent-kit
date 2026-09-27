@@ -13,6 +13,7 @@ import inspect
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,64 @@ def noon(date: str) -> str:
 def write_jsonl(path: Path, records) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('\n'.join(json.dumps(r) for r in records) + '\n')
+
+
+def stores_of(source: str, name: str) -> set[int]:
+    """The lines of `source` that store to `name`, refusing a store a line trace cannot isolate.
+
+    A store is isolated when it is its own statement on its own line, or the target of a
+    statement nothing else shares a line with. Inside an expression it may be skipped by a
+    short-circuit while its line runs; beside another statement on one line, that other
+    statement may run while the store does not.
+    """
+    tree = ast.parse(source)
+    statements = [node for node in ast.walk(tree) if isinstance(node, ast.stmt)]
+    on_line: dict[int, int] = {}
+    for statement in statements:
+        on_line[statement.lineno] = on_line.get(statement.lineno, 0) + 1
+    refused, found = [], set()
+    for statement in statements:
+        for node in ast.walk(statement):
+            if isinstance(node, ast.ExceptHandler) and node.name == name:
+                refused.append((node.lineno, 'an except clause binds it'))
+        own = [child for child in ast.iter_child_nodes(statement) if not isinstance(child, ast.stmt)]
+        for part in own:
+            for node in ast.walk(part):
+                if not (isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Store)):
+                    continue
+                if any(isinstance(n, ast.NamedExpr) and n.target is node for n in ast.walk(part)):
+                    refused.append((node.lineno, 'it is stored inside an expression'))
+                elif on_line[statement.lineno] > 1:
+                    refused.append((node.lineno, 'another statement shares its line'))
+                else:
+                    found.add(node.lineno)
+    if refused:
+        raise AssertionError('a line trace cannot tell whether these stores to %s ran: %s'
+                             % (name, '; '.join('line %d, %s' % item for item in sorted(refused))))
+    return found
+
+
+class CountingGateTests(unittest.TestCase):
+    """The gate that holds each refusal counter to a case has to refuse what it cannot see."""
+
+    def test_a_counter_a_line_trace_cannot_isolate_is_refused_by_line(self):
+        """Three shapes a line trace reaches without running the store, each measured green
+        before this: the short-circuit, the one-line if body, and the except binding."""
+        shapes = {
+            'short-circuit': 'def f(p, unread):\n    if p is None and (unread := unread + 1):\n        pass\n',
+            'one-line if body': 'def f(p, unread):\n    for x in p:\n        if x is None: unread += 1; continue\n',
+            'except binding': 'def f():\n    try:\n        pass\n    except ValueError as unread:\n        pass\n',
+        }
+        for shape, source in shapes.items():
+            with self.subTest(shape=shape):
+                with self.assertRaisesRegex(AssertionError, 'line [0-9]'):
+                    stores_of(source, 'unread')
+
+    def test_a_counter_on_its_own_line_is_found(self):
+        """The positive control: the shape commit_shas is written in, and a tuple target."""
+        source = ('def f(p):\n    unread = 0\n    for x in p:\n        if x is None:\n'
+                  '            unread += 1\n            continue\n        unread, _ = unread + 1, 0\n')
+        self.assertEqual(stores_of(source, 'unread'), {2, 5, 7})
 
 
 class PeriodTests(unittest.TestCase):
@@ -115,6 +174,9 @@ class CollectTests(unittest.TestCase):
     def setUp(self):
         self.m = load()
         self.tmp = Path(tempfile.mkdtemp())
+        # Registered first, so it runs last: a case that takes a write bit away restores it
+        # in a cleanup of its own, which has to run before the tree can be removed.
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.home = self.tmp / 'home'
         self.repo = self.tmp / 'work' / 'app'
         self.repo.mkdir(parents=True)
@@ -349,14 +411,14 @@ class CollectTests(unittest.TestCase):
         both spellings, so that is what is asked. The initialisation is a store too and is
         always reached, which costs nothing and is why it needs no exception.
 
-        What this cannot see is a store sharing a line with something that short-circuits before
-        it: measured, `if payload.get('commits') is None and (unread := unread + 1):` leaves the
-        gate green, because the line ran and the store did not. Line numbers are the granularity
-        of the trace, so that shape is the one a reader has to catch."""
+        The trace sees lines, so a store sharing its line with something that can be skipped is
+        reached without running: `if x and (unread := unread + 1):` short-circuits, and
+        `if x: unread += 1; continue` puts the store in the body of an `if` on the if's own line.
+        Measured, both left this gate green. `except E as unread` binds the name with no store
+        node at all. `stores_of` refuses all three by line, so a counter written that way fails
+        here, loud, instead of passing unmeasured."""
         lines, first = inspect.getsourcelines(self.m.commit_shas)
-        parsed = ast.parse(textwrap.dedent(''.join(lines)))
-        return {first + node.lineno - 1 for node in ast.walk(parsed)
-                if isinstance(node, ast.Name) and node.id == 'unread' and isinstance(node.ctx, ast.Store)}
+        return {first + line - 1 for line in stores_of(textwrap.dedent(''.join(lines)), 'unread')}
 
     def lines_reached_in_collect(self, run):
         """Which lines of the collector `run` actually executed. The counters are one statement
@@ -575,8 +637,14 @@ class CollectTests(unittest.TestCase):
         # run until someone removes one -- so the advice has to say which of the two causes it
         # is for.
         self.assertTrue((waiting / 'a-run').exists(), 'the refusal cost the run its arguments')
-        self.assertIn('If yours is still waiting, run this block again', done.stderr)
-        self.assertNotIn('Check both, write yours again', done.stderr)
+        # Whole, because the advice is the part that does harm and any clause can carry it: a
+        # message keeping the right sentence and adding "Either way, write yours again now."
+        # passed a check for one clause. A reword changes this text too, where a reviewer sees it.
+        self.assertEqual(done.stderr,
+                         'Could not claim the arguments: another run took them first, or %s or the\n'
+                         'directory above it cannot be written -- the claim moves the file from one into the\n'
+                         'other. Check both. If yours is still waiting, run this block again once they can be\n'
+                         'written; if another run took it, write it again first.\n' % waiting)
 
     def test_the_skill_block_stops_when_there_is_no_temporary_directory(self):
         """An unchecked `mktemp -d` leaves the variable empty, and the collector is then
@@ -756,16 +824,19 @@ class CollectTests(unittest.TestCase):
     def test_a_clone_reads_the_dates_because_its_reflog_logs_fetches(self):
         """This clone fetched again after the period, so its reflog records where the clone
         stood, not where the delivery branch stood in the week: read that way, a Friday merge
-        pulled on Monday comes back as work still in flight. The commit dates carry the
-        upstream merge time instead, which is the right answer here. This fixture also pins
-        the first-parent walk: without it the date walk returns the merge's second parent."""
+        pulled on Monday comes back as work still in flight. The commit dates answer instead,
+        and they answer only one way: a commit the last first-parent commit dated in the week
+        does not reach had not shipped, and one it does reach may have arrived later, so it is
+        unknown rather than shipped. This fixture also pins the first-parent walk: without it
+        the date walk returns the merge's second parent, which then reaches feat(b)."""
         data = self.m.collect(self.clone_that_fetched_late(), self.since, self.until, self.home, use_gh=False)
         shipped = {c['subject']: c['shipped'] for c in data['commits']}
-        self.assertIs(shipped['feat(a): the work of the week'], True)
+        self.assertIsNone(shipped['feat(a): the work of the week'])
         self.assertIs(shipped['feat(b): merged the week after'], False)
         self.assertEqual(data['coverage']['delivery_ref'], 'origin/main')
         self.assertIn('commit dates', data['coverage']['shipped'])
         self.assertNotIn('reflog', data['coverage']['shipped'])
+        self.assertEqual(data['coverage']['commits_unknown'], 1)
 
     def repo_that_delivers_by_pushing(self):
         """A repository whose delivery ref is the remote one and whose only moves of it are
@@ -884,6 +955,8 @@ class CollectTests(unittest.TestCase):
             git(app, 'reset', '-q', '--hard', 'refs/remotes/upstream/main')
         elif how == 'reset':
             git(app, 'reset', '-q', '--hard', 'upstream/main')
+        elif how == 'checkout-B':
+            git(app, 'checkout', '-q', '-B', 'main', 'upstream/main')
         else:
             git(app, 'merge', '-q', '--ff-only', 'upstream/main')
         if how.startswith('pruned'):
@@ -927,15 +1000,17 @@ class CollectTests(unittest.TestCase):
         words as `merge feat/x` and `reset: moving to HEAD~1`, which are local work, so the
         word alone sent both here down the delivery path: the reflog was trusted, it stood
         where we were before the catch-up, and the week's work came back unshipped. Where the
-        ref was sent is what separates them, and git records that in the same message."""
+        ref was sent is what separates them, and git records that in the same message. After a
+        catch-up nothing recorded where the branch stood, so the week's work is unknown."""
         for how in ('merge', 'reset'):
             with self.subTest(how=how):
                 data = self.m.collect(self.repo_that_caught_up_after_the_period(how),
                                       self.since, self.until, self.home, use_gh=False)
                 shipped = {c['subject']: c['shipped'] for c in data['commits']}
-                self.assertIs(shipped['feat(a): the work of the week'], True)
+                self.assertIsNone(shipped['feat(a): the work of the week'])
                 self.assertEqual(data['coverage']['delivery_ref'], 'main')
                 self.assertIn('commit dates', data['coverage']['shipped'])
+                self.assertIn('unknown', data['coverage']['shipped'])
 
     def test_the_same_action_words_sent_to_our_own_ref_are_not_a_catch_up(self):
         """`merge mine` and `reset: moving to mine` are this repository moving its own
@@ -999,11 +1074,11 @@ class CollectTests(unittest.TestCase):
         """`GIT_REFLOG_ACTION= git fetch` writes an entry with nothing before its colon, which
         is a real sync wearing no name. Reading the unreadable action as proof that no sync
         happened trusted this clone's stale reflog and reported the week's delivered work as
-        unshipped."""
+        unshipped; read as a sync, it is unknown."""
         data = self.m.collect(self.clone_that_fetched_late(blank_action=True),
                               self.since, self.until, self.home, use_gh=False)
         shipped = {c['subject']: c['shipped'] for c in data['commits']}
-        self.assertIs(shipped['feat(a): the work of the week'], True)
+        self.assertIsNone(shipped['feat(a): the work of the week'])
         self.assertIs(shipped['feat(b): merged the week after'], False)
         self.assertIn('commit dates', data['coverage']['shipped'])
 
@@ -1148,6 +1223,168 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(set(shipped.values()), {None})
         self.assertIsNone(data['coverage']['delivery_ref'])
         self.assertIn('no default branch', data['coverage']['shipped'])
+
+    def test_what_a_reflog_operand_names_decides_a_catch_up(self):
+        """Each shape git writes when a ref is caught up with another repository, measured on
+        git 2.54, beside the same action sent to our own ref. An operand that is only an object
+        id may be anyone's, so it counts as a catch-up: that costs the week an unknown, where
+        reading it as ours reports work from a record it may not be."""
+        repo = self.clone_that_fetched_late()
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        subprocess.run(['git', '-C', str(repo), 'branch', '-q', 'feat/x', 'origin/main'], check=True, env=env)
+        subprocess.run(['git', '-C', str(repo), 'branch', '-q', 'feat/y', 'origin/main'], check=True, env=env)
+        sha = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'origin/main'], check=True,
+                             capture_output=True, text=True, env=env).stdout.strip()
+        table = {
+            'branch: Reset to origin/main': True,
+            'branch: Reset to feat/x': False,
+            'branch: Created from origin/main': True,
+            'branch: Created from HEAD': False,
+            'reset: moving to FETCH_HEAD': True,
+            'reset: moving to origin/main': True,
+            'reset: moving to HEAD~1': False,
+            f'merge {sha}: Fast-forward': True,
+            f'merge {sha[:7]}: Fast-forward': True,
+            f'rebase (finish): refs/heads/main onto {sha}': True,
+            'rebase -i (finish): returning to refs/heads/main': True,
+            "merge feat/x origin/main: Merge made by the 'octopus' strategy.": True,
+            "merge origin/main feat/x: Merge made by the 'octopus' strategy.": True,
+            "merge feat/x feat/y: Merge made by the 'octopus' strategy.": False,
+            'merge HEAD~1: Fast-forward': False,
+            'commit: local work': False,
+            'update by push': False,
+            'fetch -q: fast-forward': True,
+        }
+        for message, expected in table.items():
+            with self.subTest(message=message):
+                self.assertIs(self.m.moved_by_syncing(repo, message, False), expected)
+
+    def test_a_branch_reset_to_the_remote_after_the_period_leaves_the_week_unknown(self):
+        """`git checkout -B main upstream/main` writes `branch: Reset to upstream/main`, a
+        catch-up the classifier read as local: the reflog was trusted, it stood where we were
+        before the catch-up, and the week's delivered work came back unshipped."""
+        data = self.m.collect(self.repo_that_caught_up_after_the_period('checkout-B'),
+                              self.since, self.until, self.home, use_gh=False)
+        shipped = {c['subject']: c['shipped'] for c in data['commits']}
+        self.assertIsNone(shipped['feat(a): the work of the week'])
+        self.assertIn('unknown', data['coverage']['shipped'])
+
+    def test_work_written_in_the_week_and_pushed_after_it_is_never_shipped_by_its_date(self):
+        """Issue #41's second finding: without a record of the push, the commit dates carry
+        the day the work was written, which reads as delivered inside the week. They can only
+        say what had not shipped, so this is unknown, and never shipped."""
+        repo = self.repo_that_delivers_by_pushing()
+        for log in (repo / '.git/logs').rglob('*'):
+            if log.is_file():
+                log.unlink()
+        data = self.m.collect(repo, self.since, self.until, self.home, use_gh=False)
+        self.assertEqual([(c['subject'], c['shipped']) for c in data['commits']],
+                         [('feat(x): written in the week, pushed after it', None)])
+        self.assertIn('commit dates', data['coverage']['shipped'])
+
+    def repo_that_landed_old_work_in_the_period(self):
+        """A delivery branch whose reflog covers the whole period and before it. Four pieces of
+        work: one written and landed before the week, one written before and fast-forwarded in
+        during it, a branch written before and merged during it, and one written in the week and
+        landed after it."""
+        repo = self.tmp / 'landing' / 'app'; repo.mkdir(parents=True)
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(*args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, env={**env, **extra})
+        git('init', '-q', '-b', 'main')
+        git('commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-01T12:00:00Z')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(old): written and landed before', when='2026-09-02T12:00:00Z')
+        git('checkout', '-q', '-b', 'feat/ff')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(ff): written before, landed in the week', when='2026-09-10T12:00:00Z')
+        git('checkout', '-q', '-b', 'feat/side', 'main')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(side): written before, merged in the week', when='2026-09-11T12:00:00Z')
+        git('checkout', '-q', 'main')
+        git('merge', '-q', '--ff-only', 'feat/ff', when='2026-09-16T12:00:00Z')
+        git('merge', '-q', '--no-ff', '-m', 'Merge feat/side', 'feat/side', when='2026-09-17T12:00:00Z')
+        git('checkout', '-q', '-b', 'feat/late')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(late): written in the week, landed after', when='2026-09-18T12:00:00Z')
+        git('checkout', '-q', 'main')
+        git('merge', '-q', '--ff-only', 'feat/late', when='2026-09-25T12:00:00Z')
+        return repo.resolve()
+
+    def test_work_that_landed_in_the_period_is_collected_whenever_it_was_written(self):
+        """Issue #41's first finding: the period filter read the author date, and a
+        fast-forward moves the ref without rewriting the commit, so work written before the week
+        and landed in it was invisible. The reflog at both ends of the period says what the
+        branch received, and that is selected too; what was written and landed before is not."""
+        data = self.m.collect(self.repo_that_landed_old_work_in_the_period(), self.since, self.until,
+                              self.home, use_gh=False)
+        got = {c['subject']: (c['landed'], c['shipped']) for c in data['commits']}
+        self.assertEqual(got, {
+            'feat(ff): written before, landed in the week': (True, True),
+            'feat(side): written before, merged in the week': (True, True),
+            'feat(late): written in the week, landed after': (False, False),
+        })
+        self.assertEqual(data['coverage']['commits_landed'], 2)
+        self.assertIn('reflog', data['coverage']['landed'])
+
+    def clone_made_during_the_week(self):
+        """A clone taken in the middle of the week, of a history older than it, and fetched
+        once more inside the week. A clone writes no reflog for its tracking refs, so the fetch
+        is that ref's first entry: it answers for the end of the week and has nothing for its
+        start. Dating the start from the commits instead would call the week's work landed."""
+        root = self.tmp / 'midweek'; root.mkdir(parents=True)
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(where, *args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
+        work, app = root / 'work', root / 'app'
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-05T12:00:00Z')
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'feat(w): written in the week', when='2026-09-16T12:00:00Z')
+        subprocess.run(['git', 'clone', '-q', str(work), str(app)], check=True, capture_output=True,
+                       env={**env, 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z'})
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'feat(w): more of the week', when='2026-09-18T12:00:00Z')
+        git(app, 'fetch', '-q', 'origin', when='2026-09-18T13:00:00Z')
+        return app.resolve()
+
+    def test_where_nothing_recorded_both_ends_commits_are_selected_by_author_date(self):
+        """A reflog that begins after the period, one a catch-up corrected after its start, and
+        a clone made mid-week cannot say where the branch stood when the week began, so what
+        landed is not claimed: every commit says None and the coverage names the fallback."""
+        cases = {'a reflog that begins after the period': self.repo_whose_reflog_starts_after_the_period(),
+                 'a clone that fetched after the week began': self.clone_that_fetched_late(),
+                 'a clone made during the week': self.clone_made_during_the_week()}
+        for name, repo in cases.items():
+            with self.subTest(case=name):
+                data = self.m.collect(repo, self.since, self.until, self.home, use_gh=False)
+                self.assertEqual({c['landed'] for c in data['commits']}, {None})
+                self.assertIn('author date alone', data['coverage']['landed'])
+
+    def test_author_is_applied_before_the_commits_of_each_pull_request_are_read(self):
+        """Reading a pull request's commits is one `gh pr view` each, and another person's pull
+        request is read for nothing once --author drops it."""
+        rows = [{'number': 5, 'title': 'feat: mine', 'createdAt': noon('2026-09-17'), 'author': {'login': 'dev'}},
+                {'number': 6, 'title': 'feat: theirs', 'createdAt': noon('2026-09-18'), 'author': {'login': 'other'}}]
+        viewed = []
+        def fake_gh(cmd, **kwargs):
+            if 'view' in cmd:
+                viewed.append(cmd[cmd.index('view') + 1])
+                return subprocess.CompletedProcess(cmd, 0, stdout='{"commits": []}', stderr='')
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows), stderr='')
+        with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
+            prs, _ = self.m.collect_prs(self.repo, self.since, self.until, 'dev')
+        self.assertEqual([pr['number'] for pr in prs], [5])
+        self.assertEqual(viewed, ['5'])
+
+    def test_a_commit_two_pull_requests_claim_shipped_in_the_one_that_merged_first(self):
+        """A pull request stacked on another carries its commits too; the commit shipped when
+        the first of them merged, and an open pull request never takes it from a merged one."""
+        commits = [{'sha': 'a' * 12, 'subject': 'feat: shared', 'ref': 'main', 'pr': None}]
+        prs = [{'number': 9, 'title': 'feat: open', 'head': 'o', 'merged_at': None, 'shas': ['a' * 12]},
+               {'number': 7, 'title': 'feat: later', 'head': 'l', 'merged_at': noon('2026-09-18'), 'shas': ['a' * 12]},
+               {'number': 5, 'title': 'feat: first', 'head': 'f', 'merged_at': noon('2026-09-17'), 'shas': ['a' * 12]}]
+        self.m.link_commits_to_prs(commits, prs)
+        self.assertEqual(commits[0]['pr'], 5)
 
     def test_a_pull_request_ships_when_it_merged_in_the_period(self):
         """collect_prs keeps a pull request opened in the period whether or not it merged, so

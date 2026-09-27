@@ -8,10 +8,11 @@ Nothing here summarises. The model summarises; this script enumerates.
 
 Sources, in the order they are read:
 
-- ``git log`` of the repository, non-merge commits in the period, with the ref each commit
-  was reached from, whether the delivery branch had reached it by the period's end, and its Conventional Commits
-  type and scope. Reachability from any ref is not delivery, so ``shipped`` answers that
-  separately. ``--author`` keeps the commits whose git name or email contains the text,
+- ``git log`` of the repository, non-merge commits authored in the period or received by the
+  delivery branch in it, with the ref each commit was reached from, whether it landed in the
+  period, whether the delivery branch had reached it by the period's end, and its Conventional
+  Commits type and scope. Reachability from any ref is not delivery, so ``shipped`` answers
+  that separately, and says null where no record can. ``--author`` keeps the commits whose git name or email contains the text,
   and the PRs whose GitHub login does; the sessions are already one person\'s, so they
   are not filtered.
 - ``gh pr list`` for pull requests merged or opened in the period. A missing or
@@ -44,11 +45,18 @@ from pathlib import Path
 CONVENTIONAL = re.compile(r'^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<summary>.+)$')
 REFLOG_STAMP = re.compile(r'@\{(\d+)\}')
 # Reflog actions that always mean this repository caught the ref up with another one, and
-# the two that mean it only depending on where the ref was sent: `merge origin/main` and
-# `reset: moving to origin/main` are catch-ups, `merge feat/x` and `reset: moving to HEAD~1`
-# are local, and the action word is the same on both sides of both pairs.
-SYNCED = ('fetch', 'pull', 'clone')
-TOWARD = ('merge', 'reset')
+# the three that mean it only depending on where the ref was sent: `merge origin/main`,
+# `reset: moving to origin/main` and `branch: Reset to origin/main` are catch-ups, the same
+# words sent to `feat/x` or `HEAD~1` are local, and the action word is the same on both sides.
+# A rebase rewrites the delivery branch onto a commit it names only by id, which no longer says
+# whose it was, so it counts as a catch-up: that answer costs a week an unknown, and the other
+# one reports work as shipped on the strength of a record the rebase replaced.
+SYNCED = ('fetch', 'pull', 'clone', 'rebase')
+TOWARD = ('merge', 'reset', 'branch')
+# Where each of the three writes the ref it moved to, after the colon when not before it.
+DESTINATION = (' moving to ', ' Reset to ', ' Created from ')
+# An operand spelled as an object id says what the ref moved to and not whose it was.
+OBJECT_ID = re.compile(r'[0-9a-f]{7,64}')
 PR_SUFFIX = re.compile(r'\s*\(#(?P<number>\d+)\)\s*$')
 IMAGE_TOKEN = re.compile(r'\[Image(?: #\d+)?[^\]]*\]')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
@@ -222,34 +230,28 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
     ``push``. Git writes those words into the file, so they do not follow the reader's
     language.
 
-    Which answer an entry gets is decided by evidence, not by a list of words:
+    ``fetch``, ``pull``, ``clone`` and ``rebase`` are always a catch-up, whatever the ref is
+    called.
 
-    ``fetch``, ``pull`` and ``clone`` are always a catch-up, whatever the ref is called.
-
-    ``merge`` and ``reset`` are a catch-up or local work depending on where the ref was
-    sent, and the action word cannot tell: the operand can. It sits before the colon for a
-    merge and after ``moving to`` for a reset. A ref under ``refs/remotes/`` belongs to
-    another repository, so moving to it is catching up; a local ref or a plain revision such
-    as ``HEAD~1`` is our own doing. Only git is asked: it exits 128 and echoes back a name it
-    cannot resolve, and answers a plain revision with nothing at all, so a catch-up is a zero
-    status naming a ref under ``refs/remotes/`` and nothing else is. A name git can no longer
-    resolve stays local, which under-reports a pruned tracking ref and is the safe direction:
-    reading the remote its name begins with instead turned a local merge into a catch-up as
-    soon as a deleted branch's name began with a remote's, and reported work never pushed as
-    shipped.
+    ``merge``, ``reset`` and ``branch`` are a catch-up or local work depending on where the ref
+    was sent, and the action word cannot tell: the operands can. A merge names them before the
+    colon, every one of them, and an octopus merge is a catch-up when any operand is; a reset
+    names one after ``moving to``, and ``branch`` after ``Reset to`` or ``Created from``. What
+    each operand is, is ``names_another_repository``'s question. An action from the three with
+    no operand at all is read as a catch-up, since nothing says it was local.
 
     Anything left over is read as local, because the actions that are not on either list —
-    ``commit``, ``update by push``, ``am``, ``rebase`` — move a ref because the work landed
+    ``commit``, ``update by push``, ``am``, ``cherry-pick`` — move a ref because the work landed
     here.
 
     An entry carrying no action at all is the one ``GIT_REFLOG_ACTION=`` produces, and what
     it hides depends on which ref moved. A push writes ``update by push`` on the tracking ref
     whatever that variable says, so on a ref under ``refs/remotes/`` a blank entry is a fetch,
     and a catch-up. On a local branch it is our own merge or reset — or a pull, which is a
-    catch-up this cannot see; that residual under-reports, and reading every blank entry as a
-    catch-up instead reported work merged locally after the period as shipped.
+    catch-up this cannot see; that residual under-reports.
     """
-    words = message.partition(':')[0].split()
+    head, _, tail = message.partition(':')
+    words = head.split()
     action = words[0] if words else ''
     if not action:
         return tracking
@@ -257,14 +259,36 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
         return True
     if action not in TOWARD:
         return False
-    if len(words) > 1:
-        operand = words[-1]
-    elif ' moving to ' in message:
-        operand = message.rpartition(' ')[2]
-    else:
+    operands = words[1:]
+    if not operands:
+        for marker in DESTINATION:
+            if marker in ' ' + tail:
+                operands = (' ' + tail).rpartition(marker)[2].split()[:1]
+                break
+    if not operands:
+        return True
+    return any(names_another_repository(repo, operand) for operand in operands)
+
+
+def names_another_repository(repo: Path, operand: str) -> bool:
+    """Whether a reflog operand is what another repository sent here.
+
+    Only git is asked: it exits 128 and echoes back a name it cannot resolve, and answers a
+    plain revision such as ``HEAD~1`` with nothing at all, so a ref under ``refs/remotes/`` with
+    a zero status is another repository's and a name it can no longer resolve stays local,
+    which under-reports a pruned tracking ref: reading the remote its name begins with instead
+    turned a local merge into a catch-up once a deleted branch's name began with a remote's.
+    ``FETCH_HEAD`` is what the last fetch brought, so it is another repository's by definition.
+    An object id resolves to no name either, and it may be anyone's: counted as another
+    repository's, it leaves the week unknown rather than reporting it from a record it may not
+    be.
+    """
+    if operand == 'FETCH_HEAD':
         return True
     code, named, _ = git_out(repo, 'rev-parse', '--symbolic-full-name', operand)
-    return code == 0 and named.strip().startswith('refs/remotes/')
+    if code == 0 and named.strip():
+        return named.strip().startswith('refs/remotes/')
+    return bool(OBJECT_ID.fullmatch(operand))
 
 
 def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
@@ -295,33 +319,45 @@ def synced_since(repo: Path, ref: str, cutoff: float) -> bool:
     return False
 
 
-def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, str]:
-    """Where the delivery ref stood at the end of the period, and which record answered.
+def reflog_tip(repo: Path, ref: str, when: str) -> str | None:
+    """Where the ref stood at that moment by its reflog, or None when the reflog cannot say.
+
+    Where no move since that moment was this repository syncing, the reflog is the record of
+    where the ref stood and the only one that sees a fast-forward, which creates no object and
+    stamps no date. Where a move since was a catch-up, our view of that moment was corrected
+    afterwards, and a reflog that begins after it has nothing on record for it. ``--`` ends the
+    revisions where the command takes paths too: an untracked path spelled like the ref
+    otherwise makes git refuse.
+    """
+    cutoff = dt.datetime.fromisoformat(when).timestamp()
+    if synced_since(repo, ref, cutoff) or not reflog_reaches(repo, ref, cutoff):
+        return None
+    code, out, _ = git_out(repo, 'rev-parse', '--verify', f'{ref}@{{{when}}}')
+    return out.strip() if code == 0 and out.strip() else None
+
+
+def delivery_tip(repo: Path, ref: str, until: dt.date) -> tuple[str | None, bool, str]:
+    """Where the delivery ref stood at the end of the period, whether the reflog said so, and
+    which record answered.
 
     Asking what the ref reaches *now* answers a different question from the one a period
     report asks: a branch merged the week after is reachable today and shipped in no week
     under review.
 
-    Where no move since the period was this repository syncing, the reflog is that record
-    and the only thing that sees a fast-forward, which creates no object and stamps no date.
-    Where a move since the period was this repository catching up, our view of that week was
-    corrected afterwards, so the commit dates answer instead. They carry the upstream merge
-    time of a merge commit, and nothing at all about when a plain commit was pushed. Neither sees a fast-forward performed elsewhere;
-    coverage names the record so the reader knows which question was answered.
-
-    The date walk goes by first parent: it otherwise descends into a merge's second parent
-    and returns a commit that was never on the delivery branch, which then marks itself
-    shipped. ``--`` ends the revisions where the command takes paths too: an untracked path
-    spelled like the ref otherwise makes git refuse.
+    Where the reflog cannot say, the commit dates answer a narrower question. A commit dated
+    after the period did not exist in it, so the last first-parent commit dated inside it is at
+    or after where the branch stood: what that commit does not reach had not shipped. What it
+    does reach may have arrived later — a plain commit pushed the week after carries the date
+    it was written — so the dates cannot say it had. The walk goes by first parent: it otherwise
+    descends into a merge's second parent and returns a commit that was never on the delivery
+    branch.
     """
     when = f'{until.isoformat()}T23:59:59'
-    cutoff = dt.datetime.fromisoformat(when).timestamp()
-    if not synced_since(repo, ref, cutoff) and reflog_reaches(repo, ref, cutoff):
-        code, out, _ = git_out(repo, 'rev-parse', '--verify', f'{ref}@{{{when}}}')
-        if code == 0 and out.strip():
-            return out.strip(), f'the reflog of {ref} on {until.isoformat()}'
+    tip = reflog_tip(repo, ref, when)
+    if tip:
+        return tip, True, f'the reflog of {ref} on {until.isoformat()}'
     out = git(repo, 'rev-list', '-1', '--first-parent', f'--before={when}', ref, '--')
-    return out.strip() or None, f'the commit dates on {ref} up to {until.isoformat()}'
+    return out.strip() or None, False, f'the commit dates on {ref} up to {until.isoformat()}'
 
 
 def mark_shipped(repo: Path, commits: list[dict], ref: str | None, until: dt.date) -> tuple[str | None, str]:
@@ -330,6 +366,10 @@ def mark_shipped(repo: Path, commits: list[dict], ref: str | None, until: dt.dat
     That is the only sense in which a commit shipped *in* a period. Reachability from any ref
     is not delivery either: an open branch, a tag on it and a remote-tracking copy are all
     reachable, and a report built from them presents work in flight as done.
+
+    ``shipped`` is True or False where a record decided it and None where none could: from the
+    commit dates only False is ever decided, and a commit they cannot rule out stays None
+    rather than being reported as delivered on the strength of the day it was written.
 
     Returns the ref that decided, and the sentence coverage carries — which names the record
     that answered, because the reflog and the commit dates answer different questions and the
@@ -347,19 +387,17 @@ def mark_shipped(repo: Path, commits: list[dict], ref: str | None, until: dt.dat
             commit['shipped'] = None
         return None, 'no default branch resolves here, so nothing decided what shipped'
     try:
-        tip, answered_by = delivery_tip(repo, ref, until)
+        tip, by_reflog, answered_by = delivery_tip(repo, ref, until)
     except RuntimeError as error:
         for commit in commits:
             commit['shipped'] = None
         return None, f'asking where {ref} stood on {until.isoformat()} failed, so nothing decided what shipped: {error}'
-    decided = (f'a commit shipped when {ref} had reached it by {until.isoformat()}, read from '
-               f'{answered_by}; a pull request when it merged in the period')
     if tip is None:
         for commit in commits:
             commit['shipped'] = False
         return ref, f'{ref} held nothing by {until.isoformat()}, read from {answered_by}, so nothing had shipped by then'
     if not commits:
-        return ref, decided
+        return ref, _decided(ref, until, answered_by, by_reflog, 0)
     try:
         out = git(repo, 'rev-list', *[c['sha'] for c in commits], '--not', tip, '--')
     except RuntimeError as error:
@@ -368,12 +406,51 @@ def mark_shipped(repo: Path, commits: list[dict], ref: str | None, until: dt.dat
         return None, f'asking what {ref} reached failed, so nothing decided what shipped: {error}'
     unshipped = {line.strip()[:12] for line in out.splitlines() if line.strip()}
     for commit in commits:
-        commit['shipped'] = commit['sha'] not in unshipped
-    return ref, decided
+        reached = commit['sha'] not in unshipped
+        commit['shipped'] = reached if by_reflog or not reached else None
+    return ref, _decided(ref, until, answered_by, by_reflog, sum(1 for c in commits if c['shipped'] is None))
 
 
-def collect_commits(repo: Path, since: dt.date, until: dt.date) -> list[dict]:
-    """Non-merge commits reachable from any branch, remote branch or tag in the period, oldest first."""
+def _decided(ref: str, until: dt.date, answered_by: str, by_reflog: bool, unknown: int) -> str:
+    """The coverage sentence for a delivery ref that answered, naming the record it was read from."""
+    if by_reflog:
+        return (f'a commit shipped when {ref} had reached it by {until.isoformat()}, read from '
+                f'{answered_by}; a pull request when it merged in the period')
+    return (f'nothing recorded where {ref} stood on {until.isoformat()}, so {answered_by} decided only '
+            f'which commits had not shipped, and {unknown} they cannot rule out are unknown; '
+            f'a pull request shipped when it merged in the period')
+
+
+def landed_in_period(repo: Path, ref: str | None, since: dt.date, until: dt.date) -> tuple[set[str] | None, str]:
+    """The non-merge commits the delivery ref received during the period, and how that was read.
+
+    Selecting by author date alone misses work written before the period that reached the
+    branch inside it: a fast-forward moves the ref without rewriting the commit, so no date
+    records the landing. The reflog does, at both ends of the period, and the difference is
+    what landed. Where it cannot say at either end, the answer is None and the commits are
+    selected by author date alone, which the sentence says.
+    """
+    if ref is None:
+        return None, 'no default branch resolves here, so commits are selected by author date alone'
+    first = f'{since.isoformat()}T00:00:00'
+    last = f'{until.isoformat()}T23:59:59'
+    try:
+        start, end = reflog_tip(repo, ref, first), reflog_tip(repo, ref, last)
+        if not (start and end):
+            return None, (f'nothing recorded where {ref} stood at both ends of the period, so commits '
+                          f'are selected by author date alone')
+        out = git(repo, 'rev-list', '--no-merges', end, '--not', start, '--')
+    except RuntimeError as error:
+        return None, f'asking what {ref} received in the period failed, so commits are selected by author date alone: {error}'
+    return ({line.strip() for line in out.splitlines() if line.strip()},
+            f'commits {ref} received in the period are selected too, read from the reflog of {ref} '
+            f'on {since.isoformat()} and {until.isoformat()}')
+
+
+def collect_commits(repo: Path, since: dt.date, until: dt.date, landed: set[str] | None = None) -> list[dict]:
+    """Non-merge commits reachable from any branch, remote branch or tag, oldest first: those
+    authored in the period and those in ``landed``, the full shas the delivery ref received in
+    it. Each says whether it landed, None where nothing recorded that."""
     # No --since here: git treats it as a traversal cutoff, not a filter, and stops
     # walking a line at the first commit older than the date. A backdated commit
     # (a rebase, a cherry-pick, a clock) then hides every ancestor behind it — the
@@ -393,7 +470,7 @@ def collect_commits(repo: Path, since: dt.date, until: dt.date) -> list[dict]:
         if len(parts) != 7:
             continue
         sha, author, email, when, ref, subject, body = parts
-        if sha in seen or not in_period(when, since, until):
+        if sha in seen or not (in_period(when, since, until) or sha in (landed or ())):
             continue
         seen.add(sha)
         pr = PR_SUFFIX.search(subject)
@@ -401,7 +478,8 @@ def collect_commits(repo: Path, since: dt.date, until: dt.date) -> list[dict]:
         commits.append({
             'sha': sha[:12], 'author': author, 'email': email, 'date': local_date(when).isoformat(),
             'ref': branch_name(ref), 'subject': subject, 'body': body.strip()[:BODY_LIMIT],
-            'pr': int(pr.group('number')) if pr else None, 'shipped': None, **parsed,
+            'pr': int(pr.group('number')) if pr else None, 'shipped': None,
+            'landed': None if landed is None else sha in landed, **parsed,
         })
     return commits
 
@@ -456,8 +534,12 @@ def commit_shas(repo: Path, prs: list[dict]) -> int:
     return unread
 
 
-def collect_prs(repo: Path, since: dt.date, until: dt.date) -> tuple[list[dict], str]:
-    """Pull requests merged or opened in the period, and a coverage note for the reader."""
+def collect_prs(repo: Path, since: dt.date, until: dt.date, author: str | None = None) -> tuple[list[dict], str]:
+    """Pull requests merged or opened in the period, and a coverage note for the reader.
+
+    ``author`` keeps one GitHub login before the commits are read, because that read is one
+    ``gh pr view`` per pull request and another person's pull request is not read for anything.
+    """
     fields = 'number,title,body,state,createdAt,mergedAt,closedAt,headRefName,url,author'
     cmd = ['gh', 'pr', 'list', '--state', 'all', '--limit', str(PR_LIMIT),
            '--search', f'updated:>={since.isoformat()}', '--json', fields]
@@ -492,6 +574,7 @@ def collect_prs(repo: Path, since: dt.date, until: dt.date) -> tuple[list[dict],
             'body': (item.get('body') or '').strip()[:TEXT_LIMIT * 2], **parsed,
         })
     prs.sort(key=lambda pr: pr['merged_at'] or pr['created_at'] or '')
+    prs = by_author(prs, author, 'author')
     unread = commit_shas(repo, prs)
     note = f'gh read {len(raw)} pull requests updated since {since.isoformat()}'
     if unread:
@@ -509,8 +592,15 @@ def link_commits_to_prs(commits: list[dict], prs: list[dict]) -> None:
     subject, and a branch still on the remote keeps the PR head as the commit's ref.
     Neither survives a merge left unsquashed whose branch was deleted: the ref becomes
     the delivery branch and no subject is the title.
+
+    A commit two pull requests claim — one stacked on the other — shipped in the one that
+    merged first, so merged pull requests are asked in the order they merged, before any
+    still open.
     """
-    by_sha = {sha: pr['number'] for pr in prs for sha in pr.get('shas') or ()}
+    by_sha: dict[str, int] = {}
+    for pr in sorted(prs, key=lambda pr: (not pr.get('merged_at'), pr.get('merged_at') or '')):
+        for sha in pr.get('shas') or ():
+            by_sha.setdefault(sha, pr['number'])
     by_title = {pr['title']: pr['number'] for pr in prs if pr.get('title')}
     by_head = {pr['head']: pr['number'] for pr in prs if pr.get('head')}
     for commit in commits:
@@ -669,10 +759,11 @@ def collect_codex(home: Path, paths: list[str], since: dt.date, until: dt.date) 
 def collect(repo: Path, since: dt.date, until: dt.date, home: Path, use_gh: bool = True,
             author: str | None = None) -> dict:
     paths = repo_paths(repo)
-    commits = by_author(collect_commits(repo, since, until), author, 'author', 'email')
-    ref, shipped_note = mark_shipped(repo, commits, delivery_ref(repo), until)
-    prs, gh_note = collect_prs(repo, since, until) if use_gh else ([], 'gh skipped by --no-gh')
-    prs = by_author(prs, author, 'author')
+    ref = delivery_ref(repo)
+    landed, landed_note = landed_in_period(repo, ref, since, until)
+    commits = by_author(collect_commits(repo, since, until, landed), author, 'author', 'email')
+    ref, shipped_note = mark_shipped(repo, commits, ref, until)
+    prs, gh_note = collect_prs(repo, since, until, author) if use_gh else ([], 'gh skipped by --no-gh')
     if author:
         gh_note += f'; kept the PRs whose GitHub login contains {author!r}, and the commits whose git name or email does'
     link_commits_to_prs(commits, prs)
@@ -688,6 +779,9 @@ def collect(repo: Path, since: dt.date, until: dt.date, home: Path, use_gh: bool
         'coverage': {
             'commits': len(commits), 'commits_without_pr': sum(1 for c in commits if c['pr'] is None),
             'commits_shipped': sum(1 for c in commits if c['shipped']),
+            'commits_unknown': sum(1 for c in commits if c['shipped'] is None),
+            'commits_landed': sum(1 for c in commits if c['landed']),
+            'landed': landed_note,
             'repo': str(repo), 'delivery_ref': ref, 'shipped': shipped_note,
             'prs': len(prs), 'prs_shipped': sum(1 for p in prs if p['shipped']),
             'requests': len(requests),
