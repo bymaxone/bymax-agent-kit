@@ -29,7 +29,9 @@ class RemovalNoteTests(unittest.TestCase):
                '`OLD_HELPER` was removed. Call `OLD_HELPER` first.',
                '`OLD_HELPER` was removed — call `OLD_HELPER` instead.',
                '`OLD_HELPER` was removed; call `OLD_HELPER` first.', '`OLD_HELPER` — call it first.',
-               '`OLD_HELPER` — removed; `OLD_HELPER` — call it.')
+               '`OLD_HELPER` — removed; `OLD_HELPER` — call it.',
+               # A move or a new state is a note only with a target: these describe the name as live.
+               '`OLD_HELPER` is now enabled by default.', '`OLD_HELPER` moved to the top of the list.')
 
     def test_a_line_saying_the_name_is_gone_is_reported_not_refused(self):
         """Every clause naming the name must say it is gone, outside every quoted span, for the

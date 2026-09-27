@@ -272,10 +272,10 @@ def prose_size(name, text):
 
 
 def sentences(name, text):
-    """How many sentences a file's prose holds: a stop, a question or an exclamation followed by
-    a space or the end of a line. Lines count what a reader sees, and two lines joined to fit a
+    """How many sentences a file's prose holds: a stop, a question or an exclamation, and any
+    closing markup after it, followed by a space or the end of a line. Lines count what a reader sees, and two lines joined to fit a
     new sentence kept the count; a reworded sentence keeps this one."""
-    return len(re.findall(r'[.!?](?=\s|$)', review_claims.prose(name, text)))
+    return len(re.findall(r'[.!?][*_`\'")\]]*(?=\s|$)', review_claims.prose(name, text)))
 
 
 def first_change(name, cwd=None):

@@ -527,6 +527,16 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench.write(notes.replace('The limit is ten.', 'The limit is ten, set per caller.'), name='NOTES.md')
         self.assertEqual(bench.offences(), [])
 
+    def test_a_sentence_closed_inside_markup_is_counted(self):
+        """A stop followed by `**`, a backtick or a quote ends a sentence too; read as needing a
+        space after it, a joined line made room for a bold sentence that passed as no growth."""
+        notes = '# Notes\n\nThe limit is ten.\nIt holds for every caller.\n'
+        bench = Bench(self, {'NOTES.md': notes})
+        bench.write(notes.replace('The limit is ten.\nIt holds for every caller.\n',
+                                  'The limit is ten. It holds for every caller. **It is checked twice.**\n'),
+                    name='NOTES.md')
+        self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
+
     def test_a_type_comment_is_what_a_type_checker_reads(self):
         """`# type: List[int]` is the annotation a type checker reads, and the tree compared
         without type comments called a changed one prose. A line of prose that begins `# type:`

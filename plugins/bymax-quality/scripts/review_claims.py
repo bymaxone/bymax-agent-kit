@@ -44,8 +44,11 @@ GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|
 # A note also records a removal as a rename or a replacement. claimed() reads GONE alone: "replaces
 # `X`" says nothing about whether `X` is still in the tree, so it must not refuse on that word.
 NOTED = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone|'
-                   r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?|moved to|is now)\b',
+                   r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?)\b',
                    re.IGNORECASE)
+# A move or a new state records a removal only with its target: "`X` is now `Y`" is a note, while
+# "`X` is now enabled" and "`X` moved to the top" describe X as live.
+TARGETED = re.compile(r'\b(moved to|is now)\s+`', re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
 # Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
@@ -534,7 +537,7 @@ def records_removal(line, token):
     parts = re.split(r'(\.(?!\w)|;|—)', line)
     clauses, marks = parts[0::2], parts[1::2]
     names = lambda clause: re.search(r'\b%s\b' % re.escape(token), clause)
-    says = lambda clause: NOTED.search(re.sub(r'`[^`]*`', ' ', clause))
+    says = lambda clause: NOTED.search(re.sub(r'`[^`]*`', ' ', clause)) or TARGETED.search(clause)
     named = []
     for at, clause in enumerate(clauses):
         if not names(clause):
