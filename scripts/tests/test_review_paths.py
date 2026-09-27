@@ -112,7 +112,7 @@ class NotUtf8Tests(unittest.TestCase):
 
     def test_a_latin1_line_reaches_the_claude_reviewer(self):
         """The Claude adapter hands its reviewer the full diff, and a Latin-1 line in it raised
-        before the reviewer ran. It arrives as UTF-8, the byte that is not spelled out."""
+        before the reviewer ran. It arrives as UTF-8, with that byte spelled out."""
         sys.path.insert(0, str(ROOT / 'scripts/tests'))
         import test_review_flow
         bench = test_review_flow.FlowBench('setUp')

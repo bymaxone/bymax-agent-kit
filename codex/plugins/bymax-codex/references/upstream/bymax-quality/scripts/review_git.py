@@ -29,7 +29,7 @@ def git_raw(*args):
     escapes. A repository may hold a path or a line that is not valid UTF-8 — a Latin-1 name
     committed on Linux, a Latin-1 source — and decoding strictly raised before any step could
     answer. The escapes reach git again as the original bytes, since
-    an argument is encoded the same way; a reader is handed them through for_a_reader().
+    an argument is encoded the same way.
     """
     return subprocess.check_output(['git', *args], encoding=sys.getfilesystemencoding(),
                                    errors='surrogateescape')

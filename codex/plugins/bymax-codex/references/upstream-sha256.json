@@ -89,7 +89,7 @@
   "bymax-quality/scripts/review_delta.py": "d66e08cddff0bd2844829c27b35cd1155f4d96f2f6647f150c88531f81d2521f",
   "bymax-quality/scripts/review_evidence.py": "0f3b79a399f49c90ca13515120b472839e95ce4b89de3163019ad618957c617e",
   "bymax-quality/scripts/review_flow.py": "5f98c1d72ebfbe6218d647597f3344d1729e54a026f1556a5fc10d0a436aff04",
-  "bymax-quality/scripts/review_git.py": "7ec9ef600e99795308c458c2450aab53cbcde69783930d1752caef444c61b1ea",
+  "bymax-quality/scripts/review_git.py": "4fe5b21a1bb96c59cef250e9252ae39aef95d64f7768d5c1f48dd471de6dca6d",
   "bymax-quality/scripts/review_markdown.py": "e970df98a995b509e4b38e17161fe98fc871356762831ccfa447250c1c796b1c",
   "bymax-quality/scripts/review_matrix.py": "98cab744a2ec102eabd935e3c580b19f4da51d79833728ffdb76227aa4efc230",
   "bymax-quality/scripts/review_prepush.py": "75fc8870c63073d3c9446110acc81b0d45c35dfd2d8c7d4357356d61e3c3906d",
