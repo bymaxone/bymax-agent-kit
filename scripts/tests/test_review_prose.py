@@ -555,6 +555,35 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench.write('def a(v):\n    y = h(v)\n\n\ndef b(v):\n    y = h(v)  # type: ignore\n')
         self.assertIn('a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
+    def test_a_standalone_directive_moved_between_identical_statements_is_not_prose(self):
+        """A directive on a line of its own governs what follows it, and the text of the next
+        statement cannot tell two identical ones apart."""
+        start = '# pylint: disable=invalid-name\nA = 1\nA = 1\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write('A = 1\n# pylint: disable=invalid-name\nA = 1\n')
+        self.assertIn('a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
+
+    def test_a_directive_moved_off_its_line_is_not_prose(self):
+        """`# noqa` covers the line it ends; on a line of its own above, it covers nothing."""
+        bench = Bench(self, {'thing.py': 'x = f()  # noqa\n'})
+        bench.write('# noqa\nx = f()\n')
+        self.assertIn('a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
+
+    def test_a_directive_rewritten_in_place_is_not_prose(self):
+        """`# noqa: E501` suppresses one code where `# noqa` suppressed all of them."""
+        bench = Bench(self, {'thing.py': 'x = f()  # noqa\n'})
+        bench.write('x = f()  # noqa: E501\n')
+        self.assertIn('a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
+
+    def test_prose_shortened_above_a_directive_is_prose(self):
+        """A docstring that loses a line and a comment cut above a module's `# type: ignore` move
+        every directive's row and none of its places."""
+        start = '"""The module, described\nat length."""\nx = f()  # type: ignore\n'
+        bench = Bench(self, {'thing.py': start, 'other.py': '# A note.\n# type: ignore\nx = f()\n'})
+        bench.write('"""The module."""\nx = f()  # type: ignore\n')
+        bench.write('# type: ignore\nx = f()\n', name='other.py')
+        self.assertEqual(bench.offences(), [])
+
     def test_a_docstring_cut_before_a_module_ignore_is_not_prose(self):
         """With nothing before it, a `# type: ignore` on a line of its own ignores the whole
         module, so deleting the docstring above one widens it. A docstring deleted anywhere
