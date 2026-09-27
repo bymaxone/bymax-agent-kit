@@ -323,7 +323,7 @@ def ending(text):
             return end
     if re.match(r'<![A-Za-z]', text):
         return '>'
-    # A raw-text block ends at the first closing tag of any of the four, not only its own.
+    # A raw-text block ends at the first closing tag of any RAW_TAGS name, not only its own.
     raw = re.match(r'<(pre|script|style|textarea)(?=[\s>]|$)', lowered)
     return tuple('</%s>' % name for name in sorted(RAW_TAGS)) if raw else True
 

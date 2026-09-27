@@ -85,8 +85,7 @@ def git(*args, cwd=None):
 
 def decoded(name, data):
     """A file's bytes as text: a Python source by the encoding it declares (PEP 263), anything
-    else as UTF-8 with what does not decode replaced. Shared by every reader of a blob or a
-    working-tree file, so the two sides of a comparison are decoded alike."""
+    else as UTF-8 with what does not decode replaced."""
     if name.endswith('.py'):
         try:
             return data.decode(tokenize.detect_encoding(io.BytesIO(data).readline)[0])

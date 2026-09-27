@@ -191,8 +191,8 @@ class CodeBlockTests(unittest.TestCase):
          '- a\n- - -\n\n    OLD_HELPER()'),
         ('a tilde fence whose info string holds a backtick',
          '~~~ python`ok\nOLD_HELPER()\n~~~'),
-        # Measured against CommonMark: a raw-text block ends at the first closing tag of any of
-        # the four raw-text names, and a tag CommonMark does not call complete starts no block.
+        # Measured against CommonMark: a raw-text block ends at the first closing tag of any
+        # raw-text name, and a tag CommonMark does not call complete starts no block.
         ('a fence after a raw-text block another raw closer ended',
          '<script>\n</textarea>\n```\nOLD_HELPER()\n```'),
         ('a fence after an attribute with an empty value', '<a b=>\n```\nOLD_HELPER()\n```'),
