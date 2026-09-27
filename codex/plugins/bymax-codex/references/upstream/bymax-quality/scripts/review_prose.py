@@ -361,31 +361,10 @@ def instructs(text):
         if end is not None:
             found.append('\n'.join(lines[:end + 1]))
             lines = lines[end + 1:]
-    # Code is what CommonMark calls code: a fence inside a list item can sit past column three,
-    # and a four-space indent is a block of its own, and a line pattern that missed either let
-    # an edit there pass as prose.
-    seen = review_markdown.outside_code('\n'.join(lines)).split('\n')
-    return found + code_lines(lines, seen)
-
-
-def code_lines(lines, seen):
-    """The code lines, each with the blank lines between it and the code line before it.
-
-    outside_code leaves a blank line as it is, inside a block or not, and an empty line after
-    a trailing backslash splits a command. A blank run with code on both sides travels with
-    the code after it, verbatim; with prose on either side it is prose. The price is that a
-    whitespace edit between two blocks with no prose between them is refused.
-    """
-    found, gap, after_code = [], [], False
-    for line, kept in zip(lines, seen):
-        if kept != line:
-            found.append((tuple(gap) if after_code else (), line))
-            gap, after_code = [], True
-        elif line.strip():
-            gap, after_code = [], False
-        else:
-            gap.append(line)
-    return found
+    # Code is what CommonMark calls code, blank lines inside a block included: a fence inside a
+    # list item can sit past column three, and a four-space indent is a block of its own.
+    mask = review_markdown.code_mask('\n'.join(lines))
+    return found + [line for line, code in zip(lines, mask) if code]
 
 
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
