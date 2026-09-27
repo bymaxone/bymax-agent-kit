@@ -205,6 +205,9 @@ def behaviour(text):
     name, a deleted line — changes the dump, and the envelope refuses it.
     """
     tree = typed(text)
+    # Each `# type: ignore` comes with its line number, which a cut above it moves; what an
+    # ignore is attached to is directives()'s question, asked of the statement it sits on.
+    tree.type_ignores = []
     for node in ast.walk(tree):
         if isinstance(node, SCOPED) and ast.get_docstring(node, clean=False) is not None:
             node.body = node.body[1:]

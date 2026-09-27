@@ -538,6 +538,15 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench.write(start.replace('the kind of cache this holds', 'what the cache keeps'))
         self.assertEqual(bench.offences(), [])
 
+    def test_a_comment_cut_above_a_type_ignore_is_prose(self):
+        """The tree parsed with its type comments keeps each `# type: ignore` with its line
+        number, so cutting a comment above one read as behaviour: the pass was refused for
+        cutting. What an ignore is attached to is directives()'s question."""
+        start = '# The cache this module keeps.\n# It is read once.\nx = f()  # type: ignore[attr]\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('# It is read once.\n', ''))
+        self.assertEqual(bench.offences(), [])
+
     def test_a_block_moved_past_its_paragraph_is_not_prose(self):
         """Every code line kept, a fenced block moved ahead of the paragraph it depends on read as
         no change. Cutting the paragraph between two blocks is still a cut."""
