@@ -62,8 +62,8 @@ class InterpreterTests(unittest.TestCase):
                                 '%s evaluates an annotation spelled with | on import' % path.name)
 
     def test_the_collector_runs_on_an_older_python_where_one_is_installed(self):
-        """The two checks above read the source; this runs it, where a machine has the floor to
-        run it on, so a library call newer than the floor is caught too."""
+        """The checks above read the source; this runs `--help` on the floor where one exists,
+        so a library call newer than the floor on that path is caught too."""
         older = older_python()
         if older is None:
             self.skipTest('no python3 older than 3.10 on this machine')
