@@ -42,6 +42,16 @@ class PayloadTests(unittest.TestCase):
                 module.complete(short)
             self.assertIn(absent, str(caught.exception))
 
+    def test_an_untracked_file_beside_the_runtime_is_refused(self):
+        """An untracked file in the package directory is installed with the runtime, and one
+        named after a standard module shadows it: json.py stopped review_flow.py importing."""
+        module = installer()
+        carried = iter(module.payload() + [module.ROOT / 'plugins/bymax-quality/scripts/json.py'])
+        with self.assertRaises(SystemExit) as caught:
+            module.complete(carried)
+        self.assertIn('json.py', str(caught.exception))
+        self.assertIn('not tracked', str(caught.exception))
+
     def test_a_listing_that_fails_is_refused_rather_than_trusted(self):
         """An unchecked `git ls-files` made the expectation empty outside a checkout, so a
         `git archive` export would install a runtime missing review_flow.py itself and report

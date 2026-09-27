@@ -71,6 +71,37 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': '# reads FOREIGN, not the tuple\nX = 1\n'})
         self.assertEqual(tree.retired(), [('a.py', 'FOREIGN')])
 
+    def test_a_python_file_is_read_in_the_encoding_it_declares(self):
+        """A Latin-1 source declared by PEP 263 is valid Python. Decoded by the process locale
+        it raised before retired() could answer, and every step that asks it stopped."""
+        tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n'}, {'a.py': ''})
+        (tree.where / 'b.py').write_bytes(b'# -*- coding: latin-1 -*-\n# OLD_HELPER is kept\n'
+                                          b'NAME = "caf\xe9"\n')
+        run(tree.where, 'add', '-A')
+        run(tree.where, 'commit', '-q', '-m', 'a Latin-1 source')
+        tree.head = claims.git('rev-parse', 'HEAD', cwd=str(tree.where)).strip()
+        self.assertIn('caf\xe9', claims.git('show', tree.head + ':b.py', cwd=str(tree.where)))
+        self.assertEqual(tree.retired(), [('b.py', 'OLD_HELPER')])
+
+    def test_bytes_no_encoding_accounts_for_are_read_replaced(self):
+        """A diff of a Latin-1 source, and a Python blob declaring nothing that is not UTF-8,
+        decode with the bytes replaced: read strictly, either raised and stopped every step."""
+        tree = Tree(self, {'a.py': 'X = 1\n'}, {'a.py': 'X = 1\n'})
+        at = str(tree.where)
+
+        def commit(name, body):
+            (tree.where / name).write_bytes(body)
+            run(tree.where, 'add', '-A')
+            run(tree.where, 'commit', '-q', '-m', name)
+            return claims.git('rev-parse', 'HEAD', cwd=at).strip()
+        latin = b'# -*- coding: latin-1 -*-\n'
+        before = commit('b.py', latin + b'NAME = "caf\xe9"\n')
+        after = commit('b.py', latin + b'NAME = "caf\xe9s"\n')
+        self.assertIn(('b.py', 2, 'NAME = "caf\ufffds"'), claims.split_delta(before, after, cwd=at)['code'])
+        # Past the two lines detect_encoding() reads, so its UTF-8 default passes and the decode fails.
+        bare = commit('u.py', b'X = 1\nY = 2\nNAME = "caf\xe9"\n')
+        self.assertIn('caf\ufffd', claims.git('show', bare + ':u.py', cwd=at))
+
     def test_a_name_that_still_exists_somewhere_else_is_not_reported(self):
         """Moved is not deleted. The check is about a name nothing defines any more, so a
         constant that migrated to another module is silence, not a finding."""
@@ -88,6 +119,207 @@ class RetiredNameTests(unittest.TestCase):
                     {'a.py': '# calls helper_one\n',
                      'b.py': 'def helper_one(x):\n    return x\nY = 2\n'})
         self.assertEqual(tree.retired(), [])
+
+    def test_an_async_definition_is_a_definition(self):
+        """Found by a reviewer: neither the definition read nor the alive grep knew `async def`,
+        so a function made async read as removed and blocked a valid candidate. One case per
+        read: moved and made async, the alive grep must find it; async in the base and removed,
+        the definition read must have counted it. The conversion in place is the report's own."""
+        tree = Tree(self, {'a.py': 'def fetch_data(x):\n    return x\n# calls fetch_data\n', 'b.py': 'Y = 2\n'},
+                    {'a.py': '# calls fetch_data\n', 'b.py': 'async def fetch_data(x):\n    return x\nY = 2\n'})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'async def fetch_data(x):\n    return x\n# calls fetch_data\n'},
+                    {'a.py': '# calls fetch_data\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'fetch_data')])
+        tree = Tree(self, {'a.py': 'def fetch_data(x):\n    return x\n# calls fetch_data\n'},
+                    {'a.py': 'async def fetch_data(x):\n    return x\n# calls fetch_data\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_an_annotated_constant_is_a_definition(self):
+        """`LIMIT: int = 3` assigns LIMIT as `LIMIT = 3` does. One case per read: annotated in
+        the base and removed, the definition read must count it; moved and annotated, the alive
+        grep must find it; annotated in place, nothing was removed and the gate must not say so."""
+        tree = Tree(self, {'a.py': 'LIMIT_MAX: int = 1\n# reads LIMIT_MAX\n'},
+                    {'a.py': '# reads LIMIT_MAX\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'LIMIT_MAX')])
+        tree = Tree(self, {'a.py': 'LIMIT_MAX = 1\n# reads LIMIT_MAX\n', 'b.py': 'Y = 2\n'},
+                    {'a.py': '# reads LIMIT_MAX\n', 'b.py': 'LIMIT_MAX: int = 1\nY = 2\n'})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'LIMIT_MAX = 1\n# reads LIMIT_MAX\n'},
+                    {'a.py': 'LIMIT_MAX: int = 1\n# reads LIMIT_MAX\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_text_shaped_like_a_definition_defines_nothing(self):
+        """A docstring line `FLAG: set FLAG=1` and a dict entry `ERR_ONE: f(retry=0),` look like
+        annotated assignments to a regex. Rewording or removing either removes no definition,
+        and the refusing tier must not say it did; nor may such a line elsewhere keep a name
+        alive that the delta really removed."""
+        doc = '"""Environment:\n    BYMAX_FLAG: turns it on, as in BYMAX_FLAG=1.\n"""\n'
+        tree = Tree(self, {'a.py': doc + 'import os\n', 'README.md': 'Set `BYMAX_FLAG`.\n'},
+                    {'a.py': doc.replace('turns it on, as in BYMAX_FLAG=1.', 'set it to 1.') + 'import os\n',
+                     'README.md': 'Set `BYMAX_FLAG`.\n'})
+        self.assertEqual(tree.retired(), [])
+        table = 'from errs import ERR_ONE\n\nTABLE = {\n    ERR_ONE: dict(retry=False),\n}\n# ERR_ONE retries\n'
+        tree = Tree(self, {'a.py': table},
+                    {'a.py': table.replace('    ERR_ONE: dict(retry=False),\n', '')})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'OLD_LIMIT = 1\n# reads OLD_LIMIT\n',
+                           'b.py': 'def f():\n    """Limits.\n\n    OLD_LIMIT: was = 2.\n    """\n'},
+                    {'a.py': '# reads OLD_LIMIT\n',
+                     'b.py': 'def f():\n    """Limits.\n\n    OLD_LIMIT: was = 2.\n    """\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'OLD_LIMIT'), ('b.py', 'OLD_LIMIT')])
+
+    def test_only_a_constant_case_assignment_is_a_definition(self):
+        """A lowercase name assigned is a variable, in both reads: removing
+        `tmp_value = 1` is not removing a definition a sentence could still assert."""
+        tree = Tree(self, {'a.py': 'tmp_value = 1\n# tmp_value is scratch\n'},
+                    {'a.py': '# tmp_value is scratch\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_a_name_the_file_imports_is_alive(self):
+        """Replacing a constant with an import of it removes nothing the prose can still name.
+        Dropping an import is not a definition removed: the name usually lives in a package no
+        search here can read."""
+        for head in ('from dependency import LIMIT_MAX\n', 'from dependency import OTHER as LIMIT_MAX\n',
+                     'import LIMIT_MAX\n', 'import LIMIT_MAX.sub\n'):
+            with self.subTest(head):
+                tree = Tree(self, {'a.py': 'LIMIT_MAX = 1\n# reads LIMIT_MAX\n'},
+                            {'a.py': head + '# reads LIMIT_MAX\n'})
+                self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'from dependency import OLD_LIMIT\n# uses OLD_LIMIT\n'},
+                    {'a.py': '# uses OLD_LIMIT\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_a_wildcard_import_keeps_a_name_alive(self):
+        """`from pathlib import *` in place of `class Path` still binds Path at run time, and
+        which names a wildcard binds is the imported module's to say. Without it, the class
+        removed is a name lost."""
+        # In the file the class left, and in another file the search for where it went reads.
+        for head in ({'a.py': 'from pathlib import *\n# builds a Path\n', 'b.py': ''},
+                     {'a.py': '# builds a Path\n', 'b.py': 'from pathlib import *\nPath\n'}):
+            with self.subTest(head):
+                tree = Tree(self, {'a.py': 'class Path:\n    pass\n# builds a Path\n', 'b.py': ''}, head)
+                self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'class Path:\n    pass\n# builds a Path\n'}, {'a.py': '# builds a Path\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'Path')])
+
+    def test_a_name_the_file_assigns_is_alive(self):
+        """A def refactored into a binding still binds the name a sentence names; a bare
+        annotation and a name only read bind nothing."""
+        for head in ('old_helper = print\n', 'old_helper: object = print\n',
+                     'old_helper, other = print, len\n', '[old_helper, *rest] = [print]\n',
+                     'for old_helper in [print]:\n    pass\n', 'with open(__file__) as old_helper:\n    pass\n',
+                     '(old_helper := print)\n', 'try:\n    pass\nexcept Exception as old_helper:\n    pass\n',
+                     # Held as strings on their nodes, never as a name in a store position.
+                     'def process(old_helper):\n    return old_helper\n', 'run = lambda old_helper: 0\n',
+                     'def process(*old_helper):\n    pass\n', 'def process(*, old_helper):\n    pass\n',
+                     'def process(**old_helper):\n    pass\n', 'def process[old_helper]():\n    pass\n',
+                     'match print:\n    case old_helper:\n        pass\n',
+                     'match print:\n    case int() as old_helper:\n        pass\n',
+                     'match []:\n    case [*old_helper]:\n        pass\n',
+                     'match {}:\n    case {**old_helper}:\n        pass\n'):
+            with self.subTest(head):
+                tree = Tree(self, {'a.py': 'def old_helper(x):\n    return x\n# calls old_helper\n'},
+                            {'a.py': head + '# calls old_helper\n'})
+                self.assertEqual(tree.retired(), [])
+        # Binding nothing.
+        for head in ('old_helper: object\n', 'value = old_helper\n'):
+            with self.subTest(head):
+                tree = Tree(self, {'a.py': 'def old_helper(x):\n    return x\n# calls old_helper\n'},
+                            {'a.py': head + '# calls old_helper\n'})
+                self.assertEqual(tree.retired(), [('a.py', 'old_helper')])
+
+    def test_a_name_moved_in_any_shape_the_tree_counts_is_alive(self):
+        """The tree counts a name after a semicolon or in a chained assignment, so the search
+        for where it went must reach those lines too: a pattern anchored at the start of a line
+        did not, and a constant that only moved read as removed."""
+        for shape in ('FIRST = LIMIT_MAX = 3\n', 'import os; LIMIT_MAX = 3\n'):
+            with self.subTest(shape):
+                tree = Tree(self, {'a.py': shape, 'b.py': '', 'README.md': 'Uses `LIMIT_MAX`.\n'},
+                            {'a.py': '', 'b.py': shape, 'README.md': 'Uses `LIMIT_MAX`.\n'})
+                self.assertEqual(tree.retired(), [])
+
+    def test_only_the_tree_makes_a_name_lost(self):
+        """Text shaped like a definition is not one, so the text read of a file that does not
+        parse only keeps a name alive. The base's tree decides what was lost; a head that does
+        not parse narrows it by its text; a base that does not parse contributes nothing."""
+        cases = (
+            ('removed from a base that parses', 'OLD_LIMIT = 1\n', 'print "x"\n', ['README.md']),
+            ('kept in the text of a head that does not parse',
+             'OLD_LIMIT = 3\ndef old_helper(x):\n    return x\n',
+             'OLD_LIMIT = 3\ndef old_helper(x):\n    return x\nprint "x"\n', []),
+            ('removed, with a docstring in the same file shaped like it',
+             'OLD_LIMIT = 1\ndef f():\n    """Uses it.\n\n    OLD_LIMIT: was = 1.\n    """\n',
+             'def f():\n    """Uses it.\n\n    OLD_LIMIT: was = 1.\n    """\n', ['README.md', 'a.py']),
+            ('a docstring reworded beside a line that does not parse',
+             '"""Environment:\n    OLD_LIMIT: on, as in OLD_LIMIT=1.\n"""\n',
+             '"""Environment:\n    OLD_LIMIT: set it to 1.\n"""\nprint "x"\n', []),
+            ('a keyword argument dropped beside a line that does not parse',
+             'import os\nos.environ.update(dict(\n    OLD_LIMIT="/opt",\n))\n', 'print "x"\n', []),
+            ('removed, a longer name kept beside a line that does not parse',
+             'OLD_LIMIT = 1\nOLD_LIMIT_MAX = 2\n', 'OLD_LIMIT_MAX = 2\nprint "x"\n', ['README.md']),
+            ('removed, a longer name ending in it kept beside a line that does not parse',
+             'OLD_LIMIT = 1\nNEW_OLD_LIMIT = 2\n', 'NEW_OLD_LIMIT = 2\nprint "x"\n', ['README.md']),
+            ('a chained definition beside a line that does not parse',
+             'FIRST = OLD_LIMIT = 1\n', 'FIRST = OLD_LIMIT = 1\nprint "x"\n', []),
+            ('a definition after a semicolon beside a line that does not parse',
+             'x = 1; OLD_LIMIT = 2\n', 'x = 1; OLD_LIMIT = 2\nprint "x"\n', []),
+            ('a one-line compound definition beside a line that does not parse',
+             'if True: OLD_LIMIT = 2\n', 'if True: OLD_LIMIT = 2\ndef broken(:\n', []),
+            ('a base that does not parse, ported', 'OLD_LIMIT = 1\nprint "x"\n', 'print("x")\n', []),
+            ('a base that does not parse, half-written', 'OLD_LIMIT = 1\ndef broken(:\n', 'def broken(:\n', []),
+        )
+        for label, before, after, lost in cases:
+            with self.subTest(label):
+                tree = Tree(self, {'a.py': before, 'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'},
+                            {'a.py': after, 'README.md': 'Uses `OLD_LIMIT` and `old_helper`.\n'})
+                self.assertEqual(tree.retired(), [(where, 'OLD_LIMIT') for where in lost])
+
+    def test_a_name_moved_into_a_file_that_does_not_parse_is_alive(self):
+        """The text keeps a name alive where the tree cannot read the file at all, in any shape."""
+        for shape in ('LIMIT_MAX = 3\n', 'FIRST = LIMIT_MAX = 3\n'):
+            with self.subTest(shape):
+                tree = Tree(self, {'a.py': shape, 'b.py': 'print "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'},
+                            {'a.py': '', 'b.py': shape + 'print "x"\n', 'README.md': 'Uses `LIMIT_MAX`.\n'})
+                self.assertEqual(tree.retired(), [])
+
+    def test_a_leading_bom_is_python(self):
+        """A BOM is valid Python, so a file carrying one is read by its tree: a removal from it
+        is reported, and adding one beside a reworded docstring or a dropped keyword argument
+        reads nothing as removed."""
+        tree = Tree(self, {'a.py': '\ufeffOLD_LIMIT = 1\n', 'README.md': 'Uses `OLD_LIMIT`.\n'},
+                    {'a.py': '\ufeff\n', 'README.md': 'Uses `OLD_LIMIT`.\n'})
+        self.assertEqual(tree.retired(), [('README.md', 'OLD_LIMIT')])
+        doc = '"""Environment:\n    BYMAX_FLAG: turns it on, as in BYMAX_FLAG=1.\n"""\n'
+        tree = Tree(self, {'a.py': doc, 'README.md': 'Set `BYMAX_FLAG`.\n'},
+                    {'a.py': '\ufeff' + doc.replace('turns it on, as in BYMAX_FLAG=1.', 'set it to 1.'),
+                     'README.md': 'Set `BYMAX_FLAG`.\n'})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'import os\nos.environ.update(dict(\n    BYMAX_HOME="/opt",\n))\n',
+                           'README.md': 'Set `BYMAX_HOME`.\n'},
+                    {'a.py': '\ufeffimport os\nos.environ.update(dict())\n', 'README.md': 'Set `BYMAX_HOME`.\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_a_comment_after_code_is_read_for_what_it_names(self):
+        """The line stays code for the split, and the comment on it still asserts: a removed
+        name left in `value = 2  # uses OLD_NAME` is a dangling reference like any other. Only
+        the comment is read, so a name in the code before it is the suite's to catch."""
+        tree = Tree(self, {'a.py': 'OLD_NAME = 1\nvalue = 2  # uses OLD_NAME\n'},
+                    {'a.py': 'value = 2  # uses OLD_NAME\n'})
+        self.assertEqual(tree.retired(), [('a.py', 'OLD_NAME')])
+        tree = Tree(self, {'a.py': 'OLD_NAME = 1\nvalue = OLD_NAME  # a note\n'},
+                    {'a.py': 'value = OLD_NAME  # a note\n'})
+        self.assertEqual(tree.retired(), [])
+
+    def test_a_definition_removed_in_a_rename_is_still_reported(self):
+        """Found by a reviewer: git reports a rename as its destination alone, so a definition
+        removed in the same commit sat in a path the base does not have, nothing read it as
+        removed, and the check reported that it had passed. Renames are not detected here."""
+        whole = ('def old_helper(x):\n    return x\n\n\ndef kept_one(x):\n    return x + 1\n\n\n'
+                 'def kept_two(x):\n    return x + 2\n\n\ndef kept_three(x):\n    return x + 3\n')
+        tree = Tree(self, {'a.py': whole, 'README.md': '# doc\n\nCalls old_helper for the thing.\n'},
+                    {'b.py': whole.split('\n\n\n', 1)[1], 'README.md': '# doc\n\nCalls old_helper for the thing.\n'})
+        self.assertEqual(tree.retired(), [('README.md', 'old_helper')])
 
     def test_a_function_removed_outright_is_still_reported(self):
         """The other side of the same alternative: moved is silence, gone is a finding."""
@@ -147,6 +379,17 @@ class RetiredNameTests(unittest.TestCase):
         self.assertEqual(split['prose'], [])
         self.assertIn('enabled = later()  # explanation',
                       [text.strip() for _, at, text in split['code'] if at > 0])
+
+    def test_a_command_block_in_markdown_is_code(self):
+        """A fenced `bash` block in a command file is what a model runs verbatim. Filed under
+        prose with the rest of the file, a delta changing one was told it had changed no code;
+        the sentence around it is still prose."""
+        tree = Tree(self, {'cmd.md': '# Push\n\n```bash\ngit push origin HEAD\n```\n'},
+                    {'cmd.md': '# Push it\n\n```bash\ngit push -u origin HEAD\n```\n'})
+        split = claims.split_delta(tree.base, tree.head, cwd=str(tree.where))
+        self.assertEqual(sorted(text for _, _, text in split['code']),
+                         ['git push -u origin HEAD', 'git push origin HEAD'])
+        self.assertEqual(sorted(text for _, _, text in split['prose']), ['# Push', '# Push it'])
 
     def test_a_change_with_no_lines_is_neither_added_nor_removed(self):
         """A file that changed while no line did gets coordinate 0, because naming a line
@@ -300,6 +543,13 @@ class OpaqueFileTests(unittest.TestCase):
         tree = Tree(self, {'a.ts': 'const x = 1\n'}, {'a.ts': 'const x = 2\n'})
         self.assertEqual(self.opaque(tree), ['a.ts'])
 
+    def test_a_renamed_file_this_module_cannot_read_is_named_on_both_sides(self):
+        """A rename changed both paths, and naming one of them tells the reader that the other
+        side stayed put — the same detection that hid a removed definition from the check."""
+        whole = 'const a = 1\nconst b = 2\nconst c = 3\nconst d = 4\nconst e = 5\n'
+        tree = Tree(self, {'a.ts': whole}, {'b.ts': whole + 'const f = 6\n'})
+        self.assertEqual(self.opaque(tree), ['a.ts', 'b.ts'])
+
     def test_a_readable_file_is_not_named(self):
         tree = Tree(self, {'a.py': 'X = 1\n'}, {'a.py': 'X = 2\n'})
         self.assertEqual(self.opaque(tree), [])
@@ -365,6 +615,45 @@ class OpaqueFileTests(unittest.TestCase):
 
 
 class UnkeptPromiseTests(unittest.TestCase):
+
+    def test_a_path_git_quotes_is_read_as_itself(self):
+        """Git quotes a non-ASCII path it prints one to a line, and the quoted spelling names no
+        file: a dangling mention in café.md went unreported, a def moved to café.py read as
+        removed, and a removal claimed of text surviving in café.md went unchecked."""
+        tree = Tree(self, {'a.py': 'OLD_NAME = 1\n', 'café.md': 'Uses `OLD_NAME`.\n'},
+                    {'a.py': '', 'café.md': 'Uses `OLD_NAME`.\n'})
+        self.assertEqual(tree.retired(), [('café.md', 'OLD_NAME')])
+        tree = Tree(self, {'a.py': 'def old_helper(x):\n    return x\n', 'README.md': 'Calls `old_helper`.\n'},
+                    {'café.py': 'def old_helper(x):\n    return x\n', 'README.md': 'Calls `old_helper`.\n'})
+        self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'café.md': 'Said most likely never joined.\n'},
+                    {'café.md': 'Said most likely never joined.\n',
+                     'NOTES.md': 'We removed `most likely never joined` from the message.\n'})
+        self.assertEqual(tree.unkept(), [('NOTES.md', 'most likely never joined', 'café.md')])
+
+    def test_release_history_asserts_nothing_live(self):
+        """A changelog is append-only: an entry naming a symbol since removed is true of the
+        release it records. Only the file named CHANGELOG.md, in any case and directory, is
+        history; the same sentence in a README is a live claim."""
+        for name in ('CHANGELOG.md', 'docs/ChangeLog.md', 'CHANGELOG.markdown'):
+            with self.subTest(name):
+                tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n', name: 'Version 1 added `OLD_HELPER`.\n'},
+                            {'a.py': '', name: 'Version 1 added `OLD_HELPER`.\n'})
+                self.assertEqual(tree.retired(), [])
+        tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n', 'README.md': 'Version 1 added `OLD_HELPER`.\n'},
+                    {'a.py': '', 'README.md': 'Version 1 added `OLD_HELPER`.\n'})
+        self.assertEqual(tree.retired(), [('README.md', 'OLD_HELPER')])
+
+    def test_a_markdown_file_in_either_spelling_is_read(self):
+        """README.markdown is prose the way README.md is: a dangling mention there is found by
+        the search over the tree, and its words are read, not skipped as a file of no kind."""
+        tree = Tree(self, {'a.py': 'OLD_HELPER = 1\n', 'README.markdown': 'Set `OLD_HELPER` first.\n'},
+                    {'a.py': '', 'README.markdown': 'Set `OLD_HELPER` first.\n'})
+        self.assertEqual(tree.retired(), [('README.markdown', 'OLD_HELPER')])
+        # Changed by the delta, it is a file this module reads, and its lines are prose.
+        tree = Tree(self, {'README.markdown': 'Old.\n'}, {'README.markdown': 'New.\n'})
+        self.assertEqual(claims.opaque(tree.base, tree.head, cwd=str(tree.where)), [])
+        self.assertEqual(claims.marks('README.markdown', 'New.\n'), claims.marks('README.md', 'New.\n'))
 
     def test_a_claimed_removal_whose_quote_survives_is_reported(self):
         """Measured on another repository on this loop: a triage disposition certifying a

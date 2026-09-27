@@ -51,7 +51,7 @@ python3 -m pip install pyyaml       # --break-system-packages on a PEP 668 pytho
 ./scripts/validate.sh
 # (the manifest step delegates to `claude plugin validate`, so it stays in sync with upstream)
 
-# Gate 2 — the Codex package: source drift, all 27 entrypoints, portable links, manifest
+# Gate 2 — the Codex package: source drift, all 28 entrypoints, portable links, manifest
 # contracts, AND the suite under codex/tests (review scope, bundle parity, installation)
 ./scripts/validate-codex.sh
 # With the Codex CLI installed, require the isolated install + skill-discovery test too:
@@ -70,6 +70,7 @@ claude plugin install bymax-web-verify@bymax-agent-kit
 claude plugin install bymax-pr@bymax-agent-kit
 claude plugin install bymax-pm@bymax-agent-kit
 claude plugin install bymax-qa@bymax-agent-kit
+claude plugin install bymax-report@bymax-agent-kit
 
 # Restart Claude Code, then verify your changes
 

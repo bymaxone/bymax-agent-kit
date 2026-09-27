@@ -230,7 +230,7 @@ def prose_size(name, text):
     does not parse has no measurable prose and answers None; the envelope has already
     refused it by then, since nothing can show its change was prose.
     """
-    if name.endswith('.md'):
+    if review_claims.markdown(name):
         return sum(1 for line in text.split('\n') if line.strip())
     count = 0
     try:
@@ -297,7 +297,7 @@ def offences(cwd=None, ignored_before=None):
     """
     found = [] if ignored_before is None else ignored_since(ignored_before, cwd=cwd)
     for name in changed(cwd=cwd):
-        if not name.endswith(review_claims.READABLE):
+        if not (review_claims.markdown(name) or name.endswith('.py')):
             found.append('%s is not a file this pass can read, so nothing here can show its '
                          'change is prose' % name)
             continue
@@ -325,7 +325,7 @@ def offences(cwd=None, ignored_before=None):
 
 def behaviour_offences(name, before, after, cwd=None):
     """What in one file's change is behaviour rather than prose, by the kind of file."""
-    if name.endswith('.md'):
+    if review_claims.markdown(name):
         if instructs(before) != instructs(after):
             return ['%s: its frontmatter or a fenced block changed, which is what the file '
                     'instructs, not prose' % name]

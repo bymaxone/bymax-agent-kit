@@ -17,6 +17,7 @@
   "bymax-sim-ios": "bymax-mobile/commands/sim-ios.md",
   "bymax-spec": "bymax-workflow/commands/spec.md",
   "bymax-standards": "bymax-workflow/skills/standards/SKILL.md",
+  "bymax-standup": "bymax-report/skills/standup/SKILL.md",
   "bymax-task": "bymax-workflow/commands/task.md",
   "bymax-tdd": "bymax-quality/commands/tdd.md",
   "bymax-tester": "bymax-quality/skills/tester/SKILL.md",

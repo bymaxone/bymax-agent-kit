@@ -16,7 +16,10 @@ import time
 
 import review_delivery
 from review_delivery import scope_of as scope
-import review_claims
+from review_delta import claims_settled, delta_view
+from review_evidence import is_test_path, matrix_first, matrix_run, tests_changed
+from review_git import clean_head, git, git_raw, require
+from review_prose_pass import prose_first, prose_run
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
@@ -24,37 +27,6 @@ from review_prepush import (CODEX_LOCATIONS, WAIVER_TTL, explain, resolve_codex,
                             reviewers_needed, satisfied, waiver_ok)
 
 POLICY = 2
-
-
-def git(*args):
-    """Read Git state without invoking a shell, trimmed for the usual single-value answer."""
-    return git_raw(*args).strip()
-
-
-def git_raw(*args):
-    """The same, untrimmed: a NUL-delimited listing is bytes, and stripping edits a name.
-
-    A path may legitimately begin or end with whitespace, and trimming one silently
-    collapses it onto its neighbour — which is how a file no finding named became
-    invisible to the rule that exists to catch it.
-    """
-    return subprocess.check_output(['git', *args], text=True)
-
-
-def require(condition, message):
-    """Reject an incomplete or stale review operation."""
-    if not condition:
-        raise ValueError(message)
-
-
-def clean_head():
-    """Resolve a candidate only when tracked and untracked work is clean."""
-    # The envelope's own listing: a status listing honours the
-    # assume-unchanged bit, submodule.<name>.ignore and status.showUntrackedFiles, and a tree
-    # that passed as clean under any of them started a pass on the author's edits.
-    import review_prose
-    require(not review_prose.changed(), 'Commit the intended candidate first; worktree is dirty.')
-    return git('rev-parse', 'HEAD')
 
 
 def location():
@@ -874,205 +846,6 @@ def start(args, directory):
     return state
 
 
-def tests_changed(base, head):
-    """What a delta did to tests, read from the diff, which is the only place it can be read.
-
-    Added or modified only: deleting the test that caught a defect is not a regression.
-    Renames are not detected, so a renamed test is listed under its new path as added instead
-    of vanishing from the list both reviewers see. Deleted tests never count as evidence, but
-    reviewers must see them to judge the deletion, so they come back separately.
-    """
-    changed = git('diff', '--name-only', '--no-renames', '--diff-filter=AM', base, head).splitlines()
-    removed = git('diff', '--name-only', '--no-renames', '--diff-filter=D', base, head).splitlines()
-    return [p for p in changed if is_test_path(p)], [p for p in removed if is_test_path(p)]
-
-
-def regression_note(state):
-    """What the delta did to tests, and what the reviewer should do about it.
-
-    Read from the diff on every round. This read `regression_tests`, which only a correction
-    round sets, and the round the note was first shown on round one it told a reviewer
-    "No test changed in this delta. Recorded reason: ." about a delta that changed four test
-    files — the brief asserting what the tree does not support, committed while widening the
-    brief so that round one would stop being blind. The input has one source now.
-    """
-    tests, _ = tests_changed(state['review_base'], state['head'])
-    if tests:
-        return ('Tests changed in this delta: ' + ', '.join(tests)
-                + '. A test whose expectation was flipped rather than added must be justified '
-                'in the triage evidence; report an unjustified flip.')
-    reason = state.get('no_regression_reason', '')
-    if reason:
-        return 'No test changed in this delta. Recorded reason: ' + reason + '. Judge whether that is justified.'
-    return 'No test changed in this delta. Judge whether a delta this size can carry no case.'
-
-
-def matrix_run(args, directory, state):
-    """Run the declared matrix through the runtime and keep what happened, not what was said.
-
-    An author's `observed: the mutant fails the case` is a sentence. This is the measurement,
-    taken here so the record is the runtime's and is bound to the candidate it was taken on.
-    """
-    import review_matrix
-    # Recorded under the HEAD it measured, not under the campaign's current candidate: this
-    # runs between committing a correction and opening the round that reviews it.
-    head = clean_head()
-    where = directory / ('matrix-' + head + '.json')
-    return review_matrix.record(git('rev-parse', '--show-toplevel'), args.spec,
-                                list(args.paths), out=str(where))
-
-
-def code_touched(base, head):
-    """Lines this delta changed, added and removed, counted as code and as prose.
-
-    A correction that writes only prose is a round spent on text, and the prose it writes is
-    the next round's findings — so the two are counted apart and the difference is stated.
-    """
-    split = review_claims.split_delta(base, head)
-    return {kind: len(rows) for kind, rows in split.items()}
-
-
-def measured_matrix(args, directory):
-    """The matrix through the runtime, refusing like every sibling.
-
-    review_matrix says why by raising SystemExit, which cli()'s handler does not catch, so
-    this exited 1 where every other refusal exits 2. Re-raised as what that handler reads,
-    with the prefix it adds stripped so the message carries it once.
-    """
-    directory.mkdir(parents=True, exist_ok=True)
-    try:
-        return matrix_run(args, directory, None)
-    except SystemExit as refused:
-        raise ValueError(str(refused.code).removeprefix('BLOCKED: ')) from None
-
-
-def matrix_first(state, directory):
-    """A correction that changes a test must carry a measured matrix, not a claim of one.
-
-    Only the runtime can establish that a mutant applied, that its case passed clean first,
-    and that it then failed — which is why `--probe` alone never could.
-    """
-    if state['round'] == 1 or not state.get('regression_tests'):
-        return
-    # Scoped to a correction that changes a TEST, because that is what the matrix proves: a
-    # gate discriminates. Every vacuous gate measured on this loop lived in a test file and
-    # passed its own suite. A correction that changes no test has no gate to mutate, and
-    # demanding one there would buy a slower suite and no evidence.
-    where = directory / ('matrix-' + state['head'] + '.json')
-    require(where.exists(),
-            'This correction changes %s and no measured mutation matrix exists for %s. Run '
-            '`review_flow.py matrix --spec <file> <test paths>` first: a mutant that survives is '
-            'the finding, and a matrix reported rather than run is the one step of this protocol '
-            'that has only ever been the author\'s word.'
-            % (', '.join(state['regression_tests']), state['head'][:12]))
-    kept = json.loads(where.read_text())
-    require(kept.get('head') == state['head'], 'The recorded matrix names head %s, not this '
-            'candidate. A record bound to another head measured another tree.'
-            % str(kept.get('head'))[:12])
-    require(kept.get('mutants'), 'The recorded matrix measured no mutants. A matrix that mutates '
-            'nothing answers nothing.')
-    require(kept.get('tree'), 'The recorded matrix carries no fingerprint of the files it '
-            'mutated, so nothing ties it to what is here now.')
-    require(not kept.get('survivors'), 'The recorded matrix has survivors: '
-            + ', '.join(kept['survivors']) + '. A gate nothing can break is decoration.')
-    # Recomputed, not trusted. The field was tested for presence and never for agreement, so
-    # a record saying `tree: x` bound itself to nothing while two sentences said it did — the
-    # head alone held the binding, and only on the path that refuses a dirty worktree.
-    import review_matrix
-    names = kept.get('files')
-    # Non-empty, not merely present: digest([]) is the digest of nothing, and a record naming
-    # no file with that digest passed here while bound to nothing. A matrix with a mutant
-    # always names the file it mutated.
-    require(names, 'The recorded matrix does not name the files it mutated, so its '
-            'fingerprint cannot be checked against this tree. Re-run `review_flow.py matrix`.')
-    now = review_matrix.digest(git('rev-parse', '--show-toplevel'), names)
-    require(now == kept['tree'], 'The recorded matrix was measured on other contents of %s: its '
-            'fingerprint does not match what is here now. A record is bound to the tree it '
-            'measured; re-run the matrix on this one.' % ', '.join(names))
-    # The list is the record's own and mutable, so it is checked against what the results
-    # say was mutated: a fingerprint over files the matrix never touched binds nothing.
-    mutated = {r.get('file') for r in kept.get('results') or []}
-    require(set(names) == mutated, 'The recorded matrix names %s but its results mutated %s. '
-            'Re-run `review_flow.py matrix`.' % (', '.join(names), ', '.join(sorted(mutated)) or 'nothing'))
-
-
-def code_view(state):
-    """The delta with its prose hunks elided: what a logic reviewer is asked to review.
-
-    Not a blindfold — the tree is theirs to read, and a logic defect noticed BECAUSE a
-    docstring disagrees with the code is still a logic defect and still wanted. What it does
-    is put the code where the eye lands, in a delta whose prose usually outweighs it.
-    """
-    split = review_claims.split_delta(state['review_base'], state['head'])
-    if not split['code']:
-        return ('This delta changed no code — %d prose line(s) only. A prose-only correction is '
-                'a round spent on text; judge whether it earned one.' % len(split['prose']))
-    shown = ['Code changed in this delta, prose elided: %d code line(s), %d prose, marked + for '
-             'an added line, - for a removed one and ? for a file that changed without any '
-             'line changing, such as a binary or a rename. Review THIS first. A finding whose fix is '
-             'CODE is yours however you noticed it — including by a comment disagreeing with '
-             'what the code does.' % (len(split['code']), len(split['prose']))]
-    for name, at, text in split['code'][:120]:
-        # A removal is rendered as one. It reached reviewers as `file:-39 <text>` through the
-        # format an addition uses, with nothing saying what the minus meant.
-        mark = '+' if at > 0 else '-' if at < 0 else '?'
-        shown.append('  %s %s:%d %s' % (mark, name, abs(at), text.rstrip()[:100]))
-    if len(split['code']) > 120:
-        shown.append('  ... and %d more; the full diff is yours to read.' % (len(split['code']) - 120))
-    return '\n'.join(shown)
-
-
-def claims_coverage(state):
-    """What the claims checker settled, and — the part that matters — what it did not.
-
-    The inventory is a count and a command rather than the lines themselves: a delta adds a
-    hundred assertions and pasting them would cost every reviewer the context they need for
-    the code. What must not be cheap is the statement that nothing checked them, because a
-    silent checker reads as "the prose is true" when it means "the one refusing check found nothing".
-    """
-    base, head = state['review_base'], state['head']
-    rest = review_claims.unchecked(base, head)
-    unread = review_claims.opaque(base, head)
-    said = ['Prose in this delta: one exact check ran and passed — no name it asserts was '
-            'removed by this delta and left dangling.']
-    # Run here rather than described here. The brief said a second check reports, and nothing
-    # on this path called it, so its rows reached nobody — a sentence about a check is not the
-    # check. It refuses nothing: across 40 mainline commits it flags one, a shell command read
-    # as the subject of a sentence beside it, and one wrong refusal in forty is a delivery
-    # blocked by mistake.
-    for where, quote, still in review_claims.unkept(base, head):
-        said.append('REPORTED, not refusing: %s says `%s` is gone and it is in %s. Judge it; '
-                    'it cannot hold a receipt.' % (where, quote, still))
-    if unread:
-        said.append('They read Python and Markdown only, so they read NOTHING in %d changed '
-                    'file(s) of other kinds (%s). For those the checks are silent, which is not '
-                    'the same as clean.' % (len(unread), ', '.join(unread[:6])))
-    counts = code_touched(base, head)
-    if counts['prose'] or counts['code']:
-        said.append('This delta changed %d line(s) of code and %d of prose. Prose is surface '
-                    'no command checks: judge whether the explanation earns its size.'
-                    % (counts['code'], counts['prose']))
-    said.append('%d assertion(s) added that NO command settles — docstrings, comments and '
-                'markdown, which is what this reads. They are unverified, not verified; treat '
-                'each as a claim to check against the code. List them with '
-                '`review_claims.py %s %s`.' % (len(rest), base, head))
-    return ' '.join(said)
-
-
-def claims_settled(base, head):
-    """Refuse a candidate whose own prose asserts something a command already disproves.
-
-    The suite runs against code; the mutation matrix runs against rules; nothing ran against
-    sentences, and sentences are where this package's correction rounds went. Each refusal
-    here was measured on a real delta, and each was found by a reviewer a round later, at
-    the cost of a candidate.
-    """
-    gone = review_claims.retired(base, head)
-    require(not gone, 'Prose asserts a name this delta removed from the code: '
-            + '; '.join('%s says %s' % (where, name) for where, name in gone)
-            + '. Correct the sentence or restore the name before a reviewer spends a round on it.')
-
-
 def review_range(directory):
     """The endpoints this branch's campaign froze, while they are still the scope in hand.
 
@@ -1096,28 +869,12 @@ def review_range(directory):
     return f"{state['review_base']}..{state['head']}" if head == state['head'] else ''
 
 
-TEST_PATH = re.compile(r'(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]+\.py$|_test\.|\.test\.|\.spec\.', re.IGNORECASE)
 # Triage and resolution keys are reviewer::<id>. No path begins with `claude::`,
 # `claude-b::` or `codex::`, so a copied key is recognised by its prefix alone and a
 # finding on a real file under a codex/ directory can never be mistaken for one.
 SEPARATOR = '::'
 SUBSTITUTE = 'claude-b'
 REVIEWERS = ('claude' + SEPARATOR, SUBSTITUTE + SEPARATOR, 'codex' + SEPARATOR)
-
-
-TEST_DIRECTORY = re.compile(r'(^|/)(tests?|spec|__tests__)/', re.IGNORECASE)
-PROSE_SUFFIXES = ('.md', '.markdown', '.adoc')
-# Plain text and data formats are test material only inside a test directory:
-# tests/golden/expected.txt and tests/fixtures/data.json count, openapi/v1.spec.yaml does not.
-INSIDE_ONLY_SUFFIXES = ('.txt', '.rst', '.yaml', '.yml', '.json', '.toml')
-
-
-def is_test_path(path):
-    """A test by location or name; prose never, text and data only inside a test directory."""
-    lower = path.lower()
-    if not TEST_PATH.search(path) or lower.endswith(PROSE_SUFFIXES):
-        return False
-    return bool(TEST_DIRECTORY.search(path)) or not lower.endswith(INSIDE_ONLY_SUFFIXES)
 
 
 def key(reviewer, finding_id):
@@ -1209,210 +966,33 @@ def correction_contract(args, old, head):
             'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
     tests, removed = tests_changed(old['head'], head)
     reason = (args.no_regression_reason or '').strip()
+    a_regression_or_a_reason(tests, reason, probe)
+    return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
+                regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
+
+
+def a_regression_or_a_reason(tests, reason, probe):
+    """What a correction owes about the tests it changed, or about changing none.
+
+    Nothing here is owed about a test a merge carried in. Refusing on one fired on an ordinary
+    merge of the base branch, and letting it through when the correction changed a test of its
+    own let the other shape pass in silence — one condition wrong in both directions, because a
+    carried test is exactly as unattributable either way. What the runtime cannot know it says
+    to both reviewers instead of enforcing.
+
+    Believing a case exercises the fix does not make it evidence. Reverting the change and
+    watching the case fail costs seconds, so the round asks for that output rather than for
+    the belief.
+    """
     require(tests or reason,
             'This correction touches no test. Add the failing regression first, or record why '
             'that is infeasible with --no-regression-reason "<why>".')
-    # A case the author believes exercises the fix is not evidence that it does. Measured across
-    # two campaigns on two repositories: every such belief that was checked turned out wrong, and
-    # a reviewer checked it every time. Reverting the change and watching the case fail costs
-    # seconds, so the round asks for that output rather than for the belief.
     shown = [p for p in probe if isinstance(p.get('without_fix'), str) and p['without_fix'].strip()]
     require(not tests or shown,
             'This correction changes ' + ', '.join(tests) + ' and no probe entry shows a case '
             'failing without the fix. Revert the production change, run the case, and record what '
             'failed in a probe entry\'s "without_fix". A case that was never watched fail is not '
             'evidence that it would.')
-    return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
-                regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
-
-
-PROSE_TOOLS = 'Read,Grep,Glob,Edit'
-
-
-def prose_command(root):
-    """A fresh Claude allowed to edit and nothing else; the envelope decides what it edited.
-
-    The same hardening as the reviewer pass — no hooks, no MCP, no slash commands, no session
-    — plus Edit under acceptEdits, because a pass that can only report is the round this
-    exists to remove. What it may edit is not a permission question: review_prose.offences
-    reads the tree afterwards and an edit outside the envelope refuses the whole pass.
-    """
-    return ['claude', '-p', '--output-format', 'json', '--tools', PROSE_TOOLS,
-            '--allowedTools', PROSE_TOOLS, '--permission-mode', 'acceptEdits', '--add-dir', root,
-            '--disable-slash-commands', '--no-session-persistence', '--max-turns', '40',
-            '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
-            '--settings', '{"disableAllHooks":true}']
-
-
-def prose_base(args, directory, head):
-    """Where the pass reads the delta from.
-
-    A campaign frozen on another head means a correction is being prepared, and the delta
-    is what changed since that head. A campaign frozen on THIS head is the case the pass
-    exists to avoid: editing what reviewers were handed invalidates their reading.
-    """
-    if (directory / 'state.json').exists():
-        old = read_state(directory)
-        require(old['head'] != head, 'This head is frozen under review. The pass runs BEFORE '
-                '`start`, on the next candidate; editing a frozen candidate invalidates its review.')
-        # The rule start applies: a cleared campaign that is not an enrolled delivery is no
-        # campaign, and the next candidate opens a first round from the given base. Reading
-        # from the cleared head here recorded a base start would never look for, and the
-        # remedy start printed named a --base this function then ignored.
-        if not old.get('cleared') or review_delivery.active(directory, False):
-            return old['head']
-    require(args.base, 'No campaign is frozen on this branch, so the pass needs --base <merge-base>.')
-    return git('rev-parse', '--verify', args.base + '^{commit}')
-
-
-def prose_run(args, directory):
-    """Run the prose pass on a committed candidate that is not yet frozen, and record what it left.
-
-    Three stages, because a Claude cannot start another Claude: `run` does everything with
-    the CLI; inside a Claude session, `prepare` prints the task for a fresh subagent with
-    Edit and leaves a marker saying it began on a clean tree, and `verify` requires that
-    marker. The marker proves the tree was clean when the task was handed out; the runtime
-    does not observe who edited between the stages. The record binds to the text the pass
-    left, and start() recomputes its digest on the candidate.
-    """
-    import review_prose
-    directory.mkdir(parents=True, exist_ok=True)
-    if args.stage == 'verify':
-        head = git('rev-parse', 'HEAD')
-        where = directory / ('prose-' + head + '.json')
-        kept = json.loads(where.read_text()) if where.exists() else {}
-        require(kept.get('outcome') == 'prepared', 'Nothing was prepared at this head. Run `prose '
-                '--stage prepare` on a clean tree first: its marker proves the tree was clean when '
-                'the task was handed out, which is what binds the record to a pass at all.')
-        # None, not an empty set: a marker the previous runtime wrote carries no snapshot, and
-        # an empty one made every ignored file that predates the pass a new one.
-        return prose_verify(kept['base'], head, directory, kept.get('ignored'))
-    head = clean_head()
-    base = prose_base(args, directory, head)
-    where = directory / ('prose-' + head + '.json')
-    task = review_prose.prepare(base, head)
-    if not task:
-        record = dict(base=base, head=head, files=[], digest=None, cut=0, changed=[],
-                      outcome='skipped', why='this delta added no prose')
-        where.write_text(json.dumps(record, indent=2) + '\n')
-        return record
-    if args.stage == 'prepare':
-        # The ignored files present now: one the reader creates is a file it left, and a set
-        # the listing must not refuse — ignored files never reach a candidate.
-        where.write_text(json.dumps(dict(base=base, head=head, outcome='prepared',
-                                         ignored=review_prose.ignored()), indent=2) + '\n')
-        print(task)
-        return None
-    require(not os.environ.get('CLAUDECODE'), 'Inside Claude, a Claude cannot be started: '
-            'run `prose --stage prepare`, hand the task to a fresh subagent with Edit, then '
-            'run `prose --stage verify`.')
-    before = review_prose.ignored()
-    read_with(task, directory / ('prose-' + head + '.log'))
-    return prose_verify(base, head, directory, before)
-
-
-LEFT = ('The tree holds exactly what the reader left; nothing was put back. The runtime never writes '
-        'to the tree, because no listing git offers proves what in it is the author\'s — hidden '
-        'untracked files, assume-unchanged edits and ignored submodules all passed as clean once, '
-        'and a restore to HEAD destroyed them. Inspect `git status`, put back what you need, and run '
-        'the pass again; prepare and start refuse a dirty tree until then.')
-
-
-def read_with(task, log):
-    """Run the reader. A reader that failed or timed out leaves its edits where they are."""
-    try:
-        with log.open('w') as out:
-            done = subprocess.run(prose_command(git('rev-parse', '--show-toplevel')), input=task,
-                                  text=True, stdout=out, stderr=subprocess.STDOUT, timeout=900)
-    except subprocess.TimeoutExpired:
-        raise ValueError('The prose pass timed out; inspect ' + str(log) + '. ' + LEFT) from None
-    require(done.returncode == 0, 'The prose pass failed; inspect ' + str(log) + '. ' + LEFT)
-
-
-def prose_verify(base, head, directory, ignored_before=None):
-    """Check what the pass left: record it if it stayed inside the envelope, refuse it if not.
-
-    A refusal touches nothing. Every round of an automatic revert patched a state in
-    which a git listing hides the author's work and opened the next, because a listing
-    that is empty does not prove the tree equals HEAD; the mechanism was deleted rather than
-    extended, and the author, who can see what is theirs, puts the tree back.
-    """
-    import review_matrix
-    import review_prose
-    root = git('rev-parse', '--show-toplevel')
-    broken = review_prose.offences(ignored_before=ignored_before)
-    if broken:
-        raise ValueError('The pass left the envelope:\n  ' + '\n  '.join(broken) + '\n' + LEFT)
-    changed = review_prose.changed()
-    files = review_claims.touched(base, head)
-    record = dict(base=base, head=head, files=files, digest=review_matrix.digest(root, files),
-                  cut=review_prose.cut(), changed=changed,
-                  outcome='corrected' if changed else 'unchanged')
-    (directory / ('prose-' + head + '.json')).write_text(json.dumps(record, indent=2) + '\n')
-    return record
-
-
-def prose_first(state, directory):
-    """A candidate whose delta added prose carries the record of the pass that read it.
-
-    Bound by content, not by head: the record is written before the commit that carries the
-    corrections, so it cannot know the candidate's head. It names the files and their digest
-    after the pass; the candidate must digest the same, or its prose is not what was read.
-    """
-    base, head = state['review_base'], state['head']
-    if not review_claims.added(base, head):
-        return
-    import review_matrix
-    root = git('rev-parse', '--show-toplevel')
-    for path in sorted(directory.glob('prose-*.json'), key=lambda p: p.stat().st_mtime, reverse=True):
-        kept = json.loads(path.read_text())
-        if kept.get('base') != base or kept.get('outcome') == 'skipped' or not kept.get('files'):
-            continue
-        # The candidate's own set, not the pass's: a record over the files the pass saw said
-        # nothing about a file committed afterwards, and prose added there reached reviewers
-        # under a note saying a reader had seen it.
-        if set(kept['files']) != set(review_claims.touched(base, head)):
-            continue
-        if review_matrix.digest(root, kept['files']) == kept.get('digest'):
-            state['prose'] = dict(record=path.name, files=len(kept['files']), cut=kept['cut'],
-                                  outcome=kept['outcome'])
-            return
-    require(False, 'This delta adds prose and no prose pass read it on this text, in these files. Run '
-            '`review_flow.py prose --base %s` on the committed candidate, commit what it corrected, '
-            'then start. A record bound to other text does not count: the pass binds to what it '
-            'left, and a candidate whose prose is anything else was not read.' % base[:12])
-
-
-def prose_note(state):
-    """What the logic reviewers are told about prose: that it was read, and that it is not theirs."""
-    if not review_claims.added(state['review_base'], state['head']):
-        return 'This delta added no prose, so no prose pass ran and nothing here is a wording question.'
-    kept = state.get('prose')
-    if not kept:
-        return ('This delta adds prose and carries no prose-pass record; it was frozen before the '
-                'pass existed. Read its prose as you would any claim.')
-    return ('The prose pass ran before the freeze: %d file(s) bound, %d line(s) of prose cut, '
-            'none added, and the text you were handed digests to what it left (%s). The runtime '
-            'does not observe the reader, so the record proves the text and not the reading. '
-            'Wording is still not yours to review: a finding whose remedy is rewriting '
-            'a comment, a docstring or a paragraph is not a finding here — unless the sentence '
-            'states something FALSE about the code that a reader would act on, which is a '
-            'correctness defect; file it with the code line that contradicts it.'
-            % (kept['files'], kept['cut'], kept['record']))
-
-
-def delta_view(state):
-    """The delta as a reviewer is asked to read it: code first, then what the checks settled.
-
-    Built for EVERY round. These three lived inside correction_brief, which returns early on
-    round one, so the round that reads the whole delta received none of them while the
-    changelog said every reviewer receives them. Round one is where the last of them matters
-    most: on a repository of languages these checks cannot read, "they read NOTHING in N
-    changed files" is the sentence that stops silence from reading as clean, and it was
-    absent from exactly the reading that covers the most ground.
-    """
-    return '\n'.join([code_view(state), claims_coverage(state), regression_note(state),
-                      prose_note(state)])
 
 
 def correction_brief(state):
@@ -1526,10 +1106,10 @@ improves the health of the code even when it is imperfect, and let a nit be a ni
 correct change hostage to text no test can check is the failure mode this field exists to end."""
 
 
-def gate_first(state):
+def gate_first(state, directory):
     """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
 
-    Both adapters call this BEFORE reserving their attempt. It raises from inside prompt(),
+    Both adapters call this before reserving their attempt. It raises from inside prompt(),
     which they evaluate only as the subprocess input, so reserving first spent an attempt on a
     refusal that never reached a reviewer — two of them exhausted the per-candidate budget with
     nothing read, after which execute_codex diverts to an availability probe and reports a
@@ -1558,11 +1138,24 @@ def gate_first(state):
             'These gates failed on this candidate: ' + '; '.join(failed) + '. Fix the candidate, '
             're-run them, and only then ask for a review: reviewers read a tree its own gates '
             'already accept.')
+    settled(state, directory)
 
 
-def prompt(state):
+def settled(state, directory):
+    """The claims check and the matrix, asked again before a reviewer reads and before a receipt.
+
+    start() runs them at the freeze, and a campaign an earlier runtime froze under this policy
+    never met them, while the prompt tells both reviewers the claims check ran; one that had
+    already been reviewed reaches finish() without either. On a candidate that met them at the
+    freeze they change nothing.
+    """
+    claims_settled(state['review_base'], state['head'])
+    matrix_first(state, directory)
+
+
+def prompt(state, directory):
     """Build the same bounded read-only task for both independent reviewers."""
-    gate_first(state)
+    gate_first(state, directory)
     return f'''Review only; do not edit, commit, push, invoke review skills, or launch other reviewers.
 Read applicable AGENTS.md and CLAUDE.md constraints. Do not execute their implementation or push workflows.
 Candidate HEAD: {state['head']}.
@@ -1841,6 +1434,7 @@ def finish(directory, state):
     latest = {tuple(c['command']): c for c in state['checks']}
     require(all(tuple(c) in latest for c in state['required_checks']), 'A declared project gate was not executed.')
     require(all(c['exit_code'] == 0 and Path(c['log']).exists() for c in latest.values()), 'Required check failed or log missing.')
+    settled(state, directory)
     state['cleared'] = True
     save(directory, state)
 
@@ -2053,7 +1647,7 @@ def execute_codex(directory, owner_fd):
     already spent there is no review left to run, and the question that remains — whether
     this machine has a reviewer at all — is answered by an availability probe instead.
     """
-    gate_first(read_state(directory))   # before the attempt is reserved, never after
+    gate_first(read_state(directory), directory)   # before the attempt is reserved, never after
     exhausted = spent(directory)
     if exhausted is not None:
         return availability(directory, exhausted, owner_fd)
@@ -2077,7 +1671,7 @@ def execute_codex(directory, owner_fd):
                        'read-only', '--ephemeral', '--output-schema', str(schema),
                        '--output-last-message', str(report), '-']
             with log.open('w') as output:
-                result = subprocess.run(command, input=prompt(state), text=True,
+                result = subprocess.run(command, input=prompt(state, directory), text=True,
                                         stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
             if result.returncode == 0:
                 with locked(directory):
@@ -2107,6 +1701,40 @@ def codex_check():
                 waivable=['absent', 'quota'], never_waived=['auth', 'failed'],
                 codex_home=str(codex_home()), escalated_profile=str(profile),
                 escalation_bound=profile.is_file())
+
+
+def measured_matrix(args, directory):
+    """The matrix through the runtime, refusing like every sibling.
+
+    review_matrix says why by raising SystemExit, which cli()'s handler does not catch, so
+    it would exit 1 where every other refusal exits 2. Re-raised as what that handler reads,
+    with the prefix it adds stripped so the message carries it once.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        return matrix_run(args, directory, None)
+    except SystemExit as refused:
+        raise ValueError(str(refused.code).removeprefix('BLOCKED: ')) from None
+
+
+def prose_base(args, directory, head):
+    """Where the prose pass reads the delta from.
+
+    A campaign frozen on another head means a correction is being prepared, and the delta
+    is what changed since that head. A campaign frozen on THIS head is the case the pass
+    exists to avoid: editing what reviewers were handed invalidates their reading.
+    """
+    if (directory / 'state.json').exists():
+        old = read_state(directory)
+        require(old['head'] != head, 'This head is frozen under review. The pass runs BEFORE '
+                '`start`, on the next candidate; editing a frozen candidate invalidates its review.')
+        # The rule start applies: a cleared campaign that is not an enrolled delivery is no
+        # campaign, and the next candidate opens a first round from the given base, so the
+        # pass reads from that base too or start never finds the record.
+        if not old.get('cleared') or review_delivery.active(directory, False):
+            return old['head']
+    require(args.base, 'No campaign is frozen on this branch, so the pass needs --base <merge-base>.')
+    return git('rev-parse', '--verify', args.base + '^{commit}')
 
 
 def parser():
@@ -2178,10 +1806,9 @@ def main():
             state = start(args, directory)
         elif args.action in ('prose', 'matrix'):
             # Neither needs a campaign: both run on a committed candidate BEFORE start, and
-            # on round one there is no state to read. The matrix used to sit under the
-            # state-reading branch and refused the round-one measurement the documents ask
-            # for with "No review campaign", which is true and not what was wrong.
-            record = prose_run(args, directory) if args.action == 'prose' else measured_matrix(args, directory)
+            # on round one there is no state to read.
+            record = (prose_run(args, directory, prose_base) if args.action == 'prose'
+                      else measured_matrix(args, directory))
             if record is not None:
                 print(json.dumps(record, indent=2))
             return
@@ -2189,7 +1816,7 @@ def main():
             state = read_state(directory)
             if args.action == 'prompt':
                 current(state)
-                print(prompt(state))
+                print(prompt(state, directory))
                 return
             if args.action == 'lessons':
                 print(lessons(state))

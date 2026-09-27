@@ -36,10 +36,23 @@ import sys
 import tokenize
 from pathlib import Path
 
-FENCED = re.compile(r'```.*?```', re.DOTALL)
+from review_markdown import outside_code
+
 GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone)\b',
                   re.IGNORECASE)
+# A note also records a removal as a rename or a replacement. claimed() reads GONE alone: "replaces
+# `X`" says nothing about whether `X` is still in the tree, so it must not refuse on that word.
+NOTED = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone|'
+                   r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?)\b', re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
+# Both spellings of a Markdown file.
+MARKDOWN = ('.md', '.markdown')
+
+
+def markdown(name):
+    """Whether a file is Markdown, whatever case its suffix is spelled in: README.MD is live
+    documentation, and a case-sensitive match read none of it."""
+    return name.lower().endswith(MARKDOWN)
 
 
 def root(cwd=None):
@@ -56,9 +69,22 @@ def root(cwd=None):
 
 
 def git(*args, cwd=None):
-    """stdout of a git command, or '' when git refuses — an absent side, never a crash."""
-    done = subprocess.run(['git', *args], capture_output=True, text=True, cwd=root(cwd))
-    return done.stdout if done.returncode == 0 else ''
+    """stdout of a git command, or '' when git refuses — an absent side, never a crash.
+
+    Read as bytes. A Python blob is decoded by the encoding it declares (PEP 263), and anything
+    else as UTF-8 with what does not decode replaced: decoded by the process locale, a Latin-1
+    source raised before any check could answer, and every step that asks one stopped with it.
+    """
+    done = subprocess.run(['git', *args], capture_output=True, cwd=root(cwd))
+    if done.returncode != 0:
+        return ''
+    if args[:1] == ('show',) and args[-1].endswith('.py'):
+        try:
+            declared = tokenize.detect_encoding(io.BytesIO(done.stdout).readline)[0]
+            return done.stdout.decode(declared)
+        except (SyntaxError, LookupError, UnicodeDecodeError):
+            pass
+    return done.stdout.decode('utf-8', 'replace')
 
 
 def prose(name, text):
@@ -67,13 +93,31 @@ def prose(name, text):
     A name inside a fenced block is an example about somebody else's repository, and a name
     inside a string literal is data the author passes to something. Neither is an assertion,
     and counting them as assertions was measured to produce false positives on this tree.
+
+    A comment after code is read too, as its own text and without its line: `x = f()  # uses
+    OLD_NAME` still names OLD_NAME, while marks() keeps that line under code for the split.
     """
-    if name.endswith('.md'):
-        return FENCED.sub(' ', text)
+    if markdown(name):
+        return outside_code(text)
     if not name.endswith('.py'):
         return ''
     lines = text.split('\n')
-    return '\n'.join(lines[n - 1] for n in sorted(marks(name, text)) if 0 < n <= len(lines))
+    said = {n: lines[n - 1] for n in marks(name, text) if 0 < n <= len(lines)}
+    for row, note in trailing(text).items():
+        said.setdefault(row, note)
+    return '\n'.join(said[n] for n in sorted(said))
+
+
+def trailing(text):
+    """Each comment that follows code on its line, by line number, and only its own text."""
+    found = {}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT and tok.line[:tok.start[1]].strip():
+                found[tok.start[0]] = tok.string
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return {}
+    return found
 
 
 def marks(name, text):
@@ -83,8 +127,13 @@ def marks(name, text):
     and the code-to-prose ratio the reviewers are shown. Two classifiers would drift, and the
     drift would be invisible until one of them read a line of code as a sentence.
     """
-    if name.endswith('.md'):
-        return set(range(1, len(text.split('\n')) + 2))
+    if markdown(name):
+        # A code block's lines are code, read by the walker prose() reads them with. A fenced
+        # `bash` block in a command file is what a model runs verbatim, and filing it under
+        # prose told the reviewers that a delta changing one had changed no code.
+        lines, shown = text.split('\n'), outside_code(text).split('\n')
+        return {n for n in range(1, len(lines) + 2)
+                if n > len(lines) or not lines[n - 1].strip() or shown[n - 1].strip()}
     if not name.endswith('.py'):
         return set()
     found = set()
@@ -130,13 +179,15 @@ def authored(name):
     return not name.startswith(GENERATED)
 
 
-READABLE = ('.md', '.py')
-
-
 def touched(base, head, cwd=None):
-    """Files this delta changed whose prose this module can read."""
-    listed = git('diff', '--name-only', '-z', base, head, cwd=cwd)
-    return [n for n in listed.split('\0') if n.endswith(READABLE) and authored(n)]
+    """Files this delta changed whose prose this module can read.
+
+    Renames are not detected: git reports a rename as the destination alone, and a definition
+    removed in the same commit then lived in a path the base does not have, so nothing was
+    read as removed at all.
+    """
+    listed = git('diff', '--name-only', '--no-renames', '-z', base, head, cwd=cwd)
+    return [n for n in listed.split('\0') if (markdown(n) or n.endswith('.py')) and authored(n)]
 
 
 def opaque(base, head, cwd=None):
@@ -146,10 +197,12 @@ def opaque(base, head, cwd=None):
     every changed file lands in this list, and saying so is the difference between a checker
     that is silent and one that lies: without it the brief told both reviewers that a real
     code delta changed no code, and that two checks had run over files nothing had opened.
+    Renames are not detected here either: a renamed file the module cannot read changed on
+    both sides, and counting it once tells the reader one side of it stayed put.
     """
-    listed = git('diff', '--name-only', '-z', base, head, cwd=cwd)
+    listed = git('diff', '--name-only', '--no-renames', '-z', base, head, cwd=cwd)
     return [n for n in listed.split('\0')
-            if n and not n.endswith(READABLE) and authored(n)]
+            if n and not (markdown(n) or n.endswith('.py')) and authored(n)]
 
 
 def sides(name, base, head, cwd=None):
@@ -254,30 +307,115 @@ def review_marks(name, text):
     return marks(name, text)
 
 
-def defined(text):
-    """Names a python source defines, read as text so a half-written file still answers."""
-    found = set(re.findall(r'^\s*(?:def|class)\s+([A-Za-z_]\w*)', text, re.MULTILINE))
-    found |= set(re.findall(r'^\s*([A-Z][A-Z0-9_]{2,})\s*=', text, re.MULTILINE))
+def defines(name, text):
+    """Whether a python source defines this name: by its syntax tree where it parses, and where
+    it does not, by the name's whole word occurring anywhere in it. The text of a file that does
+    not parse only keeps a name alive, and a shape-reading of that text both misreads a docstring
+    line as a definition and misses a chained, semicolon or one-line one, so it reads no shape.
+
+    A name the file imports or assigns is live here too: `from lib import LIMIT` in place of
+    `LIMIT = 1`, or `old_helper = replacement` in place of its def, removes nothing a sentence
+    could still name. Only on this side: a dropped import or lowercase assignment is not a
+    definition removed, since the loss side reads only defs, classes and CONSTANT_CASE names.
+    A wildcard import keeps every name alive: which names it binds is the imported module's to
+    say, and that module may be nowhere in this tree.
+    """
+    tree = parsed(text)
+    if tree is None:
+        return re.search(r'(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])' % re.escape(name), text) is not None
+    return (name in declared(tree) or name in imported(tree) or name in assigned(tree)
+            or wildcard(tree))
+
+
+def wildcard(tree):
+    """Whether this tree imports with `from module import *`."""
+    return any(alias.name == '*' for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+               for alias in node.names)
+
+
+def assigned(tree):
+    """Names a binding creates in this tree, in any case: every name in a store position, each
+    parameter of a def or lambda, the name an except clause binds, each name a match pattern
+    captures, and each type parameter. Those last four are held as strings on their nodes, not
+    as names in a store position. A bare annotation, `x: int`, binds nothing."""
+    bare = {id(node.target) for node in ast.walk(tree)
+            if isinstance(node, ast.AnnAssign) and node.value is None}
+    stored = {node.id for node in ast.walk(tree)
+              if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and id(node) not in bare}
+    held = (ast.ExceptHandler, ast.MatchAs, ast.MatchStar) + tuple(
+        getattr(ast, kind) for kind in ('TypeVar', 'ParamSpec', 'TypeVarTuple') if hasattr(ast, kind))
+    return (stored | {node.arg for node in ast.walk(tree) if isinstance(node, ast.arg)}
+            | {node.name for node in ast.walk(tree) if isinstance(node, held) and node.name}
+            | {node.rest for node in ast.walk(tree) if isinstance(node, ast.MatchMapping) and node.rest})
+
+
+def imported(tree):
+    """Names an import binds in this tree: `import a.b` binds `a`, and `as` binds its alias."""
+    return {alias.asname or alias.name.split('.')[0]
+            for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names if alias.name != '*'}
+
+
+def parsed(text):
+    """The syntax tree of a python source, or None where it does not parse. A leading BOM is
+    valid Python that ast.parse() refuses in a str; git() decodes a blob carrying one as
+    utf-8-sig, which drops it."""
+    try:
+        return ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+
+
+def declared(tree):
+    """Names a syntax tree defines: each def and class, async included, and each CONSTANT_CASE
+    name assigned, not unpacked, `LIMIT: int = 3` as much as `LIMIT = 3`. Read from the tree
+    because text shaped like an assignment is not one: a docstring line `FLAG: set FLAG=1` or a
+    dict entry `EACCES: f(retry=0),` is no definition, and rewording it removes none."""
+    found, constant = set(), re.compile(r'[A-Z][A-Z0-9_]{2,}')
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            found.add(node.name)
+            continue
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets = [node.target]
+        else:
+            continue
+        found.update(target.id for target in targets
+                     if isinstance(target, ast.Name) and constant.fullmatch(target.id))
     return found
 
 
 def orphaned(base, head, cwd=None):
-    """Names this delta removed from code and left defined nowhere in the tree."""
+    """Names this delta removed from code and left defined nowhere in the tree.
+
+    Only the syntax tree makes a name lost. The text of a file that does not parse only keeps
+    one alive, through defines(): as the head of a file whose head does not parse, and as a file
+    the alive search reads. A file whose base does not parse contributes no removal: a stated
+    gap, because a heuristic that refuses is worse than none.
+    """
     lost = set()
     for name in touched(base, head, cwd=cwd):
-        if name.endswith('.py'):
-            lost |= defined(git('show', '%s:%s' % (base, name), cwd=cwd)) - \
-                    defined(git('show', '%s:%s' % (head, name), cwd=cwd))
-    # Neither \s nor \b: git grep runs its own engine, where both are literal and a pattern
-    # using either silently matches nothing. Corrected twice — the \s half first, the \b half
-    # only after a reviewer found that every function which merely MOVED to another module
-    # read as removed. The case that should have caught it exercises a constant, which
-    # resolves through the second alternative, so there is now one case per alternative.
-    alive = (r'^[[:space:]]*(def|class)[[:space:]]+%s([^A-Za-z0-9_]|$)'
-             r'|^[[:space:]]*%s[[:space:]]*=')
-    return sorted(name for name in lost
-                  if not git('grep', '-lE', alive % (name, name), head,
-                             '--', '*.py', cwd=cwd).strip())
+        before = parsed(git('show', '%s:%s' % (base, name), cwd=cwd)) if name.endswith('.py') else None
+        if before is not None:
+            after = git('show', '%s:%s' % (head, name), cwd=cwd)
+            lost |= {gone for gone in declared(before) if not defines(gone, after)}
+
+    def alive(name):
+        # The grep narrows which files are read and defines() decides: a name the tree counts
+        # can sit after a semicolon or in a chained assignment, which no line-anchored pattern
+        # reaches, so only the whole word is a search wide enough to narrow by.
+        listed = git('grep', '-z', '-lw', '--', name, head, '--', '*.py', cwd=cwd)
+        return any(defines(name, git('show', hit, cwd=cwd)) for hit in listed.split('\0') if hit)
+
+    return sorted(name for name in lost if not alive(name))
+
+
+def historical(name):
+    """Whether a file is release history. A changelog is append-only, and an entry naming a
+    symbol since removed is true of the release it records, so it asserts nothing live."""
+    return Path(name).name.lower() in ('changelog' + suffix for suffix in MARKDOWN)
 
 
 def code_shaped(token):
@@ -319,22 +457,56 @@ def retired(base, head, cwd=None):
 
     Matching the largest published study of this defect, which scanned over 3,000 GitHub
     projects and found most of them carry an outdated code-element reference at some point.
+    A line records_removal() accepts refuses nothing: noted_removals() reports it.
     """
+    return sorted({(name, token) for name, token, line in mentions(base, head, cwd=cwd)
+                   if not records_removal(line, token)})
+
+
+def noted_removals(base, head, cwd=None):
+    """Lines naming a name this delta removed that records_removal() accepts, to be judged.
+
+    Such a line may be a migration note, "`OLD_HELPER` was removed; use `NEW_HELPER`", or a live
+    claim that holds the word, "`OLD_HELPER` removes the entry". Every review of a grammar meant
+    to tell them apart found sentences it read wrong, in both directions: refusing a true
+    note blocks the delivery, and passing a live claim hides it. Reported, the line does neither.
+    """
+    return sorted((name, token, line.strip()) for name, token, line in mentions(base, head, cwd=cwd)
+                  if records_removal(line, token))
+
+
+def mentions(base, head, cwd=None):
+    """Each prose line in the tree at head naming a code-shaped name this delta removed, as
+    (file, name, line)."""
     found = []
     for token in orphaned(base, head, cwd=cwd):
         if not code_shaped(token):
             continue
-        listed = git('grep', '-lw', '--', token, head, '--', '*.py', '*.md', cwd=cwd)
+        # NUL-separated, because git quotes a path it prints one to a line, and the quoted
+        # spelling of café.md named no file: the dangling mention there went unreported.
+        listed = git('grep', '-z', '-lw', '--', token, head, '--', '*.py',
+                     *(':(icase)*' + suffix for suffix in MARKDOWN), cwd=cwd)
         # Filtered here as well as in touched(): the search that finds the dangling mention is
         # a different search from the one that finds the removal, and excluding the generated
         # copy in only one of them leaves the other reporting a file that asserts nothing of
         # its own.
-        for name in sorted({p.split(':', 1)[-1] for p in listed.split('\n')
-                            if p and authored(p.split(':', 1)[-1])}):
-            if re.search(r'\b%s\b' % token,
-                         prose(name, git('show', '%s:%s' % (head, name), cwd=cwd))):
-                found.append((name, token))
-    return sorted(found)
+        for name in sorted({p.split(':', 1)[-1] for p in listed.split('\0')
+                            if p and authored(p.split(':', 1)[-1])
+                            and not historical(p.split(':', 1)[-1])}):
+            for line in prose(name, git('show', '%s:%s' % (head, name), cwd=cwd)).split('\n'):
+                if re.search(r'\b%s\b' % token, line):
+                    found.append((name, token, line))
+    return found
+
+
+def records_removal(line, token):
+    """Whether every clause naming the name also says it is gone, outside every quoted span. A
+    clause naming it without such a word asserts it; "`OLD_HELPER` runs `git worktree remove`"
+    is one, since the word is the quoted command's."""
+    # A period ends a clause only where no word follows it: `review_flow.py` is one name.
+    named = [clause for clause in re.split(r'\.(?!\w)|;|—', line)
+             if re.search(r'\b%s\b' % re.escape(token), clause)]
+    return all(NOTED.search(re.sub(r'`[^`]*`', ' ', clause)) for clause in named)
 
 
 def claimed(line, quote):
@@ -391,12 +563,12 @@ def unkept(base, head, cwd=None):
                     continue
                 if len(quote.split()) < 2:
                     continue            # one word is a name, and names live on legitimately
-                before = git('grep', '-Fl', '--', quote, base, cwd=cwd).count('\n')
-                hit = git('grep', '-Fl', '--', quote, head, cwd=cwd)
-                surviving = [p.split(':', 1)[-1] for p in hit.split('\n')
+                before = git('grep', '-z', '-Fl', '--', quote, base, cwd=cwd).count('\0')
+                hit = git('grep', '-z', '-Fl', '--', quote, head, cwd=cwd)
+                surviving = [p.split(':', 1)[-1] for p in hit.split('\0')
                              if p and authored(p.split(':', 1)[-1])
                              and p.split(':', 1)[-1] != name]
-                # The phrase must have existed BEFORE. Nothing can be removed that was never
+                # The phrase must have existed before. Nothing can be removed that was never
                 # there, so a sentence quoting text this same delta wrote is narrating, not
                 # claiming — which is what produced every false positive measured here: a
                 # changelog quoting `69 passed` as an example from a file the commit created.
@@ -447,6 +619,9 @@ def report(base, head, cwd=None):
 
 
 def main(argv):
+    """The command line: a base and a head, and the report over the delta between them.
+    Exit 1 for a refusal — a claim the delta contradicts — and 0 otherwise, whatever
+    the report merely reports; 2 is a bad command line."""
     if len(argv) != 3:
         print('usage: review_claims.py <base> <head>', file=sys.stderr)
         return 2

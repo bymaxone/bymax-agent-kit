@@ -1,7 +1,7 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Claude_Code-8_plugins-D97757?style=for-the-badge&logo=claude&logoColor=white&labelColor=000000" alt="Claude Code — 8 plugins" />
+  <img src="https://img.shields.io/badge/Claude_Code-9_plugins-D97757?style=for-the-badge&logo=claude&logoColor=white&labelColor=000000" alt="Claude Code — 9 plugins" />
   &nbsp;
-  <img src="https://img.shields.io/badge/Codex-27_skills-10A37F?style=for-the-badge&logoColor=white&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxZW0iIGhlaWdodD0iMWVtIiB2aWV3Qm94PSIwIDAgMjQgMjQiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik0yMi4yODIgOS44MjFhNiA2IDAgMCAwLS41MTYtNC45MWE2LjA1IDYuMDUgMCAwIDAtNi41MS0yLjlBNi4wNjUgNi4wNjUgMCAwIDAgNC45ODEgNC4xOGE2IDYgMCAwIDAtMy45OTggMi45YTYuMDUgNi4wNSAwIDAgMCAuNzQzIDcuMDk3YTUuOTggNS45OCAwIDAgMCAuNTEgNC45MTFhNi4wNSA2LjA1IDAgMCAwIDYuNTE1IDIuOUE2IDYgMCAwIDAgMTMuMjYgMjRhNi4wNiA2LjA2IDAgMCAwIDUuNzcyLTQuMjA2YTYgNiAwIDAgMCAzLjk5Ny0yLjlhNi4wNiA2LjA2IDAgMCAwLS43NDctNy4wNzNNMTMuMjYgMjIuNDNhNC40OCA0LjQ4IDAgMCAxLTIuODc2LTEuMDRsLjE0MS0uMDgxbDQuNzc5LTIuNzU4YS44LjggMCAwIDAgLjM5Mi0uNjgxdi02LjczN2wyLjAyIDEuMTY4YS4wNy4wNyAwIDAgMSAuMDM4LjA1MnY1LjU4M2E0LjUwNCA0LjUwNCAwIDAgMS00LjQ5NCA0LjQ5NE0zLjYgMTguMzA0YTQuNDcgNC40NyAwIDAgMS0uNTM1LTMuMDE0bC4xNDIuMDg1bDQuNzgzIDIuNzU5YS43Ny43NyAwIDAgMCAuNzggMGw1Ljg0My0zLjM2OXYyLjMzMmEuMDguMDggMCAwIDEtLjAzMy4wNjJMOS43NCAxOS45NWE0LjUgNC41IDAgMCAxLTYuMTQtMS42NDZNMi4zNCA3Ljg5NmE0LjUgNC41IDAgMCAxIDIuMzY2LTEuOTczVjExLjZhLjc3Ljc3IDAgMCAwIC4zODguNjc3bDUuODE1IDMuMzU0bC0yLjAyIDEuMTY4YS4wOC4wOCAwIDAgMS0uMDcxIDBsLTQuODMtMi43ODZBNC41MDQgNC41MDQgMCAwIDEgMi4zNCA3Ljg3MnptMTYuNTk3IDMuODU1bC01LjgzMy0zLjM4N0wxNS4xMTkgNy4yYS4wOC4wOCAwIDAgMSAuMDcxIDBsNC44MyAyLjc5MWE0LjQ5NCA0LjQ5NCAwIDAgMS0uNjc2IDguMTA1di01LjY3OGEuNzkuNzkgMCAwIDAtLjQwNy0uNjY3bTIuMDEtMy4wMjNsLS4xNDEtLjA4NWwtNC43NzQtMi43ODJhLjc4Ljc4IDAgMCAwLS43ODUgMEw5LjQwOSA5LjIzVjYuODk3YS4wNy4wNyAwIDAgMSAuMDI4LS4wNjFsNC44My0yLjc4N2E0LjUgNC41IDAgMCAxIDYuNjggNC42NnptLTEyLjY0IDQuMTM1bC0yLjAyLTEuMTY0YS4wOC4wOCAwIDAgMS0uMDM4LS4wNTdWNi4wNzVhNC41IDQuNSAwIDAgMSA3LjM3NS0zLjQ1M2wtLjE0Mi4wOEw4LjcwNCA1LjQ2YS44LjggMCAwIDAtLjM5My42ODF6bTEuMDk3LTIuMzY1bDIuNjAyLTEuNWwyLjYwNyAxLjV2Mi45OTlsLTIuNTk3IDEuNWwtMi42MDctMS41WiIvPjwvc3ZnPg%3D%3D" alt="Codex — 27 skills" />
+  <img src="https://img.shields.io/badge/Codex-28_skills-10A37F?style=for-the-badge&logoColor=white&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxZW0iIGhlaWdodD0iMWVtIiB2aWV3Qm94PSIwIDAgMjQgMjQiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik0yMi4yODIgOS44MjFhNiA2IDAgMCAwLS41MTYtNC45MWE2LjA1IDYuMDUgMCAwIDAtNi41MS0yLjlBNi4wNjUgNi4wNjUgMCAwIDAgNC45ODEgNC4xOGE2IDYgMCAwIDAtMy45OTggMi45YTYuMDUgNi4wNSAwIDAgMCAuNzQzIDcuMDk3YTUuOTggNS45OCAwIDAgMCAuNTEgNC45MTFhNi4wNSA2LjA1IDAgMCAwIDYuNTE1IDIuOUE2IDYgMCAwIDAgMTMuMjYgMjRhNi4wNiA2LjA2IDAgMCAwIDUuNzcyLTQuMjA2YTYgNiAwIDAgMCAzLjk5Ny0yLjlhNi4wNiA2LjA2IDAgMCAwLS43NDctNy4wNzNNMTMuMjYgMjIuNDNhNC40OCA0LjQ4IDAgMCAxLTIuODc2LTEuMDRsLjE0MS0uMDgxbDQuNzc5LTIuNzU4YS44LjggMCAwIDAgLjM5Mi0uNjgxdi02LjczN2wyLjAyIDEuMTY4YS4wNy4wNyAwIDAgMSAuMDM4LjA1MnY1LjU4M2E0LjUwNCA0LjUwNCAwIDAgMS00LjQ5NCA0LjQ5NE0zLjYgMTguMzA0YTQuNDcgNC40NyAwIDAgMS0uNTM1LTMuMDE0bC4xNDIuMDg1bDQuNzgzIDIuNzU5YS43Ny43NyAwIDAgMCAuNzggMGw1Ljg0My0zLjM2OXYyLjMzMmEuMDguMDggMCAwIDEtLjAzMy4wNjJMOS43NCAxOS45NWE0LjUgNC41IDAgMCAxLTYuMTQtMS42NDZNMi4zNCA3Ljg5NmE0LjUgNC41IDAgMCAxIDIuMzY2LTEuOTczVjExLjZhLjc3Ljc3IDAgMCAwIC4zODguNjc3bDUuODE1IDMuMzU0bC0yLjAyIDEuMTY4YS4wOC4wOCAwIDAgMS0uMDcxIDBsLTQuODMtMi43ODZBNC41MDQgNC41MDQgMCAwIDEgMi4zNCA3Ljg3MnptMTYuNTk3IDMuODU1bC01LjgzMy0zLjM4N0wxNS4xMTkgNy4yYS4wOC4wOCAwIDAgMSAuMDcxIDBsNC44MyAyLjc5MWE0LjQ5NCA0LjQ5NCAwIDAgMS0uNjc2IDguMTA1di01LjY3OGEuNzkuNzkgMCAwIDAtLjQwNy0uNjY3bTIuMDEtMy4wMjNsLS4xNDEtLjA4NWwtNC43NzQtMi43ODJhLjc4Ljc4IDAgMCAwLS43ODUgMEw5LjQwOSA5LjIzVjYuODk3YS4wNy4wNyAwIDAgMSAuMDI4LS4wNjFsNC44My0yLjc4N2E0LjUgNC41IDAgMCAxIDYuNjggNC42NnptLTEyLjY0IDQuMTM1bC0yLjAyLTEuMTY0YS4wOC4wOCAwIDAgMS0uMDM4LS4wNTdWNi4wNzVhNC41IDQuNSAwIDAgMSA3LjM3NS0zLjQ1M2wtLjE0Mi4wOEw4LjcwNCA1LjQ2YS44LjggMCAwIDAtLjM5My42ODF6bTEuMDk3LTIuMzY1bDIuNjAyLTEuNWwyLjYwNyAxLjV2Mi45OTlsLTIuNTk3IDEuNWwtMi42MDctMS41WiIvPjwvc3ZnPg%3D%3D" alt="Codex — 28 skills" />
 </p>
 
 <h1 align="center">Bymax Agent Kit</h1>
@@ -62,7 +62,7 @@ senior engineer** — and it ships for both of the agents people actually run in
 <tr>
 <td valign="top">
 
-**8 plugins** on a public marketplace — 23 slash commands, 6 skills, 10 sub-agents, 4 hooks,
+**9 plugins** on a public marketplace — 21 slash commands, 7 skills, 10 sub-agents, 4 hooks,
 26 templates.
 
 ```bash
@@ -75,7 +75,7 @@ Full setup → [INSTALL.md](./INSTALL.md)
 </td>
 <td valign="top">
 
-**1 plugin, 27 native skills** — every first-party entrypoint in one install, with a native
+**1 plugin, 28 native skills** — every first-party entrypoint in one install, with a native
 Codex review procedure.
 
 ```bash
@@ -97,6 +97,7 @@ Instead of ad-hoc prompts, you get:
 - **Strict quality gates** — `/bymax-quality:tdd` (red-green-refactor), `/bymax-workflow:verify` (5 gates), and a `secret-scanner` hook that **blocks** writes containing credentials.
 - **Ten specialist sub-agents** — architect, code-reviewer, security-reviewer, typescript-reviewer, rust-reviewer, database-reviewer, planner, plus the QA trio (recon, hunter, verifier).
 - **A whole-system QA + security audit** (`/bymax-qa:audit`) that runs as the Security QA engineer of your agent team. Point it at a **Jira ticket** (acceptance criteria verified PASS/FAIL with evidence), a **branch or PR** (the hunt scoped to the change), or the **whole system**: a stack + threat map, read-only per-domain finders, live probes against allow-listed hosts only, and a finding admitted **only after an independent verifier reproduces it** — then handed to the owning agent, filed as a GitHub issue, or commented back on the ticket, and re-tested until it holds.
+- **A weekly standup written from evidence** (`/bymax-report:standup`) — what was asked (what you typed into Claude Code or Codex sessions on that repository) as a PROGRESS list, the undelivered ones marked in progress, and what shipped (`gh` PRs and `git` commits) as UPDATES grouped by the product area the team reads. No hash, PR number or file name reaches the report, and no Markdown either: plain text for the document you paste it into. The evidence is printed under it, and no file is left on disk.
 - **TypeScript _and_ Rust** — the quality + workflow skills are language-detecting: TypeScript rules for `package.json` projects, and a parallel **Rust track** (clippy/rustfmt with `-D warnings`, typed `thiserror` errors, `#![forbid(unsafe_code)]`, rustdoc, `cargo test` + `cargo llvm-cov`, `cargo deny`/`audit`/`vet`) for `Cargo.toml` projects.
 - **Project bootstrap** with strict TypeScript, ESLint flat-config (security plugin + import-order + suppression bans), Prettier, format-on-save VS Code, Husky + commitlint + lint-staged — for **Next.js, Expo / React Native, Vite + React, and Node backends (Express / Fastify / Hono / NestJS / plain Node)** stacks.
 - **Mobile sims** — `/bymax-mobile:sim-ios` and `/bymax-mobile:sim-android` boot the iOS Simulator and Android Emulator on Expo / React Native projects in one command.
@@ -131,6 +132,7 @@ claude plugin install bymax-web-verify@bymax-agent-kit    # real-browser verific
 claude plugin install bymax-pr@bymax-agent-kit            # push + autonomous PR babysitting (needs gh CLI)
 claude plugin install bymax-pm@bymax-agent-kit            # engineering PM for multi-agent development
 claude plugin install bymax-qa@bymax-agent-kit            # whole-system QA + security audit
+claude plugin install bymax-report@bymax-agent-kit        # weekly standup report from git, gh and your sessions
 ```
 
 Then **restart Claude Code** and type `/` — every `bymax-*` command should be listed. Non-interactive
@@ -282,7 +284,7 @@ dual. macOS or Linux for that runtime — its file locks use Python's `fcntl`; o
 | Tool | Needed by | How to install |
 |---|---|---|
 | **Node.js ≥ 18** | plugin hooks (`secret-scanner`, `console-log-scan`, `check-agent-browser`), all `npx`-based tooling | `brew install node` (or `nvm`) — must be on the non-interactive shell's PATH |
-| **`git` + `gh` CLI** (authenticated) | `bymax-pr` — every GitHub operation in `/bymax-pr:babysit-pr` (PR checks, CI logs, thread resolution); `bymax-qa` — filing findings as issues or advisories and re-testing a claimed fix from a PR | `brew install gh && gh auth login` |
+| **`git` + `gh` CLI** (authenticated) | `bymax-report` — pull requests for `/bymax-report:standup` (without `gh` the report is built from commits and says so); `bymax-pr` — every GitHub operation in `/bymax-pr:babysit-pr` (PR checks, CI logs, thread resolution); `bymax-qa` — filing findings as issues or advisories and re-testing a claimed fix from a PR | `brew install gh && gh auth login` |
 | **Security scanners** — `semgrep`, `gitleaks`, `trufflehog`, `osv-scanner`, `trivy`, `nuclei`, `zap`, `sqlmap`, `jwt_tool` — **all optional** | `bymax-qa` — the deterministic layer of `/bymax-qa:audit` uses whichever are on PATH and records the rest as a coverage gap; none is bundled or required | install per tool as needed (e.g. `brew install semgrep gitleaks osv-scanner trivy`); run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/qa-tools.sh` inside an audit to see what is detected |
 | **`axe` + Lighthouse** — **optional** | `bymax-qa` frontend domain (accessibility + Core Web Vitals), driven through `bymax-web-verify` when a UI is present | `npm i -g @axe-core/cli lighthouse` |
 | **`docker` + `docker compose`** — optional | `bymax-qa` `--live` — brings a target stack up for live probes against `local`/`staging` hosts | [docs.docker.com](https://docs.docker.com/get-docker/) |
@@ -353,8 +355,8 @@ graphify hook install
 
 ## 📦 Plugins
 
-For Claude Code the toolkit ships as **eight composable plugins** (plus a reference index) — use
-them à la carte. For Codex the same surface arrives as **one plugin with 27 native skills**; the
+For Claude Code the toolkit ships as **nine composable plugins** (plus a reference index) — use
+them à la carte. For Codex the same surface arrives as **one plugin with 28 native skills**; the
 short name in the tables below maps to `bymax-codex:bymax-<name>` there, and the full mapping is
 in [CODEX.md](./CODEX.md#available-workflows-and-capability-boundaries).
 
@@ -472,6 +474,20 @@ Turns one session into the PM/TPM above your other Claude Code sessions. You tal
 
 Start workers with names (`claude --name nest-logger`) — the name is the address. Workers need nothing installed; the PM's messages carry their own reply instructions.
 
+### 📝 [`bymax-report`](./plugins/bymax-report/) — Weekly standup report
+
+The two sections a silent standup carries, for one repository and one period, written from evidence:
+**PROGRESS** — what was asked, each ask as one outcome sentence, marked in progress when no PR delivered it yet;
+**UPDATES** — what shipped, one bullet per change, grouped by the product area the reader knows, saying
+what it does now and what it did before. The asks come from what a person typed into Claude Code or
+Codex sessions on that repository (worktree sessions and pasted third-party requests included); the
+updates from `gh pr list` and `git log`. No hash, PR number or file name reaches the report — an
+evidence block under it maps every line back for the author. Plain text to paste, English by default, nothing written to disk.
+
+| Command | What it does |
+|---|---|
+| `/bymax-report:standup [period] [--repo <path>] [--author <text>] [--lang <code>]` | Collect the period (default last week, Monday to Sunday), optionally one git author, write PROGRESS + UPDATES, print the report to paste with its evidence under it. |
+
 ### 🔎 [`bymax-qa`](./plugins/bymax-qa/) — Whole-system QA + security audit
 
 The Security QA engineer of your agent team. Point `/bymax-qa:audit` at a **Jira ticket** (it verifies access, reads the acceptance criteria, and reports each PASS/FAIL/BLOCKED/NOT-VERIFIABLE with evidence), a **branch or PR** (it scopes the hunt to the change, like a code review), or the **whole system**. It maps the stack and its trust boundaries, hunts by domain with read-only finder agents, probes the running stack against allow-listed hosts only, and admits a finding **only after an independent verifier reproduces it**. Fixes are never applied by the auditor — each finding is handed to the agent that owns the code, filed as a GitHub issue, or commented back on the ticket, then re-tested until it holds.
@@ -487,7 +503,7 @@ Findings carry ASVS 5.0, CWE and API Top 10 references and a CVSS vector, and li
 
 ### 🎁 [`bymax-all`](./plugins/bymax-all/) — Reference index
 
-A docs-only marketplace entry that lists the full set. Claude Code's plugin manifest does **not** auto-install dependencies, so installing `bymax-all` does nothing on its own — install the eight sibling plugins individually for the complete toolkit.
+A docs-only marketplace entry that lists the full set. Claude Code's plugin manifest does **not** auto-install dependencies, so installing `bymax-all` does nothing on its own — install the nine sibling plugins individually for the complete toolkit.
 
 ---
 
@@ -611,13 +627,14 @@ bymax-agent-kit/
 │   ├── bymax-pr/                       ← push + autonomous PR babysitting (needs gh CLI)
 │   ├── bymax-pm/                       ← engineering PM for multi-agent development
 │   ├── bymax-qa/                       ← whole-system QA + security audit (3 agents, 18 refs)
+│   ├── bymax-report/                   ← weekly standup report from git, gh and your sessions
 │   └── bymax-all/                      ← reference index (no auto-install in Claude Code)
 │
 ├── codex/                              ← the CODEX marketplace root — register THIS, not the repo root
 │   ├── .agents/plugins/marketplace.json
 │   ├── plugins/bymax-codex/
 │   │   ├── .codex-plugin/plugin.json
-│   │   ├── skills/bymax-*/             ← 27 native Codex entrypoints
+│   │   ├── skills/bymax-*/             ← 28 native Codex entrypoints
 │   │   ├── scripts/review_scope.py     ← read-only Git scope capture
 │   │   └── references/
 │   │       ├── runtime.md · catalog.json · review-checklist.md
@@ -706,6 +723,7 @@ claude plugin install bymax-web-verify@bymax-agent-kit
 claude plugin install bymax-pr@bymax-agent-kit
 claude plugin install bymax-pm@bymax-agent-kit
 claude plugin install bymax-qa@bymax-agent-kit
+claude plugin install bymax-report@bymax-agent-kit
 claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin install frontend-design@claude-plugins-official
 claude plugin marketplace add getsentry/sentry-mcp
@@ -825,7 +843,7 @@ cd bymax-agent-kit
 # The two release gates — both run in CI, and each ends with its behavioral suite
 python3 -m pip install pyyaml   # the validators need it; shellcheck too, mandatory in CI
 ./scripts/validate.sh           # manifests, +x, shellcheck, frontmatter, files + scripts/tests
-./scripts/validate-codex.sh     # drift, 27 entrypoints, links, manifests + codex/tests
+./scripts/validate-codex.sh     # drift, 28 entrypoints, links, manifests + codex/tests
 
 # Test the Claude package locally
 claude plugin marketplace add ./
@@ -837,6 +855,7 @@ claude plugin install bymax-web-verify@bymax-agent-kit
 claude plugin install bymax-pr@bymax-agent-kit
 claude plugin install bymax-pm@bymax-agent-kit
 claude plugin install bymax-qa@bymax-agent-kit
+claude plugin install bymax-report@bymax-agent-kit
 ```
 
 Changing a shared procedure means editing the **canonical** file under `plugins/`, then

@@ -137,7 +137,7 @@ class ShippedResourceTests(unittest.TestCase):
         when the property was mutated away, which is how a design becomes unchangeable."""
         module = bundler()
         root = self.package()
-        # The rule arrives AFTER the files are tracked, which is the only way to build the case
+        # The rule arrives after the files are tracked, which is the only way to build the case
         # this names. Writing it first means git never adds them and they are untracked, so the
         # veto is never reached — which is what an earlier version of this fixture did.
         (root / '.gitignore').write_text('commands/\n')

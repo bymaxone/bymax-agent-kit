@@ -1,7 +1,7 @@
 {
   "name": "bymax-all",
-  "description": "Meta-plugin reference for the complete bymax toolkit (workflow + quality + bootstrap + mobile + web-verify + pr + pm + qa). Note: Claude Code's plugin manifest does not auto-install dependencies — install bymax-workflow, bymax-quality, bymax-bootstrap, bymax-mobile, bymax-web-verify, bymax-pr, bymax-pm, and bymax-qa individually.",
-  "version": "1.5.1",
+  "description": "Meta-plugin reference for the complete bymax toolkit (workflow + quality + bootstrap + mobile + web-verify + pr + pm + qa + report). Note: Claude Code's plugin manifest does not auto-install dependencies \u2014 install bymax-workflow, bymax-quality, bymax-bootstrap, bymax-mobile, bymax-web-verify, bymax-pr, bymax-pm, bymax-qa, and bymax-report individually.",
+  "version": "1.6.0",
   "author": {
     "name": "Bymax One",
     "email": "support@bymax.one",

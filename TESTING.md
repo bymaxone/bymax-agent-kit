@@ -17,6 +17,7 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | Codex-led Claude review fails or gains editing tools | Delivery tests capture real process argv, input diff and structured output |
 | Installer drops user configuration or omits runtime dependencies | `scripts/tests/test_review_install.py` and installed-runtime execution |
 | Codex misses staged/untracked changes or pins wrong revisions | `codex/tests/test_review_scope.py` |
+| Standup collector admits a harness-written line as a request, misses a worktree session, or loses a commit to git's `--since` cutoff | `scripts/tests/test_report_collect.py` |
 | Bundle drifts, package cannot be installed or skills are undiscoverable | `codex/tests/test_bundle.py`, `test_install.py` and isolated CLI skill discovery |
 
 Instruction text also needs behavioral evaluation: a valid Markdown/YAML document may
