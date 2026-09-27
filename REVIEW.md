@@ -9,14 +9,29 @@ calibrating severity for that is the whole point of this file.
 
 Reserve 🔴 Important for a defect with a concrete trigger in code that runs:
 
-- `plugins/*/scripts/*.py`, `scripts/*.py`, `scripts/*.sh`, `codex/scripts/*.py`
+- `plugins/*/scripts/*`, `plugins/*/hooks/*.sh`, `scripts/*.py`, `scripts/*.sh`,
+  `codex/scripts/*.py`, `codex/plugins/bymax-codex/scripts/*.py`
 - a fenced `bash` block inside a command or skill document, which a model runs verbatim
-- a gate under `scripts/tests/` that would stop failing on the defect it protects
+- a gate under `scripts/tests/` or `codex/tests/` that would stop failing on the defect it
+  protects
 
 A finding about instruction prose — wording, ordering, a count, a comment naming a review
 round — is 🟡 Nit at most, whatever its consequence sounds like. Measured here: one branch
 spent four review campaigns on one command file, and three of the last findings were
 defects introduced by the previous correction to that same prose.
+
+## Escalations
+
+Treat these as 🔴 Important even though they look stylistic; no gate here catches them:
+
+- A new suppression: `# noqa`, `# type: ignore`, or a per-line `shellcheck disable`. The
+  tree carries exactly one accepted disable, in `plugins/bymax-quality/hooks/secret-scanner.sh`,
+  with its reason on the line above; a new one without that reason is a finding.
+- A hardcoded credential, API key or token anywhere, including test fixtures.
+- `--no-verify` or another hook-bypass flag added to a script, hook or command document.
+- A change to a file under `plugins/<name>/commands/`, `skills/` or `agents/` without a bump
+  to that plugin's `plugin.json` version, the marketplace version and a `CHANGELOG.md` line:
+  an installed copy sees no update signal otherwise.
 
 ## Cap the nits, and converge
 
@@ -54,8 +69,10 @@ preferences is how a one-line fix reaches its seventh round.
   a block that reads a variable an earlier block set takes the wrong branch silently.
 - **No document asks a reader to paste a value into shell source.** A git ref name may
   contain `$( )`, which then executes.
-- **A key built from two fields keeps its boundaries** (`AGENTS.md`), and a document that
-  states a count the runtime decides is wrong the next time the runtime changes.
+- **A key built from two fields keeps its boundaries.** `f"{a}:{b}"` makes `('x:y','z')`
+  and `('x','y:z')` one key; encode each field or hash each to a fixed width.
+- **A document does not restate a count the runtime decides.** It is wrong the next time
+  the runtime changes; cite the runtime value or leave the number out.
 
 ## Summary shape
 
