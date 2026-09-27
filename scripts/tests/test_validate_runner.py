@@ -32,7 +32,7 @@ class RunnerTests(unittest.TestCase):
         return subprocess.run(['bash', '-c', script], cwd=where, capture_output=True, text=True, timeout=120)
 
     def test_a_module_that_fails_is_named_and_fails_the_validation(self):
-        """Six at a time, a failure is in a file of its own: the runner must still read it."""
+        """Run side by side, a failure is in a file of its own: the runner must still read it."""
         done = self.run_over({'test_a.py': PASSING, 'test_b.py': FAILING, 'test_c.py': PASSING})
         self.assertIn('FAIL test_b: regression tests failed', done.stdout)
         self.assertIn('OK test_a: Ran 1 test', done.stdout)
