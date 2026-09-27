@@ -83,7 +83,6 @@ def git(*args, cwd=None):
     done = subprocess.run(['git', *args], capture_output=True, cwd=root(cwd))
     if done.returncode != 0:
         return ''
-    # Every call here that lists names asks for them NUL-separated, and no call that reads content does.
     if '-z' in args:
         return done.stdout.decode(sys.getfilesystemencoding(), 'surrogateescape')
     return decoded(args[-1] if args[:1] == ('show',) else '', done.stdout)
