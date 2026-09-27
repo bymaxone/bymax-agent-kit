@@ -4,6 +4,7 @@ disproves."""
 import review_claims
 from review_evidence import merged_in_tests, tests_changed
 from review_git import require
+from review_prose_pass import prose_note
 
 
 def regression_note(state):
@@ -132,4 +133,5 @@ def delta_view(state):
     cannot read, claims_coverage's "they read NOTHING in N changed files" is the sentence that
     stops silence from reading as clean, and round one is the reading that covers the most ground.
     """
-    return '\n'.join([code_view(state), claims_coverage(state), regression_note(state)])
+    return '\n'.join([code_view(state), claims_coverage(state), regression_note(state),
+                      prose_note(state)])

@@ -19,6 +19,7 @@ from review_delivery import scope_of as scope
 from review_delta import claims_settled, delta_view
 from review_evidence import is_test_path, matrix_first, matrix_run, tests_changed
 from review_git import clean_head, git, git_raw, require
+from review_prose_pass import prose_first, prose_run
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
@@ -838,6 +839,7 @@ def start(args, directory):
                  **(correction if old else {}))
     claims_settled(state['review_base'], head)
     matrix_first(state, directory)
+    prose_first(state, directory)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
     save(directory, state)
@@ -1361,7 +1363,7 @@ def lessons(state):
                  'one probe per case with "covers": "<finding id>", and rewrite the function against '
                  'the whole list rather than the instance. One such round makes the next a design '
                  'round; waiting for a second only buys a data point nobody needed. Run the case '
-                 'list as a mutation matrix before committing — disable each rule in turn and '
+                 'list as a mutation matrix after committing and before `start` — disable each rule in turn and '
                  'confirm one case fails — with PYTHONDONTWRITEBYTECODE=1 and __pycache__ cleared '
                  'between mutants: CPython invalidates bytecode on (mtime seconds, size), so two '
                  'mutants of the same size within one second serve stale bytecode, and the failure '
@@ -1701,6 +1703,40 @@ def codex_check():
                 escalation_bound=profile.is_file())
 
 
+def measured_matrix(args, directory):
+    """The matrix through the runtime, refusing like every sibling.
+
+    review_matrix says why by raising SystemExit, which cli()'s handler does not catch, so
+    it would exit 1 where every other refusal exits 2. Re-raised as what that handler reads,
+    with the prefix it adds stripped so the message carries it once.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        return matrix_run(args, directory, None)
+    except SystemExit as refused:
+        raise ValueError(str(refused.code).removeprefix('BLOCKED: ')) from None
+
+
+def prose_base(args, directory, head):
+    """Where the prose pass reads the delta from.
+
+    A campaign frozen on another head means a correction is being prepared, and the delta
+    is what changed since that head. A campaign frozen on THIS head is the case the pass
+    exists to avoid: editing what reviewers were handed invalidates their reading.
+    """
+    if (directory / 'state.json').exists():
+        old = read_state(directory)
+        require(old['head'] != head, 'This head is frozen under review. The pass runs BEFORE '
+                '`start`, on the next candidate; editing a frozen candidate invalidates its review.')
+        # The rule start applies: a cleared campaign that is not an enrolled delivery is no
+        # campaign, and the next candidate opens a first round from the given base, so the
+        # pass reads from that base too or start never finds the record.
+        if not old.get('cleared') or review_delivery.active(directory, False):
+            return old['head']
+    require(args.base, 'No campaign is frozen on this branch, so the pass needs --base <merge-base>.')
+    return git('rev-parse', '--verify', args.base + '^{commit}')
+
+
 def parser():
     """Define the small explicit campaign lifecycle CLI."""
     cli = argparse.ArgumentParser(description=__doc__)
@@ -1740,6 +1776,11 @@ def parser():
     mut = sub.add_parser('matrix')
     mut.add_argument('--spec', required=True, help='the matrix: rules, their enumeration, their mutants')
     mut.add_argument('paths', nargs='+', help='test paths the cases live in')
+    pro = sub.add_parser('prose')
+    pro.add_argument('--base', default='', help='the merge-base the pass reads the delta from; '
+                     'unneeded while a correction is being prepared')
+    pro.add_argument('--stage', choices=('run', 'prepare', 'verify'), default='run',
+                     help='run: the CLI does it all; prepare/verify: a subagent does the editing')
     return cli
 
 
@@ -1763,6 +1804,14 @@ def main():
     with locked(directory):
         if args.action == 'start':
             state = start(args, directory)
+        elif args.action in ('prose', 'matrix'):
+            # Neither needs a campaign: both run on a committed candidate BEFORE start, and
+            # on round one there is no state to read.
+            record = (prose_run(args, directory, prose_base) if args.action == 'prose'
+                      else measured_matrix(args, directory))
+            if record is not None:
+                print(json.dumps(record, indent=2))
+            return
         else:
             state = read_state(directory)
             if args.action == 'prompt':
@@ -1771,16 +1820,6 @@ def main():
                 return
             if args.action == 'lessons':
                 print(lessons(state))
-                return
-            if args.action == 'matrix':
-                # A refusal from the matrix is a refusal: review_matrix says why by raising
-                # SystemExit, which the handler around this one does not catch, so this one
-                # exited 1 where every sibling exits 2. Re-raised as what that handler reads,
-                # with the prefix it adds stripped so the message carries it once.
-                try:
-                    print(json.dumps(matrix_run(args, directory, state), indent=2))
-                except SystemExit as refused:
-                    raise ValueError(str(refused.code).removeprefix('BLOCKED: ')) from None
                 return
             if args.action in ('record', 'triage', 'check'):
                 globals()[args.action](args, directory, state)

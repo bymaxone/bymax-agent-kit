@@ -137,8 +137,7 @@ def matrix_run(args, directory, state):
     """
     import review_matrix
     # Recorded under the HEAD it measured, not under the campaign's current candidate: this
-    # runs between committing a correction and opening the round that reviews it, so the
-    # state in hand still describes the round before.
+    # runs between committing a correction and opening the round that reviews it.
     head = clean_head()
     where = directory / ('matrix-' + head + '.json')
     # Gone before the attempt, not replaced after it: a run refused before it writes, by an
@@ -211,7 +210,10 @@ def matrix_bound_to_this_tree(kept, head):
     # head alone held the binding, and only on the path that refuses a dirty worktree.
     import review_matrix
     names = kept.get('files')
-    require(names is not None, 'The recorded matrix does not name the files it mutated, so its '
+    # Non-empty, not merely present: digest([]) is the digest of nothing, and a record naming
+    # no file with that digest would be bound to nothing. A matrix with a mutant always names
+    # the file it mutated.
+    require(names, 'The recorded matrix does not name the files it mutated, so its '
             'fingerprint cannot be checked against this tree. Re-run `review_flow.py matrix`.')
     require(isinstance(names, list) and all(isinstance(n, str) for n in names), 'The recorded '
             'matrix names its files as %r, not a list of paths. Re-run `review_flow.py matrix`.' % (names,))

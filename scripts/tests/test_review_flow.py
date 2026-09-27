@@ -120,6 +120,26 @@ class FlowBench(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
+    def prose(self, *args, claude=None, nested=False, ok=True):
+        """Run the prose subcommand in a process whose $PATH and Claude nesting this test decides."""
+        env = {k: v for k, v in os.environ.items() if k != 'CLAUDECODE'}
+        if nested:
+            env['CLAUDECODE'] = '1'
+        if claude is not None:
+            env['PATH'] = str(claude) + os.pathsep + env.get('PATH', '')
+        env['CODEX_HOME'] = str(self.home)
+        result = subprocess.run([sys.executable, str(FLOW), 'prose', *args], cwd=self.repo,
+                                capture_output=True, text=True, timeout=60, env=env)
+        self.assertEqual(result.returncode, 0 if ok else 2, result.stderr + result.stdout)
+        return json.loads(result.stdout) if ok and result.stdout.startswith('{') else result
+
+    def read_prose(self):
+        """The pass in two stages with no edits between: the record binds the candidate's prose
+        even when the reader changed nothing, which is what a fixture that adds prose needs
+        before start will accept it."""
+        self.prose('--base', self.base, '--stage', 'prepare', nested=True)
+        return self.prose('--base', self.base, '--stage', 'verify', nested=True)
+
     def matrix(self, path, cases, also=(), where=None, enumeration=None):
         """Run a real mutation matrix in the fixture repo.
 
@@ -906,6 +926,7 @@ class ReviewFlowTests(FlowBench):
         (self.repo / 'README.md').write_text('root readme\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add codex mirror')
+        self.read_prose()
         self.start()
         root = dict(id='README.md:x', kind='defect', priority='P1', evidence='root')
         mirror = dict(id='codex/README.md:x', kind='defect', priority='P1', evidence='mirror')
@@ -1216,7 +1237,7 @@ class ReviewFlowTests(FlowBench):
         advice = self.text('lessons')
         self.assertIn('PYTHONDONTWRITEBYTECODE=1', advice)
         self.assertIn('__pycache__', advice)
-        self.assertIn('mutation matrix before committing', advice)
+        self.assertIn('mutation matrix after committing and before `start`', advice)
 
     def test_a_correction_may_not_touch_what_no_finding_named(self):
         """This is where every bad round of this branch went bad: a fix arrived with a mechanism.
@@ -1378,6 +1399,7 @@ class ReviewFlowTests(FlowBench):
         (self.repo / 'AGENTS.md').write_text('## Code Review Rules\n\nOne narrow rule.\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'add the review rules')
+        self.assertEqual(self.read_prose()['outcome'], 'unchanged')
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.context)],
                                 cwd=self.repo, capture_output=True, text=True, timeout=10)

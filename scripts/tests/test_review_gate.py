@@ -71,6 +71,12 @@ class MatrixGateTests(FlowBench):
                                        'survivors': [], 'files': ['tests/test_g.py']}))
         self.assertIn('does not match', self.start(ok=False, correction=True, reason='').stderr)
 
+        # And named, not merely listed: the digest of no files is the digest of nothing.
+        import hashlib
+        record.write_text(json.dumps({'head': head, 'mutants': 1, 'files': [], 'survivors': [],
+                                       'tree': hashlib.sha256().hexdigest()}))
+        self.assertIn('does not name the files', self.start(ok=False, correction=True, reason='').stderr)
+
         record.unlink()
         self.matrix('tests/test_g.py', [('ONE = 1', 'ONE = 2', 'test_g')], where='values.py', enumeration='echo 1')
         self.assertEqual(self.start(correction=True, reason='')['round'], 2)

@@ -26,5 +26,9 @@ def require(condition, message):
 
 def clean_head():
     """Resolve a candidate only when tracked and untracked work is clean."""
-    require(not git('status', '--porcelain'), 'Commit the intended candidate first; worktree is dirty.')
+    # The envelope's own listing: a status listing honours the assume-unchanged bit,
+    # submodule.<name>.ignore and status.showUntrackedFiles, and a tree that passed as clean
+    # under any of them would start a pass on the author's edits.
+    import review_prose
+    require(not review_prose.changed(), 'Commit the intended candidate first; worktree is dirty.')
     return git('rev-parse', 'HEAD')
