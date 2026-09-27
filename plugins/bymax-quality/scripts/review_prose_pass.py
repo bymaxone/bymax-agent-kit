@@ -10,7 +10,7 @@ import os
 import subprocess
 
 import review_claims
-from review_git import clean_head, git, git_raw, require
+from review_git import clean_head, for_a_reader, git, git_raw, require
 
 
 PROSE_TOOLS = 'Read,Grep,Glob,Edit'
@@ -89,8 +89,8 @@ def read_with(task, log):
     """Run the reader. A reader that failed or timed out leaves its edits where they are."""
     try:
         with log.open('w') as out:
-            done = subprocess.run(prose_command(git('rev-parse', '--show-toplevel')), input=task,
-                                  text=True, stdout=out, stderr=subprocess.STDOUT, timeout=900)
+            done = subprocess.run(prose_command(git('rev-parse', '--show-toplevel')), input=for_a_reader(task),
+                                  text=True, encoding='utf-8', stdout=out, stderr=subprocess.STDOUT, timeout=900)
     except subprocess.TimeoutExpired:
         raise ValueError('The prose pass timed out; inspect ' + str(log) + '. ' + LEFT) from None
     require(done.returncode == 0, 'The prose pass failed; inspect ' + str(log) + '. ' + LEFT)
