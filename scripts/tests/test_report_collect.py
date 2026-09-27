@@ -13,6 +13,7 @@ import inspect
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,9 @@ import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'plugins/bymax-report/scripts/collect.py'
+# The collector's own modules, found beside it as they are when it runs as a script.
+sys.path.insert(0, str(SCRIPT.parent))
+import reflog
 
 
 def load():
@@ -41,45 +45,62 @@ def write_jsonl(path: Path, records) -> None:
     path.write_text('\n'.join(json.dumps(r) for r in records) + '\n')
 
 
-class PeriodTests(unittest.TestCase):
-    def setUp(self):
-        self.m = load()
-        self.today = dt.date(2026, 9, 21)  # a Monday
+def stores_of(source: str, name: str) -> set[int]:
+    """The lines of `source` that store to `name`, refusing a store a line trace cannot isolate.
 
-    def test_last_week_is_the_previous_monday_through_sunday(self):
-        self.assertEqual(self.m.parse_period('last-week', self.today),
-                         (dt.date(2026, 9, 14), dt.date(2026, 9, 20)))
+    A store is isolated when it is its own statement on its own line, or the target of a
+    statement nothing else shares a line with. Inside an expression it may be skipped by a
+    short-circuit while its line runs; beside another statement on one line, that other
+    statement may run while the store does not.
+    """
+    tree = ast.parse(source)
+    statements = [node for node in ast.walk(tree) if isinstance(node, ast.stmt)]
+    on_line: dict[int, int] = {}
+    for statement in statements:
+        on_line[statement.lineno] = on_line.get(statement.lineno, 0) + 1
+    refused, found = [], set()
+    for statement in statements:
+        for node in ast.walk(statement):
+            if isinstance(node, ast.ExceptHandler) and node.name == name:
+                refused.append((node.lineno, 'an except clause binds it'))
+        own = [child for child in ast.iter_child_nodes(statement) if not isinstance(child, ast.stmt)]
+        for part in own:
+            for node in ast.walk(part):
+                if not (isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Store)):
+                    continue
+                if any(isinstance(n, ast.NamedExpr) and n.target is node for n in ast.walk(part)):
+                    refused.append((node.lineno, 'it is stored inside an expression'))
+                elif on_line[statement.lineno] > 1:
+                    refused.append((node.lineno, 'another statement shares its line'))
+                else:
+                    found.add(node.lineno)
+    if refused:
+        raise AssertionError('a line trace cannot tell whether these stores to %s ran: %s'
+                             % (name, '; '.join('line %d, %s' % item for item in sorted(refused))))
+    return found
 
-    def test_last_week_from_a_thursday_still_ends_on_sunday(self):
-        self.assertEqual(self.m.parse_period(None, dt.date(2026, 9, 24)),
-                         (dt.date(2026, 9, 14), dt.date(2026, 9, 20)))
 
-    def test_days_end_today(self):
-        self.assertEqual(self.m.parse_period('7d', self.today), (dt.date(2026, 9, 15), self.today))
+class CountingGateTests(unittest.TestCase):
+    """The gate that holds each refusal counter to a case has to refuse what it cannot see."""
 
-    def test_explicit_range(self):
-        self.assertEqual(self.m.parse_period('2026-09-01..2026-09-07', self.today),
-                         (dt.date(2026, 9, 1), dt.date(2026, 9, 7)))
+    def test_a_counter_a_line_trace_cannot_isolate_is_refused_by_line(self):
+        """Shapes a line trace reaches without running the store, each of which a gate
+        collecting only stores left green."""
+        shapes = {
+            'short-circuit': 'def f(p, unread):\n    if p is None and (unread := unread + 1):\n        pass\n',
+            'one-line if body': 'def f(p, unread):\n    for x in p:\n        if x is None: unread += 1; continue\n',
+            'except binding': 'def f():\n    try:\n        pass\n    except ValueError as unread:\n        pass\n',
+        }
+        for shape, source in shapes.items():
+            with self.subTest(shape=shape):
+                with self.assertRaisesRegex(AssertionError, 'line [0-9]'):
+                    stores_of(source, 'unread')
 
-    def test_a_typo_is_refused_rather_than_becoming_last_week(self):
-        for bad in ('lastweek', '2026-09-07..2026-09-01', '0d', 'week'):
-            with self.subTest(bad=bad):
-                with self.assertRaises(ValueError):
-                    self.m.parse_period(bad, self.today)
-
-
-class ConventionalTests(unittest.TestCase):
-    def test_type_scope_and_summary(self):
-        m = load()
-        self.assertEqual(m.conventional('feat(likes): stand the sweep down'),
-                         {'type': 'feat', 'scope': 'likes', 'summary': 'stand the sweep down'})
-        self.assertEqual(m.conventional('Guideline flags reach Pearl')['scope'], None)
-        self.assertEqual(m.conventional('fix!: breaking')['type'], 'fix')
-
-    def test_remote_prefix_is_not_a_branch_name(self):
-        m = load()
-        self.assertEqual(m.branch_name('refs/remotes/origin/fix/x'), 'fix/x')
-        self.assertEqual(m.branch_name('refs/heads/feat/y'), 'feat/y')
+    def test_a_counter_on_its_own_line_is_found(self):
+        """The positive control: the shape commit_shas is written in, and a tuple target."""
+        source = ('def f(p):\n    unread = 0\n    for x in p:\n        if x is None:\n'
+                  '            unread += 1\n            continue\n        unread, _ = unread + 1, 0\n')
+        self.assertEqual(stores_of(source, 'unread'), {2, 5, 7})
 
 
 def isolated():
@@ -109,12 +130,16 @@ def isolated():
     return env
 
 
-class CollectTests(unittest.TestCase):
-    """A fixture repository, a fake HOME with both session stores, and one collect over them."""
+class CollectBench(unittest.TestCase):
+    """A fixture repository and the path of a fake HOME. It holds no test, so the suites that
+    share it collect nothing from it."""
 
     def setUp(self):
         self.m = load()
         self.tmp = Path(tempfile.mkdtemp())
+        # Registered first, so it runs last: a case that takes a write bit away restores it
+        # in a cleanup of its own, which has to run before the tree can be removed.
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.home = self.tmp / 'home'
         self.repo = self.tmp / 'work' / 'app'
         self.repo.mkdir(parents=True)
@@ -134,6 +159,11 @@ class CollectTests(unittest.TestCase):
         self.repo = self.repo.resolve()
         self.slug = self.m.project_slug(str(self.repo))
         self.since, self.until = dt.date(2026, 9, 14), dt.date(2026, 9, 20)
+
+
+class CollectTests(CollectBench):
+    """Cases that run the collector and read what it returns. The skill's shell block is
+    test_report_skill_block's."""
 
     def claude_line(self, text, **extra):
         base = {'type': 'user', 'timestamp': noon('2026-09-16'), 'cwd': str(self.repo), 'sessionId': 'abcdef1234',
@@ -349,14 +379,14 @@ class CollectTests(unittest.TestCase):
         both spellings, so that is what is asked. The initialisation is a store too and is
         always reached, which costs nothing and is why it needs no exception.
 
-        What this cannot see is a store sharing a line with something that short-circuits before
-        it: measured, `if payload.get('commits') is None and (unread := unread + 1):` leaves the
-        gate green, because the line ran and the store did not. Line numbers are the granularity
-        of the trace, so that shape is the one a reader has to catch."""
+        The trace sees lines, so a store sharing its line with something that can be skipped is
+        reached without running: `if x and (unread := unread + 1):` short-circuits, and
+        `if x: unread += 1; continue` puts the store in the body of an `if` on the if's own line.
+        Measured, a gate collecting only stores left both green. `except E as unread` binds the
+        name with no store node at all. `stores_of` refuses each by line, so a counter written
+        that way fails here, loud, instead of passing unmeasured."""
         lines, first = inspect.getsourcelines(self.m.commit_shas)
-        parsed = ast.parse(textwrap.dedent(''.join(lines)))
-        return {first + node.lineno - 1 for node in ast.walk(parsed)
-                if isinstance(node, ast.Name) and node.id == 'unread' and isinstance(node.ctx, ast.Store)}
+        return {first + line - 1 for line in stores_of(textwrap.dedent(''.join(lines)), 'unread')}
 
     def lines_reached_in_collect(self, run):
         """Which lines of the collector `run` actually executed. The counters are one statement
@@ -448,179 +478,6 @@ class CollectTests(unittest.TestCase):
             return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows[:cap - 1]), stderr='')
         with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh_under_cap):
             self.assertNotIn('cap', self.m.collect_prs(self.repo, self.since, self.until)[1])
-
-    def skill_block(self):
-        text = (ROOT / 'plugins/bymax-report/skills/standup/SKILL.md').read_text()
-        import re
-        return re.search(r'```bash\n(.*?)```', text, re.S).group(1)
-
-    ARGS_DIR = '.claude/bymax-report-args.d'
-
-    def run_block(self, home, args_lines, tmpdir=None, plugin=None, path=None, name='2026-09-22T09-05-01-k7qz3f', extra=None,
-                  nonfile=None):
-        home.mkdir(parents=True, exist_ok=True)
-        waiting = home / self.ARGS_DIR
-        if args_lines is not None:
-            waiting.mkdir(parents=True, exist_ok=True)
-            (waiting / name).write_text('\n'.join(args_lines) + '\n')
-        if extra is not None:
-            waiting.mkdir(parents=True, exist_ok=True)
-            (waiting / extra).write_text('last-week\n/somewhere/else\n\n')
-        # Everything above writes a regular file, which is the one shape `[ ! -f ]` never
-        # objects to; a directory left in the waiting place is what tells the two guards
-        # apart, so a case that needs one asks for it here.
-        if nonfile is not None:
-            (waiting / nonfile).mkdir(parents=True, exist_ok=True)
-        env = {**isolated(), 'HOME': str(home), 'TMPDIR': tmpdir or str(home / 'tmp'),
-               'CLAUDE_PLUGIN_ROOT': str(plugin or ROOT / 'plugins/bymax-report')}
-        if path:
-            env['PATH'] = path + os.pathsep + os.environ.get('PATH', '')
-        (home / 'tmp').mkdir(exist_ok=True)
-        return subprocess.run(['bash', '-c', self.skill_block()], cwd=str(self.repo), env=env,
-                              capture_output=True, text=True)
-
-    def test_the_skill_block_claims_the_arguments_before_it_reads_them(self):
-        """The arguments wait in a directory both runs can write to, so reading a file in place
-        left a window where a second run could overwrite it between the first run's reads, mixing
-        one run's period with another's repository. The block claims it with a rename first, which
-        is atomic, and reads a copy outside that directory. Measured by a `sed` on PATH that
-        records which path it was handed: one inside the directory means the window is open."""
-        home = self.tmp / 'h-claim'; home.mkdir(parents=True, exist_ok=True)
-        binx = self.tmp / 'claim-bin'; binx.mkdir(parents=True, exist_ok=True)
-        seen = home / 'sed-was-given'
-        fake = binx / 'sed'
-        fake.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" >> ' + str(seen) + '\nexec /usr/bin/sed "$@"\n')
-        fake.chmod(0o755)
-        done = self.run_block(home, ['2026-09-14..2026-09-20', str(self.repo), ''], path=str(binx))
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        waiting = str(home / self.ARGS_DIR)
-        handed = seen.read_text().split()
-        self.assertTrue(handed, 'the fake sed was never called')
-        self.assertFalse([h for h in handed if h.startswith(waiting + '/')],
-                         'the block read the waiting handoff in place: %r' % handed)
-        second = self.run_block(home, None, path=str(binx))
-        self.assertNotEqual(second.returncode, 0, second.stdout + second.stderr)
-        self.assertEqual(sorted((home / self.ARGS_DIR).iterdir()), [])
-        self.assertEqual(sorted((home / '.claude').glob('bymax-report-args.d.claimed.*')), [])
-
-    def test_two_standups_waiting_at_once_make_the_block_refuse_both(self):
-        """Nothing can stop two runs writing their arguments at the same moment: the file tool
-        has no create-if-absent that another turn cannot race, and a rename only owns what is
-        already there. So the block does not try to pick a winner. It refuses while more than
-        one is waiting, claims neither, and says how many it saw. Refusing costs a wait;
-        reporting on another run's repository costs the report."""
-        home = self.tmp / 'h-two'
-        done = self.run_block(home, ['2026-09-14..2026-09-20', str(self.repo), ''], extra='run-2')
-        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn('2 entries are waiting', done.stderr)
-        self.assertEqual(sorted(p.name for p in (home / self.ARGS_DIR).iterdir()),
-                         ['2026-09-22T09-05-01-k7qz3f', 'run-2'])
-        self.assertEqual(done.stdout.strip(), '', done.stdout)
-
-    def test_something_that_is_not_an_arguments_file_does_not_hide_one_waiting_behind_it(self):
-        """The waiting place is a directory, so what sits in it is not always a file a run wrote:
-        a leftover directory, or anything else the block cannot read three lines from, sorts by
-        name like any entry. Asking `[ ! -f ]` before counting answers about the first entry and
-        calls the place empty, so a real one waiting behind it is reported as absent and the model
-        writes another. Counting first says how many are there, which is true of the directory
-        either way, and the file test then speaks only when there is exactly one entry to speak
-        about."""
-        alone = self.tmp / 'h-nonfile-alone'
-        done = self.run_block(alone, None, nonfile='0-left-behind')
-        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn('No arguments file in', done.stderr)
-        self.assertEqual(done.stdout.strip(), '', done.stdout)
-
-        behind = self.tmp / 'h-nonfile-behind'
-        done = self.run_block(behind, ['2026-09-14..2026-09-20', str(self.repo), ''], nonfile='0-left-behind')
-        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn('2 entries are waiting', done.stderr)
-        self.assertNotIn('No arguments file', done.stderr,
-                         'the block called the place empty while an arguments file waited in it')
-        self.assertEqual(sorted(p.name for p in (behind / self.ARGS_DIR).iterdir()),
-                         ['0-left-behind', '2026-09-22T09-05-01-k7qz3f'])
-        self.assertEqual(done.stdout.strip(), '', done.stdout)
-
-    def test_a_claim_that_cannot_be_written_names_both_places_it_needs(self):
-        """The claim is a rename out of the waiting directory into the one above it, so it needs
-        to unlink in the first and create in the second, and either can be the one refusing. The
-        message named only the waiting directory, which in the reproduced case is writable: a
-        reader following it inspects a directory that is fine and never looks at the one that is
-        not. Both are named now, and this case is what keeps them named."""
-        home = self.tmp / 'h-unclaimable'
-        waiting = home / self.ARGS_DIR
-        waiting.mkdir(parents=True, exist_ok=True)
-        (waiting / 'a-run').write_text('2026-09-14..2026-09-20\n%s\n\n' % self.repo)
-        above = home / '.claude'
-        above.chmod(0o555)
-        self.addCleanup(above.chmod, 0o755)
-        probe = above / 'probe'
-        try:
-            probe.touch()
-        except OSError:
-            pass
-        else:
-            probe.unlink()
-            self.skipTest('this runner can write a directory it has no write bit for')
-
-        done = self.run_block(home, None)
-        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn('Could not claim the arguments', done.stderr)
-        self.assertIn(str(waiting), done.stderr)
-        self.assertIn('directory above it', done.stderr,
-                      'the message names only the waiting directory, which here is the writable one')
-        self.assertEqual(done.stdout.strip(), '', done.stdout)
-        # The rename failed, so the arguments are still there. Telling the reader to write them
-        # again here puts a second entry in the directory, after which the count refuses every
-        # run until someone removes one -- so the advice has to say which of the two causes it
-        # is for.
-        self.assertTrue((waiting / 'a-run').exists(), 'the refusal cost the run its arguments')
-        self.assertIn('If yours is still waiting, run this block again', done.stderr)
-        self.assertNotIn('Check both, write yours again', done.stderr)
-
-    def test_the_skill_block_stops_when_there_is_no_temporary_directory(self):
-        """An unchecked `mktemp -d` leaves the variable empty, and the collector is then
-        told to write `/collect.json`: outside the run's own directory, outside its cleanup,
-        and against this skill's promise that a run leaves nothing on disk. The block
-        exited 0 while printing a blank path, so nothing downstream could tell."""
-        # The collector is a stub that records being called, because the real one fails on
-        # `--out /collect.json` for anyone who cannot write to the root directory, and then
-        # the unguarded block stops for that reason instead of this one. What the guard
-        # must do is stop before the collector, whoever is running.
-        home = self.tmp / 'h-notmp'; home.mkdir(parents=True, exist_ok=True)
-        plugin = self.tmp / 'stub-plugin'; (plugin / 'scripts').mkdir(parents=True)
-        called, out = home / 'called', home / 'out-path'
-        (plugin / 'scripts/collect.py').write_text(
-            'import sys, pathlib\n'
-            'pathlib.Path(%r).write_text("yes")\n' % str(called) +
-            'pathlib.Path(%r).write_text(sys.argv[sys.argv.index("--out") + 1])\n' % str(out))
-        done = self.run_block(home, ['2026-09-14..2026-09-20', str(self.repo), ''],
-                              tmpdir=str(self.tmp / 'nowhere' / 'deeper'), plugin=plugin)
-        self.assertFalse(called.exists(),
-                         'the collector ran with --out %s' % (out.read_text() if out.exists() else '?'))
-        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(done.stdout.strip(), 'claimed 2026-09-22T09-05-01-k7qz3f', done.stdout)
-
-    def test_the_skill_block_refuses_a_missing_args_file_and_runs_with_one(self):
-        """The handoff file carries what the user typed; without it the block used to run the
-        collect on defaults and exit 0, dropping an explicit period and author silently. The
-        positive control proves the refusal is not just any refusal: with the file, the block
-        runs the collect, deletes the file, and prints the temporary directory."""
-        home = self.tmp / 'h1'
-        missing = self.run_block(home, None)
-        self.assertNotEqual(missing.returncode, 0, missing.stdout + missing.stderr)
-        home2 = self.tmp / 'h2'
-        with_file = self.run_block(home2, ['2026-09-14..2026-09-20', str(self.repo), ''])
-        self.assertEqual(with_file.returncode, 0, with_file.stdout + with_file.stderr)
-        # The name is the one the helper wrote, so the case pins the output to the file that was
-        # claimed: asserting only `claimed` would pass while the block echoed any name at all.
-        self.assertIn('claimed 2026-09-22T09-05-01-k7qz3f\n', with_file.stdout)
-        self.assertEqual(sorted((home2 / self.ARGS_DIR).iterdir()), [])
-        work = with_file.stdout.strip().splitlines()[-1]
-        self.assertTrue((Path(work) / 'collect.json').exists(), with_file.stdout)
-        self.assertIn('(2026-09-14 .. 2026-09-20)', with_file.stdout)
-        # Without the repository here a run cannot check what it read against what it asked for.
-        self.assertIn(str(self.repo), with_file.stdout)
 
     def git_in_repo(self, *args, **env):
         base = {**isolated(), 'GIT_AUTHOR_DATE': '2026-09-17T12:00:00Z', 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z',
@@ -756,16 +613,19 @@ class CollectTests(unittest.TestCase):
     def test_a_clone_reads_the_dates_because_its_reflog_logs_fetches(self):
         """This clone fetched again after the period, so its reflog records where the clone
         stood, not where the delivery branch stood in the week: read that way, a Friday merge
-        pulled on Monday comes back as work still in flight. The commit dates carry the
-        upstream merge time instead, which is the right answer here. This fixture also pins
-        the first-parent walk: without it the date walk returns the merge's second parent."""
+        pulled on Monday comes back as work still in flight. The commit dates answer instead,
+        and they answer only one way: a commit the last first-parent commit dated in the week
+        does not reach had not shipped, and one it does reach may have arrived later, so it is
+        unknown rather than shipped. This fixture also pins the first-parent walk: without it
+        the date walk returns the merge's second parent, which then reaches feat(b)."""
         data = self.m.collect(self.clone_that_fetched_late(), self.since, self.until, self.home, use_gh=False)
         shipped = {c['subject']: c['shipped'] for c in data['commits']}
-        self.assertIs(shipped['feat(a): the work of the week'], True)
+        self.assertIsNone(shipped['feat(a): the work of the week'])
         self.assertIs(shipped['feat(b): merged the week after'], False)
         self.assertEqual(data['coverage']['delivery_ref'], 'origin/main')
         self.assertIn('commit dates', data['coverage']['shipped'])
         self.assertNotIn('reflog', data['coverage']['shipped'])
+        self.assertEqual(data['coverage']['commits_unknown'], 1)
 
     def repo_that_delivers_by_pushing(self):
         """A repository whose delivery ref is the remote one and whose only moves of it are
@@ -884,6 +744,8 @@ class CollectTests(unittest.TestCase):
             git(app, 'reset', '-q', '--hard', 'refs/remotes/upstream/main')
         elif how == 'reset':
             git(app, 'reset', '-q', '--hard', 'upstream/main')
+        elif how == 'checkout-B':
+            git(app, 'checkout', '-q', '-B', 'main', 'upstream/main')
         else:
             git(app, 'merge', '-q', '--ff-only', 'upstream/main')
         if how.startswith('pruned'):
@@ -927,15 +789,17 @@ class CollectTests(unittest.TestCase):
         words as `merge feat/x` and `reset: moving to HEAD~1`, which are local work, so the
         word alone sent both here down the delivery path: the reflog was trusted, it stood
         where we were before the catch-up, and the week's work came back unshipped. Where the
-        ref was sent is what separates them, and git records that in the same message."""
+        ref was sent is what separates them, and git records that in the same message. After a
+        catch-up nothing recorded where the branch stood, so the week's work is unknown."""
         for how in ('merge', 'reset'):
             with self.subTest(how=how):
                 data = self.m.collect(self.repo_that_caught_up_after_the_period(how),
                                       self.since, self.until, self.home, use_gh=False)
                 shipped = {c['subject']: c['shipped'] for c in data['commits']}
-                self.assertIs(shipped['feat(a): the work of the week'], True)
+                self.assertIsNone(shipped['feat(a): the work of the week'])
                 self.assertEqual(data['coverage']['delivery_ref'], 'main')
                 self.assertIn('commit dates', data['coverage']['shipped'])
+                self.assertIn('unknown', data['coverage']['shipped'])
 
     def test_the_same_action_words_sent_to_our_own_ref_are_not_a_catch_up(self):
         """`merge mine` and `reset: moving to mine` are this repository moving its own
@@ -999,11 +863,11 @@ class CollectTests(unittest.TestCase):
         """`GIT_REFLOG_ACTION= git fetch` writes an entry with nothing before its colon, which
         is a real sync wearing no name. Reading the unreadable action as proof that no sync
         happened trusted this clone's stale reflog and reported the week's delivered work as
-        unshipped."""
+        unshipped; read as a sync, it is unknown."""
         data = self.m.collect(self.clone_that_fetched_late(blank_action=True),
                               self.since, self.until, self.home, use_gh=False)
         shipped = {c['subject']: c['shipped'] for c in data['commits']}
-        self.assertIs(shipped['feat(a): the work of the week'], True)
+        self.assertIsNone(shipped['feat(a): the work of the week'])
         self.assertIs(shipped['feat(b): merged the week after'], False)
         self.assertIn('commit dates', data['coverage']['shipped'])
 
@@ -1149,6 +1013,164 @@ class CollectTests(unittest.TestCase):
         self.assertIsNone(data['coverage']['delivery_ref'])
         self.assertIn('no default branch', data['coverage']['shipped'])
 
+    def test_what_a_reflog_operand_names_decides_a_catch_up(self):
+        """Each shape git writes when a ref is caught up with another repository, measured on
+        git 2.54, beside the same action sent to our own ref. An operand that is only an object
+        id may be anyone's, so it counts as a catch-up: that costs the week an unknown, where
+        reading it as ours reports work from a record it may not be."""
+        repo = self.clone_that_fetched_late()
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        subprocess.run(['git', '-C', str(repo), 'branch', '-q', 'feat/x', 'origin/main'], check=True, env=env)
+        subprocess.run(['git', '-C', str(repo), 'branch', '-q', 'feat/y', 'origin/main'], check=True, env=env)
+        sha = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'origin/main'], check=True,
+                             capture_output=True, text=True, env=env).stdout.strip()
+        table = {
+            'branch: Reset to origin/main': True,
+            'branch: Reset to feat/x': False,
+            'branch: Created from origin/main': True,
+            'branch: Created from HEAD': False,
+            'reset: moving to FETCH_HEAD': True,
+            'reset: moving to origin/main': True,
+            'reset: moving to HEAD~1': False,
+            f'merge {sha}: Fast-forward': True,
+            f'merge {sha[:7]}: Fast-forward': True,
+            f'rebase (finish): refs/heads/main onto {sha}': True,
+            'rebase -i (finish): returning to refs/heads/main': True,
+            "merge feat/x origin/main: Merge made by the 'octopus' strategy.": True,
+            "merge origin/main feat/x: Merge made by the 'octopus' strategy.": True,
+            "merge feat/x feat/y: Merge made by the 'octopus' strategy.": False,
+            'merge HEAD~1: Fast-forward': False,
+            'commit: local work': False,
+            'update by push': False,
+            'fetch -q: fast-forward': True,
+        }
+        for message, expected in table.items():
+            with self.subTest(message=message):
+                self.assertIs(reflog.moved_by_syncing(repo, message, False), expected)
+
+    def test_a_branch_reset_to_the_remote_after_the_period_leaves_the_week_unknown(self):
+        """`git checkout -B main upstream/main` writes `branch: Reset to upstream/main`, a
+        catch-up; read as local, the reflog was trusted, it stood where we were before the
+        catch-up, and the week's delivered work came back unshipped."""
+        data = self.m.collect(self.repo_that_caught_up_after_the_period('checkout-B'),
+                              self.since, self.until, self.home, use_gh=False)
+        shipped = {c['subject']: c['shipped'] for c in data['commits']}
+        self.assertIsNone(shipped['feat(a): the work of the week'])
+        self.assertIn('unknown', data['coverage']['shipped'])
+
+    def test_work_written_in_the_week_and_pushed_after_it_is_never_shipped_by_its_date(self):
+        """Without a record of the push, the commit dates carry the day the work was written,
+        which reads as delivered inside the week. They can only say what had not shipped, so
+        this is unknown, and never shipped."""
+        repo = self.repo_that_delivers_by_pushing()
+        for log in (repo / '.git/logs').rglob('*'):
+            if log.is_file():
+                log.unlink()
+        data = self.m.collect(repo, self.since, self.until, self.home, use_gh=False)
+        self.assertEqual([(c['subject'], c['shipped']) for c in data['commits']],
+                         [('feat(x): written in the week, pushed after it', None)])
+        self.assertIn('commit dates', data['coverage']['shipped'])
+
+    def repo_that_landed_old_work_in_the_period(self):
+        """A delivery branch whose reflog covers the whole period and before it."""
+        repo = self.tmp / 'landing' / 'app'; repo.mkdir(parents=True)
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(*args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, env={**env, **extra})
+        git('init', '-q', '-b', 'main')
+        git('commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-01T12:00:00Z')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(old): written and landed before', when='2026-09-02T12:00:00Z')
+        git('checkout', '-q', '-b', 'feat/ff')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(ff): written before, landed in the week', when='2026-09-10T12:00:00Z')
+        git('checkout', '-q', '-b', 'feat/side', 'main')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(side): written before, merged in the week', when='2026-09-11T12:00:00Z')
+        git('checkout', '-q', 'main')
+        git('merge', '-q', '--ff-only', 'feat/ff', when='2026-09-16T12:00:00Z')
+        git('merge', '-q', '--no-ff', '-m', 'Merge feat/side', 'feat/side', when='2026-09-17T12:00:00Z')
+        git('checkout', '-q', '-b', 'feat/late')
+        git('commit', '-q', '--allow-empty', '-m', 'feat(late): written in the week, landed after', when='2026-09-18T12:00:00Z')
+        git('checkout', '-q', 'main')
+        git('merge', '-q', '--ff-only', 'feat/late', when='2026-09-25T12:00:00Z')
+        return repo.resolve()
+
+    def test_work_that_landed_in_the_period_is_collected_whenever_it_was_written(self):
+        """A period filter on the author date misses work written before the week and landed
+        in it, because a fast-forward moves the ref without rewriting the commit. The reflog at
+        both ends of the period says what the branch received, and that is selected too; what
+        was written and landed before is not."""
+        data = self.m.collect(self.repo_that_landed_old_work_in_the_period(), self.since, self.until,
+                              self.home, use_gh=False)
+        got = {c['subject']: (c['landed'], c['shipped']) for c in data['commits']}
+        self.assertEqual(got, {
+            'feat(ff): written before, landed in the week': (True, True),
+            'feat(side): written before, merged in the week': (True, True),
+            'feat(late): written in the week, landed after': (False, False),
+        })
+        self.assertEqual(data['coverage']['commits_landed'], 2)
+        self.assertIn('reflog', data['coverage']['landed'])
+
+    def clone_made_during_the_week(self):
+        """A clone taken in the middle of the week, of a history older than it, and fetched
+        once more inside the week. A clone writes no reflog for its tracking refs, so the fetch
+        is that ref's first entry: it answers for the end of the week and has nothing for its
+        start. Dating the start from the commits instead would call the week's work landed."""
+        root = self.tmp / 'midweek'; root.mkdir(parents=True)
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(where, *args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
+        work, app = root / 'work', root / 'app'
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-05T12:00:00Z')
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'feat(w): written in the week', when='2026-09-16T12:00:00Z')
+        subprocess.run(['git', 'clone', '-q', str(work), str(app)], check=True, capture_output=True,
+                       env={**env, 'GIT_COMMITTER_DATE': '2026-09-17T12:00:00Z'})
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'feat(w): more of the week', when='2026-09-18T12:00:00Z')
+        git(app, 'fetch', '-q', 'origin', when='2026-09-18T13:00:00Z')
+        return app.resolve()
+
+    def test_where_nothing_recorded_both_ends_commits_are_selected_by_author_date(self):
+        """None of these reflogs can say where the branch stood when the week began, so what
+        landed is not claimed: every commit says None and the coverage names the fallback."""
+        cases = {'a reflog that begins after the period': self.repo_whose_reflog_starts_after_the_period(),
+                 'a clone that fetched after the week began': self.clone_that_fetched_late(),
+                 'a clone made during the week': self.clone_made_during_the_week()}
+        for name, repo in cases.items():
+            with self.subTest(case=name):
+                data = self.m.collect(repo, self.since, self.until, self.home, use_gh=False)
+                self.assertEqual({c['landed'] for c in data['commits']}, {None})
+                self.assertIn('author date alone', data['coverage']['landed'])
+
+    def test_author_is_applied_before_the_commits_of_each_pull_request_are_read(self):
+        """Reading a pull request's commits is one `gh pr view` each, and another person's pull
+        request is never read once --author drops it."""
+        rows = [{'number': 5, 'title': 'feat: mine', 'createdAt': noon('2026-09-17'), 'author': {'login': 'dev'}},
+                {'number': 6, 'title': 'feat: theirs', 'createdAt': noon('2026-09-18'), 'author': {'login': 'other'}}]
+        viewed = []
+        def fake_gh(cmd, **kwargs):
+            if 'view' in cmd:
+                viewed.append(cmd[cmd.index('view') + 1])
+                return subprocess.CompletedProcess(cmd, 0, stdout='{"commits": []}', stderr='')
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(rows), stderr='')
+        with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
+            prs, _ = self.m.collect_prs(self.repo, self.since, self.until, 'dev')
+        self.assertEqual([pr['number'] for pr in prs], [5])
+        self.assertEqual(viewed, ['5'])
+
+    def test_a_commit_two_pull_requests_claim_shipped_in_the_one_that_merged_first(self):
+        """A pull request stacked on another carries its commits too; the commit shipped when
+        the first of them merged, and an open pull request never takes it from a merged one."""
+        commits = [{'sha': 'a' * 12, 'subject': 'feat: shared', 'ref': 'main', 'pr': None}]
+        prs = [{'number': 9, 'title': 'feat: open', 'head': 'o', 'merged_at': None, 'shas': ['a' * 12]},
+               {'number': 7, 'title': 'feat: later', 'head': 'l', 'merged_at': noon('2026-09-18'), 'shas': ['a' * 12]},
+               {'number': 5, 'title': 'feat: first', 'head': 'f', 'merged_at': noon('2026-09-17'), 'shas': ['a' * 12]}]
+        self.m.link_commits_to_prs(commits, prs)
+        self.assertEqual(commits[0]['pr'], 5)
+
     def test_a_pull_request_ships_when_it_merged_in_the_period(self):
         """collect_prs keeps a pull request opened in the period whether or not it merged, so
         each record says which it was; an open one is progress, never an update."""
@@ -1163,22 +1185,6 @@ class CollectTests(unittest.TestCase):
         with unittest.mock.patch.object(self.m.subprocess, 'run', side_effect=fake_gh):
             prs, _ = self.m.collect_prs(self.repo, self.since, self.until)
         self.assertEqual({p['number']: p['shipped'] for p in prs}, {1: True, 2: False, 3: False})
-
-    def test_the_skill_block_carries_a_failed_collect_and_leaves_nothing_behind(self):
-        """A collect that cannot run left the block at exit 0 printing a directory with no
-        collect.json in it, so the reader took that path for a successful collection and the
-        directory stayed on disk. The positive control is the other half: a collect that runs
-        still gets its directory and its zero, so the refusal is this failure and not any failure."""
-        home = self.tmp / 'h3'
-        bad = self.run_block(home, ['7d', '/no/such/repo', ''])
-        self.assertNotEqual(bad.returncode, 0, bad.stdout + bad.stderr)
-        self.assertEqual(sorted((home / 'tmp').glob('bymax-report.*')), [])
-        home2 = self.tmp / 'h4'
-        good = self.run_block(home2, ['2026-09-14..2026-09-20', str(self.repo), ''])
-        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
-        made = sorted((home2 / 'tmp').glob('bymax-report.*'))
-        self.assertEqual(len(made), 1, made)
-        self.assertTrue((made[0] / 'collect.json').exists())
 
     def test_the_cli_writes_one_record_per_line_and_a_summary(self):
         write_jsonl(self.home / '.claude/projects' / self.slug / 's.jsonl', [self.claude_line('ask')])
