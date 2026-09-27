@@ -1039,15 +1039,21 @@ def correction_brief(state):
     if state.get('removed_tests'):
         lines.append('Tests removed in this delta: ' + ', '.join(state['removed_tests'])
                      + '. A removed test is not regression evidence; judge whether its removal is justified.')
-    measured = state.get('regression_measured')
-    if measured and not measured['failing_before']:
-        lines.append('No test this correction changed fails before it: run against the previous '
-                     "candidate's code, every node of the changed test files passed. That is right for a "
-                     'correction that repairs a test and no code; for one that changes code, judge whether '
-                     'its regression proves anything.'
-                     + (' Not asked, because the previous tree could not collect them: '
-                        + ', '.join(measured['unread_before']) + '.' if measured['unread_before'] else ''))
+    lines += regression_note(state.get('regression_measured'))
     return '\n'.join(lines)
+
+
+def regression_note(measured):
+    """What reviewers are told when no changed test fails before the correction, as lines."""
+    if not measured or measured['failing_before']:
+        return []
+    unread = measured['unread_before']
+    return ['No test this correction changed fails before it: run against the previous '
+            "candidate's code, every node of the changed test files passed. That is right for a "
+            'correction that repairs a test and no code; for one that changes code, judge whether '
+            'its regression proves anything.'
+            + (' Not asked, because the previous tree could not collect them: ' + ', '.join(unread) + '.'
+               if unread else '')]
 
 
 def delivery_note(state):
