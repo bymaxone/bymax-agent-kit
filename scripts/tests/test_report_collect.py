@@ -23,6 +23,9 @@ import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'plugins/bymax-report/scripts/collect.py'
+# The collector's own modules, found beside it as they are when it runs as a script.
+sys.path.insert(0, str(SCRIPT.parent))
+import reflog
 
 
 def load():
@@ -1044,7 +1047,7 @@ class CollectTests(CollectBench):
         }
         for message, expected in table.items():
             with self.subTest(message=message):
-                self.assertIs(self.m.moved_by_syncing(repo, message, False), expected)
+                self.assertIs(reflog.moved_by_syncing(repo, message, False), expected)
 
     def test_a_branch_reset_to_the_remote_after_the_period_leaves_the_week_unknown(self):
         """`git checkout -B main upstream/main` writes `branch: Reset to upstream/main`, a
