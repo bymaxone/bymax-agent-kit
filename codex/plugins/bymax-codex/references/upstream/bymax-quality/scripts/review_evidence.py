@@ -59,13 +59,38 @@ def tests_changed(base, head):
     ours = [name for name in changed if name in mine]
     elsewhere = collected_elsewhere([name for name in ours if not is_test_path(name)])
     return ([name for name in ours if is_test_path(name) or name in elsewhere],
-            [name for name in removed if is_test_path(name)])
+            removed_tests(base, removed))
+
+
+def removed_tests(base, removed):
+    """The deleted files that were tests at the base: named like one, or collected there. A
+    deleted file cannot be asked about where it is gone, so the base's tree is asked, and a
+    directory it cannot answer for keeps its files: a deletion reviewers are not shown is the
+    one they cannot judge."""
+    import review_matrix
+    named = [name for name in removed if is_test_path(name)]
+    other = [name for name in removed if not is_test_path(name)]
+    if not other or importlib.util.find_spec('pytest') is None:
+        return named
+    found = set()
+    with archived(base) as older:
+        wanted = [name for name in other if name.endswith('.py') or under_a_collect_hook(older, name)]
+        for where in sorted({str(Path(name).parent) or '.' for name in wanted}):
+            here = [name for name in wanted if (str(Path(name).parent) or '.') == where]
+            try:
+                found.update(review_matrix.nodes(older, [where], tolerant=True))
+            except (SystemExit, review_matrix.Unfinished):
+                found.update(here)
+    return sorted(named + [name for name in other if name in found])
 
 
 def collected_elsewhere(paths):
-    """The Python files among these that pytest collects a test from where they sit, though no
+    """The files among these that pytest collects a test from where they sit, though no
     spelling TEST_PATH knows names them: a repository that sets `python_files = check_*.py`
-    tells pytest, and only pytest reads it.
+    tells pytest, and only pytest reads it. A file of another format is asked only beneath a
+    conftest that defines a collection hook, the one way pytest collects one: asking about every
+    changed document would collect the directory of each, the repository root included, on
+    every prompt.
 
     Each directory is asked once. Where that collect fails, each file is asked as
     collects_a_test() asks it, and one it cannot rule out is kept: matrix_first() then refuses
@@ -78,7 +103,8 @@ def collected_elsewhere(paths):
     if importlib.util.find_spec('pytest') is None:
         return set()
     root = git('rev-parse', '--show-toplevel')
-    wanted = {path for path in paths if path.endswith('.py') and Path(root, path).is_file()}
+    wanted = {path for path in paths if Path(root, path).is_file()
+              and (path.endswith('.py') or under_a_collect_hook(root, path))}
     found = set()
     for where in sorted({str(Path(path).parent) for path in wanted}):
         here = [path for path in wanted if str(Path(path).parent) == where]
@@ -91,6 +117,16 @@ def collected_elsewhere(paths):
     return wanted & found
 
 
+def under_a_collect_hook(root, path):
+    """Whether a conftest.py from this file's directory up to the root defines
+    `pytest_collect_file`, which is how a conftest collects a file that is not Python."""
+    for where in [Path(path).parent, *Path(path).parent.parents]:
+        conftest = Path(root, where, 'conftest.py')
+        if conftest.is_file() and 'pytest_collect_file' in conftest.read_text(errors='replace'):
+            return True
+    return False
+
+
 def merged_in_tests(base, head):
     """The test files this delta changed that no commit of its own first-parent line wrote.
 
@@ -101,7 +137,9 @@ def merged_in_tests(base, head):
     changed = [p for p in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=AM',
                                   base, head).split('\0') if p]
     mine = written_here(base, head)
-    return [name for name in changed if is_test_path(name) and name not in mine]
+    theirs = [name for name in changed if name not in mine]
+    elsewhere = collected_elsewhere([name for name in theirs if not is_test_path(name)])
+    return [name for name in theirs if is_test_path(name) or name in elsewhere]
 
 
 def written_here(base, head):
@@ -165,7 +203,8 @@ def matrix_first(state, directory):
     # is any repository's, so on a project whose suite is Jest or Cargo the record demanded
     # could never be produced and the correction was blocked for good. Asked of pytest: what
     # it collects no test from is not a gate this runtime can mutate.
-    answered = [(path, collects_a_test(path)) for path in state['regression_tests']]
+    asked = {}
+    answered = [(path, collects_a_test(path, asked)) for path in state['regression_tests']]
     # An unanswerable collect is not an answer: read as "no test here" it emptied the list and
     # returned, skipping the whole gate without a word.
     unanswered = [path for path, said in answered if said is None]
@@ -253,7 +292,7 @@ def ran_the_changed_tests(kept, changed):
             'own case catches and re-run `review_flow.py matrix`.' % ', '.join(idle))
 
 
-def collects_a_test(path):
+def collects_a_test(path, asked=None):
     """Whether pytest collects a test from this file when it collects the directory it sits
     in. Named directly, pytest collects a file whatever it is called, so asking about the
     file alone would call every helper a test.
@@ -267,8 +306,11 @@ def collects_a_test(path):
     remove. So the directory is asked a second time tolerantly, which is the same question with
     the neighbour's failure no longer fatal. The file alone is asked only to tell "not a test
     module" from "this file is what failed".
+
+    `asked` keeps each directory's answers across calls, so a caller asking about several files
+    of one directory collects it once: a directory that ran out of time otherwise waited out the
+    same deadline again for every file in it.
     """
-    import review_matrix
     root = git('rev-parse', '--show-toplevel')
     # Not by suffix: a conftest can collect tests from a file of any format, and a YAML case
     # read as unrunnable left the correction that changed it with no matrix asked. With no
@@ -276,21 +318,40 @@ def collects_a_test(path):
     python = path.endswith('.py')
     if not Path(root, path).is_file() or not python and importlib.util.find_spec('pytest') is None:
         return False
-    where = [str(Path(path).parent) or '.']
-    # A collect that ran out of time answered nothing, and the file alone collecting fine would
-    # then read as "not a test module": the gate opened on a neighbour that loops on import.
-    try:
-        return path in review_matrix.nodes(root, where)
-    except review_matrix.Unfinished:
+    answer = directory_answer(root, str(Path(path).parent) or '.', {} if asked is None else asked)
+    if answer is None:
         return None
-    except SystemExit:
-        pass
-    try:
-        if path in review_matrix.nodes(root, where, tolerant=True):
-            return True
-    except (SystemExit, review_matrix.Unfinished):
-        return None
+    if isinstance(answer, set):
+        return path in answer
+    found, failed = answer
+    if path in found:
+        return True
+    # Named alone, a file of another format is collected even where the walk leaves it out, so
+    # it is asked alone only when the walk says it is the file that failed.
+    if not python and path not in failed:
+        return False
     return asked_alone(root, path, python)
+
+
+def directory_answer(root, where, asked):
+    """What collecting this directory answered, asked once per `asked`: the files collected, or
+    after a failed collect the pair `walked` returns, or None where no collect could answer.
+
+    A collect that ran out of time answered nothing, and the file alone collecting fine would
+    then read as "not a test module": the gate opened on a neighbour that loops on import.
+    """
+    import review_matrix
+    if where not in asked:
+        try:
+            asked[where] = set(review_matrix.nodes(root, [where]))
+        except review_matrix.Unfinished:
+            asked[where] = None
+        except SystemExit:
+            try:
+                asked[where] = review_matrix.walked(root, [where])
+            except (SystemExit, review_matrix.Unfinished):
+                asked[where] = None
+    return asked[where]
 
 
 def asked_alone(root, path, python):

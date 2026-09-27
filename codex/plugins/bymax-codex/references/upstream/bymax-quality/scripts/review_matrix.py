@@ -122,7 +122,9 @@ def tailed(child, deadline):
     stdout and stderr pipes, keeping each stream's last KEEP bytes as it is read. Returns the
     exit status, both tails decoded, and whether stdout filled its tail, read from the bytes
     kept rather than the text; the status is None past the deadline, when the group is killed.
-    Anything else that stops the wait kills the group and propagates.
+    Anything else that stops the wait kills the group and propagates, and a run that ended on its
+    own has its group killed too: a process a passing test started and did not wait for would
+    otherwise write to the tree after the mutant is restored.
 
     Unbuffered, so no read holds a lock: closing a buffered pipe waits on the lock a blocked
     reader holds, and a detached descendant keeping the pipe open held it for good.
@@ -143,6 +145,7 @@ def tailed(child, deadline):
         halt(child, readers)
         raise
     else:
+        kill_group(child)
         drained(readers)
     out, err = (tails[key][0].decode('utf-8', 'replace') for key in ('out', 'err'))
     return code, out, err, len(tails['out'][0]) >= KEEP
@@ -388,15 +391,26 @@ def baseline(root, files, case):
         if clean_code != 0:
             bail('Case %r does not pass on the clean tree (%s: %s). A mutant that fails a case '
                  'which already fails measures nothing.' % (case, node, clean_tail))
-        # Passed, not merely exited zero: pytest exits zero on a skip, and a mutant that changed
-        # the skip condition made the node run and fail, which read as a catch. A skipped node
-        # is left out of the measurement, the way ran_alone() leaves it out of the demand.
-        if outcome(clean_code, clean_tail) == 'passed' and re.search(r'\d+ passed', clean_tail):
+        # Ran, not merely exited zero: pytest exits zero on a skip, and a mutant that changed
+        # the skip condition made the node run and fail, which read as a catch. A node that did
+        # not run is left out of the measurement, the way ran_alone() leaves it out of the demand.
+        if ran_clean(clean_code, clean_tail):
             ran.append((node, max(FLOOR, int(SLACK * taken) + 1)))
     if not ran:
-        bail('Case %r runs no test on the clean tree under %s: every node it collects is skipped '
-             'there, and a case that never runs measures nothing.' % (case, ' '.join(files)))
+        bail('Case %r runs no test on the clean tree under %s: every node it collects is skipped or '
+             'expected to fail there (%s), and a case that never runs measures nothing.'
+             % (case, ' '.join(files), clean_tail))
     return ran
+
+
+def ran_clean(code, tail):
+    """Whether a node run alone ran and passed. A skip and an xfail exit zero without running;
+    so does a unittest node whose every subTest skipped, which pytest reports as `1 passed, 2
+    skipped` with no subtest passed — un-skipping it under a mutant read as a catch. A test that
+    returns early before any assertion still reads as run: nothing in a summary tells it apart."""
+    if outcome(code, tail) != 'passed' or not re.search(r'\d+ passed', tail):
+        return False
+    return not (re.search(r'\d+ skipped', tail) and not re.search(r'\d+ subtests? passed', tail))
 
 
 def ran_alone(root, nodes):
@@ -414,7 +428,7 @@ def ran_alone(root, nodes):
         # Clean, not merely passing: a test whose body passes and whose teardown raises reads
         # `1 passed, 1 error`, and a mutant run that errors stops the matrix in judged(), never
         # counted as a catch — so demanding that node would be a demand nobody could satisfy.
-        if outcome(code, tail) == 'passed' and re.search(r'\d+ passed', tail):
+        if ran_clean(code, tail):
             kept.append(node)
     return kept
 
@@ -654,6 +668,25 @@ def collected(root, files, results):
     return {name: sorted(cases) for name, cases in out.items()}
 
 
+def walked(root, files):
+    """The files pytest collects a test from under these paths, and the collectors whose
+    collection failed there, from one tolerant collect. A file in neither was not collected at
+    all, which naming it alone cannot answer: named on the command line, pytest collects a file
+    its conftest's `collect_ignore` keeps out of the walk."""
+    real = os.path.realpath(root)
+    token = secrets.token_hex(8)
+    with tempfile.TemporaryDirectory() as box:
+        _, where = collect_run(real, root, files, None, token, box)
+        vouched = reported(where, token)
+        if vouched is None:
+            bail('pytest collected %s and its collector never reported what it found, so nothing '
+                 'here can say what was collected.' % ' '.join(files))
+        failed = [line.partition(' ')[2] for line in where.read_text().splitlines()
+                  if line.startswith(token + '! ')]
+    return ({Path(node.split('::')[0]).as_posix() for node in vouched},
+            {Path(node.split('::')[0]).as_posix() for node in failed})
+
+
 def nodes(root, files, selector=None, tolerant=False):
     """The files of the node ids pytest collects under these paths, and under a selector when
     one is given, each spelled as pytest spells it."""
@@ -671,9 +704,10 @@ def ids(root, files, selector=None, tolerant=False):
     a module that printed while it failed to import could name any file it liked — after the
     report banner, or, from a conftest below the collected directory, ahead of every real id.
 
-    Tolerantly, a run that failed still answers with whatever it collected before failing, so a
-    directory one broken file would otherwise silence still answers; a run whose collector never
-    reported is refused, whatever it exited with.
+    Tolerantly, a run whose collection errored still answers with every node it collected:
+    pytest finishes the walk before it stops on the errors, so a directory one broken file would
+    otherwise silence still answers. A run whose collector never reported is refused, whatever it
+    exited with.
     """
     # The rootdir by its real path: handed a root reached through a symlink, pytest spelled
     # every id against the argument's own directory instead — a bare name for a file under

@@ -17,7 +17,7 @@ import time
 import review_delivery
 from review_delivery import scope_of as scope
 from review_delta import claims_settled, delta_view
-from review_evidence import is_test_path, matrix_first, matrix_run, tests_changed
+from review_evidence import collected_elsewhere, is_test_path, matrix_first, matrix_run, tests_changed
 from review_git import clean_head, git, git_raw, require
 from review_prose_pass import prose_first, prose_run
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
@@ -590,7 +590,8 @@ def widened(old, head, answers=()):
     file and the correction brought a new mechanism with it, which the next review then
     had to read, which produced the next finding. A correction answers what was found.
     Tests and the generated bundle are how a fix is proved and shipped, so they are the
-    correction, not an addition to it.
+    correction, not an addition to it — a test being what pytest collects, not only what is
+    named like one.
     """
     named = named_files(old) | answered_files(old, answers)
     if not named:
@@ -601,8 +602,9 @@ def widened(old, head, answers=()):
     # listing above yields it raw, and the two sets then spell the same file differently.
     changed = git_raw('diff', '-z', '--name-only', old['head'], head)
     touched = [path for path in changed.split('\0') if path]
-    return sorted(path for path in touched
-                  if path not in named and not is_test_path(path) and not generated_path(path))
+    extra = [path for path in touched
+             if path not in named and not is_test_path(path) and not generated_path(path)]
+    return sorted(set(extra) - collected_elsewhere(extra))
 
 
 def blocks_a_receipt(finding):
