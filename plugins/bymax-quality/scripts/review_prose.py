@@ -125,10 +125,10 @@ def present(root, names, cwd=None):
     The one bit read from the repository's own index, and only to excuse an ABSENCE, and
     only in a sparse checkout: a sparse checkout leaves files out on purpose and marks
     them skip-worktree, and read-tree does not reapply its patterns to a scratch index.
-    Outside a sparse checkout the bit was set by hand, and an absence is a deletion — a
-    reader deleting such a file went unseen. Asked as a boolean, because git spells true
-    as yes, on and 1 too, and a string compare refused a clean sparse checkout forever. A present path is compared whatever its bits
-    say, and a symlink is present when its own entry is, whatever its target does.
+    Outside a sparse checkout the bit was set by hand, and an absence is a deletion. Asked
+    as a boolean, because git spells true as yes, on and 1 too, and a string compare refused
+    a clean sparse checkout forever. A present path is compared whatever its bits say, and a
+    symlink is present when its own entry is, whatever its target does.
     """
     if git('config', '--type=bool', '--get', 'core.sparseCheckout', cwd=cwd).strip() != 'true':
         return sorted(names)
@@ -139,12 +139,11 @@ def present(root, names, cwd=None):
 def ignored(cwd=None):
     """Untracked files the repository ignores, each with a digest of its bytes: not a change,
     and never part of a candidate — but one the reader creates, edits or deletes is a file it
-    left, so offences compares this snapshot before and after. Names alone saw a creation and
-    missed an edit and a deletion; size and mtime saw those and missed a same-length edit
-    with the mtime put back. The bytes are what the invariant is about, and reading them
-    once per stage is cheap: twenty thousand small files or one of a gibibyte, under a
-    second. A nested repository is one entry to git and its inside is not this
-    repository's; a directory entry is recorded by name alone."""
+    left, so offences compares this snapshot before and after. Names alone miss an edit, and
+    size and mtime miss a same-length edit with the mtime put back. The bytes are what the
+    invariant is about, and reading them once per stage is cheap: twenty thousand small
+    files or one of a gibibyte, under a second. A nested repository is one entry to git and
+    its inside is not this repository's; a directory entry is recorded by name alone."""
     root = review_claims.root(cwd)
     out = subprocess.run(['git', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
                          cwd=root, check=True, capture_output=True, text=True).stdout

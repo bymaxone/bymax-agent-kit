@@ -144,7 +144,7 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIn('a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
     def test_a_fence_closes_only_on_a_bare_fence_line(self):
-        """Found by a reviewer: a content line like ```not-a-close closed the block for a
+        """A content line like ```not-a-close closed the block for a
         reader of its first three characters, and the command after it went unread."""
         tricky = '# Run\n\n```text\n```not-a-close\necho safe\n```\n\nSaid.\n'
         longer = '# Run\n\n````sh\n```\necho safe\n````\n\nSaid.\n'
@@ -155,7 +155,7 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIn('B.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
 
     def test_a_directive_moved_to_another_statement_is_not_prose(self):
-        """Found by a reviewer: the same `# noqa` on another statement suppresses another
+        """The same `# noqa` on another statement suppresses another
         diagnostic, and a list of the comment strings alone read the move as no change."""
         inline = 'x = 1  # noqa\ny = 2\n'
         alone = '# pylint: disable=invalid-name\na = 1\nb = 2\n'
@@ -244,7 +244,7 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_a_reader_edit_in_an_assume_unchanged_file_is_seen(self):
         """git status honours the assume-unchanged bit, and a reader's behaviour edit in such a
-        file was recorded as inside the envelope. The listing compares bytes with HEAD."""
+        file was recorded as inside the envelope. A scratch index has no such bit."""
         bench = Bench(self)
         subprocess.run(['git', '-C', str(bench.where), 'update-index', '--assume-unchanged', 'thing.py'], check=True)
         bench.write(START.replace('value > LIMIT', 'value >= LIMIT'))
@@ -292,8 +292,8 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIn('secret.env is ignored and was deleted', ' | '.join(prose.offences(cwd=str(bench.where), ignored_before=before)))
 
     def test_a_tracked_name_with_a_newline_is_seen(self):
-        """A newline in a name broke the one-per-line protocol of the previous listing and
-        silently dropped every file after it; git's own listing is NUL-separated."""
+        """A newline in a name breaks a one-per-line listing, dropping every file after it;
+        git's own listing is NUL-separated."""
         name = 'a\nb.py'
         bench = Bench(self, {name: 'x = 1\n'})
         subprocess.run(['git', '-C', str(bench.where), 'update-index', '--assume-unchanged', name], check=True)
@@ -310,9 +310,8 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIn('changed in mode or line endings', ' | '.join(bench.offences()))
 
     def test_a_staged_rename_names_both_paths(self):
-        """The previous listing sliced a rename's second row as a status row and named
-        `hing.py`; against the scratch index the old path is a deletion and the new one an
-        untracked file, each by its own name."""
+        """Slicing a rename's second row as a status row names `hing.py`; against the scratch
+        index the old path is a deletion and the new one an untracked file, each by its name."""
         bench = Bench(self)
         subprocess.run(['git', '-C', str(bench.where), 'mv', 'thing.py', 'other.py'], check=True)
         found = ' | '.join(bench.offences())
@@ -355,7 +354,7 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_the_scratch_index_does_not_list_itself(self):
         """Built under $TMPDIR inside the worktree, the scratch index appeared in its own
-        untracked listing and refused a clean tree; it lives under the git directory now."""
+        untracked listing and refused a clean tree; it lives under the git directory."""
         bench = Bench(self)
         (bench.where / 'tmp').mkdir()
         was = os.environ.get('TMPDIR')
@@ -397,8 +396,7 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_an_ignored_file_under_an_unsearchable_directory_is_recorded_not_refused(self):
         """git reads a directory it can list, so the file is named; the lstat on it fails
-        with the directory's errno. The residue of the unreadable case: an lstat outside the
-        guard raised where an open inside it did not."""
+        with the directory's errno, which is recorded, not raised."""
         bench = Bench(self, {'thing.py': START, '.gitignore': 'nosearch/\n'})
         (bench.where / 'nosearch').mkdir()
         (bench.where / 'nosearch' / 'b.txt').write_text('b\n')
@@ -417,8 +415,8 @@ class EnvelopeTests(unittest.TestCase):
         self.assertNotIn('file_digest', named)
 
     def test_an_unreadable_ignored_file_is_recorded_not_refused(self):
-        """A file the user cannot read raised a bare errno out of the snapshot on a tree the
-        previous runtime accepted. A reader with Edit alone cannot alter it either."""
+        """A file the user cannot read must not raise a bare errno out of the snapshot. A
+        reader with Edit alone cannot alter it either."""
         bench = Bench(self, {'thing.py': START, '.gitignore': 'locked.env\n'})
         (bench.where / 'locked.env').write_text('k\n')
         (bench.where / 'locked.env').chmod(0)

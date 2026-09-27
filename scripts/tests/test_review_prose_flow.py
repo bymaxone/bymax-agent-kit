@@ -67,7 +67,7 @@ class ProsePassTests(FlowBench):
         self.checks()
         brief = self.flow('prompt').stdout
         # What the record proves, not more: the runtime never observes the reader, so the
-        # note that said 'a fresh reader corrected' claimed a reading it could not show.
+        # note may not say 'a fresh reader corrected', a reading it cannot show.
         self.assertIn('The prose pass ran before the freeze', brief)
         self.assertIn('the record proves the text and not the reading', brief)
         self.assertIn('Wording is still not yours to review', brief)
@@ -75,8 +75,8 @@ class ProsePassTests(FlowBench):
     def test_a_pass_that_edits_code_is_refused_and_touches_nothing(self):
         """The one outcome worse than the defect: reviewers are told the pass touched no
         behaviour. Refused, with no record — and the tree left exactly as the reader left it,
-        because every round of putting it back destroyed something a git listing had
-        hidden, and the author can see what is theirs where the runtime cannot."""
+        because putting it back can destroy what a git listing hides, and the author can
+        see what is theirs where the runtime cannot."""
         self.add_prose()
         refused = self.prose('--base', self.base, ok=False,
                              claude=self.fake_claude(('value > LIMIT', 'value >= LIMIT')))
@@ -184,9 +184,8 @@ class ProsePassTests(FlowBench):
         self.assertEqual(list((self.repo / '.git').glob('bymax-review/*/prose-*.json')), [])
 
     def test_a_hidden_untracked_file_makes_the_tree_dirty(self):
-        """status.showUntrackedFiles=no hides untracked files from a plain listing; the pass
-        began on a tree holding the author's draft, and the whole-tree revert deleted it on
-        the first refusal. The precondition asks for every untracked file explicitly."""
+        """status.showUntrackedFiles=no hides untracked files from a plain listing, so a pass
+        could begin on the author's draft. The precondition asks for every untracked file."""
         self.add_prose()
         self.git('config', 'status.showUntrackedFiles', 'no')
         (self.repo / 'draft.py').write_text('draft = 1\n')
@@ -196,7 +195,7 @@ class ProsePassTests(FlowBench):
 
     def test_an_edit_inside_an_ignored_submodule_is_seen(self):
         """submodule.<name>.ignore hid a reader's code edit inside a submodule from the listing,
-        and the pass was recorded as inside the envelope. Seen and refused now — and, like
+        and the pass was recorded as inside the envelope. Seen and refused — and, like
         everything else, left where it is."""
         sub = self.root / 'sub-origin'
         subprocess.run(['git', 'init', '-q', str(sub)], check=True)
@@ -215,7 +214,7 @@ class ProsePassTests(FlowBench):
 
     def test_an_assume_unchanged_edit_makes_the_tree_dirty(self):
         """The clean gate asks the envelope's own listing: an author's edit under the
-        assume-unchanged bit is invisible to git status and used to start a pass."""
+        assume-unchanged bit is invisible to git status and would start a pass."""
         self.add_prose()
         self.git('update-index', '--assume-unchanged', 'thing.py')
         (self.repo / 'thing.py').write_text(self.PROSE + 'LOCAL = True\n')
