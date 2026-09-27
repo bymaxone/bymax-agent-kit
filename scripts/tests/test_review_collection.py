@@ -101,6 +101,19 @@ class CollectedTests(unittest.TestCase):
         self.assertIs(review_evidence.collects_a_test('cases/skip.yaml', asked), False)
         self.assertIs(review_evidence.collects_a_test('cases/keep.yaml', asked), True)
 
+    def test_a_case_whose_directory_failed_to_collect_is_not_ruled_out(self):
+        """A collect hook that raises on a neighbour fails the directory under the directory's
+        own id, so the case beside it is in neither answer; read as "not a test" it asked for no
+        matrix."""
+        bench = self.cases()
+        (bench.where / 'conftest.py').write_text(YAML_CONFTEST.replace(
+            '        return YamlFile', '        if file_path.name == "bad.yaml":\n'
+            '            raise ValueError("unreadable")\n        return YamlFile'))
+        (bench.where / 'cases' / 'bad.yaml').write_text('a: 1\n')
+        commit(bench.where)
+        self.assertIsNot(review_evidence.collects_a_test('cases/keep.yaml'), False)
+        self.assertEqual(review_evidence.collected_elsewhere(['cases/keep.yaml']), {'cases/keep.yaml'})
+
     def test_a_document_a_conftest_collects_is_asked_about(self):
         """Only Python files were asked about, so a YAML case a conftest collects was no changed
         test. A document under no collection hook is still not asked about."""

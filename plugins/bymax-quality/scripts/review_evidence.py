@@ -327,8 +327,9 @@ def collects_a_test(path, asked=None):
     if path in found:
         return True
     # Named alone, a file of another format is collected even where the walk leaves it out, so
-    # it is asked alone only when the walk says it is the file that failed.
-    if not python and path not in failed:
+    # it is asked alone only when the walk says it is the file that failed, or a directory
+    # holding it: a collect hook that raises fails the directory under the directory's own id.
+    if not python and not {path, *(p.as_posix() for p in Path(path).parents)} & failed:
         return False
     return asked_alone(root, path, python)
 
