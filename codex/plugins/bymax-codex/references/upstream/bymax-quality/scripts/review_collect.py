@@ -61,6 +61,6 @@ def pytest_collection_finish(session):
         out.write('%s %s\n' % (MARK, token))
         for item in session.items:
             out.write('%s %s\n' % (token, item.nodeid))
-        # A prefix the id reader never matches, since it keeps only lines starting `<token> `.
+        # A prefix apart from each id's `<token> `, so a failed collector never reads as one.
         for nodeid in _FAILED:
             out.write('%s! %s\n' % (token, nodeid))

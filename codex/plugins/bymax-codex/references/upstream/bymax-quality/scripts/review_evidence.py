@@ -88,7 +88,7 @@ def collected_elsewhere(paths):
     """The files among these that pytest collects a test from where they sit, though no
     spelling TEST_PATH knows names them: a repository that sets `python_files = check_*.py`
     tells pytest, and only pytest reads it. A file of another format is asked only beneath a
-    conftest that defines a collection hook, the one way pytest collects one: asking about every
+    conftest naming a collection hook: asking about every
     changed document would collect the directory of each, the repository root included, on
     every prompt.
 
@@ -118,7 +118,7 @@ def collected_elsewhere(paths):
 
 
 def under_a_collect_hook(root, path):
-    """Whether a conftest.py from this file's directory up to the root defines
+    """Whether a conftest.py from this file's directory up to the root names
     `pytest_collect_file`, which is how a conftest collects a file that is not Python."""
     for where in [Path(path).parent, *Path(path).parent.parents]:
         conftest = Path(root, where, 'conftest.py')

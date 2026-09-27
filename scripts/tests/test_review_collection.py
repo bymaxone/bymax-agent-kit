@@ -1,6 +1,5 @@
 """What the matrix runner counts as a test that ran, and what the campaign asks pytest about which
-files hold one: a skipped subtest, an expected failure, a child a passing test leaves behind, a
-file a conftest ignores, and a document a conftest collects."""
+files hold one."""
 import os
 import subprocess
 import sys
@@ -10,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
-# The bench is test_review_matrix's, imported whether this file is run by path or by module.
+# The benches live beside this file, imported whether it is run by path or by module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import review_evidence
 import review_matrix as matrix
@@ -64,7 +63,7 @@ class RanTests(unittest.TestCase):
         self.assertIn('1 xfailed', str(refused.exception))
 
     def test_a_child_a_passing_test_started_does_not_outlive_the_run(self):
-        """A child the test started in its own process group and did not wait for survived the
+        """A child the test started in the run's group and did not wait for survived the
         run, since the group was killed only on a timeout or an interruption. It could write to
         the tree after the mutant was restored."""
         bench = Bench(self, test='import subprocess, sys\n\n\ndef test_leaves_a_child():\n'
