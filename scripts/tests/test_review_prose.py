@@ -155,8 +155,8 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIn('B.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
 
     def test_a_code_block_is_read_as_commonmark_reads_it(self):
-        """A fence inside a list item sits past column three, and a four-space indent is a
-        code block of its own: both are what the file instructs, so an edit there is not prose.
+        """A fence inside a list item can sit past column three, and a four-space indent is a
+        code block: both are what the file instructs, so an edit there is not prose.
         The paragraph around them stays correctable."""
         listed = '# Run\n\n1. Fetch it:\n\n     ```bash\n     curl -s x\n     ```\n\nSaid.\n'
         indented = '# Run\n\nThen:\n\n    echo safe\n\nSaid.\n'

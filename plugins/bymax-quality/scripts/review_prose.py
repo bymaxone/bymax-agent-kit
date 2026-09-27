@@ -361,9 +361,9 @@ def instructs(text):
         if end is not None:
             found.append('\n'.join(lines[:end + 1]))
             lines = lines[end + 1:]
-    # Code is what CommonMark calls code, read by the walk every other Markdown check uses: a
-    # fence inside a list item sits past column three, and a four-space indent is a block of
-    # its own, and a line pattern that missed either let an edit there pass as prose.
+    # Code is what CommonMark calls code: a fence inside a list item can sit past column three,
+    # and a four-space indent is a block of its own, and a line pattern that missed either let
+    # an edit there pass as prose.
     seen = review_markdown.outside_code('\n'.join(lines)).split('\n')
     return found + [line for line, kept in zip(lines, seen) if kept != line]
 
