@@ -2,8 +2,10 @@
 the command line in a fixture repository, with the runtime patched in the process that runs it."""
 import sys
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # The bench is test_review_flow's, imported whether this file is run by path or by module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -42,6 +44,28 @@ class AttemptTests(FlowBench):
                 self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
                 self.assertIn('the collect failed the second time', refused.stderr)
                 self.assertEqual(self.flow('status').get(reviewer + '_attempts', 0), 0)
+
+
+class CodexStdinTests(unittest.TestCase):
+    """What the Codex pass is handed on stdin."""
+
+    def test_a_name_that_is_not_utf8_reaches_codex_as_valid_utf8(self):
+        """Codex refuses stdin that is not valid UTF-8 before any model reads it, so a task
+        carrying a surrogate-escaped name goes with the byte spelled out."""
+        sys.path.insert(0, str(FLOW.parent))
+        import review_flow
+        seen = {}
+
+        def run(command, **kwargs):
+            seen.update(kwargs)
+            return subprocess.CompletedProcess(command, 1)
+        with tempfile.TemporaryDirectory() as box, \
+                mock.patch.object(review_flow.subprocess, 'run', run), \
+                mock.patch.object(review_flow, 'codex_outcome', lambda *args: None), \
+                mock.patch.object(review_flow, 'escalation', lambda state: []):
+            review_flow.run_codex(Path(box), {'round': 1, 'codex_attempts': 0},
+                                  'tests/test_caf\udce9.py', 'codex', None)
+        self.assertEqual(seen['input'].encode(seen.get('encoding') or 'ascii'), b'tests/test_caf\\xe9.py')
 
 
 if __name__ == '__main__':

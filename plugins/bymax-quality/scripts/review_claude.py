@@ -55,7 +55,7 @@ def execute(directory, owner_fd, flow, reviewer):
     schema = Path(__file__).with_name('review-report.schema.json').read_text()
     raw = target.with_suffix('.output.json')
     with raw.open('w') as output, log.open('w') as errors:
-        result = subprocess.run(command(schema), input=task, text=True, stdout=output,
+        result = subprocess.run(command(schema), input=flow.for_a_reader(task), text=True, encoding='utf-8', stdout=output,
                                 stderr=errors, timeout=600, pass_fds=(owner_fd,))
     flow.require(result.returncode == 0, reviewer + ' failed; inspect ' + str(log))
     envelope = json.loads(raw.read_text())
