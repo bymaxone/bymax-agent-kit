@@ -74,10 +74,16 @@ def git(*args, cwd=None):
     Read as bytes. A Python blob is decoded by the encoding it declares (PEP 263), and anything
     else as UTF-8 with what does not decode replaced: decoded by the process locale, a Latin-1
     source raised before any check could answer, and every step that asks one stopped with it.
+    A listing of names is the exception: a replaced byte names no file, so `show` then answered
+    both sides of a Latin-1 name empty and its prose went unread. Names keep their bytes as
+    surrogate escapes, which reach git again as the original name.
     """
     done = subprocess.run(['git', *args], capture_output=True, cwd=root(cwd))
     if done.returncode != 0:
         return ''
+    # Every call here that lists names asks for them NUL-separated, and no call that reads content does.
+    if '-z' in args:
+        return done.stdout.decode(sys.getfilesystemencoding(), 'surrogateescape')
     if args[:1] == ('show',) and args[-1].endswith('.py'):
         try:
             declared = tokenize.detect_encoding(io.BytesIO(done.stdout).readline)[0]
@@ -625,6 +631,9 @@ def main(argv):
     if len(argv) != 3:
         print('usage: review_claims.py <base> <head>', file=sys.stderr)
         return 2
+    # A name that is not valid UTF-8 is carried as surrogate escapes, which strict stdout refuses.
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(errors='surrogateescape')
     return report(argv[1], argv[2], cwd=str(Path.cwd()))
 
 

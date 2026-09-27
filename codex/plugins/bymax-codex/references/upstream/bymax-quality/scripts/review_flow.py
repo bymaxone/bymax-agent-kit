@@ -18,7 +18,7 @@ import review_delivery
 from review_delivery import scope_of as scope
 from review_delta import claims_settled, delta_view
 from review_evidence import collected_elsewhere, is_test_path, matrix_first, matrix_run, tests_changed
-from review_git import clean_head, git, git_raw, require
+from review_git import clean_head, for_a_reader, git, git_raw, require
 from review_prose_pass import prose_first, prose_run
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
@@ -1673,7 +1673,7 @@ def execute_codex(directory, owner_fd):
                        'read-only', '--ephemeral', '--output-schema', str(schema),
                        '--output-last-message', str(report), '-']
             with log.open('w') as output:
-                result = subprocess.run(command, input=prompt(state, directory), text=True,
+                result = subprocess.run(command, input=for_a_reader(prompt(state, directory)), text=True, encoding='utf-8',
                                         stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
             if result.returncode == 0:
                 with locked(directory):
@@ -1838,6 +1838,10 @@ def cli():
     what a waiver may claim about this machine is decided by the probe, never by an
     argument, an environment variable or a $PATH the caller spelled.
     """
+    # A prompt can carry a path that is not valid UTF-8, as surrogate escapes.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(errors='surrogateescape')
     try:
         main()
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
