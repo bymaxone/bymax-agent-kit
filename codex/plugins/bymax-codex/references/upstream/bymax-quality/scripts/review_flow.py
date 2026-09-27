@@ -695,7 +695,7 @@ def first_round(directory, after_archived):
             '--after-archived "<who authorised it and for what scope>".')
 
 
-def next_round(args, old, head, directory, base, context):
+def next_round(args, old, head, directory, base, context, branch=''):
     """What advancing a campaign to a correction delta requires; returns its contract."""
     require(old['base'] == base and scope(old['context']) == scope(context),
             'Scope changed. Stop and agree on a separate campaign.')
@@ -709,7 +709,7 @@ def next_round(args, old, head, directory, base, context):
             + ', '.join(sorted(reviewers_needed(old))) + '.' + waiver_note(old))
     require(old.get('triage') is not None, 'Record every finding disposition before advancing.')
     require(git('merge-base', old['head'], head) == old['head'], 'History rewritten; stop and reassess full coverage.')
-    correction = correction_contract(args, old, head)
+    correction = correction_contract(args, old, head, branch)
     # A correction after a cleared candidate answers something the campaign never saw — a
     # PR-bot thread, a CI failure — and must say what, or the scope rule has nothing to
     # measure it against and the round is limited by the budget alone.
@@ -796,6 +796,29 @@ def reuse_candidate(old, context, directory, autonomous, base, head):
     return old
 
 
+def resolves(ref):
+    """Whether this spelling names a commit here, asked without raising: a ref may contain
+    what a shell would expand, so it only ever travels as one argument."""
+    return subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--end-of-options', ref + '^{commit}'],
+                          capture_output=True).returncode == 0
+
+
+def told_branch(args):
+    """The base branch this start names, refused unless it names a commit: --base-branch, or
+    the first line of --base-branch-file, which a shipping command writes so no reader pastes a
+    ref name into a command. A file that is absent or empty names none."""
+    told = args.base_branch
+    if not told and args.base_branch_file:
+        try:
+            told = Path(args.base_branch_file).read_text().split('\n', 1)[0].strip()
+        except OSError:
+            told = ''
+    require(not told or resolves(told),
+            'The base branch names no commit here: ' + told + '. Name the branch this work merges '
+            'into, as this repository spells it, such as origin/main.')
+    return told
+
+
 def start(args, directory):
     """Freeze a full baseline or advance a campaign to a correction delta."""
     review_rules_notice()
@@ -803,6 +826,7 @@ def start(args, directory):
     head = clean_head()
     base = git('rev-parse', '--verify', args.base + '^{commit}')
     require(git('merge-base', base, head) == base, 'Base must be an ancestor; use the target merge-base.')
+    told = told_branch(args)
     context, required_checks = context_contract(args.context)
     path = directory / 'state.json'
     old = read_state(directory) if path.exists() else None
@@ -825,12 +849,13 @@ def start(args, directory):
     require(old or not args.answers,
             '--answers is for a correction after a cleared candidate; this start opens a first round, '
             'which reviews the whole delta and has nothing to answer for.')
-    correction = next_round(args, old, head, directory, base, context) if old else first_round(directory, args.after_archived)
+    branch = told or (old.get('base_branch', '') if old else '')
+    correction = next_round(args, old, head, directory, base, context, branch) if old else first_round(directory, args.after_archived)
     state = dict(policy=POLICY, head=head, base=base, context=context,
                  nit_round=args.nit_round if old else '',
                  widen_scope=args.widen_scope if old else '',
                  answers=list(args.answers or ()) if old else [],
-                 after_archived='' if old else args.after_archived,
+                 after_archived='' if old else args.after_archived, base_branch=branch,
                  round=old['round'] + 1 if old else 1,
                  review_base=old['head'] if old else base,
                  previous_triage=old.get('triage', []) if old else [],
@@ -938,7 +963,7 @@ def design_reasons(args, old):
     return again
 
 
-def correction_contract(args, old, head):
+def correction_contract(args, old, head, branch=''):
     """Require the evidence a correction round must carry before reviewers see it.
 
     A reopened finding means the previous patch addressed the instance and not the
@@ -964,7 +989,7 @@ def correction_contract(args, old, head):
             'The previous correction introduced these findings, and no probe names them: '
             + ', '.join(uncovered) + '. Add a probe entry per finding with "covers": "<id>", '
             'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
-    tests, removed = tests_changed(old['head'], head)
+    tests, removed = tests_changed(old['head'], head, branch)
     reason = (args.no_regression_reason or '').strip()
     a_regression_or_a_reason(tests, reason, probe)
     return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
@@ -1755,6 +1780,11 @@ def parser():
                        help='Spend a round on P3 findings anyway: why, shown to both reviewers.')
     begin.add_argument('--widen-scope', default='',
                        help='Touch a file no open finding names: why, shown to both reviewers.')
+    begin.add_argument('--base-branch', default='',
+                       help='The branch this work merges into, such as origin/main: what a commit '
+                            'reachable from it did not write, whatever line it sits on.')
+    begin.add_argument('--base-branch-file', default='',
+                       help='A file whose first line is the base branch, as push writes one.')
     begin.add_argument('--after-archived', default='',
                        help='Start a campaign after an unfinished one: who authorised it, for what scope.')
     begin.add_argument('--answers', nargs='+', metavar='PATH:SLUG',
