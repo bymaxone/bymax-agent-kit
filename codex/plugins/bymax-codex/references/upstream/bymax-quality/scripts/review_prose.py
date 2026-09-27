@@ -188,8 +188,12 @@ def digest_of(handle):
 def sides(name, cwd=None):
     """(committed text, working-tree text) for one file, named from the worktree root."""
     where = Path(review_claims.root(cwd)) / name
-    working = where.read_text() if where.is_file() else None
-    return git('show', 'HEAD:%s' % name, cwd=cwd), working
+    # Decoded by the file's own declaration, as a blob is: read by the locale, a Latin-1 source
+    # raised out of the envelope. Line endings folded, as text mode did, so a line-ending edit is
+    # still the one change left once both sides read the same.
+    fold = lambda text: text.replace('\r\n', '\n').replace('\r', '\n')
+    working = fold(review_claims.decoded(name, where.read_bytes())) if where.is_file() else None
+    return fold(review_claims.git('show', 'HEAD:%s' % name, cwd=cwd)), working
 
 
 def behaviour(text):
@@ -200,11 +204,28 @@ def behaviour(text):
     that correcting one reads as no change. Everything else — an operator, an order, a
     name, a deleted line — changes the dump, and the envelope refuses it.
     """
-    tree = ast.parse(text)
+    tree = typed(text)
     for node in ast.walk(tree):
         if isinstance(node, SCOPED) and ast.get_docstring(node, clean=False) is not None:
             node.body = node.body[1:]
     return ast.dump(tree, include_attributes=False)
+
+
+def typed(text):
+    """The syntax tree with its type comments: `# type: List[int]` is the annotation a type
+    checker reads. A comment line the parser cannot place as one — prose that happens to begin
+    `# type:` on a line of its own — is only prose, so that line is blanked and the file parsed
+    again; any other syntax error is the plain parser's to raise."""
+    lines = text.split('\n')
+    for _ in lines:
+        try:
+            return ast.parse('\n'.join(lines), type_comments=True)
+        except SyntaxError as error:
+            row = (error.lineno or 0) - 1
+            if not (0 <= row < len(lines) and lines[row].lstrip().startswith('#')):
+                break
+            lines[row] = ''
+    return ast.parse(text)
 
 
 def header(text):
@@ -245,6 +266,13 @@ def prose_size(name, text):
             if doc is not None:
                 count += doc.count('\n') + 1
     return count
+
+
+def sentences(name, text):
+    """How many sentences a file's prose holds: a stop, a question or an exclamation followed by
+    a space or the end of a line. Lines count what a reader sees, and two lines joined to fit a
+    new sentence kept the count; a reworded sentence keeps this one."""
+    return len(re.findall(r'[.!?](?=\s|$)', review_claims.prose(name, text)))
 
 
 def first_change(name, cwd=None):
@@ -320,15 +348,18 @@ def offences(cwd=None, ignored_before=None):
             found.append('%s: prose grew by %d; this pass corrects and cuts, it does not expand, '
                          'because an expanded comment is new surface nothing checks'
                          % (name, now - was))
+        elif sentences(name, after) > sentences(name, before):
+            found.append('%s: prose gained a sentence; lines joined to make room for one are an '
+                         'expansion all the same' % name)
     return found
 
 
 def behaviour_offences(name, before, after, cwd=None):
     """What in one file's change is behaviour rather than prose, by the kind of file."""
     if review_claims.markdown(name):
-        if instructs(before) != instructs(after):
-            return ['%s: its frontmatter or a fenced block changed, which is what the file '
-                    'instructs, not prose' % name]
+        if not only_prose_cut(instructs(before), instructs(after)):
+            return ['%s: its frontmatter or a fenced block changed, or moved past the prose around '
+                    'it, which is what the file instructs, not prose' % name]
         return []
     try:
         same = behaviour(before) == behaviour(after)
@@ -363,8 +394,35 @@ def instructs(text):
             lines = lines[end + 1:]
     # Code is what CommonMark calls code, blank lines inside a block included: a fence inside a
     # list item can sit past column three, and a four-space indent is a block of its own.
+    # Where the prose sits is kept too, as one PROSE mark per paragraph: a block moved ahead of
+    # the paragraph it depends on keeps every code line and changes what the file instructs.
     mask = review_markdown.code_mask('\n'.join(lines))
-    return found + [line for line, code in zip(lines, mask) if code]
+    within = False
+    for line, code in zip(lines, mask):
+        if code:
+            found.append(line)
+        elif line.strip() and not within:
+            found.append(PROSE)
+        within = not code and bool(line.strip())
+    return found
+
+
+PROSE = object()
+
+
+def only_prose_cut(before, after):
+    """Whether `after` is `before` with nothing but whole prose runs taken out: the pass may cut
+    a paragraph, and may not move, add or change a line of what the file instructs."""
+    rest = iter(before)
+    for part in after:
+        for held in rest:
+            if held == part:
+                break
+            if held is not PROSE:
+                return False
+        else:
+            return False
+    return all(held is PROSE for held in rest)
 
 
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
