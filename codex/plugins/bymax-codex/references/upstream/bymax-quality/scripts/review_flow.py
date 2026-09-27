@@ -1109,11 +1109,10 @@ correct change hostage to text no test can check is the failure mode this field 
 def gate_first(state, directory):
     """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
 
-    Both adapters call this before reserving their attempt. It raises from inside prompt(),
-    which they evaluate only as the subprocess input, so reserving first spent an attempt on a
-    refusal that never reached a reviewer — two of them exhausted the per-candidate budget with
-    nothing read, after which execute_codex diverts to an availability probe and reports a
-    spent budget for a reason Codex was never part of.
+    It raises from inside prompt(), which both adapters build before reserving their attempt:
+    built after it, a refusal that never reached a reviewer spent an attempt, and enough of them
+    exhausted the per-candidate budget with nothing read, after which execute_codex diverts to
+    an availability probe and reports a spent budget for a reason Codex was never part of.
 
     A reviewer round is the scarcest thing a campaign spends, and a failing suite spends it
     on what the suite already reports. Measured here: rounds were lost to a test that read
