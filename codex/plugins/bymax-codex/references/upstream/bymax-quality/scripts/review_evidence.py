@@ -189,7 +189,10 @@ def matrix_first(state, directory):
     results_agree(kept, names)
     import review_matrix
     added = tests_added(state['review_base'], runnable)
-    caught_with_the_changed_test(kept, review_matrix.ran_alone(git('rev-parse', '--show-toplevel'), added))
+    before, unread = failing_before(state['review_base'], state['regression_tests'], runnable)
+    demanded = sorted(set(added) | set(before))
+    caught_with_the_changed_test(kept, review_matrix.ran_alone(git('rev-parse', '--show-toplevel'), demanded))
+    return {'failing_before': before, 'unread_before': unread}
 
 
 def matrix_bound_to_this_tree(kept, head):
@@ -331,6 +334,49 @@ def tests_added(base, names):
         except SystemExit:
             return []
     return sorted(now - before)
+
+
+def failing_before(base, changed, names):
+    """The nodes of these test files that do not pass before the fix, and the files that could
+    not be asked: the head's copy of each file, run node by node against the base's tree.
+
+    A regression claims to fail before its fix, and this asks exactly that. Which nodes a delta
+    added cannot answer it: an edited regression exists on both sides, so it was demanded
+    nothing. A node that fails or errors here is this correction's to prove, and must have
+    caught a mutant. A node that passes here is not demanded, since a correction that repairs a
+    test and no code has none that fails; its added nodes are demanded anyway, and an edited
+    node that passes here is told to both reviewers when no changed node fails at all.
+
+    A file the base tree cannot collect — it imports what the fix adds — cannot say which of
+    its nodes the fix concerns: demanding all of them would ask its unrelated neighbours to
+    catch a mutant, which nobody could satisfy. It is left to the added-node rule, and named.
+
+    Every test path the delta changed is copied, not only the files asked: a conftest or a
+    helper the head's tests need is a test path pytest collects nothing from, and the base's
+    copy of it would fail them for a reason that is not the fix.
+    """
+    import review_matrix
+    root = git('rev-parse', '--show-toplevel')
+    here = [name for name in names if Path(root, name).is_file()]
+    failing, unread = [], []
+    if not here:
+        return failing, unread
+    with archived(base) as older:
+        for name in [name for name in changed if Path(root, name).is_file()]:
+            target = Path(older, name)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(Path(root, name), target)
+        for name in here:
+            try:
+                nodes = review_matrix.ids(older, [name])
+            except (SystemExit, review_matrix.Unfinished):
+                unread.append(name)
+                continue
+            for node in nodes:
+                code, tail = review_matrix.run_case(older, None, [node])
+                if review_matrix.outcome(code, tail) != 'passed':
+                    failing.append(node)
+    return sorted(failing), unread
 
 
 @contextlib.contextmanager
