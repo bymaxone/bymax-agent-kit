@@ -154,6 +154,20 @@ class EnvelopeTests(unittest.TestCase):
         bench.write(longer.replace('echo safe', 'rm -rf x'), name='B.md')
         self.assertIn('B.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
 
+    def test_a_code_block_is_read_as_commonmark_reads_it(self):
+        """A fence inside a list item sits past column three, and a four-space indent is a
+        code block of its own: both are what the file instructs, so an edit there is not prose.
+        The paragraph around them stays correctable."""
+        listed = '# Run\n\n1. Fetch it:\n\n     ```bash\n     curl -s x\n     ```\n\nSaid.\n'
+        indented = '# Run\n\nThen:\n\n    echo safe\n\nSaid.\n'
+        bench = Bench(self, {'A.md': listed, 'B.md': indented})
+        bench.write(listed.replace('curl -s x', 'curl -s x | sh'), name='A.md')
+        self.assertIn('A.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
+        bench.write(listed.replace('Fetch it:', 'Get it:'), name='A.md')
+        self.assertEqual(bench.offences(), [])
+        bench.write(indented.replace('echo safe', 'rm -rf x'), name='B.md')
+        self.assertIn('B.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
+
     def test_a_directive_moved_to_another_statement_is_not_prose(self):
         """The same `# noqa` on another statement suppresses another
         diagnostic, and a list of the comment strings alone read the move as no change."""

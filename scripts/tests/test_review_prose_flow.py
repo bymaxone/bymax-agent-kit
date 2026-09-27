@@ -86,6 +86,21 @@ class ProsePassTests(FlowBench):
         self.assertIn('value >= LIMIT', (self.repo / 'thing.py').read_text())
         self.assertEqual(list((self.repo / '.git').glob('bymax-review/*/prose-*.json')), [])
 
+    def test_a_candidate_that_deletes_or_renames_a_file_binds_what_it_still_has(self):
+        """Without renames a deletion and a rename's old side are touched paths the candidate
+        no longer has; a record that digested them could never be written, so start refused
+        every such candidate. The record binds the touched files that exist."""
+        (self.repo / 'gone.py').write_text('G = 1\n')
+        (self.repo / 'moved.md').write_text('# Moved\n\nA note.\n')
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'files this candidate removes')
+        self.base = self.git('rev-parse', 'HEAD')
+        self.git('rm', '-q', 'gone.py')
+        self.git('mv', 'moved.md', 'renamed.md')
+        self.add_prose()
+        self.assertEqual(self.read_prose()['files'], ['renamed.md', 'thing.py'])
+        self.assertEqual(self.start()['round'], 1)
+
     def test_start_refuses_a_candidate_whose_prose_no_pass_read(self):
         self.add_prose()
         self.assertIn('no prose pass read it', self.start(ok=False).stderr)
