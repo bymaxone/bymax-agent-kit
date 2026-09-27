@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 
 
-def reserve(directory, flow, reviewer):
+def reserve(directory, flow, reviewer, opening):
     """Reserve a bounded attempt for this Claude pass while keeping the state lock short-lived.
 
     Each pass has its own budget: the substitute for a waived Codex is a second reviewer,
@@ -20,6 +20,7 @@ def reserve(directory, flow, reviewer):
         flow.require(reviewer not in state['reviews'], 'Reuse the completed ' + reviewer + ' report.')
         attempts = reviewer.replace('-', '_') + '_attempts'
         flow.require(state.get(attempts, 0) < 2, reviewer + ' retry budget exhausted; preserve both logs.')
+        flow.require(flow.unmoved(state, opening), flow.MOVED)
         state[attempts] = state.get(attempts, 0) + 1
         flow.save(directory, state)
         return state, attempts
@@ -47,9 +48,7 @@ def execute(directory, owner_fd, flow, reviewer):
     task = (flow.prompt(opening, directory) + '\nThe caller supplied this exact committed diff below. '
             'You have Read/Grep/Glob only; inspect surrounding files with those tools, not Bash.\n'
             + flow.git_raw('diff', '--no-ext-diff', '--no-textconv', opening['review_base'], opening['head'], '--'))
-    state, attempts = reserve(directory, flow, reviewer)
-    flow.require(all(state[key] == opening[key] for key in ('head', 'round', 'review_base')),
-                 'The campaign moved while this review was being prepared; run it again.')
+    state, attempts = reserve(directory, flow, reviewer, opening)
     target = directory / f"{reviewer}-{state['round']}-{state[attempts]}.json"
     log = target.with_suffix('.log')
     schema = Path(__file__).with_name('review-report.schema.json').read_text()

@@ -1447,17 +1447,29 @@ BUDGET_SPENT = (
     'incomplete one never advances a round.')
 
 
-def reserve_codex(directory):
+def reserve_codex(directory, opening=None):
     """Reserve one attempt without holding the lock throughout model execution."""
     with locked(directory):
         state = read_state(directory)
         current(state)
         require('codex' not in state['reviews'], 'Reuse the completed Codex review.')
         require(state.get('codex_attempts', 0) < 2, BUDGET_SPENT)
+        require(opening is None or unmoved(state, opening), MOVED)
         state['codex_attempts'] = state.get('codex_attempts', 0) + 1
         state['codex_running'] = True
         save(directory, state)
         return state
+
+
+# Asked under the lock that reserves the attempt, before it is counted: the task was built from
+# `opening`, and a check recorded since then may have failed, or be running, which the task
+# would tell a reviewer had passed.
+MOVED = 'The campaign moved, or a gate ran while this review was being prepared; run it again.'
+
+
+def unmoved(state, opening):
+    """Whether the campaign is still the one a review task was built from."""
+    return all(state.get(key) == opening.get(key) for key in ('head', 'round', 'review_base', 'checks'))
 
 
 def spent(directory):
@@ -1654,10 +1666,8 @@ def execute_codex(directory, owner_fd):
     # Built before the attempt is reserved: prompt() runs the gates again, and a collect that
     # fails the second time would otherwise spend the attempt on a review nobody ran.
     task = prompt(opening, directory)
-    state = reserve_codex(directory)
+    state = reserve_codex(directory, opening)
     try:
-        require(all(state[key] == opening[key] for key in ('head', 'round', 'review_base')),
-                'The campaign moved while this review was being prepared; run it again.')
         binary = resolve_codex()
         if binary is None:
             waive(directory, state, 'absent', '', '', '')
