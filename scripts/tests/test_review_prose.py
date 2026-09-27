@@ -541,7 +541,7 @@ class EnvelopeShapeTests(unittest.TestCase):
     def test_a_comment_cut_above_a_type_ignore_is_prose(self):
         """The tree parsed with its type comments keeps each `# type: ignore` with its line
         number, so cutting a comment above one read as behaviour: the pass was refused for
-        cutting. What an ignore is attached to is directives()'s question."""
+        cutting."""
         start = '# The cache this module keeps.\n# It is read once.\nx = f()  # type: ignore[attr]\n'
         bench = Bench(self, {'thing.py': start})
         bench.write(start.replace('# It is read once.\n', ''))
