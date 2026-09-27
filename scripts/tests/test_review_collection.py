@@ -62,6 +62,11 @@ class RanTests(unittest.TestCase):
         self.assertIn('expected to fail', str(refused.exception))
         self.assertIn('1 xfailed', str(refused.exception))
 
+    def test_a_node_whose_every_subtest_expected_to_fail_did_not_run(self):
+        """`1 passed, 2 xfailed` exits zero with no subtest run, as an all-skip node does."""
+        self.assertFalse(matrix.ran_clean(0, '1 passed, 2 xfailed in 0.02s'))
+        self.assertTrue(matrix.ran_clean(0, '1 passed, 1 xfailed, 1 subtests passed in 0.02s'))
+
     def test_a_child_a_passing_test_started_does_not_outlive_the_run(self):
         """A child the test started in the run's group and did not wait for survived the
         run, since the group was killed only on a timeout or an interruption. It could write to
@@ -202,6 +207,21 @@ class NamedItsOwnWayTests(FlowBench):
         self.addCleanup(os.chdir, cwd)
         self.assertEqual(review_evidence.merged_in_tests(base, self.git('rev-parse', 'HEAD')),
                          ['checks/check_side.py'])
+
+    def test_a_deleted_test_that_failed_to_collect_is_listed(self):
+        """The tolerant collect leaves out a file whose collection failed, so deleting an
+        import-broken test hid the deletion from both reviewers."""
+        self.the_project_names_its_tests()
+        (self.repo / 'checks/check_broken.py').write_text('import nothing_that_exists\n')
+        self.commit('a test the project names its own way that cannot import')
+        base = self.git('rev-parse', 'HEAD')
+        (self.repo / 'checks/check_broken.py').unlink()
+        self.save('delete it')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        self.assertEqual(review_evidence.tests_changed(base, self.git('rev-parse', 'HEAD'))[1],
+                         ['checks/check_broken.py'])
 
     def test_a_deleted_test_named_its_own_way_is_listed(self):
         """The deleted-test list was read by name, and a file gone from the tree cannot be asked

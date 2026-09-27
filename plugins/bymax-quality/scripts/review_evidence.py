@@ -66,7 +66,8 @@ def removed_tests(base, removed):
     """The deleted files that were tests at the base: named like one, or collected there. A
     deleted file cannot be asked about where it is gone, so the base's tree is asked, and a
     directory it cannot answer for keeps its files: a deletion reviewers are not shown is the
-    one they cannot judge."""
+    one they cannot judge. A file that failed to collect there, or sits under a directory
+    that did, is kept too: the tolerant collect leaves it out of what it found."""
     import review_matrix
     named = [name for name in removed if is_test_path(name)]
     other = [name for name in removed if not is_test_path(name)]
@@ -78,9 +79,13 @@ def removed_tests(base, removed):
         for where in sorted({str(Path(name).parent) or '.' for name in wanted}):
             here = [name for name in wanted if (str(Path(name).parent) or '.') == where]
             try:
-                found.update(review_matrix.nodes(older, [where], tolerant=True))
+                collected, failed = review_matrix.walked(older, [where])
             except (SystemExit, review_matrix.Unfinished):
                 found.update(here)
+                continue
+            found.update(collected)
+            found.update(name for name in here
+                         if {name, *(p.as_posix() for p in Path(name).parents)} & failed)
     return sorted(named + [name for name in other if name in found])
 
 

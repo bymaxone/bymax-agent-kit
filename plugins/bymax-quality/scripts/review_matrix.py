@@ -405,12 +405,13 @@ def baseline(root, files, case):
 
 def ran_clean(code, tail):
     """Whether a node run alone ran and passed. A skip and an xfail exit zero without running;
-    so does a unittest node whose every subTest skipped, which pytest reports as `1 passed, 2
-    skipped` with no subtest passed — un-skipping it under a mutant read as a catch. A test that
+    so does a unittest node whose every subTest skipped or expected to fail, which pytest
+    reports as `1 passed, 2 skipped` or `1 passed, 2 xfailed` with no subtest passed — a mutant
+    that flips one read as a catch. A test that
     returns early before any assertion still reads as run: nothing in a summary tells it apart."""
     if outcome(code, tail) != 'passed' or not re.search(r'\d+ passed', tail):
         return False
-    return not (re.search(r'\d+ skipped', tail) and not re.search(r'\d+ subtests? passed', tail))
+    return not (re.search(r'\d+ (skipped|xfailed)', tail) and not re.search(r'\d+ subtests? passed', tail))
 
 
 def ran_alone(root, nodes):
