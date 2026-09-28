@@ -1213,6 +1213,34 @@ class CollectTests(CollectBench):
         self.assertEqual(data['coverage']['commits_landed'], 2)
         self.assertIn('reflog', data['coverage']['landed'])
 
+    def test_work_pushed_and_force_pushed_away_in_the_period_did_not_land(self):
+        """The reflog records every tip the delivery ref took in the week, including one a
+        force-push took back. What landed is what the tip at the period's end reaches beyond the
+        tip at its start, so a commit the branch received and lost inside the week did not land
+        and did not ship, even though an entry shows it arriving."""
+        root = self.tmp / 'force-pushed'; root.mkdir(parents=True)
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(where, *args, when=None):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, env={**env, **extra})
+        up, work = root / 'up.git', root / 'work'
+        subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
+        git(work, 'commit', '-q', '--allow-empty', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
+        git(work, 'remote', 'add', 'origin', str(up))
+        git(work, 'push', '-q', '-u', 'origin', 'main', when='2026-09-10T12:05:00Z')
+        dropped = 'feat(x): pushed and force-pushed away in the week'
+        git(work, 'commit', '-q', '--allow-empty', '-m', dropped, when='2026-09-15T12:00:00Z')
+        git(work, 'push', '-q', 'origin', 'main', when='2026-09-15T12:05:00Z')
+        git(work, 'push', '-q', '-f', 'origin', 'main~1:main', when='2026-09-16T12:05:00Z')
+        data = self.m.collect(work.resolve(), self.since, self.until, self.home, use_gh=False)
+        self.assertEqual(data['coverage']['delivery_ref'], 'origin/main')
+        self.assertEqual({c['subject']: (c['landed'], c['shipped']) for c in data['commits']},
+                         {dropped: (False, False)})
+        self.assertEqual(data['coverage']['commits_landed'], 0)
+        self.assertIn('reflog', data['coverage']['landed'])
+
     def clone_made_during_the_week(self):
         """A clone taken in the middle of the week, of a history older than it, and fetched
         once more inside the week. A clone writes no reflog for its tracking refs, so the fetch
