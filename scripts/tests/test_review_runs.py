@@ -114,9 +114,10 @@ class RunTests(unittest.TestCase):
             os.kill(int((bench.where / 'enumerate.pid').read_text()), 0)
 
     def test_an_enumeration_longer_than_a_tail_is_counted_whole(self):
-        """A `grep -c` over a large tree prints a row per file, and read through the bounded tail
-        a run is, output that filled it was refused as no count at all. The rows are counted as
-        they arrive instead."""
+        """A `grep -c` over a large tree prints a row per file, more than the KEEP bytes a run's
+        tail holds: every row is counted as it arrives, not only those the tail kept. A count of
+        KEEP cases is read as that many, and an output that never ends is still stopped at the
+        deadline."""
         bench = Bench(self)
         rows = 5000
         self.assertEqual(matrix.enumerated(str(bench.where), {
