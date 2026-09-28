@@ -134,8 +134,8 @@ What the file holds:
   the period or that the delivery branch received in it, with `pr` set when a pull request
   explains them. `landed` is true for one the delivery branch received in the period, false
   for one it did not, and null where nothing recorded it; `coverage.landed` says which.
-  A catch-up inside the period (a pull, a merge of a remote ref, a reset or rebase onto
-  one) leaves the tip at the period's start unreadable, so that period's commits are
+  A catch-up inside the period (a pull, a merge of a remote ref, a reset onto one, or a
+  rebase) leaves the tip at the period's start unreadable, so that period's commits are
   selected by author date with `landed: null` rather than guessed.
   `shipped` is true only when the delivery branch had reached the commit by the end of the
   period. `coverage.shipped` names the record that decided it: the branch's reflog, which
