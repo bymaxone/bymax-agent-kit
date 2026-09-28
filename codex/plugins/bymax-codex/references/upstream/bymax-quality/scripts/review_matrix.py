@@ -257,7 +257,14 @@ def per_row(rows):
 
 def enumerated(root, rule):
     """How many cases the rule's own enumeration command says exist, or None when it is not
-    a command — which the author must then say in words rather than leave to the default."""
+    a command — which the author must then say in words rather than leave to the default.
+
+    Everything the command's stdout carries is counted, a writer it left in the background
+    included: after the command exits, its pipes get the readers' bounded wait (five seconds)
+    to reach their end before its group is killed. A process still holding stdout open after
+    that wait is refused, one started in a session of its own with `setsid` included, since
+    its count would depend on when it was stopped. A descendant that holds only stderr open is
+    not refused, and adds up to that wait to the enumeration."""
     how = (rule.get('enumeration') or '').strip()
     if not how:
         bail('Rule %r declares no enumeration: say how the case list was derived, as a command '
