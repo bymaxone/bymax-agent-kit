@@ -37,5 +37,19 @@ class DoctorTests(unittest.TestCase):
                 self.assertFalse(results['installed review_delivery.py'])
 
 
+    def test_every_module_the_installer_plants_is_checked(self):
+        """The doctor kept its own list, and a stale module outside it — the matrix, the
+        claims checker — read as installed."""
+        with tempfile.TemporaryDirectory() as directory, patch.object(DOCTOR.Path, 'home', return_value=Path(directory)):
+            runtime = Path(directory) / '.claude/bymax-review'
+            runtime.mkdir(parents=True)
+            for source in (DOCTOR.ROOT / 'plugins/bymax-quality/scripts').glob('review*'):
+                if source.is_file():
+                    (runtime / source.name).write_bytes(source.read_bytes())
+            (runtime / 'review_matrix.py').write_text('outdated')
+            with patch.object(DOCTOR.shutil, 'which', return_value='/fixture/tool'):
+                results = {item['name']: item['ok'] for item in DOCTOR.inspect()}
+        self.assertIs(results.get('installed review_matrix.py'), False)
+
 if __name__ == '__main__':
     unittest.main()

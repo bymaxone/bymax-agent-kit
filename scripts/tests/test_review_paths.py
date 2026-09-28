@@ -98,7 +98,7 @@ class NotUtf8Tests(unittest.TestCase):
 
     def test_a_latin1_test_name_is_read_and_names_the_same_file_to_git(self):
         """The name comes back with its byte kept as a surrogate escape, and handed to git again
-        it resolves the same blob: the state and the prompts can carry it, and git still finds it."""
+        it resolves the same blob: git still finds it."""
         head = commit_with(self.where, self.base, {b'tests/test_caf\xe9.py': b'def test_x(): pass\n'})
         self.assertEqual(review_evidence.tests_changed(self.base, head), (['tests/test_caf\udce9.py'], []))
         self.assertEqual(review_git.git('cat-file', '-p', head + ':tests/test_caf\udce9.py'),
@@ -113,8 +113,8 @@ class NotUtf8Tests(unittest.TestCase):
         self.assertIn('OLD_NAME', review_claims.sides(name, self.base, head)[1])
 
     def test_a_definition_that_survives_in_a_latin1_file_is_not_retired(self):
-        """The names `git grep -l` lists were read with replacement, so the file still defining a
-        name read as absent and the name was reported removed, which refuses the candidate."""
+        """The names `git grep -l` lists keep a Latin-1 byte as a surrogate escape, so the file
+        still defining the name is found, and `retired()` does not report it removed."""
         base = commit_with(self.where, self.base, {b'a.py': b'OLD_NAME = 1\n', b'other\xe9.py': b'OLD_NAME = 1\n',
                                                      b'README.md': b'Call `OLD_NAME` first.\n'})
         head = commit_with(self.where, base, {b'a.py': b'x = 1\n'})

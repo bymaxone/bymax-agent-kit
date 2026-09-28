@@ -776,5 +776,16 @@ class ExitStatusTests(unittest.TestCase):
         self.assertEqual(claims.report(dangling.base, dangling.head, cwd=str(dangling.where)), 1)
 
 
+class MovedProseTests(unittest.TestCase):
+    """What a delta added is where a line of prose landed, not only whether its text existed."""
+
+    def test_a_comment_moved_onto_another_function_is_added_prose(self):
+        """A comment moved verbatim now describes other code, and compared as a set of lines it
+        was no added prose, so the prose pass was not asked for."""
+        tree = Tree(self, {'a.py': 'def f():\n    # reads the cache first\n    pass\n\n\ndef g():\n    pass\n'},
+                    {'a.py': 'def f():\n    pass\n\n\ndef g():\n    # reads the cache first\n    pass\n'})
+        self.assertIn('# reads the cache first', claims.added(tree.base, tree.head, cwd=str(tree.where)).get('a.py', ''))
+
+
 if __name__ == '__main__':
     unittest.main()

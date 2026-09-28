@@ -184,11 +184,15 @@ Validate the title length *before* committing, then commit from a temp file
 ```bash
 msg=$(mktemp); # write the full message to "$msg"
 title=$(head -n1 "$msg"); n=${#title}
-[ "$n" -le 72 ] && echo "OK ($n chars)" || echo "TOO LONG ($n) — shorten, move detail to body"
+if [ "$n" -gt 72 ]; then
+  echo "TOO LONG ($n) — shorten, move detail to body" >&2
+  exit 1
+fi
+echo "OK ($n chars)"
 git commit -F "$msg"
 ```
 
-If it reports TOO LONG, rewrite and re-check until it passes. Project hooks
+If it stops with TOO LONG, nothing was committed: rewrite the title and run it again. Project hooks
 (husky/commitlint/lint-staged) run normally; if one fails, **fix the root cause**
 and re-commit. **NEVER** `--no-verify`, `--no-gpg-sign`, or any bypass. If your
 harness prompts for approval on `git commit`/`git push`, that is expected — let it.
@@ -207,7 +211,9 @@ shipping includes the review. Do it in this order:
    marker for a commit that already has one.
 2. Otherwise run the bounded campaign from `/bymax-quality:code-review` end to end:
    write the context (intent, acceptance, constraints, scope, the project's real gate
-   commands), `start --autonomous` against the review base this block prints:
+   commands), `start --autonomous --base-branch-file "$(git rev-parse --git-dir)/bymax-push-default"`
+   against the review base this block prints. The file names the branch this work merges into,
+   which lets the review read a side branch merged into this one as this work:
 
    ```bash
    DEFAULT_REF=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)

@@ -16,10 +16,10 @@ def regression_note(state):
     files — the brief asserting what the tree does not support, committed while widening the
     brief so that round one would stop being blind. The input has one source now.
     """
-    tests, _ = tests_changed(state['review_base'], state['head'])
+    tests, _ = tests_changed(state['review_base'], state['head'], state.get('base_branch', ''))
     # Named in every branch, because the diff shown beside this note holds those files: silence
     # here while a changed test is visible there is the brief contradicting itself in one message.
-    carried = merged_in_tests(state['review_base'], state['head'])
+    carried = merged_in_tests(state['review_base'], state['head'], state.get('base_branch', ''))
     also = ('' if not carried else
             ' This delta also changes ' + ', '.join(carried) + ', none of it on its own '
             'first-parent line, so nothing here can say whose work it is and no matrix is asked '

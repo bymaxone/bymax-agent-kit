@@ -697,7 +697,7 @@ def first_round(directory, after_archived):
             '--after-archived "<who authorised it and for what scope>".')
 
 
-def next_round(args, old, head, directory, base, context):
+def next_round(args, old, head, directory, base, context, branch=''):
     """What advancing a campaign to a correction delta requires; returns its contract."""
     require(old['base'] == base and scope(old['context']) == scope(context),
             'Scope changed. Stop and agree on a separate campaign.')
@@ -711,7 +711,7 @@ def next_round(args, old, head, directory, base, context):
             + ', '.join(sorted(reviewers_needed(old))) + '.' + waiver_note(old))
     require(old.get('triage') is not None, 'Record every finding disposition before advancing.')
     require(git('merge-base', old['head'], head) == old['head'], 'History rewritten; stop and reassess full coverage.')
-    correction = correction_contract(args, old, head)
+    correction = correction_contract(args, old, head, branch)
     # A correction after a cleared candidate answers something the campaign never saw — a
     # PR-bot thread, a CI failure — and must say what, or the scope rule has nothing to
     # measure it against and the round is limited by the budget alone.
@@ -798,6 +798,37 @@ def reuse_candidate(old, context, directory, autonomous, base, head):
     return old
 
 
+def resolves(ref):
+    """Whether this spelling names a commit here, asked without raising: a ref may contain
+    what a shell would expand, so it only ever travels as one argument."""
+    return subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--end-of-options', ref + '^{commit}'],
+                          capture_output=True).returncode == 0
+
+
+def told_branch(args, old=None, autonomous=False):
+    """The base branch this start names, refused unless it names a commit: --base-branch, or
+    the first line of --base-branch-file, which a shipping command writes so no reader pastes a
+    ref name into a command. A file that is absent or empty names none.
+
+    Held once a campaign that goes on has one: another branch named later would move which
+    commits count as this delta's, and with them which tests the correction gate demands. A
+    cleared campaign that is not continued holds nothing, since the next start opens a new one."""
+    told = args.base_branch
+    if not told and args.base_branch_file:
+        try:
+            told = Path(args.base_branch_file).read_text().split('\n', 1)[0].strip()
+        except OSError:
+            told = ''
+    require(not told or resolves(told),
+            'The base branch names no commit here: ' + told + '. Name the branch this work merges '
+            'into, as this repository spells it, such as origin/main.')
+    goes_on = old and (autonomous or not old.get('cleared'))
+    kept = old.get('base_branch', '') if goes_on else ''
+    require(not (told and kept and told != kept),
+            'This campaign keeps the base branch it was told: ' + kept + '. Name that one, or none.')
+    return told
+
+
 def start(args, directory):
     """Freeze a full baseline or advance a campaign to a correction delta."""
     review_rules_notice()
@@ -816,6 +847,7 @@ def start(args, directory):
     if old and autonomous:
         old.update(autonomous=True,
                    max_rounds=review_delivery.cap(directory, pending=bool(args.extend_delivery)))
+    told = told_branch(args, old, autonomous)
     if old and old['head'] == head:
         require(old['base'] == base and scope(old['context']) == scope(context),
                 'Same candidate has different scope/context.')
@@ -827,12 +859,13 @@ def start(args, directory):
     require(old or not args.answers,
             '--answers is for a correction after a cleared candidate; this start opens a first round, '
             'which reviews the whole delta and has nothing to answer for.')
-    correction = next_round(args, old, head, directory, base, context) if old else first_round(directory, args.after_archived)
+    branch = told or (old.get('base_branch', '') if old else '')
+    correction = next_round(args, old, head, directory, base, context, branch) if old else first_round(directory, args.after_archived)
     state = dict(policy=POLICY, head=head, base=base, context=context,
                  nit_round=args.nit_round if old else '',
                  widen_scope=args.widen_scope if old else '',
                  answers=list(args.answers or ()) if old else [],
-                 after_archived='' if old else args.after_archived,
+                 after_archived='' if old else args.after_archived, base_branch=branch,
                  round=old['round'] + 1 if old else 1,
                  review_base=old['head'] if old else base,
                  previous_triage=old.get('triage', []) if old else [],
@@ -940,7 +973,7 @@ def design_reasons(args, old):
     return again
 
 
-def correction_contract(args, old, head):
+def correction_contract(args, old, head, branch=''):
     """Require the evidence a correction round must carry before reviewers see it.
 
     A reopened finding means the previous patch addressed the instance and not the
@@ -966,7 +999,7 @@ def correction_contract(args, old, head):
             'The previous correction introduced these findings, and no probe names them: '
             + ', '.join(uncovered) + '. Add a probe entry per finding with "covers": "<id>", '
             'showing the case it exposed being tried. `review_flow.py lessons` lists them.')
-    tests, removed = tests_changed(old['head'], head)
+    tests, removed = tests_changed(old['head'], head, branch)
     reason = (args.no_regression_reason or '').strip()
     a_regression_or_a_reason(tests, reason, probe)
     return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
@@ -1111,11 +1144,10 @@ correct change hostage to text no test can check is the failure mode this field 
 def gate_first(state, directory):
     """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
 
-    Both adapters call this before reserving their attempt. It raises from inside prompt(),
-    which they evaluate only as the subprocess input, so reserving first spent an attempt on a
-    refusal that never reached a reviewer — two of them exhausted the per-candidate budget with
-    nothing read, after which execute_codex diverts to an availability probe and reports a
-    spent budget for a reason Codex was never part of.
+    It raises from inside prompt(), which both adapters build before reserving their attempt:
+    built after it, a refusal that never reached a reviewer spent an attempt, and enough of them
+    exhausted the per-candidate budget with nothing read, after which execute_codex diverts to
+    an availability probe and reports a spent budget for a reason Codex was never part of.
 
     A reviewer round is the scarcest thing a campaign spends, and a failing suite spends it
     on what the suite already reports. Measured here: rounds were lost to a test that read
@@ -1450,17 +1482,29 @@ BUDGET_SPENT = (
     'incomplete one never advances a round.')
 
 
-def reserve_codex(directory):
+def reserve_codex(directory, opening=None):
     """Reserve one attempt without holding the lock throughout model execution."""
     with locked(directory):
         state = read_state(directory)
         current(state)
         require('codex' not in state['reviews'], 'Reuse the completed Codex review.')
         require(state.get('codex_attempts', 0) < 2, BUDGET_SPENT)
+        require(opening is None or unmoved(state, opening), MOVED)
         state['codex_attempts'] = state.get('codex_attempts', 0) + 1
         state['codex_running'] = True
         save(directory, state)
         return state
+
+
+# Asked under the lock that reserves the attempt, before it is counted: the task was built from
+# `opening`, and a check recorded since then may have failed, or be running, which the task
+# would tell a reviewer had passed.
+MOVED = 'The campaign moved, or a gate ran while this review was being prepared; run it again.'
+
+
+def unmoved(state, opening):
+    """Whether the campaign is still the one a review task was built from."""
+    return all(state.get(key) == opening.get(key) for key in ('head', 'round', 'review_base', 'checks'))
 
 
 def spent(directory):
@@ -1649,38 +1693,21 @@ def execute_codex(directory, owner_fd):
     already spent there is no review left to run, and the question that remains — whether
     this machine has a reviewer at all — is answered by an availability probe instead.
     """
-    gate_first(read_state(directory), directory)   # before the attempt is reserved, never after
+    opening = read_state(directory)
+    gate_first(opening, directory)   # before the attempt is reserved, never after
     exhausted = spent(directory)
     if exhausted is not None:
         return availability(directory, exhausted, owner_fd)
-    state = reserve_codex(directory)
-    report = directory / f"codex-{state['round']}-{state['codex_attempts']}.json"
-    log = report.with_suffix('.log')
-    schema = directory / 'report-schema.json'
+    # Built before the attempt is reserved: prompt() runs the gates again, and a collect that
+    # fails the second time would otherwise spend the attempt on a review nobody ran.
+    task = prompt(opening, directory)
+    state = reserve_codex(directory, opening)
     try:
         binary = resolve_codex()
         if binary is None:
             waive(directory, state, 'absent', '', '', '')
         else:
-            schema.write_text(Path(__file__).with_name('review-report.schema.json').read_text())
-            # The resolved absolute path, never the bare name: the binary a waiver names must
-            # be the installed one, not whatever a single command's $PATH pointed at.
-            profile = escalation(state)
-            if profile:
-                print('Decisive round: this Codex pass uses the ' + ESCALATED_PROFILE
-                      + ' profile from ' + str(codex_home()) + '.', file=sys.stderr)
-            command = [binary, 'exec', *profile, '-c', 'approval_policy="never"', '--sandbox',
-                       'read-only', '--ephemeral', '--output-schema', str(schema),
-                       '--output-last-message', str(report), '-']
-            with log.open('w') as output:
-                result = subprocess.run(command, input=for_a_reader(prompt(state, directory)), text=True, encoding='utf-8',
-                                        stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
-            if result.returncode == 0:
-                with locked(directory):
-                    latest = read_state(directory)
-                    record(argparse.Namespace(reviewer='codex', report=str(report)), directory, latest)
-            else:
-                codex_outcome(directory, state, log, binary)
+            run_codex(directory, state, task, binary, owner_fd)
     finally:
         with locked(directory):
             latest = read_state(directory)
@@ -1688,6 +1715,32 @@ def execute_codex(directory, owner_fd):
                 latest['codex_running'] = False
                 save(directory, latest)
     return latest
+
+
+def run_codex(directory, state, task, binary, owner_fd):
+    """One read-only Codex pass over the task, recorded when it completes. The binary is the
+    resolved absolute path, never the bare name: the binary a waiver names must be the installed
+    one, not whatever a single command's $PATH pointed at."""
+    report = directory / f"codex-{state['round']}-{state['codex_attempts']}.json"
+    log = report.with_suffix('.log')
+    schema = directory / 'report-schema.json'
+    schema.write_text(Path(__file__).with_name('review-report.schema.json').read_text())
+    profile = escalation(state)
+    if profile:
+        print('Decisive round: this Codex pass uses the ' + ESCALATED_PROFILE
+              + ' profile from ' + str(codex_home()) + '.', file=sys.stderr)
+    command = [binary, 'exec', *profile, '-c', 'approval_policy="never"', '--sandbox',
+               'read-only', '--ephemeral', '--output-schema', str(schema),
+               '--output-last-message', str(report), '-']
+    with log.open('w') as output:
+        result = subprocess.run(command, input=for_a_reader(task), text=True, encoding='utf-8',
+                                stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
+    if result.returncode == 0:
+        with locked(directory):
+            latest = read_state(directory)
+            record(argparse.Namespace(reviewer='codex', report=str(report)), directory, latest)
+    else:
+        codex_outcome(directory, state, log, binary)
 
 
 def codex_check():
@@ -1757,6 +1810,11 @@ def parser():
                        help='Spend a round on P3 findings anyway: why, shown to both reviewers.')
     begin.add_argument('--widen-scope', default='',
                        help='Touch a file no open finding names: why, shown to both reviewers.')
+    begin.add_argument('--base-branch', default='',
+                       help='The branch this work merges into, such as origin/main: what a commit '
+                            'reachable from it did not write, whatever line it sits on.')
+    begin.add_argument('--base-branch-file', default='',
+                       help='A file whose first line is the base branch, as push writes one.')
     begin.add_argument('--after-archived', default='',
                        help='Start a campaign after an unfinished one: who authorised it, for what scope.')
     begin.add_argument('--answers', nargs='+', metavar='PATH:SLUG',

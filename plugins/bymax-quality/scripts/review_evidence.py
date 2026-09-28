@@ -36,7 +36,7 @@ def is_test_path(path):
     return bool(TEST_DIRECTORY.search(path)) or not lower.endswith(INSIDE_ONLY_SUFFIXES)
 
 
-def tests_changed(base, head):
+def tests_changed(base, head, branch=''):
     """What a delta did to tests, read from the diff, which is the only place it can be read.
 
     Added or modified only: deleting the test that caught a defect is not a regression.
@@ -55,7 +55,7 @@ def tests_changed(base, head):
                                   base, head).split('\0') if p]
     removed = [p for p in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=D',
                                   base, head).split('\0') if p]
-    mine = written_here(base, head)
+    mine = written_here(base, head, branch)
     ours = [name for name in changed if name in mine]
     elsewhere = collected_elsewhere([name for name in ours if not is_test_path(name)])
     return ([name for name in ours if is_test_path(name) or name in elsewhere],
@@ -132,7 +132,7 @@ def under_a_collect_hook(root, path):
     return False
 
 
-def merged_in_tests(base, head):
+def merged_in_tests(base, head, branch=''):
     """The test files this delta changed that no commit of its own first-parent line wrote.
 
     A merge of the base branch and a merge of a branch of one's own put work here the same way,
@@ -141,13 +141,13 @@ def merged_in_tests(base, head):
     """
     changed = [p for p in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=AM',
                                   base, head).split('\0') if p]
-    mine = written_here(base, head)
+    mine = written_here(base, head, branch)
     theirs = [name for name in changed if name not in mine]
     elsewhere = collected_elsewhere([name for name in theirs if not is_test_path(name)])
     return [name for name in theirs if is_test_path(name) or name in elsewhere]
 
 
-def written_here(base, head):
+def written_here(base, head, branch=''):
     """Every path a commit of this delta's own line wrote.
 
     Provenance, and read from the first-parent line, because nothing in the graph distinguishes
@@ -162,10 +162,24 @@ def written_here(base, head):
     parent: the resolution somebody typed, and never the files the other side carried over.
 
     The limit, stated because it is one: work merged in with `--no-ff` from a side branch sits
-    off the first-parent line, so only the resolution counts as written here.
+    off the first-parent line, so only the resolution counts as written here — unless the round
+    was told its base branch. Then a commit off that line is this delta's too when the base
+    branch does not reach it: a side branch merged in. The line itself is never filtered by the
+    branch, since a branch the base has already merged is still this delta's work.
     """
     written = set()
-    for row in git('rev-list', '--first-parent', '--parents', '%s..%s' % (base, head)).splitlines():
+    rows = git('rev-list', '--first-parent', '--parents', '%s..%s' % (base, head)).splitlines()
+    if branch:
+        # Resolved to a commit first, and only the commit reaches rev-list: a ref name that
+        # begins with a dash would otherwise be read as an option.
+        tip = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--end-of-options',
+                              branch + '^{commit}'], capture_output=True, text=True).stdout.strip()
+        require(tip, 'The base branch %s names no commit here any more; start the round again with '
+                '--base-branch naming the branch this work merges into.' % branch)
+        line = {row.split()[0] for row in rows}
+        rows += [row for row in git('rev-list', '--parents', '%s..%s' % (base, head), '--not', tip).splitlines()
+                 if row.split()[0] not in line]
+    for row in rows:
         shape = ['-c'] if len(row.split()) > 2 else ['--root']
         written.update(p for p in git_raw('diff-tree', '-r', '-z', '--no-commit-id', '--name-only',
                                           '--no-renames', *shape, row.split()[0]).split('\0') if p)
