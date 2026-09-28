@@ -118,7 +118,7 @@ def run_case(root, selector, files, deadline=CLEAN):
     return code, ([line for line in tail if SUMMARY.match(line)] or tail or [err[-160:]])[-1]
 
 
-def tailed(child, deadline, feed=None):
+def tailed(child, deadline, feed=None, settle=None):
     """Wait up to `deadline` seconds for a child started in a session of its own with unbuffered
     stdout and stderr pipes, keeping each stream's last KEEP bytes as it is read. Returns the
     exit status, both tails decoded, and whether stdout filled its tail, read from the bytes
@@ -130,6 +130,8 @@ def tailed(child, deadline, feed=None):
     Unbuffered, so no read holds a lock: closing a buffered pipe waits on the lock a blocked
     reader holds, and a detached descendant keeping the pipe open held it for good. `feed`, when
     given, also receives every chunk of stdout as it is read, for a reader that needs all of it.
+    `settle`, when given, is called on a run that ended on its own, after the readers' bounded
+    wait and before its group is killed, with whether stdout reached its end in that wait.
     """
     tails = {'out': [b''], 'err': [b'']}
     readers = [threading.Thread(target=keep_tail, args=(stream, tails[key], feed if key == 'out' else None),
@@ -148,6 +150,9 @@ def tailed(child, deadline, feed=None):
         halt(child, readers)
         raise
     else:
+        if settle is not None:
+            drained(readers)
+            settle(not readers[0].is_alive())
         kill_group(child)
         drained(readers)
     out, err = (tails[key][0].decode('utf-8', 'replace') for key in ('out', 'err'))
@@ -268,11 +273,19 @@ def enumerated(root, rule):
     # keeps too, since one that prints without end would hold it all until the deadline.
     with subprocess.Popen(how, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           stdin=subprocess.DEVNULL, bufsize=0, start_new_session=True) as child:
-        tally = Tally()
-        code, _, _, _ = tailed(child, CLEAN, feed=tally.feed)
+        tally, ended = Tally(), []
+        code, _, _, _ = tailed(child, CLEAN, feed=tally.feed, settle=ended.append)
     if code is None:
         bail('Rule %r: its enumeration command did not finish in %ds: %s'
              % (rule.get('rule'), CLEAN, how))
+    # A writer the command left in the background prints after it exits. Stopped at that exit,
+    # it was cut off at a moment nothing decides, and the count with it: an endless writer
+    # counted 26 on one run and 2211 on the next. So it is waited on, and one still writing is
+    # refused rather than counted in part.
+    if not all(ended):
+        bail('Rule %r: its enumeration command left a process writing to its output after it '
+             'exited, so its count depends on when that process is stopped. Wait for what it '
+             'starts: %s' % (rule.get('rule'), how))
     total = tally.total()
     if code != 0 or total is None:
         bail('Rule %r: its enumeration command produced no count (exit %d). A command that '
