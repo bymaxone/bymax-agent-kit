@@ -574,6 +574,18 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench.write(start.replace('the kind of cache this holds', 'what the cache keeps'))
         self.assertEqual(bench.offences(), [])
 
+    def test_a_type_comment_is_compared_when_another_cannot_be_placed(self):
+        """A trailing `# type:` the parser cannot place sends the tree back to one without type
+        comments, and there a changed annotation beside it, or anywhere in the file, read as
+        prose."""
+        start = 'from typing import List\nx = []  # type: List[int]\nprint(x)  # type: int\n'
+        bench = Bench(self, {'thing.py': start})
+        for after in (start.replace('List[int]', 'List[str]'), start.replace('# type: int', '# type: str')):
+            with self.subTest(after):
+                bench.write(after)
+                self.assertIn('thing.py: a comment a linter or a type checker reads changed',
+                              ' | '.join(bench.offences()))
+
     def test_a_comment_cut_above_a_type_ignore_is_prose(self):
         """The tree parsed with its type comments keeps each `# type: ignore` with its line
         number, so cutting a comment above one read as behaviour: the pass was refused for

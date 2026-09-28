@@ -218,7 +218,9 @@ def typed(text):
     """The syntax tree with its type comments: `# type: List[int]` is the annotation a type
     checker reads. A comment line the parser cannot place as one — prose that happens to begin
     `# type:` on a line of its own — is only prose, so that line is blanked and the file parsed
-    again; any other syntax error is the plain parser's to raise."""
+    again. A type comment after code that cannot be placed leaves the tree without any, and
+    directives() compares every type comment that follows code, so none of them reads as prose
+    then; any other syntax error is the plain parser's to raise."""
     lines = text.split('\n')
     for _ in lines:
         try:
@@ -439,6 +441,9 @@ def only_prose_cut(before, after):
 # What places a token rather than being one: a directive's position counts only the rest.
 LAYOUT = {tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
           tokenize.ENDMARKER}
+# A type comment after code is the type checker's, placed or not: when one cannot be placed,
+# typed() answers with the tree that has none, and this is where they are compared then.
+TYPED = re.compile(r'#\s*type:')
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
 
 
@@ -460,8 +465,9 @@ def directives(text):
         said = unsaid(lines, docstrings)
         code, anything = 0, False
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
-            if tok.type == tokenize.COMMENT and DIRECTIVE.search(tok.string):
-                row, col = tok.start
+            row, col = tok.start
+            if tok.type == tokenize.COMMENT and (DIRECTIVE.search(tok.string)
+                                                 or TYPED.match(tok.string) and tok.line[:col].strip()):
                 # A comment runs to the end of its line, so the mark shifts only what precedes it.
                 beside = said[row - 1][:col + len(said[row - 1]) - len(lines[row - 1])].strip()
                 below = '' if beside else next((l.strip() for l in said[row:]
