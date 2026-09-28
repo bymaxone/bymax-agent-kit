@@ -207,7 +207,9 @@ shipping includes the review. Do it in this order:
    marker for a commit that already has one.
 2. Otherwise run the bounded campaign from `/bymax-quality:code-review` end to end:
    write the context (intent, acceptance, constraints, scope, the project's real gate
-   commands), `start --autonomous` against the review base this block prints:
+   commands), `start --autonomous --base-branch-file "$(git rev-parse --git-dir)/bymax-push-default"`
+   against the review base this block prints. The file names the branch this work merges into,
+   which lets the review read a side branch merged into this one as this work:
 
    ```bash
    DEFAULT_REF=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-push-default" 2>/dev/null || true)
