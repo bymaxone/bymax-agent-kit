@@ -29,6 +29,14 @@ _TOKEN = os.environ.pop('BYMAX_COLLECT_TOKEN', None)
 
 
 _WALKED = []
+_FAILED = []
+
+
+def pytest_collectreport(report):
+    """Keep each collector whose collection failed: a file named here failed to collect, which a
+    caller must tell apart from a file nothing collected, such as one a conftest ignores."""
+    if report.failed:
+        _FAILED.append(report.nodeid)
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -53,3 +61,6 @@ def pytest_collection_finish(session):
         out.write('%s %s\n' % (MARK, token))
         for item in session.items:
             out.write('%s %s\n' % (token, item.nodeid))
+        # A prefix apart from each id's `<token> `, so a failed collector never reads as one.
+        for nodeid in _FAILED:
+            out.write('%s! %s\n' % (token, nodeid))

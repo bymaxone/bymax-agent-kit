@@ -184,7 +184,10 @@ class RunTests(unittest.TestCase):
             'class Sub(unittest.TestCase):\n    def test_sub(self):\n        for value in (11, 12):\n'
             '            with self.subTest(value=value):\n                self.assertTrue(over(value))\n')
         code, tail = matrix.run_case(str(bench.where), None, ['test_sub.py::Sub::test_sub'])
-        self.assertEqual((code, tail.split(' in ')[0]), (0, '1 passed, 2 subtests passed'))
+        # pytest 9 counts subtests in the summary; before it, a unittest subTest leaves none.
+        import pytest
+        label = '1 passed, 2 subtests passed' if int(pytest.__version__.split('.')[0]) >= 9 else '1 passed'
+        self.assertEqual((code, tail.split(' in ')[0]), (0, label))
 
     def test_every_wording_of_no_collector_is_no_test(self):
         """pytest refuses a file nothing collects in words that changed between versions: read in
