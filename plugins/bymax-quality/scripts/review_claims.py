@@ -13,6 +13,9 @@ Tiers, because precision differs and a gate nobody trusts is worse than no gate:
     retired            exact       a name this delta removed that the tree still asserts,
                                    spelled like code rather than like an English word. This
                                    one refuses: measured at no false positive over 40 commits.
+    noted              reported     a line naming such a name that also says it is gone. A
+                                   note and a live claim holding the word read alike, so it
+                                   is reported rather than refused (see noted_removals).
     unkept             reported     a removal claimed of a string still present. One false
                                    positive in those same 40 — a shell command read as the
                                    subject of a sentence near it — so it is read, not obeyed.
@@ -536,7 +539,9 @@ def mentions(base, head, cwd=None):
 def records_removal(line, token):
     """Whether every clause naming the name also says it is gone, outside every quoted span. A
     clause naming it without such a word asserts it; "`OLD_HELPER` runs `git worktree remove`"
-    is one, since the word is the quoted command's."""
+    is one, since the word is the quoted command's. It accepts some live claims by design,
+    "`OLD_HELPER` removes the entry" among them: a line it accepts is reported by
+    noted_removals(), which says why, and refuses nothing."""
     # A period ends a clause only where no word follows it: `review_flow.py` is one name.
     parts = re.split(r'(\.(?!\w)|;|—)', line)
     clauses, marks = parts[0::2], parts[1::2]
