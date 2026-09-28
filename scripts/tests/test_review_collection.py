@@ -137,6 +137,26 @@ class CollectedTests(unittest.TestCase):
                          {'checks/check.yaml'})
         self.assertFalse(review_evidence.under_a_collect_hook(str(bench.where), 'docs/notes.yaml'))
 
+    def test_a_document_a_named_plugin_collects_is_a_changed_test(self):
+        """A conftest can register its collection hook from another module through
+        `pytest_plugins`, and its own source then never names the hook, so a YAML case that
+        plugin collects was left out of the tests a delta changed."""
+        bench = Bench(self)
+        base = subprocess.run(['git', '-C', str(bench.where), 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True, check=True).stdout.strip()
+        (bench.where / 'conftest.py').write_text('pytest_plugins = ["yaml_plugin"]\n')
+        (bench.where / 'yaml_plugin.py').write_text(
+            YAML_CONFTEST.replace('collect_ignore = ["cases/skip.yaml"]\n', ''))
+        (bench.where / 'checks').mkdir()
+        (bench.where / 'checks' / 'check.yaml').write_text('a: 1\n')
+        commit(bench.where)
+        cwd = os.getcwd()
+        os.chdir(bench.where)
+        self.addCleanup(os.chdir, cwd)
+        head = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True,
+                              check=True).stdout.strip()
+        self.assertIn('checks/check.yaml', review_evidence.tests_changed(base, head)[0])
+
     def test_a_directory_out_of_time_is_collected_once_for_all_its_files(self):
         """matrix_first asked each changed file of a directory whose collect ran out of time,
         and each ask waited out the same deadline again."""

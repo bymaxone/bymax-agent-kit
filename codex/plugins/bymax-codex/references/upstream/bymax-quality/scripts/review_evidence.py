@@ -124,10 +124,14 @@ def collected_elsewhere(paths):
 
 def under_a_collect_hook(root, path):
     """Whether a conftest.py from this file's directory up to the root names
-    `pytest_collect_file`, which is how a conftest collects a file that is not Python."""
+    `pytest_collect_file`, which is how a conftest collects a file that is not Python, or
+    `pytest_plugins`, which loads modules that may define it. Those modules are not read:
+    naming one is reason enough to ask pytest, and asking is the direction that costs a
+    collect rather than a changed test nobody is shown."""
     for where in [Path(path).parent, *Path(path).parent.parents]:
         conftest = Path(root, where, 'conftest.py')
-        if conftest.is_file() and 'pytest_collect_file' in conftest.read_text(errors='replace'):
+        text = conftest.read_text(errors='replace') if conftest.is_file() else ''
+        if 'pytest_collect_file' in text or 'pytest_plugins' in text:
             return True
     return False
 
