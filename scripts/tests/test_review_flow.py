@@ -1490,6 +1490,18 @@ class ReviewFlowTests(FlowBench):
         self.flow('finish', ok=False)
         self.push('git push origin HEAD', ok=False)
 
+    def test_a_check_that_exits_takes_what_it_left_running_with_it(self):
+        """A gate is done when its command exits: a child it left running kept writing after
+        `check` had recorded the gate's exit status."""
+        self.start()
+        late = self.root / 'written-after-the-gate.txt'
+        gate = ('import subprocess, sys\n'
+                'subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3); '
+                'open(%r, \'w\').write(\'late\')"])\n' % str(late))
+        self.flow('check', '--', sys.executable, '-c', gate)
+        time.sleep(6)
+        self.assertFalse(late.exists(), 'a process the gate left running outlived the check')
+
     def test_a_check_that_times_out_takes_its_children_with_it(self):
         """A gate past its deadline had only its own process killed, so what it started kept
         running behind `check` after the timeout was recorded."""

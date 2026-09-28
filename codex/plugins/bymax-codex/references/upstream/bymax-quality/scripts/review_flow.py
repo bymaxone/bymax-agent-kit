@@ -1058,7 +1058,12 @@ def triage(args, directory, state):
 
 
 def check(args, directory, state):
-    """Execute and retain a required local gate against the current candidate."""
+    """Execute and retain a required local gate against the current candidate.
+
+    The gate runs in a session of its own, without a controlling terminal, so that its whole
+    process group can be killed: a gate is done when its command exits, and nothing it started
+    outlives the check, whether it exited, timed out or was interrupted.
+    """
     current(state)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     require(bool(command), 'Supply a check command after --.')
@@ -1068,16 +1073,13 @@ def check(args, directory, state):
     state['checks'].append(dict(command=command, exit_code=None, log=str(log)))
     state['cleared'] = False
     save(directory, state)
-    # In a session of its own, so a timeout or an interrupt kills what the gate started as well:
-    # killing the gate alone leaves its children running behind the recorded timeout.
     with log.open('w') as output, subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
                                                    start_new_session=True) as child:
         try:
             code = child.wait(timeout=CHECK_TIMEOUT)
-        except BaseException:
+        finally:
             kill_group(child)
             child.wait()
-            raise
     current(state)
     state['checks'][-1]['exit_code'] = code
     save(directory, state)

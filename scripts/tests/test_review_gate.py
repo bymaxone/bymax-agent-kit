@@ -732,6 +732,23 @@ class MatrixGateTests(FlowBench):
         self.assertEqual(review_evidence.failing_before(before, ['tests/test_env.py'], ['tests/test_env.py']),
                          ([], []))
 
+    def test_a_collected_support_file_the_delta_deleted_is_removed_too(self):
+        """A file the project names its own way is a test to pytest alone, and one the delta
+        deleted stayed in the unpacked previous tree while a file named like a test went."""
+        (self.repo / 'pytest.ini').write_text('[pytest]\npython_files = check_*.py\n')
+        (self.repo / 'checks').mkdir()
+        (self.repo / 'checks/check_support.py').write_text('def test_support():\n    assert True\n')
+        (self.repo / 'checks/check_g.py').write_text('def test_g():\n    assert True\n')
+        self.commit('checks the project names its own way')
+        before = self.git('rev-parse', 'HEAD')
+        (self.repo / 'checks/check_support.py').unlink()
+        self.commit('the delta deletes one of them')
+        self.inside_the_fixture()
+        with review_evidence.archived(before) as older:
+            review_evidence.overlaid(older, self.git('rev-parse', '--show-toplevel'), before, [])
+            self.assertFalse(Path(older, 'checks/check_support.py').exists())
+            self.assertTrue(Path(older, 'checks/check_g.py').exists())
+
     def test_a_campaign_frozen_before_the_measurement_is_told_it_at_the_prompt(self):
         """A campaign an earlier runtime froze carries no measurement of its changed tests, and
         the recheck before the prompt measured it and threw the result away."""

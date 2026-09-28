@@ -435,7 +435,8 @@ def failing_before(base, changed, names):
     catch a mutant, which nobody could satisfy. It is left to the added-node rule, and named;
     so is a file the base tree collects no node from. A node the head collects and the base
     tree does not — one defined only under a flag the fix adds — was never run there, and is
-    named by its id.
+    named by its id. The head's side of that comparison is collected in the working checkout,
+    as tests_added() collects it, which costs one more collect per changed file.
 
     An unpacked tree has no .git, so a test that reads the repository fails in it whatever the
     fix. A node counts only if the head, unpacked the same way, runs it and passes: a skip exits
@@ -471,12 +472,14 @@ def overlaid(older, root, base, changed):
 
     Every test path the delta changed is copied, not only the files asked: a conftest or a
     helper the head's tests need is a test path pytest collects nothing from, and the base's
-    copy of it would fail them for a reason that is not the fix. Every test path the delta
-    deleted is removed, for the same reason: a conftest the head no longer has still ran there.
+    copy of it would fail them for a reason that is not the fix. Every test the delta deleted is
+    removed, for the same reason: a conftest the head no longer has still ran there. A deleted
+    test is what removed_tests() calls one, named like a test or collected at the base, so a
+    file the project names its own way goes too.
     """
-    deleted = [name for name in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=D',
-                                         base, 'HEAD').split('\0') if name and is_test_path(name)]
-    for name in deleted:
+    removed = [name for name in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=D',
+                                        base, 'HEAD').split('\0') if name]
+    for name in removed_tests(base, removed):
         unlinked(older, name).unlink(missing_ok=True)
     for name in [name for name in changed if Path(root, name).is_file()]:
         target = unlinked(older, name)
