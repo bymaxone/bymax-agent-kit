@@ -12,8 +12,8 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | The suite runner in `validate.sh` passes while a module fails, or while no module ran | `scripts/tests/test_validate_runner.py` |
 | Stale/dirty review, incomplete reviewers, missing gates, bad triage | `scripts/tests/test_review_flow.py` |
 | Reopened finding, scope widening, changed/deleted tests, lost provenance | Review-flow behavioral tests |
-| Shell push spelling, multiple refs/tags, worktrees, foreign/custom hooks | `scripts/tests/test_review_prepush.py`, including actual pushes to isolated local remotes |
-| Interrupted or concurrent model processes | Review-flow lock, child ownership, attempt and concurrent writer tests |
+| Shell push spelling, multiple refs/tags, worktrees, foreign/custom hooks | `scripts/tests/test_review_prepush.py` and `scripts/tests/test_review_hook.py`, including actual pushes to isolated local remotes |
+| Interrupted or concurrent model processes | Review-flow lock, child ownership, attempt and concurrent writer tests; the Codex pass's in `scripts/tests/test_review_codex.py` |
 | Counter renewal after completed campaign, retry or archive | `scripts/tests/test_review_delivery.py` |
 | Codex-led Claude review fails or gains editing tools | Delivery tests capture real process argv, input diff and structured output |
 | Installer drops user configuration or omits runtime dependencies | `scripts/tests/test_review_install.py` and installed-runtime execution |

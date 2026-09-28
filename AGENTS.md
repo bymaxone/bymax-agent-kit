@@ -267,7 +267,7 @@ after the first review of a pull request report blocking findings only.
 against their sources), anything the gates already enforce, or `CHANGELOG.md` wording.
 
 **Receipt boundary.** A change to `review_prepush.py`, `review_push.py`, or to
-`install_hook`/`usable_hook` in `review_flow.py` must not let a commit without a completed
+`install_hook`/`usable_hook` in `review_hook.py` must not let a commit without a completed
 review receipt reach a remote. Safe path: show the push that lands, or do not report it.
 
 **Shell in a document.** Every fenced `bash` block must assign what it reads, since shell
