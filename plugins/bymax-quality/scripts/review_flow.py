@@ -870,16 +870,21 @@ def start(args, directory):
                  retrospectives=old.get('retrospectives', []) if old else [],
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
-    claims_settled(state['review_base'], head)
-    measured = matrix_first(state, directory)
-    if measured:
-        state['regression_measured'] = measured
-    prose_first(state, directory)
+    frozen(state, directory, head)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
     save(directory, state)
     return state
 
+
+def frozen(state, directory, head):
+    """What a candidate must meet when it freezes: the claims a command settles, the measured
+    matrix, whose measurement the prompt reads back, and the prose pass."""
+    claims_settled(state['review_base'], head)
+    measured = matrix_first(state, directory)
+    if measured:
+        state['regression_measured'] = measured
+    prose_first(state, directory)
 
 def review_range(directory):
     """The endpoints this branch's campaign froze, while they are still the scope in hand.
