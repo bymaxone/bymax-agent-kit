@@ -872,14 +872,21 @@ def start(args, directory):
                  retrospectives=old.get('retrospectives', []) if old else [],
                  reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
                  **(correction if old else {}))
-    claims_settled(state['review_base'], head)
-    matrix_first(state, directory)
-    prose_first(state, directory)
+    frozen(state, directory, head)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
     save(directory, state)
     return state
 
+
+def frozen(state, directory, head):
+    """What a candidate must meet when it freezes: the claims a command settles, the measured
+    matrix, whose measurement the prompt reads back, and the prose pass."""
+    claims_settled(state['review_base'], head)
+    measured = matrix_first(state, directory)
+    if measured:
+        state['regression_measured'] = measured
+    prose_first(state, directory)
 
 def review_range(directory):
     """The endpoints this branch's campaign froze, while they are still the scope in hand.
@@ -1072,7 +1079,26 @@ def correction_brief(state):
     if state.get('removed_tests'):
         lines.append('Tests removed in this delta: ' + ', '.join(state['removed_tests'])
                      + '. A removed test is not regression evidence; judge whether its removal is justified.')
+    lines += regression_note(state.get('regression_measured'))
     return '\n'.join(lines)
+
+
+def regression_note(measured):
+    """What reviewers are told about the changed tests run before the correction, as lines. The
+    unread files are named whether or not another file failed there: their edited nodes were
+    never asked, and a failing neighbour says nothing about them."""
+    if not measured:
+        return []
+    lines = []
+    if not measured['failing_before']:
+        lines.append('No test this correction changed fails before it: run against the previous '
+                     "candidate's code, every node of the changed test files passed. That is right "
+                     'for a correction that repairs a test and no code; for one that changes code, '
+                     'judge whether its regression proves anything.')
+    if measured['unread_before']:
+        lines.append('Not asked, because the previous tree could not collect them: '
+                     + ', '.join(measured['unread_before']) + '.')
+    return lines
 
 
 def delivery_note(state):
