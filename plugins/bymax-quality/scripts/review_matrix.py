@@ -63,8 +63,12 @@ SUMMARY = re.compile(r'^(?:no tests ran|\d+ [a-z]+(?: [a-z]+)?(?:, \d+ [a-z]+(?:
 
 
 def cached_in(scratch):
-    """The option that keeps pytest's cache under `scratch`, a directory the run removes."""
-    return ['-o', 'cache_dir=' + os.path.join(scratch, 'cache')]
+    """The options that keep pytest's cache under `scratch`, a directory the run removes, and
+    that leave out the two plugins recording node ids in it: nothing here runs --lf or --nf,
+    and at session end they write every id and every failed one as strict UTF-8, which an id
+    spelling a file name that is not UTF-8 cannot be. That raised before the summary line, so a
+    pass and a failure both read as a crash. The cache itself, and its fixture, stay."""
+    return ['-o', 'cache_dir=' + os.path.join(scratch, 'cache'), '-p', 'no:lfplugin', '-p', 'no:nfplugin']
 
 
 def pytest_env():
