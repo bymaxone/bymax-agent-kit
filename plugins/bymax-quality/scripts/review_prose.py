@@ -273,7 +273,7 @@ def prose_size(name, text):
 
 def sentences(name, text):
     """How many sentences a file's prose holds: a stop, a question or an exclamation, and any
-    closing markup after it, followed by a space or the end of a line."""
+    closing markup after it, followed by a space or the end of the text."""
     return len(re.findall(r'[.!?][*_`\'")\]]*(?=\s|$)', review_claims.prose(name, text)))
 
 
