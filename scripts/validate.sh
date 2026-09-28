@@ -193,6 +193,13 @@ section "Testing bounded review and push guard behavior"
 # One process per module, several at once. Run one after another, the suite outgrew the
 # thirty minutes review_flow.py's check allows a gate, on a machine busy with other work.
 # Each module is its own interpreter, so nothing a case changes in one reaches another.
+# The width is compared arithmetically in the polling loop below: zero, a negative number or a
+# word there never lets a module start, and a leading zero reads as octal.
+test_jobs="${BYMAX_TEST_JOBS:-6}"
+if [[ ! "${test_jobs}" =~ ^[1-9][0-9]*$ ]]; then
+  printf "${RED}BYMAX_TEST_JOBS must be a positive integer, got '%s'.${NC}\n" "${test_jobs}" >&2
+  exit 1
+fi
 test_logs="$(mktemp -d)"
 run_module() {
   local name
@@ -200,14 +207,17 @@ run_module() {
   python3 -m unittest discover -s scripts/tests -p "${name}.py" -v > "${test_logs}/${name}.log" 2>&1 \
     || : > "${test_logs}/${name}.failed"
 }
-for module in scripts/tests/test_*.py; do
-  [[ -e "${module}" ]] || continue
+# The modules `python3 -m unittest discover -s scripts/tests` runs: its default pattern,
+# test*.py, over file names that are importable module names.
+for module in scripts/tests/test*.py; do
+  [[ -e "${module}" && "$(basename "${module}")" =~ ^[A-Za-z_][A-Za-z0-9_]*\.py$ ]] || continue
   # Polled rather than `wait -n`, which the bash macOS ships (3.2) does not have.
-  while [[ "$(jobs -rp | wc -l)" -ge "${BYMAX_TEST_JOBS:-6}" ]]; do sleep 0.2; done
+  while [[ "$(jobs -rp | wc -l)" -ge "${test_jobs}" ]]; do sleep 0.2; done
   run_module "${module}" &
 done
 wait
 for log in "${test_logs}"/*.log; do
+  [[ -e "${log}" ]] || continue
   name="$(basename "${log}" .log)"
   if [[ -e "${test_logs}/${name}.failed" ]]; then
     cat "${log}"
