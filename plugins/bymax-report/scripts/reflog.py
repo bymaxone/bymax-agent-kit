@@ -116,7 +116,9 @@ def committed_merge_syncs(repo: Path, subject: str) -> bool:
     ``' of '`` can come from one of the names. A name spelled as an object id is
     ``names_another_repository``'s question, and a branch of ours called like one resolves to
     its own name there. A subject that is not a merge message names nothing, and is a catch-up
-    as a ``merge`` entry without an operand is, since nothing says it was local.
+    as a ``merge`` entry without an operand is, since nothing says it was local. A subject
+    rewritten by hand that happens to hold `` of `` reads as a catch-up too: that leaves the
+    period's landing unknown, which is the direction that never over-reports.
     """
     if not subject.startswith('Merge '):
         return True
