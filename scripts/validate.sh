@@ -207,10 +207,16 @@ run_module() {
   python3 -m unittest discover -s scripts/tests -p "${name}.py" -v > "${test_logs}/${name}.log" 2>&1 \
     || : > "${test_logs}/${name}.failed"
 }
+# Whether discover would import this file: its stem is a Python identifier, which may hold
+# letters outside ASCII that no bash 3.2 regex matches the same way in every locale.
+importable() {
+  python3 -c 'import sys; sys.exit(not sys.argv[1][:-3].isidentifier())' "$(basename "$1")"
+}
 # The modules `python3 -m unittest discover -s scripts/tests` runs: its default pattern,
 # test*.py, over file names that are importable module names.
 for module in scripts/tests/test*.py; do
-  [[ -e "${module}" && "$(basename "${module}")" =~ ^[A-Za-z_][A-Za-z0-9_]*\.py$ ]] || continue
+  [[ -e "${module}" ]] || continue
+  importable "${module}" || continue
   # Polled rather than `wait -n`, which the bash macOS ships (3.2) does not have.
   while [[ "$(jobs -rp | wc -l)" -ge "${test_jobs}" ]]; do sleep 0.2; done
   run_module "${module}" &

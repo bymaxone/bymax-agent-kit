@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,8 +15,10 @@ FAILING = 'import unittest\n\n\nclass T(unittest.TestCase):\n    def test_no(sel
 
 
 def reported(done):
-    """The runner's lines, sorted, with unittest's timing cut from each `Ran` count."""
-    return sorted(re.sub(r' in [0-9.]+s$', '', line) for line in done.stdout.splitlines())
+    """The runner's lines, sorted, with unittest's timing cut from each `Ran` count. NFC, since a
+    file system may hand a non-ASCII name back decomposed."""
+    return sorted(unicodedata.normalize('NFC', re.sub(r' in [0-9.]+s$', '', line))
+                  for line in done.stdout.splitlines())
 
 
 def runner():
@@ -56,10 +59,12 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(reported(done), ['FAIL no test module ran'])
 
     def test_the_modules_it_runs_are_the_ones_discover_runs(self):
-        """unittest discover's default pattern is test*.py over importable names; the runner's too."""
+        """unittest discover's default pattern is test*.py over importable names, and a Python
+        identifier may hold letters outside ASCII; the runner's selection is the same."""
         done = self.run_over({'test_a.py': PASSING, 'testb.py': PASSING, 'b_test.py': FAILING,
-                              'test-c.py': FAILING})
-        self.assertEqual(reported(done), ['OK test_a: Ran 1 test', 'OK testb: Ran 1 test'])
+                              'test-c.py': FAILING, 'test\u00e9.py': PASSING})
+        self.assertEqual(reported(done), ['OK test_a: Ran 1 test', 'OK testb: Ran 1 test',
+                                          'OK test\u00e9: Ran 1 test'])
 
     def test_a_width_that_is_not_a_positive_integer_is_refused_before_any_module_runs(self):
         """A zero or negative width, or one that is not a number, made the polling loop wait forever."""
