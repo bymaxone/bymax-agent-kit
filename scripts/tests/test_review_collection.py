@@ -1,5 +1,6 @@
 """What the matrix runner counts as a test that ran, and what the campaign asks pytest about which
 files hold one."""
+import importlib.metadata
 import os
 import subprocess
 import sys
@@ -35,6 +36,21 @@ YAML_CONFTEST = ('import pytest\ncollect_ignore = ["cases/skip.yaml"]\n\n\n'
                  'class YamlItem(pytest.Item):\n    def runtest(self):\n        assert True\n')
 
 
+def pytest_major():
+    """The major version of the pytest the matrix runs, which is this interpreter's; 0 where none
+    is installed."""
+    try:
+        return int(importlib.metadata.version('pytest').split('.')[0])
+    except importlib.metadata.PackageNotFoundError:
+        return 0
+
+
+# Before pytest 9, without pytest-subtests 0.14 or later, the first subTest that skips ends the
+# node as `1 skipped`, so a case about subtests there passes or fails for another reason.
+BEFORE_SUBTESTS = 'subtest cases need pytest 9, or pytest-subtests 0.14 or later; on older ' \
+                  'versions a node whose subtests skip reads as not run and is refused'
+
+
 def commit(where, message='more'):
     subprocess.run(['git', '-C', str(where), 'add', '-A'], check=True)
     subprocess.run(['git', '-C', str(where), '-c', 'user.email=a@b.invalid', '-c', 'user.name=A',
@@ -44,6 +60,7 @@ def commit(where, message='more'):
 class RanTests(unittest.TestCase):
     """What a clean run of one node must show before the matrix measures it or demands it."""
 
+    @unittest.skipIf(pytest_major() < 9, BEFORE_SUBTESTS)
     def test_a_node_whose_every_subtest_skipped_did_not_run(self):
         """pytest reports a unittest node whose every subTest skipped as `1 passed, 2 skipped`,
         so it was kept as run, and a mutant that un-skipped it was recorded as a catch. A node
@@ -53,6 +70,7 @@ class RanTests(unittest.TestCase):
                                                    'test_thing.py::Sub::test_some_run'])
         self.assertEqual(kept, ['test_thing.py::Sub::test_some_run'])
 
+    @unittest.skipIf(pytest_major() < 9, BEFORE_SUBTESTS)
     def test_a_node_that_asserts_after_every_subtest_skipped_is_refused(self):
         """Nothing pytest reports tells an assertion after all-skipped subtests from a return
         there, so the node reads as one that did not run: the refusal is the chosen direction,

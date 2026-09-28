@@ -22,7 +22,14 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | Standup skill block reads another run's arguments, runs the collect with no temporary directory, or leaves a failed collect's directory behind | `scripts/tests/test_report_skill_block.py` |
 | Standup period resolves a typo to a default week, or a subject's type or scope, or a ref's branch name, is misread | `scripts/tests/test_report_period.py` |
 | Standup collector loads a module the `python3` a machine has cannot parse, or whose annotations it cannot evaluate | `scripts/tests/test_report_interpreter.py` |
+| The mutation matrix counts a node that never ran, or an enumeration cut off while a writer it left prints | `scripts/tests/test_review_collection.py` and `scripts/tests/test_review_runs.py` |
 | Bundle drifts, package cannot be installed or skills are undiscoverable | `codex/tests/test_bundle.py`, `test_install.py` and isolated CLI skill discovery |
+
+The mutation matrix reads whether a node ran from what pytest reports. Subtest cases need
+pytest 9, or pytest-subtests 0.14 or later; on older versions a node whose subtests skip
+reads as not run and is refused. On any version, a node that asserts after every subTest
+skipped reads as one that returned there, and is refused too; the test pinning that
+subtest behaviour skips on pytest before 9.
 
 Instruction text also needs behavioral evaluation: a valid Markdown/YAML document may
 still contain contradictory role assignments. For changes to orchestration, use an
