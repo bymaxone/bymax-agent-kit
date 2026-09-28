@@ -82,6 +82,13 @@ python3 "$FLOW" prompt
 python3 "$FLOW" codex
 ```
 
+Tell the round which branch the work merges into with `--base-branch-file <file>` (a file whose
+first line is the branch, as `/bymax-pr:push` writes one) or `--base-branch <ref>`. Only the
+first-parent line is otherwise read as this delta's own work, so a side branch merged in with
+`--no-ff` reads as carried in and a correction whose regression came that way is refused for
+having none; told the base branch, a commit off that line the branch does not reach is this
+delta's. The campaign keeps the branch it was told.
+
 A missing `status` is expected only before the first campaign. `start` is idempotent for
 the same HEAD/base/context: reuse recorded reviewers instead of rerunning them. When a
 campaign is unfinished, keep its original base and contract — intent, acceptance, constraints,
