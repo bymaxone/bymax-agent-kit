@@ -1059,7 +1059,9 @@ class CollectTests(CollectBench):
         repo = self.clone_that_fetched_late()
         sha = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'origin/main'], check=True,
                              capture_output=True, text=True, env=isolated()).stdout.strip()
-        subprocess.run(['git', '-C', str(repo), 'branch', '-q', 'cafe1234', 'origin/main'], check=True, env=isolated())
+        for ref in ('cafe1234', 'feat/x', 'feat/y'):
+            subprocess.run(['git', '-C', str(repo), 'branch', '-q', ref, 'origin/main'], check=True, env=isolated())
+        subprocess.run(['git', '-C', str(repo), 'tag', 'v1.2', 'origin/main'], check=True, env=isolated())
         table = {
             "commit (merge): Merge remote-tracking branch 'origin/main'": True,
             "commit (merge): Merge remote-tracking branch 'origin/main' into feat/x": True,
@@ -1070,6 +1072,12 @@ class CollectTests(CollectBench):
             f"commit (merge): Merge commit '{sha}'": True,
             f"commit (merge): Merge commits 'feat/x' and '{sha[:7]}'": True,
             'commit (merge): Resolve the conflict with the release': True,
+            # What a pull with no branch, a merge of FETCH_HEAD, a revision of a tracking ref, a
+            # message written by hand and a branch deleted since record: nothing says it was ours.
+            'commit (merge): Merge https://github.com/o/r': True,
+            "commit (merge): Merge commit 'origin/main~0'": True,
+            'commit (merge): Merge upstream main': True,
+            "commit (merge): Merge branch 'gone'": True,
             "commit (merge): Merge branch 'feat/x'": False,
             "commit (merge): Merge branch 'feat/x' into main": False,
             "commit (merge): Merge branches 'feat/x' and 'feat/y'": False,
@@ -1087,7 +1095,8 @@ class CollectTests(CollectBench):
         so its reflog holds `commit (merge):` and the merge's subject. The remote is called
         upstream, so no origin/main exists and the delivery ref is the local main. `how` says
         what was merged: `remote-tracking` merges upstream/main after a fetch, `pull` pulls
-        from the remote, whose subject names the repository, and `local` merges a branch of
+        from the remote, whose subject names the repository, `pull-url` pulls a URL with no
+        branch, whose subject is `Merge <url>`, and `local` merges a branch of
         our own. Each merged commit was written before the period, so only its landing can
         select it."""
         root = self.tmp / ('committed-merge-' + how); root.mkdir(parents=True)
@@ -1119,7 +1128,8 @@ class CollectTests(CollectBench):
             git(app, 'fetch', '-q', 'upstream')
         change(app, 'l', 'feat(l): our own change in the week', '2026-09-15T12:00:00Z')
         merge = {'local': ('merge', 'feat/x'), 'remote-tracking': ('merge', 'upstream/main'),
-                 'pull': ('pull', '--no-rebase', 'upstream', 'main')}[how]
+                 'pull': ('pull', '--no-rebase', 'upstream', 'main'),
+                 'pull-url': ('pull', '--no-rebase', str(up))}[how]
         # Stops on the conflict in f, which is what leaves the merge to `git commit`.
         git(app, *merge, when='2026-09-16T12:00:00Z', check=False)
         (app / 'f').write_text('resolved')
@@ -1132,7 +1142,7 @@ class CollectTests(CollectBench):
         the reflog at the start of the period was trusted and the commits the merge brought in
         read as landed here in the week; after a catch-up nothing recorded where the branch
         stood when the week began, so what landed is not claimed."""
-        for how in ('remote-tracking', 'pull'):
+        for how in ('remote-tracking', 'pull', 'pull-url'):
             with self.subTest(how=how):
                 data = self.m.collect(self.repo_that_committed_a_merge(how), self.since, self.until,
                                       self.home, use_gh=False)

@@ -104,28 +104,36 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
     return any(names_another_repository(repo, operand) for operand in operands)
 
 
+# The subject git writes for a merge of refs of ours, and nothing else: every other shape,
+# a pull with no branch (`Merge <url>`), a tracking ref or a message written by hand, is read
+# as a catch-up.
+OURS_MERGED = re.compile(r"Merge (?:branch|branches|tag|commit|commits) '[^']*'"
+                         r"(?:(?:,| and|, and) '[^']*')*(?: into \S+)?")
+
+
 def committed_merge_syncs(repo: Path, subject: str) -> bool:
     """Whether a merge concluded by ``git commit`` caught this repository up with another one.
 
     A merge that stops on a conflict writes nothing to the reflog, and the commit that
     concludes it writes ``commit (merge):`` and the merge's subject. What was merged, which a
     ``merge`` entry names before its colon, is then only in the words git's merge message
-    uses: ``Merge remote-tracking branch 'origin/main'`` for a tracking ref, ``Merge branch
-    'main' of <url>`` for what a pull fetched, ``Merge branch 'feat/x'`` or ``Merge tag 'v1'``
-    for a ref of ours. A ref name holds no space, so neither ``remote-tracking branch`` nor
-    ``' of '`` can come from one of the names. A name spelled as an object id is
-    ``names_another_repository``'s question, and a branch of ours called like one resolves to
-    its own name there. A subject that is not a merge message names nothing, and is a catch-up
-    as a ``merge`` entry without an operand is, since nothing says it was local. A subject
-    rewritten by hand that happens to hold `` of `` reads as a catch-up too: that leaves the
-    period's landing unknown, which is the direction that never over-reports.
+    uses, and they decide it only one way: the merge is local work when the subject has the
+    shape git writes for ``Merge branch 'feat/x'``, ``Merge tag 'v1'`` or ``Merge commit
+    'name'`` and every name it quotes is a branch or a tag of ours today. Anything else is a
+    catch-up, which leaves the period's landing unknown rather than over-reported: a pull with
+    no branch writes ``Merge <url>``, a merge of ``FETCH_HEAD`` the same, a tracking ref or a
+    revision of one resolves outside ``refs/heads`` and ``refs/tags``, a message written by
+    hand or a branch deleted since names nothing that is ours.
     """
-    if not subject.startswith('Merge '):
+    if not OURS_MERGED.fullmatch(subject):
         return True
-    if 'remote-tracking branch' in subject or ' of ' in subject:
-        return True
-    return any(OBJECT_ID.fullmatch(name) and names_another_repository(repo, name)
-               for name in QUOTED.findall(subject))
+    return not all(ours(repo, name) for name in QUOTED.findall(subject))
+
+
+def ours(repo: Path, name: str) -> bool:
+    """Whether a name a merge subject quotes is a branch or a tag of this repository."""
+    code, named, _ = git_out(repo, 'rev-parse', '--symbolic-full-name', name)
+    return code == 0 and named.strip().startswith(('refs/heads/', 'refs/tags/'))
 
 
 def names_another_repository(repo: Path, operand: str) -> bool:
