@@ -1044,16 +1044,21 @@ def correction_brief(state):
 
 
 def regression_note(measured):
-    """What reviewers are told when no changed test fails before the correction, as lines."""
-    if not measured or measured['failing_before']:
+    """What reviewers are told about the changed tests run before the correction, as lines. The
+    unread files are named whether or not another file failed there: their edited nodes were
+    never asked, and a failing neighbour says nothing about them."""
+    if not measured:
         return []
-    unread = measured['unread_before']
-    return ['No test this correction changed fails before it: run against the previous '
-            "candidate's code, every node of the changed test files passed. That is right for a "
-            'correction that repairs a test and no code; for one that changes code, judge whether '
-            'its regression proves anything.'
-            + (' Not asked, because the previous tree could not collect them: ' + ', '.join(unread) + '.'
-               if unread else '')]
+    lines = []
+    if not measured['failing_before']:
+        lines.append('No test this correction changed fails before it: run against the previous '
+                     "candidate's code, every node of the changed test files passed. That is right "
+                     'for a correction that repairs a test and no code; for one that changes code, '
+                     'judge whether its regression proves anything.')
+    if measured['unread_before']:
+        lines.append('Not asked, because the previous tree could not collect them: '
+                     + ', '.join(measured['unread_before']) + '.')
+    return lines
 
 
 def delivery_note(state):

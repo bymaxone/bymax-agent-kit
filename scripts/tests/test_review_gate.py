@@ -599,6 +599,16 @@ class MatrixGateTests(FlowBench):
         prompt = self.text('prompt')
         self.assertIn('Not asked, because the previous tree could not collect them: tests/test_calc.py', prompt)
 
+    def test_a_file_the_previous_tree_cannot_read_is_named_beside_a_failing_one(self):
+        """The unread files rode on the note that no changed test fails before the correction, so a
+        second file whose node did fail silenced them, and neither reviewer learned one was never
+        asked."""
+        import review_flow
+        note = ' '.join(review_flow.regression_note({'failing_before': ['tests/test_a.py::test_a'],
+                                                     'unread_before': ['tests/test_b.py']}))
+        self.assertIn('Not asked, because the previous tree could not collect them: tests/test_b.py', note)
+        self.assertNotIn('No test this correction changed fails before it', note)
+
     def test_the_test_the_delta_changed_is_the_test_that_must_catch(self):
         """Found by a reviewer: a file is credited when any node of it failed, so a vacuous
         test added beside a test that already discriminated made the record say the file
