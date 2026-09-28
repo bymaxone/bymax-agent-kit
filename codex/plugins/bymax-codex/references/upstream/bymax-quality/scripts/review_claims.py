@@ -46,9 +46,10 @@ GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|
 NOTED = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone|'
                    r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?)\b',
                    re.IGNORECASE)
-# A move or a new state records a removal only with its target: "`X` is now `Y`" is a note, while
-# "`X` is now enabled" and "`X` moved to the top" describe X as live.
-TARGETED = re.compile(r'\b(moved to|is now)\s+`', re.IGNORECASE)
+# A move or a new state records a removal only with its target, and only as the name's own: "`X` is
+# now `Y`" and "`X` was moved to `y.py`" are notes, while "`X` is now enabled", "`X` moved to the
+# top" and "`X` stays because `Y` is now `Z`" describe X as live. Filled with the escaped name.
+TARGETED = r'\b%s\b`?\s+(?:(?:was|has been)\s+)?(?:moved to|is now)\s+`'
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
 # Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
@@ -537,7 +538,8 @@ def records_removal(line, token):
     parts = re.split(r'(\.(?!\w)|;|—)', line)
     clauses, marks = parts[0::2], parts[1::2]
     names = lambda clause: re.search(r'\b%s\b' % re.escape(token), clause)
-    says = lambda clause: NOTED.search(re.sub(r'`[^`]*`', ' ', clause)) or TARGETED.search(clause)
+    says = lambda clause: (NOTED.search(re.sub(r'`[^`]*`', ' ', clause))
+                           or re.search(TARGETED % re.escape(token), clause, re.IGNORECASE))
     named = []
     for at, clause in enumerate(clauses):
         if not names(clause):

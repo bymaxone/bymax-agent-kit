@@ -82,7 +82,7 @@
   "bymax-quality/references/review-protocol.md": "dfa398425d39825c21f7ded8b8fc7e04c62d356dda277066880ea6392e2fc70b",
   "bymax-quality/scripts/codex-review.sh": "514bf17cb6cb44be94acc3a274b72e26c18bc3a12e32b7269a0cd2832d045b7b",
   "bymax-quality/scripts/review-report.schema.json": "57ea49d9698c093fe1e25c7ca737dce3ac8f31e1fc745b45b0ddec0a21c15e25",
-  "bymax-quality/scripts/review_claims.py": "733882b68d4a1e269c7b2f87f4b6ff10148ed01d45b7a76d8d8d95e94f82de9c",
+  "bymax-quality/scripts/review_claims.py": "acf6ced3176ff99135919e011b9c81aaa99914c9cee2a33197c6e3834bd290e4",
   "bymax-quality/scripts/review_claude.py": "e4a904943dd07b0edf2914159f6681f9b93ed3320d407b76064ace7c1ff987fa",
   "bymax-quality/scripts/review_codex.py": "6167fe13925d6f8c440da8a8eeb7a28023da523363eb659b22928813fd71890f",
   "bymax-quality/scripts/review_collect.py": "5a69f3b85dc6d5ddc5c3c3f00e058e1ee51fb3cbd3dfa1823f4bc68b8d0fd859",

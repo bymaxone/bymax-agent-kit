@@ -22,7 +22,8 @@ class RemovalNoteTests(unittest.TestCase):
                 'Deleted `review_flow.py` and `OLD_HELPER`.', '`OLD_HELPER` was renamed to `NEW_HELPER`.',
                 'Rename `OLD_HELPER` to `NEW_HELPER`.', 'Replaced `OLD_HELPER` with `NEW_HELPER`.',
                 '`NEW_HELPER` supersedes `OLD_HELPER`.', '`OLD_HELPER` moved to `review_git.py`.',
-                '`OLD_HELPER` is now `NEW_HELPER`.', '`OLD_HELPER` — removed in 2.0.')
+                '`OLD_HELPER` is now `NEW_HELPER`.', '`OLD_HELPER` — removed in 2.0.',
+                '`OLD_HELPER` was moved to `review_git.py`.')
     # A clause naming the name with no removal word outside a quoted span asserts it.
     REFUSED = ('Call `OLD_HELPER` first.', 'Set `OLD_HELPER` first. The old cache was removed.',
                '`OLD_HELPER` runs `git worktree remove`.', 'Run `OLD_HELPER --deleted` to list them.',
@@ -31,7 +32,10 @@ class RemovalNoteTests(unittest.TestCase):
                '`OLD_HELPER` was removed; call `OLD_HELPER` first.', '`OLD_HELPER` — call it first.',
                '`OLD_HELPER` — removed; `OLD_HELPER` — call it.',
                # A move or a new state is a note only with a target: these describe the name as live.
-               '`OLD_HELPER` is now enabled by default.', '`OLD_HELPER` moved to the top of the list.')
+               '`OLD_HELPER` is now enabled by default.', '`OLD_HELPER` moved to the top of the list.',
+               # The move or the new state has to be the name's own: another name's does not retire it.
+               '`OLD_HELPER` remains enabled because `CACHE_MODE` is now `NEW_MODE`.',
+               '`OLD_HELPER` reads `x.py` since `CACHE` moved to `y.py`.')
 
     def test_a_line_saying_the_name_is_gone_is_reported_not_refused(self):
         """Every clause naming the name must say it is gone, outside every quoted span, for the
