@@ -12,7 +12,8 @@ import sys
 import review_delivery
 from review_delivery import scope_of as scope
 from review_delta import claims_settled, delta_view
-from review_evidence import collected_elsewhere, is_test_path, matrix_first, matrix_run, tests_changed
+from review_evidence import (collected_elsewhere, is_test_path, matrix_first, matrix_run, removed_tests,
+                             tests_changed)
 from review_codex import codex_check, codex_review
 from review_git import clean_head, for_a_reader, git, git_raw, require
 from review_hook import install_hook
@@ -185,9 +186,14 @@ def widened(old, head, answers=()):
     # listing above yields it raw, and the two sets then spell the same file differently.
     changed = git_raw('diff', '-z', '--name-only', old['head'], head)
     touched = [path for path in changed.split('\0') if path]
-    extra = [path for path in touched
-             if path not in named and not is_test_path(path) and not generated_path(path)]
-    return sorted(set(extra) - collected_elsewhere(extra))
+    extra = {path for path in touched
+             if path not in named and not is_test_path(path) and not generated_path(path)}
+    # A deleted file cannot be asked about in the corrected tree, so the reviewed candidate's is
+    # asked: a test the project names its own way, deleted, is still the correction's test.
+    gone = extra & {path for path in git_raw('diff', '-z', '--name-only', '--no-renames',
+                                             '--diff-filter=D', old['head'], head).split('\0') if path}
+    tests = collected_elsewhere(sorted(extra - gone)) | set(removed_tests(old['head'], sorted(gone)))
+    return sorted(extra - tests)
 
 
 def blocks_a_receipt(finding):

@@ -189,6 +189,21 @@ class NamedItsOwnWayTests(FlowBench):
         self.assertNotIn('No open finding names', refused)
         self.assertIn('no measured mutation matrix exists', refused)
 
+    def test_a_correction_that_deletes_such_a_test_does_not_widen_its_scope(self):
+        """A deleted file cannot be asked about in the corrected tree, so a test the project
+        names its own way, once deleted, read as a file no finding named."""
+        self.the_project_names_its_tests()
+        (self.repo / 'checks/check_gone.py').write_text(TEST_G)
+        self.commit('a project that names its tests its own way')
+        self.start()
+        self.report('claude', [dict(id='values.py:wrong', kind='defect', priority='P1', evidence='wrong')])
+        self.report('codex', [])
+        self.triage([dict(id='claude::values.py:wrong', status='open', evidence='Confirmed')])
+        (self.repo / 'values.py').write_text('ONE = 1\nTWO = 2\nTHREE = 3\n')
+        (self.repo / 'checks/check_gone.py').unlink()
+        self.save('fix what the finding named, and delete a test')
+        self.start(correction=True)
+
     def test_a_merged_in_test_named_its_own_way_is_listed(self):
         """The merged-in list was read by name, so a test merged from a side branch was not
         shown to reviewers as one."""
