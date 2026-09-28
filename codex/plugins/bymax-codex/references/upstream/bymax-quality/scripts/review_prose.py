@@ -76,10 +76,15 @@ after you and refuses the whole pass if any of that happened."""
 
 SCOPED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
+# How every git read here decodes, as review_git.git_raw() does: names as the filesystem encodes
+# them, with bytes that do not decode kept as surrogate escapes. A name need not be UTF-8, and a
+# strict read raised on it instead of listing it; an escape reaches git and os again as the byte.
+AS_GIT = dict(encoding=sys.getfilesystemencoding(), errors='surrogateescape')
+
 
 def git(*args, cwd=None):
     """Answered about the worktree, not about the directory the process was started in."""
-    done = subprocess.run(['git', *args], capture_output=True, text=True,
+    done = subprocess.run(['git', *args], capture_output=True, **AS_GIT,
                           cwd=review_claims.root(cwd))
     return done.stdout if done.returncode == 0 else ''
 
@@ -111,9 +116,9 @@ def changed(cwd=None):
         # asked for explicitly, so a user who turned it off does not get a clean tree refused.
         listed = subprocess.run(['git', '-c', 'diff.autoRefreshIndex=true', 'diff', '--name-only', '-z',
                                  '--ignore-submodules=none', 'HEAD'],
-                                cwd=root, env=env, check=True, capture_output=True, text=True).stdout
+                                cwd=root, env=env, check=True, capture_output=True, **AS_GIT).stdout
         others = subprocess.run(['git', 'ls-files', '-z', '--others', '--exclude-standard'],
-                                cwd=root, env=env, check=True, capture_output=True, text=True).stdout
+                                cwd=root, env=env, check=True, capture_output=True, **AS_GIT).stdout
     finally:
         if os.path.exists(scratch):
             os.unlink(scratch)
@@ -147,7 +152,7 @@ def ignored(cwd=None):
     its inside is not this repository's; a directory entry is recorded by name alone."""
     root = review_claims.root(cwd)
     out = subprocess.run(['git', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
-                         cwd=root, check=True, capture_output=True, text=True).stdout
+                         cwd=root, check=True, capture_output=True, **AS_GIT).stdout
     found = {}
     for name in (n for n in out.split('\0') if n):
         found[name] = identity(Path(root) / name)
