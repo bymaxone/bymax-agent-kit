@@ -1168,11 +1168,10 @@ correct change hostage to text no test can check is the failure mode this field 
 def gate_first(state, directory):
     """Refuse to hand a candidate to a reviewer before its own declared gates have passed.
 
-    Both adapters call this before reserving their attempt. It raises from inside prompt(),
-    which they evaluate only as the subprocess input, so reserving first spent an attempt on a
-    refusal that never reached a reviewer — two of them exhausted the per-candidate budget with
-    nothing read, after which execute_codex diverts to an availability probe and reports a
-    spent budget for a reason Codex was never part of.
+    It raises from inside prompt(), which both adapters build before reserving their attempt:
+    built after it, a refusal that never reached a reviewer spent an attempt, and enough of them
+    exhausted the per-candidate budget with nothing read, after which execute_codex diverts to
+    an availability probe and reports a spent budget for a reason Codex was never part of.
 
     A reviewer round is the scarcest thing a campaign spends, and a failing suite spends it
     on what the suite already reports. Measured here: rounds were lost to a test that read
@@ -1507,17 +1506,29 @@ BUDGET_SPENT = (
     'incomplete one never advances a round.')
 
 
-def reserve_codex(directory):
+def reserve_codex(directory, opening=None):
     """Reserve one attempt without holding the lock throughout model execution."""
     with locked(directory):
         state = read_state(directory)
         current(state)
         require('codex' not in state['reviews'], 'Reuse the completed Codex review.')
         require(state.get('codex_attempts', 0) < 2, BUDGET_SPENT)
+        require(opening is None or unmoved(state, opening), MOVED)
         state['codex_attempts'] = state.get('codex_attempts', 0) + 1
         state['codex_running'] = True
         save(directory, state)
         return state
+
+
+# Asked under the lock that reserves the attempt, before it is counted: the task was built from
+# `opening`, and a check recorded since then may have failed, or be running, which the task
+# would tell a reviewer had passed.
+MOVED = 'The campaign moved, or a gate ran while this review was being prepared; run it again.'
+
+
+def unmoved(state, opening):
+    """Whether the campaign is still the one a review task was built from."""
+    return all(state.get(key) == opening.get(key) for key in ('head', 'round', 'review_base', 'checks'))
 
 
 def spent(directory):
@@ -1706,38 +1717,21 @@ def execute_codex(directory, owner_fd):
     already spent there is no review left to run, and the question that remains — whether
     this machine has a reviewer at all — is answered by an availability probe instead.
     """
-    gate_first(read_state(directory), directory)   # before the attempt is reserved, never after
+    opening = read_state(directory)
+    gate_first(opening, directory)   # before the attempt is reserved, never after
     exhausted = spent(directory)
     if exhausted is not None:
         return availability(directory, exhausted, owner_fd)
-    state = reserve_codex(directory)
-    report = directory / f"codex-{state['round']}-{state['codex_attempts']}.json"
-    log = report.with_suffix('.log')
-    schema = directory / 'report-schema.json'
+    # Built before the attempt is reserved: prompt() runs the gates again, and a collect that
+    # fails the second time would otherwise spend the attempt on a review nobody ran.
+    task = prompt(opening, directory)
+    state = reserve_codex(directory, opening)
     try:
         binary = resolve_codex()
         if binary is None:
             waive(directory, state, 'absent', '', '', '')
         else:
-            schema.write_text(Path(__file__).with_name('review-report.schema.json').read_text())
-            # The resolved absolute path, never the bare name: the binary a waiver names must
-            # be the installed one, not whatever a single command's $PATH pointed at.
-            profile = escalation(state)
-            if profile:
-                print('Decisive round: this Codex pass uses the ' + ESCALATED_PROFILE
-                      + ' profile from ' + str(codex_home()) + '.', file=sys.stderr)
-            command = [binary, 'exec', *profile, '-c', 'approval_policy="never"', '--sandbox',
-                       'read-only', '--ephemeral', '--output-schema', str(schema),
-                       '--output-last-message', str(report), '-']
-            with log.open('w') as output:
-                result = subprocess.run(command, input=for_a_reader(prompt(state, directory)), text=True, encoding='utf-8',
-                                        stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
-            if result.returncode == 0:
-                with locked(directory):
-                    latest = read_state(directory)
-                    record(argparse.Namespace(reviewer='codex', report=str(report)), directory, latest)
-            else:
-                codex_outcome(directory, state, log, binary)
+            run_codex(directory, state, task, binary, owner_fd)
     finally:
         with locked(directory):
             latest = read_state(directory)
@@ -1745,6 +1739,32 @@ def execute_codex(directory, owner_fd):
                 latest['codex_running'] = False
                 save(directory, latest)
     return latest
+
+
+def run_codex(directory, state, task, binary, owner_fd):
+    """One read-only Codex pass over the task, recorded when it completes. The binary is the
+    resolved absolute path, never the bare name: the binary a waiver names must be the installed
+    one, not whatever a single command's $PATH pointed at."""
+    report = directory / f"codex-{state['round']}-{state['codex_attempts']}.json"
+    log = report.with_suffix('.log')
+    schema = directory / 'report-schema.json'
+    schema.write_text(Path(__file__).with_name('review-report.schema.json').read_text())
+    profile = escalation(state)
+    if profile:
+        print('Decisive round: this Codex pass uses the ' + ESCALATED_PROFILE
+              + ' profile from ' + str(codex_home()) + '.', file=sys.stderr)
+    command = [binary, 'exec', *profile, '-c', 'approval_policy="never"', '--sandbox',
+               'read-only', '--ephemeral', '--output-schema', str(schema),
+               '--output-last-message', str(report), '-']
+    with log.open('w') as output:
+        result = subprocess.run(command, input=for_a_reader(task), text=True, encoding='utf-8',
+                                stdout=output, stderr=subprocess.STDOUT, timeout=600, pass_fds=(owner_fd,))
+    if result.returncode == 0:
+        with locked(directory):
+            latest = read_state(directory)
+            record(argparse.Namespace(reviewer='codex', report=str(report)), directory, latest)
+    else:
+        codex_outcome(directory, state, log, binary)
 
 
 def codex_check():
