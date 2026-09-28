@@ -23,7 +23,7 @@ def regression_note(state):
     also = ('' if not carried else
             ' This delta also changes ' + ', '.join(carried) + ', none of it on its own '
             'first-parent line, so nothing here can say whose work it is and no matrix is asked '
-            'for it. Judge those changes on the diff.')
+            'for it. Judge those changes on the diff.') + told_note(state.get('base_branch', ''))
     if tests:
         return ('Tests changed in this delta: ' + ', '.join(tests)
                 + '. A test whose expectation was flipped rather than added must be justified '
@@ -34,6 +34,17 @@ def regression_note(state):
                 + '. Judge whether that is justified.' + also)
     return ('No test this correction wrote changed. Judge whether a delta this size can carry '
             'no case.' + also)
+
+
+def told_note(branch):
+    """The base branch the round was told, named so a wrong one is visible to the reviewers:
+    it decides which commits read as carried in, and with them which tests this note names."""
+    if not branch:
+        return ''
+    return (' This round was told its base branch: ' + branch + '. A commit off the first-parent '
+            'line that it does not reach is read as this delta\'s own, and one it reaches as carried '
+            'in; if that is not the branch this work merges into, report it, because the tests '
+            'named here are then wrong.')
 
 
 def code_touched(base, head):

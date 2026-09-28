@@ -83,11 +83,21 @@ python3 "$FLOW" codex
 ```
 
 Tell the round which branch the work merges into with `--base-branch-file <file>` (a file whose
-first line is the branch, as `/bymax-pr:push` writes one) or `--base-branch <ref>`. Only the
+first line is the branch, as `/bymax-pr:push` writes one) or `--base-branch <ref>`. The value
+must name a branch, a ref under `refs/heads/` or `refs/remotes/` such as `origin/main`; a commit
+id, a tag or an expression like `main~1` is refused. Only the
 first-parent line is otherwise read as this delta's own work, so a side branch merged in with
 `--no-ff` reads as carried in and a correction whose regression came that way is refused for
 having none; told the base branch, a commit off that line the branch does not reach is this
-delta's. The campaign keeps the branch it was told.
+delta's. Both reviewers' brief names the branch the round was told, so a wrong one is visible.
+
+The campaign keeps the branch it was told: another one named later is refused. A campaign told
+none may be told one in a later round — a review begun with `/bymax-quality:code-review` is
+continued by `/bymax-pr:push` with the file — since a branch only adds commits to what counts
+as this delta's and so only adds to the tests a round must answer for. Named on a restart of
+the same candidate, it is kept until a reviewer has read that candidate, and on a correction
+round only when it reads the same regression tests the round froze; otherwise name it on the
+next candidate.
 
 A missing `status` is expected only before the first campaign. `start` is idempotent for
 the same HEAD/base/context: reuse recorded reviewers instead of rerunning them. When a
