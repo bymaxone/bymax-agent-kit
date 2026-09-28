@@ -380,7 +380,7 @@ def failing_before(base, changed, names):
         return failing, unread
     with archived(base) as older:
         for name in [name for name in changed if Path(root, name).is_file()]:
-            target = Path(older, name)
+            target = unlinked(older, name)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(Path(root, name), target)
         for name in here:
@@ -397,6 +397,18 @@ def failing_before(base, changed, names):
         with archived('HEAD') as newer:
             failing = [node for node in failing if review_matrix.ran_alone(newer, [node])]
     return sorted(failing), unread
+
+
+def unlinked(older, name):
+    """Where a file of the head goes in the unpacked tree, with every link on the way removed
+    rather than followed: the previous tree may track as a link what the head tracks as a file or
+    a directory, and a copy through that link wrote outside the tree."""
+    where = Path(older)
+    for part in Path(name).parts:
+        where = where / part
+        if where.is_symlink():
+            where.unlink()
+    return where
 
 
 @contextlib.contextmanager

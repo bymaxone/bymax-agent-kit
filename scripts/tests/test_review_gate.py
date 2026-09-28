@@ -563,6 +563,32 @@ class MatrixGateTests(FlowBench):
         self.assertEqual(review_evidence.failing_before(before, ['tests/test_git.py'], ['tests/test_git.py']),
                          ([], []))
 
+    def test_a_link_the_previous_tree_tracks_is_not_written_through(self):
+        """The head's copy of a changed test was written to its path in the unpacked previous tree,
+        and where that tree tracked the path, or a directory above it, as a link, the copy
+        followed it and overwrote a file outside the tree."""
+        victim = self.root / 'victim.txt'
+        victim.write_text('kept\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_link.py').symlink_to(victim)
+        (self.repo / 'linked').symlink_to(self.root / 'outside', target_is_directory=True)
+        (self.root / 'outside').mkdir()
+        self.commit('a test path and a directory the tree tracks as links')
+        before = self.git('rev-parse', 'HEAD')
+        (self.repo / 'tests/test_link.py').unlink()
+        (self.repo / 'tests/test_link.py').write_text('def test_link():\n    assert True\n')
+        (self.repo / 'linked').unlink()
+        (self.repo / 'linked').mkdir()
+        (self.repo / 'linked/test_under.py').write_text('def test_under():\n    assert True\n')
+        self.commit('the head tracks them as a file and a directory')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        changed = ['tests/test_link.py', 'linked/test_under.py']
+        review_evidence.failing_before(before, changed, changed)
+        self.assertEqual(victim.read_text(), 'kept\n')
+        self.assertEqual(list((self.root / 'outside').iterdir()), [])
+
     def test_a_node_the_head_skips_does_not_fail_before(self):
         """A skip exits zero, so a regression that fails on the previous tree and is skipped once
         the fix lands read as passing there, and the reviewers were told it fails before the fix."""
