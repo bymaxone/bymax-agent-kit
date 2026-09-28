@@ -449,8 +449,22 @@ def ran_clean(code, tail):
     """Whether a node run alone ran and passed. A skip and an xfail exit zero without running;
     so does a unittest node whose every subTest skipped or expected to fail, which pytest
     reports as `1 passed, 2 skipped` or `1 passed, 2 xfailed` with no subtest passed — a mutant
-    that flips one read as a catch. A test that
-    returns early before any assertion still reads as run: nothing in a summary tells it apart."""
+    that flips one read as a catch. A test that returns early before any assertion still reads
+    as run: nothing in a summary tells it apart.
+
+    The refusal is wider than the nodes that did not run, and that is the chosen direction:
+    refused, a node that ran is left out of what the matrix measures and demands; accepted, one
+    that did not run turns a mutant into a catch. Two such nodes are measured, and neither can be
+    told apart from an all-skipped one by anything pytest reports:
+
+    - A node that runs an assertion after every subTest skipped. pytest 9 reports it as it
+      reports one that returns there — `1 passed, 2 skipped`, a skipped report per subtest and a
+      passed call, the same junit XML. Only a plain `assert` under `enable_assertion_pass_hook`
+      reports its pass, and `self.assertEqual`, which is what a TestCase asserts with, never does.
+    - A node on pytest before 9 without pytest-subtests 0.14 or later. The first subTest that
+      skips ends the node, reported `1 skipped` whatever ran before it, and a subtest that passes
+      reports nothing at all, so no hook sees it either.
+    """
     if outcome(code, tail) != 'passed' or not re.search(r'\d+ passed', tail):
         return False
     return not (re.search(r'\d+ (skipped|xfailed)', tail) and not re.search(r'\d+ subtests? passed', tail))

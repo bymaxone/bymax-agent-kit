@@ -53,6 +53,17 @@ class RanTests(unittest.TestCase):
                                                    'test_thing.py::Sub::test_some_run'])
         self.assertEqual(kept, ['test_thing.py::Sub::test_some_run'])
 
+    def test_a_node_that_asserts_after_every_subtest_skipped_is_refused(self):
+        """Nothing pytest reports tells an assertion after all-skipped subtests from a return
+        there, so the node reads as one that did not run: the refusal is the chosen direction,
+        and a node that stops refusing it has found a signal that must be stated."""
+        bench = Bench(self, test=SUBTESTS + '\n    def test_assert_after(self):\n'
+                                            '        for value in (11, 12):\n'
+                                            '            with self.subTest(value=value):\n'
+                                            '                self.skipTest("later")\n'
+                                            '        self.assertTrue(over(12))\n')
+        self.assertEqual(matrix.ran_alone(str(bench.where), ['test_thing.py::Sub::test_assert_after']), [])
+
     def test_a_case_that_only_expects_to_fail_is_refused_by_what_it_did(self):
         """The refusal is right for a case whose every node is an expected failure; it said the
         nodes were skipped, and quotes the clean run now."""
