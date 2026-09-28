@@ -1072,8 +1072,8 @@ class CollectTests(CollectBench):
             f"commit (merge): Merge commit '{sha}'": True,
             f"commit (merge): Merge commits 'feat/x' and '{sha[:7]}'": True,
             'commit (merge): Resolve the conflict with the release': True,
-            # What a pull with no branch, a merge of FETCH_HEAD, a revision of a tracking ref, a
-            # message written by hand and a branch deleted since record: nothing says it was ours.
+            # What a pull with no branch, a revision of a tracking ref, a message written by
+            # hand and a branch deleted since record: nothing says it was ours.
             'commit (merge): Merge https://github.com/o/r': True,
             "commit (merge): Merge commit 'origin/main~0'": True,
             'commit (merge): Merge upstream main': True,
