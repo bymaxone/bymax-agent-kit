@@ -26,6 +26,9 @@ TOWARD = ('merge', 'reset', 'branch')
 DESTINATION = (' moving to ', ' Reset to ', ' Created from ')
 # An operand spelled as an object id says what the ref moved to and not whose it was.
 OBJECT_ID = re.compile(r'[0-9a-f]{7,64}')
+# A name git quotes in a merge subject. Git writes those subjects in English whatever the
+# reader's language, so the words around the names can be read.
+QUOTED = re.compile(r"'([^']*)'")
 
 
 def git_out(repo: Path, *args: str) -> tuple[int, str, str]:
@@ -71,6 +74,7 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
 
     Anything left over is read as local, because the actions that are not on either list —
     ``commit``, ``update by push``, ``am``, ``cherry-pick`` — move a ref because the work landed.
+    A ``commit (merge)`` concludes a merge, and ``committed_merge_syncs`` reads what it merged.
 
     An entry carrying no action at all is one ``GIT_REFLOG_ACTION=`` produces, and what
     it hides depends on which ref moved. A push writes ``update by push`` on the tracking ref
@@ -85,6 +89,8 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
         return tracking
     if action in SYNCED:
         return True
+    if words == ['commit', '(merge)']:
+        return committed_merge_syncs(repo, tail.strip())
     if action not in TOWARD:
         return False
     operands = words[1:]
@@ -96,6 +102,28 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
     if not operands:
         return True
     return any(names_another_repository(repo, operand) for operand in operands)
+
+
+def committed_merge_syncs(repo: Path, subject: str) -> bool:
+    """Whether a merge concluded by ``git commit`` caught this repository up with another one.
+
+    A merge that stops on a conflict writes nothing to the reflog, and the commit that
+    concludes it writes ``commit (merge):`` and the merge's subject. What was merged, which a
+    ``merge`` entry names before its colon, is then only in the words git's merge message
+    uses: ``Merge remote-tracking branch 'origin/main'`` for a tracking ref, ``Merge branch
+    'main' of <url>`` for what a pull fetched, ``Merge branch 'feat/x'`` or ``Merge tag 'v1'``
+    for a ref of ours. A ref name holds no space, so neither ``remote-tracking branch`` nor
+    ``' of '`` can come from one of the names. A name spelled as an object id is
+    ``names_another_repository``'s question, and a branch of ours called like one resolves to
+    its own name there. A subject that is not a merge message names nothing, and is a catch-up
+    as a ``merge`` entry without an operand is, since nothing says it was local.
+    """
+    if not subject.startswith('Merge '):
+        return True
+    if 'remote-tracking branch' in subject or ' of ' in subject:
+        return True
+    return any(OBJECT_ID.fullmatch(name) and names_another_repository(repo, name)
+               for name in QUOTED.findall(subject))
 
 
 def names_another_repository(repo: Path, operand: str) -> bool:

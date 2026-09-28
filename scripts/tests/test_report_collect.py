@@ -1049,6 +1049,107 @@ class CollectTests(CollectBench):
             with self.subTest(message=message):
                 self.assertIs(reflog.moved_by_syncing(repo, message, False), expected)
 
+    def test_a_merge_concluded_by_hand_is_read_from_its_subject(self):
+        """A merge that stops on a conflict writes nothing to the reflog; the `git commit` that
+        concludes it writes `commit (merge):` and the merge's subject, so what was merged is only
+        in the words git's default merge message uses, measured on git 2.54. A branch of ours named
+        like an object id is still ours. A subject that is not a merge message names
+        nothing, and is a catch-up as a merge entry without an operand is. `commit (amend)` and
+        a plain `commit` are not merges, whatever their subject says."""
+        repo = self.clone_that_fetched_late()
+        sha = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'origin/main'], check=True,
+                             capture_output=True, text=True, env=isolated()).stdout.strip()
+        subprocess.run(['git', '-C', str(repo), 'branch', '-q', 'cafe1234', 'origin/main'], check=True, env=isolated())
+        table = {
+            "commit (merge): Merge remote-tracking branch 'origin/main'": True,
+            "commit (merge): Merge remote-tracking branch 'origin/main' into feat/x": True,
+            "commit (merge): Merge branch 'main' of https://github.com/o/r": True,
+            "commit (merge): Merge branch 'main' of github.com:o/r into feat/x": True,
+            "commit (merge): Merge branches 'a' and 'b' of ../up": True,
+            "commit (merge): Merge branch 'a', remote-tracking branch 'origin/b'": True,
+            f"commit (merge): Merge commit '{sha}'": True,
+            f"commit (merge): Merge commits 'feat/x' and '{sha[:7]}'": True,
+            'commit (merge): Resolve the conflict with the release': True,
+            "commit (merge): Merge branch 'feat/x'": False,
+            "commit (merge): Merge branch 'feat/x' into main": False,
+            "commit (merge): Merge branches 'feat/x' and 'feat/y'": False,
+            "commit (merge): Merge tag 'v1.2'": False,
+            "commit (merge): Merge branch 'cafe1234'": False,
+            "commit (amend): Merge branch 'main' of ../up": False,
+            "commit: Merge branch 'main' of ../up": False,
+        }
+        for message, expected in table.items():
+            with self.subTest(message=message):
+                self.assertIs(reflog.moved_by_syncing(repo, message, False), expected)
+
+    def repo_that_committed_a_merge(self, how):
+        """A local delivery branch that concluded a conflicted merge by hand inside the period,
+        so its reflog holds `commit (merge):` and the merge's subject. The remote is called
+        upstream, so no origin/main exists and the delivery ref is the local main. `how` says
+        what was merged: `remote-tracking` merges upstream/main after a fetch, `pull` pulls
+        from the remote, whose subject names the repository, and `local` merges a branch of
+        our own. Each merged commit was written before the period, so only its landing can
+        select it."""
+        root = self.tmp / ('committed-merge-' + how); root.mkdir(parents=True)
+        env = {**isolated(), 'GIT_AUTHOR_NAME': 'Dev', 'GIT_AUTHOR_EMAIL': 'd@x',
+               'GIT_COMMITTER_NAME': 'Dev', 'GIT_COMMITTER_EMAIL': 'd@x'}
+        def git(where, *args, when=None, check=True):
+            extra = {'GIT_AUTHOR_DATE': when, 'GIT_COMMITTER_DATE': when} if when else {}
+            subprocess.run(['git', '-C', str(where), *args], check=check, capture_output=True, env={**env, **extra})
+        def change(where, text, subject, when):
+            (where / 'f').write_text(text)
+            git(where, 'commit', '-q', '-a', '-m', subject, when=when)
+        up, work, app = root / 'up.git', root / 'work', root / 'app'
+        subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(up)], check=True, capture_output=True, env=env)
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True, env=env)
+        (work / 'f').write_text('0')
+        git(work, 'add', 'f'); git(work, 'commit', '-q', '-m', 'chore: base', when='2026-09-10T12:00:00Z')
+        git(work, 'remote', 'add', 'origin', str(up))
+        git(work, 'push', '-q', '-u', 'origin', 'main')
+        subprocess.run(['git', 'clone', '-q', '--origin', 'upstream', str(up), str(app)],
+                       check=True, capture_output=True,
+                       env={**env, 'GIT_COMMITTER_DATE': '2026-09-11T12:00:00Z'})
+        if how == 'local':
+            git(app, 'checkout', '-q', '-b', 'feat/x')
+            change(app, 'x', 'feat(x): written before, merged in the week', '2026-09-12T12:00:00Z')
+            git(app, 'checkout', '-q', 'main')
+        else:
+            change(work, 'r', 'feat(r): written before, fetched in the week', '2026-09-12T12:00:00Z')
+            git(work, 'push', '-q', 'origin', 'main')
+            git(app, 'fetch', '-q', 'upstream')
+        change(app, 'l', 'feat(l): our own change in the week', '2026-09-15T12:00:00Z')
+        merge = {'local': ('merge', 'feat/x'), 'remote-tracking': ('merge', 'upstream/main'),
+                 'pull': ('pull', '--no-rebase', 'upstream', 'main')}[how]
+        # Stops on the conflict in f, which is what leaves the merge to `git commit`.
+        git(app, *merge, when='2026-09-16T12:00:00Z', check=False)
+        (app / 'f').write_text('resolved')
+        git(app, 'add', 'f'); git(app, 'commit', '-q', '--no-edit', when='2026-09-16T13:00:00Z')
+        return app.resolve()
+
+    def test_a_merge_from_another_repository_concluded_by_hand_is_a_catch_up(self):
+        """A conflicted merge of what another repository sent, concluded with `git commit`, is
+        the same catch-up a plain `merge upstream/main` entry records. Read as a local commit,
+        the reflog at the start of the period was trusted and the commits the merge brought in
+        read as landed here in the week; after a catch-up nothing recorded where the branch
+        stood when the week began, so what landed is not claimed."""
+        for how in ('remote-tracking', 'pull'):
+            with self.subTest(how=how):
+                data = self.m.collect(self.repo_that_committed_a_merge(how), self.since, self.until,
+                                      self.home, use_gh=False)
+                self.assertEqual({c['subject']: c['landed'] for c in data['commits']},
+                                 {'feat(l): our own change in the week': None})
+                self.assertIn('author date alone', data['coverage']['landed'])
+
+    def test_a_merge_of_our_own_branch_concluded_by_hand_is_our_own_work(self):
+        """The same `commit (merge):` entry with a local branch in its subject moved the branch
+        because our own work landed, so the reflog still says what the week received."""
+        data = self.m.collect(self.repo_that_committed_a_merge('local'), self.since, self.until,
+                              self.home, use_gh=False)
+        self.assertEqual({c['subject']: c['landed'] for c in data['commits']},
+                         {'feat(x): written before, merged in the week': True,
+                          'feat(l): our own change in the week': True})
+        self.assertIn('reflog', data['coverage']['landed'])
+
     def test_a_branch_reset_to_the_remote_after_the_period_leaves_the_week_unknown(self):
         """`git checkout -B main upstream/main` writes `branch: Reset to upstream/main`, a
         catch-up; read as local, the reflog was trusted, it stood where we were before the
