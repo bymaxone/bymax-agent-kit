@@ -456,10 +456,7 @@ def directives(text):
     lines = text.split('\n')
     found = []
     try:
-        docstrings = [(node.body[0].lineno, node.body[0].col_offset,
-                       node.body[0].end_lineno, node.body[0].end_col_offset)
-                      for node in ast.walk(ast.parse(text)) if isinstance(node, SCOPED)
-                      and ast.get_docstring(node, clean=False) is not None]
+        docstrings = docstring_spans(text, lines)
         code, anything = 0, False
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
             if tok.type == tokenize.COMMENT and DIRECTIVE.search(tok.string):
@@ -474,6 +471,16 @@ def directives(text):
     except (SyntaxError, tokenize.TokenError):
         return None
     return found
+
+
+def docstring_spans(text, lines):
+    """Where each docstring sits, as (row, column, end row, end column) in characters, the unit
+    tokenize places a token in. The syntax tree places it in UTF-8 bytes, and compared as they
+    were, the code after an accented docstring on its line read as part of the docstring."""
+    column = lambda row, offset: len(lines[row - 1].encode('utf-8')[:offset].decode('utf-8', 'replace'))
+    return [(doc.lineno, column(doc.lineno, doc.col_offset), doc.end_lineno, column(doc.end_lineno, doc.end_col_offset))
+            for doc in (node.body[0] for node in ast.walk(ast.parse(text)) if isinstance(node, SCOPED)
+                        and ast.get_docstring(node, clean=False) is not None)]
 
 
 def envelope(cwd=None):

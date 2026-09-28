@@ -633,6 +633,15 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench.write(elsewhere.replace('    """Doc."""\n', ''))
         self.assertEqual(bench.offences(), [])
 
+    def test_a_directive_after_a_non_ascii_docstring_keeps_its_place(self):
+        """The docstring spans are placed in UTF-8 bytes and the tokens in characters, so the code
+        after an accented docstring on its line read as part of it: shortening the docstring
+        moved the place of every directive after it and was refused."""
+        start = '"""\u00e9\u00e9\u00e9\u00e9\u00e9"""; x = 1\ny = 2  # noqa\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('\u00e9\u00e9\u00e9\u00e9\u00e9', 'e'))
+        self.assertEqual(bench.offences(), [])
+
     def test_a_block_moved_past_its_paragraph_is_not_prose(self):
         """Every code line kept, a fenced block moved ahead of the paragraph it depends on read as
         no change. Cutting the paragraph between two blocks is still a cut."""
