@@ -224,6 +224,18 @@ class BaseBranchStartTests(FlowBench):
                           '--base-branch-file', str(named))
         self.assertEqual(state['base_branch'], 'upstream')
 
+    def test_the_campaign_keeps_the_base_branch_it_was_told(self):
+        """Another branch named later would move which commits count as this delta's, and with
+        them which tests the correction gate demands; the campaign keeps its first answer."""
+        self.git('branch', 'upstream', self.base)
+        self.git('branch', 'elsewhere', self.base)
+        self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        refused = self.flow('start', '--base', self.base, '--context', str(self.context),
+                            '--base-branch', 'elsewhere', ok=False)
+        self.assertIn('keeps the base branch it was told: upstream', refused.stderr)
+        self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context),
+                                   '--base-branch', 'upstream')['base_branch'], 'upstream')
+
 
 if __name__ == '__main__':
     unittest.main()
