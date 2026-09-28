@@ -271,10 +271,19 @@ def prose_size(name, text):
     return count
 
 
+# What may close a sentence after its stop: emphasis, strike-through, a straight or curly quote, a
+# bracket, or the target of the link whose text the stop ends.
+CLOSING = r'(?:\]\([^()\s]*\)|\]\[[^\]\s]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
+# A code span, by CommonMark's rule: a run of backticks closed by a run of the same length.
+SPAN = re.compile(r'(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)')
+
+
 def sentences(name, text):
     """How many sentences a file's prose holds: a stop, a question or an exclamation, and any
-    closing markup after it, followed by a space or the end of the text."""
-    return len(re.findall(r'[.!?][*_`\'")\]]*(?=\s|$)', review_claims.prose(name, text)))
+    closing markup after it, followed by a space or the end of the text. A code span is one
+    word: a `.` spelled inside it is a character the sentence names, not where it ends."""
+    said = SPAN.sub('code', review_claims.prose(name, text))
+    return len(re.findall(r'[.!?]' + CLOSING + r'(?=\s|$)', said))
 
 
 def first_change(name, cwd=None):

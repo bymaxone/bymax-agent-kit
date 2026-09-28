@@ -537,6 +537,32 @@ class EnvelopeShapeTests(unittest.TestCase):
                     name='NOTES.md')
         self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
 
+    def test_a_sentence_closed_inside_any_markup_is_counted(self):
+        """A stop inside link text, before `~~` or before a curly quote ends a sentence as one
+        before `**` does, so joining lines to make room for it is growth too."""
+        notes = '# Notes\n\nThe limit is ten.\nIt holds for every caller.\n'
+        for added in ('[It is checked twice.](details)', '[It is checked twice.][ref]',
+                      '~~It is checked twice.~~', '\u201cIt is checked twice.\u201d',
+                      '\u2018It is checked twice.\u2019'):
+            with self.subTest(added):
+                bench = Bench(self, {'NOTES.md': notes})
+                bench.write(notes.replace('The limit is ten.\nIt holds for every caller.\n',
+                                          'The limit is ten. It holds for every caller. %s\n' % added),
+                            name='NOTES.md')
+                self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
+
+    def test_a_stop_inside_a_code_span_is_not_a_sentence(self):
+        """A literal `.` spelled as code is a character the sentence names, not its end: a
+        reworded sentence quoting it was refused as one that gained a sentence."""
+        notes = '# Notes\n\nSplit the name on the dot first.\n'
+        bench = Bench(self, {'NOTES.md': notes})
+        bench.write(notes.replace('the dot', '`.`'), name='NOTES.md')
+        self.assertEqual(bench.offences(), [])
+        start = 'x = 1  # Split the name on the dot first.\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('the dot', '``.``'))
+        self.assertEqual(bench.offences(), [])
+
     def test_a_type_comment_is_what_a_type_checker_reads(self):
         """`# type: List[int]` is the annotation a type checker reads, and the tree compared
         without type comments called a changed one prose. A line of prose that begins `# type:`
