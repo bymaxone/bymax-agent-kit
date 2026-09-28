@@ -152,6 +152,20 @@ class NotUtf8Tests(unittest.TestCase):
         self.assertIn(b'+caf\\xe9\n', capture.read_bytes())
         capture.read_bytes().decode('utf-8')
 
+    def test_a_branch_name_that_is_not_utf8_locates_its_campaign(self):
+        """A branch is named by bytes, and one that is not UTF-8 raised before any campaign step
+        could run. Its directory is the digest of those bytes, so a UTF-8 branch keeps the
+        directory it always had and a campaign started before is still found."""
+        import hashlib
+        import review_flow
+        common = Path(review_git.git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
+        (self.where / '.git' / 'HEAD').write_bytes(b'ref: refs/heads/caf\xe9\n')
+        self.assertEqual(review_flow.location(),
+                         common / hashlib.sha256(b'refs/heads/caf\xe9').hexdigest())
+        self.git('symbolic-ref', 'HEAD', 'refs/heads/feature/café')
+        self.assertEqual(review_flow.location(),
+                         common / hashlib.sha256('refs/heads/feature/café'.encode()).hexdigest())
+
     def test_the_command_line_prints_a_name_that_is_not_utf8(self):
         """What the runtime prints — a prompt — can carry such a name as an escape,
         which a strict stdout refuses; it is printed as the bytes of the name."""

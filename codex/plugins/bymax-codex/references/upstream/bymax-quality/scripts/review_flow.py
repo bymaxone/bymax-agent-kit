@@ -26,12 +26,16 @@ POLICY = 2
 
 
 def location():
-    """Locate branch state under the shared Git directory, outside source files."""
-    result = subprocess.run(['git', 'symbolic-ref', '--quiet', 'HEAD'], capture_output=True, text=True)
+    """Locate branch state under the shared Git directory, outside source files.
+
+    The directory is the digest of the branch's ref name as the bytes git gave: a name need not
+    be UTF-8, and a UTF-8 one hashes to the directory it always has.
+    """
+    result = subprocess.run(['git', 'symbolic-ref', '--quiet', 'HEAD'], capture_output=True)
     require(result.returncode == 0, 'Detached HEAD has no campaign branch; check out the candidate branch.')
     branch = result.stdout.strip()
     common = Path(git('rev-parse', '--git-common-dir')).resolve()
-    return common / 'bymax-review' / hashlib.sha256(branch.encode()).hexdigest()
+    return common / 'bymax-review' / hashlib.sha256(branch).hexdigest()
 
 
 @contextlib.contextmanager
