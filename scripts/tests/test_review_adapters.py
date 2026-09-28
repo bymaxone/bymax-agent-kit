@@ -101,5 +101,28 @@ class CodexStdinTests(unittest.TestCase):
         self.assertEqual(handed_on(seen), b'tests/test_caf\\xe9.py \xe2\x80\x94 checked')
 
 
+
+class ProsePassStdinTests(unittest.TestCase):
+    """What the prose pass's reader is handed on stdin."""
+
+    def test_a_name_that_is_not_utf8_reaches_the_prose_reader_as_valid_utf8(self):
+        """The task names each file whose prose it hands over, and a name git gave as a
+        surrogate escape cannot be written to a strict UTF-8 stdin: it goes with the byte
+        spelled out, and the runtime's own em dash as its UTF-8 whatever the locale."""
+        sys.path.insert(0, str(FLOW.parent))
+        import review_prose_pass
+        seen = {}
+
+        def run(command, **kwargs):
+            seen.update(kwargs, command=command)
+            return subprocess.CompletedProcess(command, 0)
+        with tempfile.TemporaryDirectory() as box, \
+                mock.patch.object(review_prose_pass.subprocess, 'run', run), \
+                mock.patch.object(review_prose_pass, 'git', lambda *args: box):
+            review_prose_pass.read_with('--- notes-caf\udce9.md \u2014 checked', Path(box) / 'prose.log')
+        self.assertEqual(seen['command'][0], 'claude')
+        self.assertEqual(handed_on(seen), b'--- notes-caf\\xe9.md \xe2\x80\x94 checked')
+
+
 if __name__ == '__main__':
     unittest.main()
