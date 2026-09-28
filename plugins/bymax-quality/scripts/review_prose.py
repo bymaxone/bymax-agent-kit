@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """A prose pass that corrects instead of reporting, inside an envelope a function checks.
 
 A false sentence costs a whole round today: freeze the candidate, two reviewers, triage, a
@@ -472,19 +471,6 @@ def directives(text):
     return found
 
 
-def envelope(cwd=None):
-    """Refuse the pass's own edits when they leave the envelope. Exit status, not advice."""
-    broken = offences(cwd=cwd)
-    for line in broken:
-        print('OUTSIDE  ' + line)
-    if broken:
-        print('\nRevert these and run the pass again. A prose pass that edits behaviour is worse '
-              'than the sentence it came to fix: the reviewers were told it touched no code.')
-        return 1
-    print('%d file(s) changed, prose only, no growth.' % len(changed(cwd=cwd)))
-    return 0
-
-
 def prepare(base, head, cwd=None):
     """The task a fresh reader is given: this delta's added prose, file by file."""
     added = review_claims.added(base, head, cwd=cwd)
@@ -508,18 +494,3 @@ def cut(cwd=None):
         if was is not None and now is not None:
             total += max(0, was - now)
     return total
-
-
-def main(argv):
-    if len(argv) == 4 and argv[1] == 'prepare':
-        text = prepare(argv[2], argv[3], cwd=str(Path.cwd()))
-        print(text or 'This delta added no prose; there is nothing for a prose pass to read.')
-        return 0
-    if len(argv) == 2 and argv[1] == 'verify':
-        return envelope(cwd=str(Path.cwd()))
-    print('usage: review_prose.py prepare <base> <head> | review_prose.py verify', file=sys.stderr)
-    return 2
-
-
-if __name__ == '__main__':
-    raise SystemExit(main(sys.argv))
