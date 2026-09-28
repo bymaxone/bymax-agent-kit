@@ -106,8 +106,9 @@ class PrePushBench(unittest.TestCase):
 
     def flow(self, *args):
         """Drive the campaign helper and require success."""
+        # test_review_flow's CAMPAIGN_TIMEOUT: a `start` under load outran a tighter bound.
         result = subprocess.run([sys.executable, str(FLOW), *args], cwd=self.repo,
-                                env=self.env, capture_output=True, text=True, timeout=30)
+                                env=self.env, capture_output=True, text=True, timeout=180)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
