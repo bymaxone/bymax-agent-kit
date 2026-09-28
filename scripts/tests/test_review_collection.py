@@ -157,6 +157,23 @@ class CollectedTests(unittest.TestCase):
                           for name in ('pkg/test_a.py', 'pkg/test_b.py')], [None, None])
         self.assertLess(time.monotonic() - began, 5)
 
+    def test_a_node_id_that_is_not_utf8_comes_back_as_pytest_spelled_it(self):
+        """pytest names a node by its file, and a file name that is not UTF-8 holds a surrogate
+        escape there, which a strict writer refused: the collector stopped mid-report. The id
+        reaches the reader as pytest spelled it, and so does a failed collector's. APFS cannot
+        hold such a name, so a conftest spells the id the way pytest would."""
+        bench = Bench(self)
+        (bench.where / 'conftest.py').write_text(YAML_CONFTEST.replace(
+            'name=self.path.stem)\n', 'name="caf\\udce9")\n'
+            '        if self.path.stem == "bad":\n'
+            '            yield Box.from_parent(self, name="box\\udce9")\n\n\n'
+            'class Box(pytest.Collector):\n    def collect(self):\n        raise ValueError("unreadable")\n'))
+        (bench.where / 'cases').mkdir()
+        (bench.where / 'cases' / 'one.yaml').write_text('a: 1\n')
+        (bench.where / 'cases' / 'bad.yaml').write_text('a: 1\n')
+        self.assertEqual(matrix.ids(str(bench.where), ['cases/one.yaml']), ['cases/one.yaml::caf\udce9'])
+        self.assertEqual(matrix.walked(str(bench.where), ['cases/bad.yaml']),
+                         ({'cases/bad.yaml'}, {'cases/bad.yaml'}))
 
 class NamedItsOwnWayTests(FlowBench):
     """A test the project names its own way — `python_files = check_*.py` — is a test to every

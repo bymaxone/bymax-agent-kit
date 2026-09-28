@@ -711,7 +711,7 @@ def walked(root, files):
         if vouched is None:
             bail('pytest collected %s and its collector never reported what it found, so nothing '
                  'here can say what was collected.' % ' '.join(files))
-        failed = [line.partition(' ')[2] for line in where.read_text().splitlines()
+        failed = [line.partition(' ')[2] for line in report_lines(where)
                   if line.startswith(token + '! ')]
     return ({Path(node.split('::')[0]).as_posix() for node in vouched},
             {Path(node.split('::')[0]).as_posix() for node in failed})
@@ -791,6 +791,12 @@ def collect_run(real, root, files, selector, token, box):
     return subprocess.CompletedProcess(args, code, out, err), Path(env['BYMAX_COLLECT_OUT'])
 
 
+def report_lines(where):
+    """The collector's report, read as review_collect writes it: UTF-8, with a node id's bytes
+    that are not UTF-8 kept as the surrogate escapes pytest spelled them with."""
+    return where.read_text(encoding='utf-8', errors='surrogateescape').splitlines()
+
+
 def reported(where, token):
     """The node ids a collect vouched for with this run's token, or None where it said nothing.
 
@@ -799,7 +805,7 @@ def reported(where, token):
     read, so a file left by an earlier run and a project writing to the same path say nothing.
     """
     try:
-        lines = where.read_text().splitlines()
+        lines = report_lines(where)
     except OSError:
         return None
     if ('%s %s' % (MARK, token)) not in lines:
