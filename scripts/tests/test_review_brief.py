@@ -1,5 +1,6 @@
 """What the brief shows both reviewers about a delta: its code with the prose elided, what the
 claims checker settled, and which tests this delta wrote as against what a merge carried in."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -144,6 +145,34 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
                               capture_output=True, text=True).stdout.strip()
         self.assertEqual(review_evidence.tests_changed(base, head)[0], [])
 
+    def test_a_round_told_its_base_branch_reads_a_side_branch_as_written_here(self):
+        """The first-parent line cannot tell a merged side branch from the base branch merged
+        in; told which branch is the base, it can. Work merged in from a side branch is then this
+        delta's, the base branch merged in still contributes only its resolution, and a branch
+        the base already merged is still this delta's work."""
+        run = lambda *args: subprocess.run(['git', '-C', str(self.where), *args], check=True,
+                                           capture_output=True)
+        head = lambda: subprocess.run(['git', '-C', str(self.where), 'rev-parse', 'HEAD'],
+                                      capture_output=True, text=True).stdout.strip()
+        base = self.commit({'test_t.py': 'def test_t():\n    assert 1\n'})
+        run('branch', 'upstream')
+        run('checkout', '-q', '-b', 'topic')
+        self.commit({'test_t.py': 'def test_t():\n    assert 2\n'})
+        run('checkout', '-q', 'upstream')
+        self.commit({'test_t.py': 'def test_t():\n    assert 1\n', 'test_up.py': 'def test_up():\n    assert 1\n'})
+        run('checkout', '-q', '-')
+        run('checkout', '-q', '-b', 'work', base)
+        run('merge', '-q', '--no-ff', '--no-edit', 'upstream')
+        run('merge', '-q', '--no-ff', '--no-edit', 'topic')
+        self.assertEqual(review_evidence.tests_changed(base, head())[0], [])
+        self.assertEqual(review_evidence.tests_changed(base, head(), 'upstream')[0], ['test_t.py'])
+        self.assertEqual(review_evidence.merged_in_tests(base, head(), 'upstream'), ['test_up.py'])
+        # The base merging this work leaves it this delta's: the line is never filtered.
+        mine = self.commit({'test_t.py': 'def test_t():\n    assert 2\n', 'test_up.py': 'def test_up():\n    assert 1\n',
+                            'test_mine.py': 'def test_mine():\n    assert 1\n'})
+        run('update-ref', 'refs/heads/upstream', mine)
+        self.assertIn('test_mine.py', review_evidence.tests_changed(base, head(), 'upstream')[0])
+
     def test_the_brief_shows_a_removal_claim_the_check_only_reports(self):
         """An independent reviewer found that nothing on the flow path executed the removal check, so its rows
         reached nobody while the brief said they did. The fix was to RUN it; this is what
@@ -177,6 +206,63 @@ class BriefShowsTheDeltaTests(unittest.TestCase):
         shown = review_delta.code_view({'review_base': base, 'head': head})
         marks = {line.strip()[0] for line in shown.split('\n') if line.startswith('  ')}
         self.assertEqual(marks, {'+', '-', '?'}, shown)
+
+
+class BaseBranchStartTests(FlowBench):
+    """How a round is told its base branch, and that it keeps what it was told."""
+
+    def test_the_base_branch_is_read_from_the_file_a_shipping_command_writes(self):
+        """A ref name is never pasted into a command: push writes the default branch to a file in
+        the git directory, and start reads it there. A name no commit answers to is refused."""
+        named = self.root / 'bymax-push-default'
+        named.write_text('no/such/branch\n')
+        refused = self.flow('start', '--base', self.base, '--context', str(self.context),
+                            '--base-branch-file', str(named), ok=False)
+        self.assertIn('The base branch names no commit here: no/such/branch', refused.stderr)
+        self.git('branch', 'upstream', self.base)
+        named.write_text('upstream\n')
+        state = self.flow('start', '--base', self.base, '--context', str(self.context),
+                          '--base-branch-file', str(named))
+        self.assertEqual(state['base_branch'], 'upstream')
+
+    def test_the_campaign_keeps_the_base_branch_it_was_told(self):
+        """Another branch named later would move which commits count as this delta's, and with
+        them which tests the correction gate demands; the campaign keeps its first answer."""
+        self.git('branch', 'upstream', self.base)
+        self.git('branch', 'elsewhere', self.base)
+        self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        refused = self.flow('start', '--base', self.base, '--context', str(self.context),
+                            '--base-branch', 'elsewhere', ok=False)
+        self.assertIn('keeps the base branch it was told: upstream', refused.stderr)
+        self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context),
+                                   '--base-branch', 'upstream')['base_branch'], 'upstream')
+        self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context))['base_branch'],
+                         'upstream')
+
+    def test_a_cleared_campaign_that_goes_on_keeps_its_base_branch(self):
+        """An autonomous campaign continues past a cleared candidate, so the next round is still
+        the same campaign and still holds the branch it was told."""
+        self.git('branch', 'upstream', self.base)
+        self.git('branch', 'elsewhere', self.base)
+        state = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        path = Path(state['directory']) / 'state.json'
+        path.write_text(json.dumps(dict(json.loads(path.read_text()), cleared=True)))
+        self.commit('the next candidate')
+        refused = self.flow('start', '--autonomous', '--base', self.base, '--context', str(self.context),
+                            '--base-branch', 'elsewhere', ok=False)
+        self.assertIn('keeps the base branch it was told: upstream', refused.stderr)
+
+    def test_a_fresh_campaign_after_a_cleared_one_names_its_own_base_branch(self):
+        """A cleared campaign that is not continued opens a new one, which holds nothing of the
+        old; checked against the finished campaign's branch, it names a branch of its own instead."""
+        self.git('branch', 'upstream', self.base)
+        self.git('branch', 'elsewhere', self.base)
+        state = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        path = Path(state['directory']) / 'state.json'
+        path.write_text(json.dumps(dict(json.loads(path.read_text()), cleared=True)))
+        self.commit('the next candidate')
+        fresh = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'elsewhere')
+        self.assertEqual((fresh['round'], fresh['base_branch']), (1, 'elsewhere'))
 
 
 if __name__ == '__main__':
