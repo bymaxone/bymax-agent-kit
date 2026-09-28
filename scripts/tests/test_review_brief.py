@@ -1,5 +1,6 @@
 """What the brief shows both reviewers about a delta: its code with the prose elided, what the
 claims checker settled, and which tests this delta wrote as against what a merge carried in."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -235,6 +236,33 @@ class BaseBranchStartTests(FlowBench):
         self.assertIn('keeps the base branch it was told: upstream', refused.stderr)
         self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context),
                                    '--base-branch', 'upstream')['base_branch'], 'upstream')
+        self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context))['base_branch'],
+                         'upstream')
+
+    def test_a_cleared_campaign_that_goes_on_keeps_its_base_branch(self):
+        """An autonomous campaign continues past a cleared candidate, so the next round is still
+        the same campaign and still holds the branch it was told."""
+        self.git('branch', 'upstream', self.base)
+        self.git('branch', 'elsewhere', self.base)
+        state = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        path = Path(state['directory']) / 'state.json'
+        path.write_text(json.dumps(dict(json.loads(path.read_text()), cleared=True)))
+        self.commit('the next candidate')
+        refused = self.flow('start', '--autonomous', '--base', self.base, '--context', str(self.context),
+                            '--base-branch', 'elsewhere', ok=False)
+        self.assertIn('keeps the base branch it was told: upstream', refused.stderr)
+
+    def test_a_fresh_campaign_after_a_cleared_one_names_its_own_base_branch(self):
+        """A cleared campaign that is not continued opens a new one, which holds nothing of the
+        old; checked against the finished campaign's branch, it was refused a branch of its own."""
+        self.git('branch', 'upstream', self.base)
+        self.git('branch', 'elsewhere', self.base)
+        state = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        path = Path(state['directory']) / 'state.json'
+        path.write_text(json.dumps(dict(json.loads(path.read_text()), cleared=True)))
+        self.commit('the next candidate')
+        fresh = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'elsewhere')
+        self.assertEqual((fresh['round'], fresh['base_branch']), (1, 'elsewhere'))
 
 
 if __name__ == '__main__':

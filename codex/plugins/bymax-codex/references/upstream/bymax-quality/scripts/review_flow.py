@@ -803,13 +803,14 @@ def resolves(ref):
                           capture_output=True).returncode == 0
 
 
-def told_branch(args, old=None):
+def told_branch(args, old=None, autonomous=False):
     """The base branch this start names, refused unless it names a commit: --base-branch, or
     the first line of --base-branch-file, which a shipping command writes so no reader pastes a
     ref name into a command. A file that is absent or empty names none.
 
-    Held like base and context once a campaign has one: another branch named later would move
-    which commits count as this delta's, and with them which tests the correction gate demands."""
+    Held once a campaign that goes on has one: another branch named later would move which
+    commits count as this delta's, and with them which tests the correction gate demands. A
+    cleared campaign that is not continued holds nothing, since the next start opens a new one."""
     told = args.base_branch
     if not told and args.base_branch_file:
         try:
@@ -819,7 +820,8 @@ def told_branch(args, old=None):
     require(not told or resolves(told),
             'The base branch names no commit here: ' + told + '. Name the branch this work merges '
             'into, as this repository spells it, such as origin/main.')
-    kept = old.get('base_branch', '') if old else ''
+    goes_on = old and (autonomous or not old.get('cleared'))
+    kept = old.get('base_branch', '') if goes_on else ''
     require(not (told and kept and told != kept),
             'This campaign keeps the base branch it was told: ' + kept + '. Name that one, or none.')
     return told
@@ -843,7 +845,7 @@ def start(args, directory):
     if old and autonomous:
         old.update(autonomous=True,
                    max_rounds=review_delivery.cap(directory, pending=bool(args.extend_delivery)))
-    told = told_branch(args, old)
+    told = told_branch(args, old, autonomous)
     if old and old['head'] == head:
         require(old['base'] == base and scope(old['context']) == scope(context),
                 'Same candidate has different scope/context.')
