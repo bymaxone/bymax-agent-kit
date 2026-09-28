@@ -111,7 +111,7 @@ def run_case(root, selector, files, deadline=CLEAN):
                              stderr=subprocess.PIPE, bufsize=0,
                              env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
                              start_new_session=True) as child:
-        code, out, err, _ = tailed(child, deadline)
+        code, out, err = tailed(child, deadline)
     if code is None:
         return None, 'timed out after %ds' % deadline
     tail = out.strip().splitlines()
@@ -121,8 +121,8 @@ def run_case(root, selector, files, deadline=CLEAN):
 def tailed(child, deadline, feed=None, settle=None):
     """Wait up to `deadline` seconds for a child started in a session of its own with unbuffered
     stdout and stderr pipes, keeping each stream's last KEEP bytes as it is read. Returns the
-    exit status, both tails decoded, and whether stdout filled its tail, read from the bytes
-    kept rather than the text; the status is None past the deadline, when the group is killed.
+    exit status and both tails decoded; the status is None past the deadline, when the group is
+    killed.
     Anything else that stops the wait kills the group and propagates, and a run that ended on its
     own has its group killed too: a process a passing test started and did not wait for would
     otherwise write to the tree after the mutant is restored.
@@ -156,7 +156,7 @@ def tailed(child, deadline, feed=None, settle=None):
         kill_group(child)
         drained(readers)
     out, err = (tails[key][0].decode('utf-8', 'replace') for key in ('out', 'err'))
-    return code, out, err, len(tails['out'][0]) >= KEEP
+    return code, out, err
 
 
 def keep_tail(stream, into, feed=None):
@@ -274,7 +274,7 @@ def enumerated(root, rule):
     with subprocess.Popen(how, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           stdin=subprocess.DEVNULL, bufsize=0, start_new_session=True) as child:
         tally, ended = Tally(), []
-        code, _, _, _ = tailed(child, CLEAN, feed=tally.feed, settle=ended.append)
+        code, _, _ = tailed(child, CLEAN, feed=tally.feed, settle=ended.append)
     if code is None:
         bail('Rule %r: its enumeration command did not finish in %ds: %s'
              % (rule.get('rule'), CLEAN, how))
@@ -810,7 +810,7 @@ def collect_run(real, root, files, selector, token, box):
     # its group killed if the wait times out or raises.
     with subprocess.Popen(args, cwd=real, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           bufsize=0, env=env, start_new_session=True) as child:
-        code, out, err, _ = tailed(child, CLEAN)
+        code, out, err = tailed(child, CLEAN)
     if code is None:
         raise Unfinished('BLOCKED: pytest did not finish collecting %s in %ds. A collect that '
                          'never ends names no test, and the matrix cannot run what it cannot '
