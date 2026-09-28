@@ -179,6 +179,18 @@ class NotUtf8Tests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(run.stdout, b'tests/test_caf\xe9.py\n')
 
+    def test_the_claims_command_line_prints_a_name_that_is_not_utf8(self):
+        """Reviewers are told to run review_claims.py on the delta, and its inventory names each
+        file that added prose. A strict stdout refused such a name as a surrogate escape; it is
+        printed as the bytes of the name. PYTHONIOENCODING makes stdout strict whatever the
+        locale, as a UTF-8 locale other than C.UTF-8 does."""
+        head = commit_with(self.where, self.base, {b'notes-caf\xe9.md': b'# Notes\n\nThis sentence has more than six words.\n'})
+        run = subprocess.run([sys.executable, str(FLOW.with_name('review_claims.py')), self.base, head],
+                             cwd=self.where, capture_output=True, timeout=60,
+                             env=dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONDONTWRITEBYTECODE='1'))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(b'notes-caf\xe9.md: This sentence has more than six words.', run.stdout)
+
 
 class ReaderTextTests(unittest.TestCase):
     """What a reviewer's stdin receives, and what a digest reads, for a name that is not UTF-8."""
