@@ -497,6 +497,144 @@ class MatrixGateTests(FlowBench):
         return self.matrix('tests', [('LIMIT = 7', 'LIMIT = 8', 'test_calc')],
                            where='guard.py', enumeration='echo 1')
 
+    def an_edited_regression(self):
+        """A guard, the test that pins it and a bound on it beside that test; then a correction
+        that moves the guard and edits the pinning test to the new value. The edited test exists
+        on both sides, so which nodes the delta added says nothing about it, while run against
+        the previous candidate's code it fails: it is this correction's regression."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST + 'def test_calc_bound(): assert LIMIT > 0\n')
+        self.commit('a guard, the test that pins it and a bound beside it')
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        (self.repo / 'guard.py').write_text('LIMIT = 8\n')
+        (self.repo / 'tests/test_calc.py').write_text(
+            OLD_TEST.replace('LIMIT == 7', 'LIMIT == 8') + 'def test_calc_bound(): assert LIMIT > 0\n')
+        self.commit('a correction that moves the guard and edits the test that pins it')
+
+    def test_an_edited_regression_that_fails_before_the_fix_must_catch(self):
+        """An edited regression was demanded nothing, because the demand was which nodes the
+        delta added, and a correction could open a round on a neighbour's catch. Run against the
+        previous candidate's code it fails, so it is asked for like an added one."""
+        self.an_edited_regression()
+        self.matrix('tests', [('LIMIT = 8', 'LIMIT = -1', 'test_calc_bound')],
+                    where='guard.py', enumeration='echo 1')
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_old',
+                      self.start(ok=False, correction=True, reason='').stderr)
+
+    def test_an_edited_regression_that_catches_opens_the_round(self):
+        """The positive control: the same edited regression, measured catching the guard."""
+        self.an_edited_regression()
+        self.matrix('tests', [('LIMIT = 8', 'LIMIT = 9', 'test_calc_old')],
+                    where='guard.py', enumeration='echo 1')
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+
+    def test_a_correction_that_repairs_only_a_test_is_told_to_the_reviewers(self):
+        """A correction that repairs a test and no code has no node that fails before it, and is
+        not refused for that: the test it edits is still asked to catch by the file rule. Both
+        reviewers are told no changed test fails before the correction, since for one that
+        changes code that is what a vacuous edit looks like."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST.replace('LIMIT == 7', 'LIMIT == 7 and LIMIT < 10'))
+        self.commit('a correction that tightens the test and changes no code')
+        self.guard_matrix()
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+        self.checks()
+        self.assertIn('No test this correction changed fails before it', self.text('prompt'))
+
+    def test_a_node_that_fails_only_outside_a_checkout_is_not_demanded(self):
+        """A failure both sides share says nothing about the fix."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_git.py').write_text(
+            'import pathlib, subprocess\n\n\ndef test_tracked():\n'
+            '    root = pathlib.Path(__file__).resolve().parents[1]\n'
+            '    assert subprocess.run(["git", "-C", str(root), "ls-files"], capture_output=True).stdout\n')
+        self.commit('a test that reads the repository')
+        before = self.git('rev-parse', 'HEAD')
+        with (self.repo / 'tests/test_git.py').open('a') as handle:
+            handle.write('\n\ndef test_new():\n    assert 1 + 1 == 2\n')
+        self.commit('a correction that adds a node beside it')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        self.assertEqual(review_evidence.failing_before(before, ['tests/test_git.py'], ['tests/test_git.py']),
+                         ([], []))
+
+    def test_a_link_the_previous_tree_tracks_is_not_written_through(self):
+        """The head's copy of a changed test was written to its path in the unpacked previous tree,
+        and where that tree tracked the path, or a directory above it, as a link, the copy
+        followed it and overwrote a file outside the tree."""
+        victim = self.root / 'victim.txt'
+        victim.write_text('kept\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_link.py').symlink_to(victim)
+        (self.repo / 'linked').symlink_to(self.root / 'outside', target_is_directory=True)
+        (self.root / 'outside').mkdir()
+        self.commit('a test path and a directory the tree tracks as links')
+        before = self.git('rev-parse', 'HEAD')
+        (self.repo / 'tests/test_link.py').unlink()
+        (self.repo / 'tests/test_link.py').write_text('def test_link():\n    assert True\n')
+        (self.repo / 'linked').unlink()
+        (self.repo / 'linked').mkdir()
+        (self.repo / 'linked/test_under.py').write_text('def test_under():\n    assert True\n')
+        self.commit('the head tracks them as a file and a directory')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        changed = ['tests/test_link.py', 'linked/test_under.py']
+        review_evidence.failing_before(before, changed, changed)
+        self.assertEqual(victim.read_text(), 'kept\n')
+        self.assertEqual(list((self.root / 'outside').iterdir()), [])
+
+    def test_a_node_the_head_skips_does_not_fail_before(self):
+        """A skip exits zero, so a regression that fails on the previous tree and is skipped once
+        the fix lands read as passing there, and the reviewers were told it fails before the fix."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_limit.py').write_text('from guard import LIMIT\n\n\ndef test_limit():\n    assert LIMIT\n')
+        self.commit('a guard and its test')
+        before = self.git('rev-parse', 'HEAD')
+        (self.repo / 'guard.py').write_text('LIMIT = 8\n')
+        (self.repo / 'tests/test_limit.py').write_text(
+            'import pytest\nfrom guard import LIMIT\n\n\n@pytest.mark.skipif(LIMIT == 8, reason="moved")\n'
+            'def test_limit():\n    assert LIMIT == 99\n')
+        self.commit('a fix under which its edited test is skipped')
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        self.assertEqual(review_evidence.failing_before(before, ['tests/test_limit.py'], ['tests/test_limit.py']),
+                         ([], []))
+
+    def test_a_test_file_the_previous_tree_cannot_import_falls_back_to_added_nodes(self):
+        """A test that imports what the fix adds cannot be collected on the previous tree, so
+        which of its nodes the fix concerns cannot be asked there. Demanding all of them would
+        ask the unrelated neighbour to catch a mutant; the added node is asked for instead, and
+        the file is named to both reviewers."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'guard.py').write_text('LIMIT = 7\nHIGH = 9\n')
+        (self.repo / 'tests/test_calc.py').write_text(
+            'from guard import HIGH\n' + OLD_TEST + 'def test_calc_high(): assert HIGH == 9\n')
+        self.commit('a correction whose test imports what it adds')
+        self.matrix('tests', [('HIGH = 9', 'HIGH = 10', 'test_calc_high')],
+                    where='guard.py', enumeration='echo 1')
+        self.assertEqual(self.start(correction=True, reason='')['round'], 2)
+        self.checks()
+        prompt = self.text('prompt')
+        self.assertIn('Not asked, because the previous tree could not collect them: tests/test_calc.py', prompt)
+
+    def test_a_file_the_previous_tree_cannot_read_is_named_beside_a_failing_one(self):
+        """The unread files rode on the note that no changed test fails before the correction, so a
+        second file whose node did fail silenced them, and neither reviewer learned one was never
+        asked."""
+        import review_flow
+        note = ' '.join(review_flow.regression_note({'failing_before': ['tests/test_a.py::test_a'],
+                                                     'unread_before': ['tests/test_b.py']}))
+        self.assertIn('Not asked, because the previous tree could not collect them: tests/test_b.py', note)
+        self.assertNotIn('No test this correction changed fails before it', note)
+
     def test_the_test_the_delta_changed_is_the_test_that_must_catch(self):
         """Found by a reviewer: a file is credited when any node of it failed, so a vacuous
         test added beside a test that already discriminated made the record say the file
