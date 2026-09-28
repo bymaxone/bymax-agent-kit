@@ -65,9 +65,11 @@ def code_mask(text):
     outside_code blanks what it can see is code and leaves every blank line as it is, so a blank
     line inside a block reads like one outside it. A line the walk holds
     in an open fence, its own or a quote's, before and after reading it is inside that fence, and
-    a run of blank lines between two lines of indented code is code too.
+    a run of blank lines between two lines of one indented block is code too. The containers each
+    line leaves open tell one block from two: a quote or a list item opened or closed from one
+    line to the other starts another, and the run between them is outside both.
     """
-    walk, lines, kinds = Walk(), text.split('\n'), []
+    walk, lines, kinds, where = Walk(), text.split('\n'), [], []
     for line in lines:
         before = walk.fenced()
         parts = [part.expandtabs(4) for part in line.removesuffix('\r').split('\r')]
@@ -78,13 +80,16 @@ def code_mask(text):
         kinds.append('indented' if any(blanked) and ended else
                      'code' if any(blanked) and (before or walk.fenced()) else
                      'indented' if any(blanked) else 'held' if before and walk.fenced() else None)
+        where.append(walk.where())
     mask = [kind is not None for kind in kinds]
     run = []
     for index, line in enumerate(lines):
         if kinds[index] is None and not line.strip(' >\t\r'):
             run.append(index)
             continue
-        if run and run[0] > 0 and kinds[run[0] - 1] == 'indented' and kinds[index] == 'indented':
+        # An empty quote inside the run, `>` alone, is a block between the two as well.
+        if (run and run[0] > 0 and kinds[run[0] - 1] == 'indented' and kinds[index] == 'indented'
+                and all(where[at] == where[run[0] - 1] for at in run + [index])):
             for held in run:
                 mask[held] = True
         run = []
@@ -101,12 +106,19 @@ class Walk:
     def __init__(self, depth=0):
         self.fence, self.items, self.para, self.quote, self.html = None, [], False, None, False
         self.empty = self.defined = False
-        self.depth = depth
+        self.depth, self.opened = depth, 0
 
     @property
     def content(self):
         """The column the innermost open list item's content starts at, or 0 outside a list."""
         return self.items[-1] if self.items else 0
+
+    def where(self):
+        """The containers open after the last line read, outermost first: each walk, which is new
+        per quote, with the items open in it and how many it has opened, which tells an item from
+        the one a new marker put at the same column."""
+        inner = self.quote.where() if self.quote is not None else ()
+        return ((self, tuple(self.items), self.opened),) + inner
 
     def fenced(self):
         """Whether a fence is open here or in the quote this walk holds."""
@@ -138,7 +150,7 @@ class Walk:
         self.items, mark = listing(line, indent, self.items)
         # What follows the markers is the item's first line and may open any block in it.
         if mark is not None:
-            self.para, view = False, ' ' * mark + line[mark:]
+            self.para, view, self.opened = False, ' ' * mark + line[mark:], self.opened + 1
             # An item opened empty ends at a blank line unless its content comes first.
             self.empty = not view.strip(' ')
             return line if self.empty or self.read(view) == view else ' '
