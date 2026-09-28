@@ -16,6 +16,7 @@ from review_evidence import collected_elsewhere, is_test_path, matrix_first, mat
 from review_codex import codex_check, codex_review
 from review_git import clean_head, for_a_reader, git, git_raw, require
 from review_hook import install_hook
+from review_matrix import kill_group
 from review_prose_pass import prose_first, prose_run
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
@@ -23,6 +24,8 @@ from review_prose_pass import prose_first, prose_run
 from review_prepush import explain, reviewers_needed, satisfied, waiver_ok
 
 POLICY = 2
+# Seconds a declared gate may run before `check` stops it and records no exit status.
+CHECK_TIMEOUT = 1800
 
 
 def location():
@@ -668,19 +671,30 @@ def correction_brief(state):
 
 def regression_note(measured):
     """What reviewers are told about the changed tests run before the correction, as lines. The
-    unread files are named whether or not another file failed there: their edited nodes were
-    never asked, and a failing neighbour says nothing about them."""
+    unread files and nodes are named whether or not another file failed there: they were never
+    asked, and a failing neighbour says nothing about them. Where no changed file ran a node
+    there, no node passed there either, and the note says that instead."""
     if not measured:
         return []
     lines = []
-    if not measured['failing_before']:
+    # A stored measurement may lack the field, and then cannot tell the two apart: it keeps the
+    # wording that says every node passed.
+    none_ran = measured.get('read_before') == []
+    if not measured['failing_before'] and none_ran:
+        lines.append('No node of the changed test files ran against the previous candidate\'s '
+                     'code: the previous tree could collect none of them, so nothing measured '
+                     'says whether this correction\'s regression fails without it. Judge that '
+                     'from the diff.')
+    elif not measured['failing_before']:
         lines.append('No test this correction changed fails before it: run against the previous '
-                     "candidate's code, every node of the changed test files passed. That is right "
-                     'for a correction that repairs a test and no code; for one that changes code, '
-                     'judge whether its regression proves anything.')
+                     "candidate's code, every node it collected from the changed test files "
+                     'passed. That is right for a correction that repairs a test and no code; for '
+                     'one that changes code, judge whether its regression proves anything.')
     if measured['unread_before']:
         lines.append('Not asked, because the previous tree could not collect them: '
-                     + ', '.join(measured['unread_before']) + '.')
+                     + ', '.join(measured['unread_before']) + '. These changed tests were never '
+                     "run against the previous candidate's code, so whether they fail before this "
+                     'correction is unknown.')
     return lines
 
 
@@ -790,10 +804,13 @@ def settled(state, directory):
     start() runs them at the freeze, and a campaign an earlier runtime froze under this policy
     never met them, while the prompt tells both reviewers the claims check ran; one that had
     already been reviewed reaches finish() without either. On a candidate that met them at the
-    freeze they change nothing.
+    freeze they change nothing. The measurement is kept where the prompt reads it: a campaign
+    frozen before it was taken carries none, and the note it feeds would stay absent.
     """
     claims_settled(state['review_base'], state['head'])
-    matrix_first(state, directory)
+    measured = matrix_first(state, directory)
+    if measured:
+        state['regression_measured'] = measured
 
 
 def prompt(state, directory):
@@ -1051,13 +1068,21 @@ def check(args, directory, state):
     state['checks'].append(dict(command=command, exit_code=None, log=str(log)))
     state['cleared'] = False
     save(directory, state)
-    with log.open('w') as output:
-        result = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, timeout=1800)
+    # In a session of its own, so a timeout or an interrupt kills what the gate started as well:
+    # killing the gate alone leaves its children running behind the recorded timeout.
+    with log.open('w') as output, subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
+                                                   start_new_session=True) as child:
+        try:
+            code = child.wait(timeout=CHECK_TIMEOUT)
+        except BaseException:
+            kill_group(child)
+            child.wait()
+            raise
     current(state)
-    state['checks'][-1]['exit_code'] = result.returncode
+    state['checks'][-1]['exit_code'] = code
     save(directory, state)
     print(log.read_text())
-    require(result.returncode == 0, 'Check failed. Fix or report; do not clear.')
+    require(code == 0, 'Check failed. Fix or report; do not clear.')
 
 
 def finish(directory, state):

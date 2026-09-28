@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 INHERIT = object()  # push(): use whatever Codex this test's campaign ran against
@@ -23,6 +24,13 @@ OLD_TEST = 'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7\
 TEST_G = 'from values import ONE\ndef test_g(): assert ONE == 1\n'
 UNITTEST_TEST = ('import unittest\nfrom guard import LIMIT\n\n\nclass CalcTests(unittest.TestCase):\n'
                  '    def test_calc_old(self): assert LIMIT == 7\n')
+
+
+def alive(pid):
+    """Whether a process runs under this pid, a zombie not counting: ps prints nothing for a
+    process that is gone and a state starting with Z for one nobody has reaped yet."""
+    state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith('Z')
 
 
 class FlowBench(unittest.TestCase):
@@ -1481,6 +1489,29 @@ class ReviewFlowTests(FlowBench):
         self.flow('check', '--', str(self.root / 'absent-executable'), ok=False)
         self.flow('finish', ok=False)
         self.push('git push origin HEAD', ok=False)
+
+    def test_a_check_that_times_out_takes_its_children_with_it(self):
+        """A gate past its deadline had only its own process killed, so what it started kept
+        running behind `check` after the timeout was recorded."""
+        self.start()
+        pid_file = self.root / 'grandchild.pid'
+        gate = ('import subprocess, sys, time\n'
+                'child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])\n'
+                'open(%r, "w").write(str(child.pid))\n'
+                'time.sleep(15)\n' % str(pid_file))
+        argv = [sys.executable, '-c', 'import sys; sys.path.insert(0, %r)\nimport review_flow\n'
+                'review_flow.CHECK_TIMEOUT = 3\nreview_flow.cli()' % str(FLOW.parent)]
+        result = subprocess.run([*argv, 'check', '--', sys.executable, '-c', gate], cwd=self.repo,
+                                capture_output=True, text=True, timeout=60)
+        pid = int(pid_file.read_text())
+        self.addCleanup(lambda: subprocess.run(['kill', '-9', str(pid)], capture_output=True))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('timed out after 3 seconds', result.stderr)
+        self.assertIsNone(self.flow('status')['checks'][-1]['exit_code'])
+        deadline = time.monotonic() + 5
+        while alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertFalse(alive(pid), 'the gate\'s child outlived its timeout')
 
     def test_incomplete_or_wrong_scope_reports_rejected(self):
         """Plausible prose cannot substitute for a completed matching report."""
