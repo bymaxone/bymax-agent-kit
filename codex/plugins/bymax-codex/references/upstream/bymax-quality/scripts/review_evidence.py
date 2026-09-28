@@ -127,7 +127,18 @@ def under_a_collect_hook(root, path):
     `pytest_collect_file`, which is how a conftest collects a file that is not Python, or
     `pytest_plugins`, which loads modules that may define it. Those modules are not read:
     naming one is reason enough to ask pytest, and asking is the direction that costs a
-    collect rather than a changed test nobody is shown."""
+    collect rather than a changed test nobody is shown.
+
+    Two limits follow, both stated because neither is guarded:
+
+    - A conftest naming `pytest_plugins` makes every changed document beneath it asked about,
+      one collect of its directory each, whether or not a named module collects documents.
+    - A collector an installed plugin registers through a `pytest11` entry point is not seen,
+      so a document only it collects is no changed test. The entry points are cheap to list,
+      but whether one defines the hook is settled only by importing it, which runs third-party
+      code at review time: its entry module's text both names the hook in a plugin that
+      registers it only on an option of its own, and misses one registered from elsewhere.
+    """
     for where in [Path(path).parent, *Path(path).parent.parents]:
         conftest = Path(root, where, 'conftest.py')
         text = conftest.read_text(errors='replace') if conftest.is_file() else ''
