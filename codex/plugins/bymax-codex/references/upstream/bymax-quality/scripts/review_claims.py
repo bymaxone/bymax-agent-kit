@@ -662,12 +662,13 @@ def report(base, head, cwd=None):
     for name, quote, where in broken:
         print('UNKEPT   %s claims removal of `%s`, still present in %s — reported, not refused'
               % (name, quote, where))
-    for name, token, line in noted_removals(base, head, cwd=cwd):
+    noted = noted_removals(base, head, cwd=cwd)
+    for name, token, line in noted:
         print('NOTED    %s says %s is gone, which this delta removed — reported for a reviewer to '
               'judge: %s' % (name, token, line))
     rest = unchecked(base, head, cwd=cwd)
     print('\n%d assertion(s) added; %d refusing, %d reported. No command here settles the '
-          'rest:' % (len(rest), len(gone), len(broken)))
+          'rest:' % (len(rest), len(gone), len(broken) + len(noted)))
     for name, line in rest[:40]:
         print('   %s: %s' % (name, line))
     if len(rest) > 40:

@@ -71,6 +71,8 @@ class RemovalNoteTests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             claims.report(tree.base, tree.head, cwd=str(tree.where))
         self.assertIn('NOTED    README.md says OLD_HELPER is gone', out.getvalue())
+        # The summary counts what was printed: a NOTED line is reported, as an UNKEPT one is.
+        self.assertIn('0 refusing, 1 reported.', out.getvalue())
 
     def test_a_markdown_suffix_is_read_in_any_case(self):
         """README.MD is live documentation. Matched by case, it was neither read as prose nor
