@@ -457,12 +457,14 @@ def directives(text):
     found = []
     try:
         docstrings = docstring_spans(text, lines)
+        said = unsaid(lines, docstrings)
         code, anything = 0, False
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
             if tok.type == tokenize.COMMENT and DIRECTIVE.search(tok.string):
                 row, col = tok.start
-                beside = tok.line[:col].strip()
-                below = '' if beside else next((l.strip() for l in lines[row:]
+                # A comment runs to the end of its line, so the mark shifts only what precedes it.
+                beside = said[row - 1][:col + len(said[row - 1]) - len(lines[row - 1])].strip()
+                below = '' if beside else next((l.strip() for l in said[row:]
                                                 if l.strip() and not l.strip().startswith('#')), '')
                 found.append((code, anything, beside, below, tok.string))
             elif tok.type not in LAYOUT:
@@ -471,6 +473,25 @@ def directives(text):
     except (SyntaxError, tokenize.TokenError):
         return None
     return found
+
+
+# What stands for a docstring's text in a directive's context: no source line can hold a NUL.
+DOCSTRING = '\0docstring'
+
+
+def unsaid(lines, spans):
+    """The lines with each docstring's text replaced by one mark on every row it spans. The
+    context a directive keeps is the statement it governs, and a docstring beside or below one
+    is prose, which a correction may change. The mark keeps the fact that a docstring is there,
+    so a directive moved off the docstring it ends still reads as moved."""
+    said = list(lines)
+    # Last first: replacing a span shifts only what follows it on its row.
+    for row, col, end_row, end_col in sorted(spans, reverse=True):
+        for at in range(row, end_row + 1):
+            line = said[at - 1]
+            said[at - 1] = (line[:col if at == row else 0] + DOCSTRING
+                            + line[end_col if at == end_row else len(line):])
+    return said
 
 
 def docstring_spans(text, lines):
