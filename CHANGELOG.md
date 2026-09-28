@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`bymax-quality` 1.26.0 splits the pre-push hook and the Codex execution out of `review_flow.py`** — the hook's install and probe move verbatim to `review_hook.py`, and the Codex reservation, run, waiver and availability probe to `review_codex.py`, which calls back into the runtime through the flow module it is handed, as `review_claude.py` already does. `review_flow.py` goes from 1,911 to 1,235 lines; the cases move with their code into `test_review_hook.py` and `test_review_codex.py`, 522 test nodes before and after. No behaviour changes. (#42)
 - **Emphasis in lower case where a word could read as a removed constant** — `bymax-pr` 1.3.2, `bymax-report` 1.0.2, `bymax-workflow` 1.8.1 and the unreleased `bymax-quality` commands write "*before*" and "*after*" where the prose used capitals for emphasis. The claims check reads a capitalised word as a code name, so a constant of that name removed anywhere made every such sentence a dangling reference; the wording is unchanged.
 - **The installer derives what it copies** — a hand-kept tuple decided which runtime scripts reached `$HOME`, and a script nobody copies is a gate that does not exist, silently, because the flow imports it only when the case it guards occurs.
 

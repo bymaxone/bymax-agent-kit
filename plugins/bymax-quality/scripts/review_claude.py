@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import subprocess
 
+from review_codex import MOVED, unmoved
+
 
 def reserve(directory, flow, reviewer, opening):
     """Reserve a bounded attempt for this Claude pass while keeping the state lock short-lived.
@@ -20,7 +22,7 @@ def reserve(directory, flow, reviewer, opening):
         flow.require(reviewer not in state['reviews'], 'Reuse the completed ' + reviewer + ' report.')
         attempts = reviewer.replace('-', '_') + '_attempts'
         flow.require(state.get(attempts, 0) < 2, reviewer + ' retry budget exhausted; preserve both logs.')
-        flow.require(flow.unmoved(state, opening), flow.MOVED)
+        flow.require(unmoved(state, opening), MOVED)
         state[attempts] = state.get(attempts, 0) + 1
         flow.save(directory, state)
         return state, attempts

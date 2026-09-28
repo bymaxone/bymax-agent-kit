@@ -77,6 +77,7 @@ class CodexStdinTests(unittest.TestCase):
         """Codex refuses stdin that is not valid UTF-8 before any model reads it, so a task
         carrying a surrogate-escaped name goes with the byte spelled out."""
         sys.path.insert(0, str(FLOW.parent))
+        import review_codex
         import review_flow
         seen = {}
 
@@ -84,11 +85,11 @@ class CodexStdinTests(unittest.TestCase):
             seen.update(kwargs)
             return subprocess.CompletedProcess(command, 1)
         with tempfile.TemporaryDirectory() as box, \
-                mock.patch.object(review_flow.subprocess, 'run', run), \
-                mock.patch.object(review_flow, 'codex_outcome', lambda *args: None), \
-                mock.patch.object(review_flow, 'escalation', lambda state: []):
-            review_flow.run_codex(Path(box), {'round': 1, 'codex_attempts': 0},
-                                  'tests/test_caf\udce9.py', 'codex', None)
+                mock.patch.object(review_codex.subprocess, 'run', run), \
+                mock.patch.object(review_codex, 'codex_outcome', lambda *args: None), \
+                mock.patch.object(review_codex, 'escalation', lambda state: []):
+            review_codex.run_codex(Path(box), review_flow, {'round': 1, 'codex_attempts': 0},
+                                   'tests/test_caf\udce9.py', 'codex', None)
         self.assertEqual(seen['input'].encode(seen.get('encoding') or 'ascii'), b'tests/test_caf\\xe9.py')
 
 

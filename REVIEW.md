@@ -48,7 +48,7 @@ preferences is how a one-line fix reaches its seventh round.
 - Anything the gates already enforce, since a violation is a failing check, not a review
   finding: shellcheck (`validate.sh`), fenced-block hygiene and command-file behaviour
   (`scripts/tests/test_command_shell.py`), push-receipt invariants
-  (`scripts/tests/test_review_prepush.py`), campaign lifecycle rules
+  (`scripts/tests/test_review_prepush.py`, `scripts/tests/test_review_hook.py`), campaign lifecycle rules
   (`scripts/tests/test_review_flow.py`), bundle drift (`validate-codex.sh`).
 - `CHANGELOG.md` wording, and the phrasing of refusal messages whose behaviour a test pins.
 - A missing test for prose. Prose is reviewed once; shell inside prose is tested instead.
@@ -64,7 +64,7 @@ preferences is how a one-line fix reaches its seventh round.
 ## Always check
 
 - **The receipt boundary only narrows.** A change to `review_prepush.py`, `review_push.py`
-  or `install_hook`/`usable_hook` in `review_flow.py` must not let a commit without a
+  or `install_hook`/`usable_hook` in `review_hook.py` must not let a commit without a
   completed receipt reach a remote. Show the push if you think it can.
 - **A fenced `bash` block assigns what it reads.** Shell state does not cross a fence, and
   a block that reads a variable an earlier block set takes the wrong branch silently.
