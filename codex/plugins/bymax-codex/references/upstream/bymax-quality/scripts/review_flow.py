@@ -407,20 +407,28 @@ def adopt_branch(old, told):
     return True
 
 
-def names_a_branch(ref):
-    """Whether this spelling names a branch here, local or remote-tracking, asked without
-    raising: a ref may contain what a shell would expand, so it only ever travels as one
-    argument. A commit id, a tag or a revision expression resolves to a commit and names no
-    branch, and the round would then read what that commit reaches as the base branch's."""
+def branch_ref(ref):
+    """The branch this spelling names here, local or remote-tracking, as its full ref, or ''.
+
+    Asked without raising: a ref may contain what a shell would expand, so it only ever travels
+    as one argument. A commit id, a tag or a revision expression resolves to a commit and names
+    no branch, and the round would then read what that commit reaches as the base branch's."""
     full = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--symbolic-full-name',
                            '--end-of-options', ref], capture_output=True, text=True).stdout.strip()
-    return full.startswith(('refs/heads/', 'refs/remotes/'))
+    return full if full.startswith(('refs/heads/', 'refs/remotes/')) else ''
+
+
+def work_branch():
+    """The full ref HEAD points to, or '' when HEAD is detached."""
+    return subprocess.run(['git', 'symbolic-ref', '--quiet', 'HEAD'],
+                          capture_output=True, text=True).stdout.strip()
 
 
 def told_branch(args, old=None):
-    """The base branch this start names, refused unless it names a branch: --base-branch, or
-    the first line of --base-branch-file, which a shipping command writes so no reader pastes a
-    ref name into a command. A file that is absent or empty names none.
+    """The base branch this start names, refused unless it names a branch other than the one
+    this work is on: --base-branch, or the first line of --base-branch-file, which a shipping
+    command writes so no reader pastes a ref name into a command. A file that is absent or
+    empty names none.
 
     `old` is the campaign this start continues, as start() decided, or None when it opens one.
     Once that campaign holds a branch, another named later is refused: it would move which
@@ -437,10 +445,16 @@ def told_branch(args, old=None):
             told = Path(args.base_branch_file).read_text().split('\n', 1)[0].strip()
         except OSError:
             told = ''
-    require(not told or names_a_branch(told),
+    full = branch_ref(told) if told else ''
+    require(not told or full,
             'The base branch names no branch here: ' + told + '. A commit id or a tag is not one; '
             'name the branch this work merges into, a ref under refs/heads/ or refs/remotes/, '
             'as this repository spells it, such as origin/main.')
+    # The work branch reaches every commit of the delta, so told it, nothing off the
+    # first-parent line could read as this delta's own.
+    require(not full or full != work_branch(),
+            'The base branch ' + told + ' is the branch this work is on (' + full + '). Name the '
+            'branch it merges into, such as origin/main.')
     kept = old.get('base_branch', '') if old else ''
     require(not (told and kept and told != kept),
             'This campaign keeps the base branch it was told: ' + kept + '. Name that one, or none.')

@@ -278,6 +278,21 @@ class BaseBranchStartTests(FlowBench):
                           '--base-branch', 'origin/main')
         self.assertEqual(state['base_branch'], 'origin/main')
 
+    def test_the_base_branch_is_not_the_branch_this_work_is_on(self):
+        """HEAD names the work branch itself, which reaches every commit of the delta, so no
+        commit off the first-parent line could read as this delta's; any spelling of that branch
+        is refused. Its upstream is a real base and stays accepted."""
+        own = self.git('symbolic-ref', '--short', 'HEAD')
+        for value in ('HEAD', own, 'heads/' + own, 'refs/heads/' + own):
+            refused = self.flow('start', '--base', self.base, '--context', str(self.context),
+                                '--base-branch', value, ok=False)
+            self.assertIn('The base branch ' + value + ' is the branch this work is on', refused.stderr)
+        self.git('remote', 'add', 'origin', str(self.root / 'nowhere'))
+        self.git('update-ref', 'refs/remotes/origin/main', self.base)
+        self.git('branch', '--set-upstream-to=origin/main')
+        state = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', '@{u}')
+        self.assertEqual(state['base_branch'], '@{u}')
+
     def test_the_prompt_names_the_told_branch_to_both_reviewers(self):
         """A wrong branch is visible only if the reviewers are told which one the round read:
         the one brief both of them receive names it."""

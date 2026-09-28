@@ -85,7 +85,8 @@ python3 "$FLOW" codex
 Tell the round which branch the work merges into with `--base-branch-file <file>` (a file whose
 first line is the branch, as `/bymax-pr:push` writes one) or `--base-branch <ref>`. The value
 must name a branch, a ref under `refs/heads/` or `refs/remotes/` such as `origin/main`; a commit
-id, a tag or an expression like `main~1` is refused. Only the
+id, a tag or an expression like `main~1` is refused, and so is the branch this work is on,
+however it is spelled (`HEAD`, its own name). Only the
 first-parent line is otherwise read as this delta's own work, so a side branch merged in with
 `--no-ff` reads as carried in and a correction whose regression came that way is refused for
 having none; told the base branch, a commit off that line the branch does not reach is this
