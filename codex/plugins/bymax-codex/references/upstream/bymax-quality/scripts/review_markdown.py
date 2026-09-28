@@ -68,6 +68,10 @@ def code_mask(text):
     a run of blank lines between two lines of one indented block is code too. The containers each
     line leaves open tell one block from two: a quote or a list item opened or closed from one
     line to the other starts another, and the run between them is outside both.
+
+    The reference for a shape, fuzzed or not, is commonmark.js: markdown-it reads two shapes
+    otherwise, a link reference definition followed by an indented line and a lazy line after a
+    nested quote, both of which it calls code where commonmark.js and this walk read text.
     """
     walk, lines, kinds, where = Walk(), text.split('\n'), [], []
     for line in lines:
