@@ -254,7 +254,7 @@ class BaseBranchStartTests(FlowBench):
 
     def test_a_fresh_campaign_after_a_cleared_one_names_its_own_base_branch(self):
         """A cleared campaign that is not continued opens a new one, which holds nothing of the
-        old; checked against the finished campaign's branch, it was refused a branch of its own."""
+        old; checked against the finished campaign's branch, it names a branch of its own instead."""
         self.git('branch', 'upstream', self.base)
         self.git('branch', 'elsewhere', self.base)
         state = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
