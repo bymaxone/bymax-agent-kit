@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Installation diagnostics layer: report prerequisites without modifying user configuration."""
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -10,14 +11,22 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def installed_names():
+    """What the installer plants, asked of the installer itself: a list kept here fell behind it,
+    and a runtime module the doctor never checks reads as installed while it is stale."""
+    spec = importlib.util.spec_from_file_location('install_review_flow', ROOT / 'scripts/install-review-flow.py')
+    installer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(installer)
+    return [path.name for path in installer.payload(ROOT)]
+
+
 def inspect(auth=False):
     """Return explicit availability and optional authentication results, never credentials."""
     checks = [{'name': 'Python >=3.10', 'ok': sys.version_info >= (3, 10)}]
     for name in ('git', 'claude', 'codex', 'gh'):
         checks.append(dict(name=name, ok=shutil.which(name) is not None))
     home = Path.home()
-    for name in ('review_flow.py', 'review_push.py', 'review_prepush.py',
-                 'review_delivery.py', 'review_claude.py', 'review-report.schema.json'):
+    for name in installed_names():
         path = home / '.claude/bymax-review' / name
         source = ROOT / 'plugins/bymax-quality/scripts' / name
         checks.append(dict(name='installed ' + name, ok=path.exists() and path.read_bytes() == source.read_bytes()))

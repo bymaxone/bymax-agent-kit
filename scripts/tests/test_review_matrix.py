@@ -608,8 +608,11 @@ class EnumerationCountTests(unittest.TestCase):
     """
 
     def count(self, out):
-        rows = [row.strip() for row in out.split('\n') if row.strip()]
-        return [n for n in matrix.without_total(rows, matrix.per_row(rows)) if n is not None]
+        """What the runtime counts from this output, read the way it reads a command's."""
+        tally = matrix.Tally()
+        tally.feed(out.encode())
+        total = tally.total()
+        return [] if total is None else [total]
 
     def test_grep_prints_the_count_after_a_colon_and_digits_inside_the_path(self):
         """`mod_v2.py:0` states 0. Adding every digit token read the 2 out of the name and
@@ -630,6 +633,15 @@ class EnumerationCountTests(unittest.TestCase):
         """`wc -l a b` appends its own total, and adding it answered 8 for 4: every
         multi-file rule was read as twice its size, so no short list was ever refused."""
         self.assertEqual(sum(self.count('       1 one.txt\n       0 two.txt\n       1 total\n')), 1)
+
+    def test_a_row_that_never_ends_is_held_to_a_tail(self):
+        """An output that never ends a line leaves an unfinished row, and that row grew
+        without bound until the deadline stopped it."""
+        tally = matrix.Tally()
+        for _ in range(64):
+            tally.feed(b'1' * matrix.KEEP)
+        self.assertLessEqual(len(tally.rest), matrix.KEEP)
+        self.assertIsNone(tally.total())
 
     def test_a_file_named_total_keeps_its_count(self):
         """Dropping the row by its label alone discarded a real file and then refused the

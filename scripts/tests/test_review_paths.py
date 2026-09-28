@@ -98,7 +98,7 @@ class NotUtf8Tests(unittest.TestCase):
 
     def test_a_latin1_test_name_is_read_and_names_the_same_file_to_git(self):
         """The name comes back with its byte kept as a surrogate escape, and handed to git again
-        it resolves the same blob: the state and the prompts can carry it, and git still finds it."""
+        it resolves the same blob: git still finds it."""
         head = commit_with(self.where, self.base, {b'tests/test_caf\xe9.py': b'def test_x(): pass\n'})
         self.assertEqual(review_evidence.tests_changed(self.base, head), (['tests/test_caf\udce9.py'], []))
         self.assertEqual(review_git.git('cat-file', '-p', head + ':tests/test_caf\udce9.py'),
