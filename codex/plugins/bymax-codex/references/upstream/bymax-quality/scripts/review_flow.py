@@ -73,8 +73,13 @@ def current(state):
 
 
 def context_contract(path):
-    """Validate the shared intent, what was measured against real data, and the gate commands."""
-    text = Path(path).read_text().strip()
+    """Validate the shared intent, what was measured against real data, and the gate commands.
+
+    Decoded as git_raw() decodes, not by the locale: for_a_reader() hands the text on and a check
+    reaches its child through the filesystem encoding, so any other decoding changes the bytes
+    the author wrote — on macOS the filesystem encoding is UTF-8 whatever the locale says.
+    """
+    text = Path(path).read_text(encoding=sys.getfilesystemencoding(), errors='surrogateescape').strip()
     data = json.loads(text)
     require(isinstance(data, dict), 'Context must be a JSON object.')
     for key in ('intent', 'acceptance', 'constraints', 'scope', 'checks'):
