@@ -283,7 +283,10 @@ SPAN = re.compile(r'(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)')
 def sentences(name, text):
     """How many sentences a file's prose holds: a stop, a question or an exclamation, and any
     closing markup after it, followed by a space or the end of the text. A code span is one
-    word: a `.` spelled inside it is a character the sentence names, not where it ends."""
+    word: a `.` spelled inside it is a character the sentence names, not where it ends. So a
+    sentence written wholly inside a span is not counted: a span ending in a stop and followed
+    by a space is also how `.` itself is named mid-sentence. Lines grown to hold one are still
+    refused by prose_size(); lines joined to make room for one are not."""
     said = SPAN.sub('code', review_claims.prose(name, text))
     return len(re.findall(r'[.!?]' + CLOSING + r'(?=\s|$)', said))
 
