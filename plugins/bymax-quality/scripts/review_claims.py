@@ -47,9 +47,12 @@ NOTED = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted
                    r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?)\b',
                    re.IGNORECASE)
 # A move or a new state records a removal only with its target, and only as the name's own: "`X` is
-# now `Y`" and "`X` was moved to `y.py`" are notes, while "`X` is now enabled", "`X` moved to the
-# top" and "`X` stays because `Y` is now `Z`" describe X as live. Filled with the escaped name.
-TARGETED = r'\b%s\b`?\s+(?:(?:was|has been)\s+)?(?:moved to|is now)\s+`'
+# now `Y`" and "`X` was moved to y.py" are notes, while "`X` is now enabled", "`X` moved to the
+# top" and "`X` stays because `Y` is now `Z`" describe X as live. An unquoted target counts only
+# spelled like a file after a move, or like code after "called" or "named" (targeted() asks).
+TARGETS = re.compile(r'(?:moved to|is now(?:\s+(?:called|named))?)\s+`'
+                     r'|moved to\s+(?:[\w-]+/)*[\w-]{2,}\.[A-Za-z]{1,5}\b'
+                     r'|is now\s+(?:called|named)\s+(\w+)', re.IGNORECASE)
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
 # Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
@@ -538,8 +541,7 @@ def records_removal(line, token):
     parts = re.split(r'(\.(?!\w)|;|—)', line)
     clauses, marks = parts[0::2], parts[1::2]
     names = lambda clause: re.search(r'\b%s\b' % re.escape(token), clause)
-    says = lambda clause: (NOTED.search(re.sub(r'`[^`]*`', ' ', clause))
-                           or re.search(TARGETED % re.escape(token), clause, re.IGNORECASE))
+    says = lambda clause: NOTED.search(re.sub(r'`[^`]*`', ' ', clause)) or targeted(clause, token)
     named = []
     for at, clause in enumerate(clauses):
         if not names(clause):
@@ -549,6 +551,16 @@ def records_removal(line, token):
         after = clauses[at + 1] if at < len(marks) and marks[at] == '—' else None
         named.append(clause + ' ' + after if not says(clause) and after and not names(after) else clause)
     return all(says(clause) for clause in named)
+
+
+def targeted(clause, token):
+    """Whether the clause moves the name or gives it a new name, right after naming it: "`X` is
+    now `Y`", "`X` was moved to y.py". Another name's move in the same clause retires nothing."""
+    for found in re.finditer(r'\b%s\b`?\s+(?:(?i:was|has been)\s+)?' % re.escape(token), clause):
+        target = TARGETS.match(clause, found.end())
+        if target and (target.group(1) is None or code_shaped(target.group(1))):
+            return True
+    return False
 
 
 def claimed(line, quote):
