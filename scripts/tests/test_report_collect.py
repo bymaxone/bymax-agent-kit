@@ -1061,7 +1061,8 @@ class CollectTests(CollectBench):
                              capture_output=True, text=True, env=isolated()).stdout.strip()
         for ref in ('cafe1234', 'feat/x', 'feat/y'):
             subprocess.run(['git', '-C', str(repo), 'branch', '-q', ref, 'origin/main'], check=True, env=isolated())
-        subprocess.run(['git', '-C', str(repo), 'tag', 'v1.2', 'origin/main'], check=True, env=isolated())
+        for tag in ('v1.2', 'v1.3'):
+            subprocess.run(['git', '-C', str(repo), 'tag', tag, 'origin/main'], check=True, env=isolated())
         table = {
             "commit (merge): Merge remote-tracking branch 'origin/main'": True,
             "commit (merge): Merge remote-tracking branch 'origin/main' into feat/x": True,
@@ -1082,6 +1083,13 @@ class CollectTests(CollectBench):
             "commit (merge): Merge branch 'feat/x' into main": False,
             "commit (merge): Merge branches 'feat/x' and 'feat/y'": False,
             "commit (merge): Merge tag 'v1.2'": False,
+            # The other shapes git writes for refs of ours, measured on git 2.54.
+            "commit (merge): Merge tags 'v1.2' and 'v1.3'": False,
+            "commit (merge): Merge branches 'feat/x' and 'feat/y', tag 'v1.2'": False,
+            "commit (merge): Merge branch 'feat/x' (early part)": False,
+            "commit (merge): Merge branch 'feat/x' (early part) into main": False,
+            # A name git would never write, typed by hand: an option to rev-parse is not a ref.
+            "commit (merge): Merge branch '--all'": True,
             "commit (merge): Merge branch 'cafe1234'": False,
             "commit (amend): Merge branch 'main' of ../up": False,
             "commit: Merge branch 'main' of ../up": False,

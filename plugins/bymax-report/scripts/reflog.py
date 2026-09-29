@@ -107,8 +107,10 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
 # The subject git writes for a merge of refs of ours, and nothing else: every other shape,
 # a pull with no branch (`Merge <url>`), a tracking ref or a message written by hand, is read
 # as a catch-up.
-OURS_MERGED = re.compile(r"Merge (?:branch|branches|tag|commit|commits) '[^']*'"
-                         r"(?:(?:,| and|, and) '[^']*')*(?: into \S+)?")
+KIND = r"(?:branch|branches|tag|tags|commit|commits)"
+NAMED = r"'[^']*'(?: \(early part\))?"
+OURS_MERGED = re.compile(r"Merge %s %s(?:(?:,|, and| and) (?:%s )?%s)*(?: into \S+)?"
+                         % (KIND, NAMED, KIND, NAMED))
 
 
 def committed_merge_syncs(repo: Path, subject: str) -> bool:
@@ -117,9 +119,10 @@ def committed_merge_syncs(repo: Path, subject: str) -> bool:
     A merge that stops on a conflict writes nothing to the reflog, and the commit that
     concludes it writes ``commit (merge):`` and the merge's subject. What was merged, which a
     ``merge`` entry names before its colon, is then only in the words git's merge message
-    uses, and they decide it only one way: the merge is local work when the subject has the
-    shape git writes for ``Merge branch 'feat/x'``, ``Merge tag 'v1'`` or ``Merge commit
-    'name'`` and every name it quotes is a branch or a tag of ours today. Anything else is a
+    uses, and they decide it only one way: the merge is local work when the subject has a
+    shape git writes for refs of ours (``Merge branch 'feat/x'``, ``Merge tags 'v1' and 'v2'``,
+    ``Merge branches 'a' and 'b', tag 't'``, ``Merge branch 'feat' (early part)``) and every
+    name it quotes is a branch or a tag of ours today. Anything else is a
     catch-up, which leaves the period's landing unknown rather than over-reported: a pull with
     no branch writes ``Merge <url>``, a merge of ``FETCH_HEAD`` the same, a tracking ref or a
     revision of one resolves outside ``refs/heads`` and ``refs/tags``, a message written by
@@ -132,7 +135,9 @@ def committed_merge_syncs(repo: Path, subject: str) -> bool:
 
 def ours(repo: Path, name: str) -> bool:
     """Whether a name a merge subject quotes is a branch or a tag of this repository."""
-    code, named, _ = git_out(repo, 'rev-parse', '--symbolic-full-name', name)
+    # --verify, or rev-parse echoes --end-of-options back as a name of its own.
+    code, named, _ = git_out(repo, 'rev-parse', '--verify', '--quiet', '--symbolic-full-name',
+                             '--end-of-options', name)
     return code == 0 and named.strip().startswith(('refs/heads/', 'refs/tags/'))
 
 
