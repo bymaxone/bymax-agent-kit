@@ -178,7 +178,7 @@ class NotUtf8Tests(unittest.TestCase):
         (self.where / '.git' / 'HEAD').write_bytes(b'ref: refs/heads/caf\xe9\n')
         self.assertEqual(review_flow.work_branch(), 'refs/heads/caf\udce9')
         self.assertEqual(review_flow.branch_ref('main'), 'refs/heads/main')
-        # Told through the file /bymax-pr:push writes, the base branch is read by its bytes too.
+        # Told through --base-branch-file, the base branch is read by its bytes too.
         self.git('symbolic-ref', 'HEAD', 'refs/heads/main')
         named = self.where / 'base-branch'
         named.write_bytes(b'caf\xe9\n')
