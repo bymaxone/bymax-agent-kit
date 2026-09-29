@@ -576,6 +576,23 @@ class EnvelopeShapeTests(unittest.TestCase):
         self.assertEqual(bench.offences(), [])
         self.assertEqual(prose.sentences('NOTES.md', 'A ` b.\n\nC. D`.\n'), 3)
 
+    # Lines a code span must not cross: each may end the paragraph or start a block.
+    BLOCK_STARTS = ('', '   ', '## Section', '   # Indented heading', '---', '***', '___', '===',
+                    '- item', '* item', '+ item', '1. item', '2) item', '> quote', '```', '~~~', '<div>')
+
+    def test_a_code_span_stops_at_a_line_that_starts_a_block(self):
+        """A span stopped only at a blank line paired a backtick before a heading with one after
+        it, and hid the sentence added between them: the edit passed where it had been refused."""
+        for line in self.BLOCK_STARTS:
+            with self.subTest(line=line):
+                self.assertIsNone(prose.SPAN.search('A `b.\n%s\nC. D`.' % line))
+        self.assertIsNotNone(prose.SPAN.search('A `b.\nplain words\nC. D`.'))
+        notes = '# Notes\n\nSome text ends here.\n## Section\nMore text ends here.\n'
+        bench = Bench(self, {'NOTES.md': notes})
+        bench.write('# Notes\n\nSome text ends `here. It adds a whole new claim about the code.\n'
+                    '## Section\nMore text` ends here.\n', name='NOTES.md')
+        self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
+
     def test_a_type_comment_is_what_a_type_checker_reads(self):
         """`# type: List[int]` is the annotation a type checker reads, and the tree compared
         without type comments called a changed one prose. A line of prose that begins `# type:`

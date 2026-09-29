@@ -280,9 +280,13 @@ TARGET = (r'\(\s*(?:<[^<>\n]*>|(?:[^()\s]|\((?:[^()\s]|\([^()\s]*\))*\))*)'
 # What may close a sentence after its stop: closing markup or a closing quote, or the target of the
 # link whose text the stop ends.
 CLOSING = r'(?:\]' + TARGET + r'|\]\[[^\]\s]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
-# A code span, by CommonMark's rule: a run of backticks closed by a run of the same length, across a
-# line ending but not a blank line, which ends the paragraph it is in.
-SPAN = re.compile(r'(?<!`)(`+)(?!`)(?:[^\n]|\n(?![ \t]*(?:\n|$)))*?(?<!`)\1(?!`)')
+# A line that may end a paragraph or start a block: blank, or opening like a heading, a thematic
+# break or setext underline, a list item, a quote, a fence or HTML. Wider than CommonMark's list,
+# so a span it stops leaves a stop counted, and a refusal, rather than hiding one.
+BLOCK = r'[ \t]*(?:\n|$)|[ ]{0,3}(?:[#>=+*_~`<-]|\d{1,9}[.)])'
+# A code span, by CommonMark's rule: a run of backticks closed by a run of the same length, inside
+# one paragraph. It crosses a line ending only into a line that cannot start a block.
+SPAN = re.compile(r'(?<!`)(`+)(?!`)(?:[^\n]|\n(?!%s))*?(?<!`)\1(?!`)' % BLOCK)
 
 
 def sentences(name, text):
