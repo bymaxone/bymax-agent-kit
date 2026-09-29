@@ -611,8 +611,8 @@ class EnvelopeShapeTests(unittest.TestCase):
         self.assertIn('thing.py: a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
     def test_a_signature_shaped_line_away_from_a_def_is_prose(self):
-        """Matched by its text alone, a line of prose opening `# type: (` was read as a function's
-        signature comment, and correcting it was refused as a changed directive."""
+        """A signature comment is the line after a `def`: a line of prose opening `# type: (`
+        anywhere else stays prose, and matched by its text alone it would be a directive."""
         start = 'x = 1  # type: int\n# type: (legacy form) documents old syntax.\ny = 2\n'
         bench = Bench(self, {'thing.py': start})
         bench.write(start.replace('documents old syntax', 'records the old syntax'))
