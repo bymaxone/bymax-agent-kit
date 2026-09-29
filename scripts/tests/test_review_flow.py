@@ -1535,6 +1535,44 @@ class ReviewFlowTests(FlowBench):
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertTrue(cleaned.exists(), 'the gate was killed before it could clean up')
 
+    def run_gate_in_a_child(self, gate, preexec=None):
+        """A process running review_run.run_gate on this gate, in a session of its own."""
+        check = ('import sys; sys.path.insert(0, %r); import review_run\n'
+                 'sys.exit(review_run.run_gate([sys.executable, "-c", %r], None, 1800))'
+                 % (str(FLOW.parent), gate))
+        return subprocess.Popen([sys.executable, '-c', check], start_new_session=True,
+                                stderr=subprocess.DEVNULL, preexec_fn=preexec)
+
+    def test_a_second_signal_during_the_grace_still_ends_the_gate(self):
+        """The handlers stayed on through the grace, so a second Ctrl-C or SIGTERM left before
+        the SIGKILL: a gate ignoring SIGTERM outlived the check, or held it without a bound."""
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal=sig.name):
+                late = self.root / ('twice-%s.txt' % sig.name)
+                gate = ('import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); '
+                        'time.sleep(8); open(%r, "w").write("late")' % str(late))
+                runner = self.run_gate_in_a_child(gate)
+                started = time.monotonic()
+                time.sleep(1.5)
+                os.killpg(runner.pid, sig)
+                time.sleep(1.5)
+                os.killpg(runner.pid, sig)
+                runner.wait(timeout=60)
+                self.assertLess(time.monotonic() - started, 7, 'the check waited on the gate')
+                time.sleep(max(0, started + 10 - time.monotonic()))
+                self.assertFalse(late.exists(), 'the gate outlived two %s' % sig.name)
+
+    def test_a_check_run_under_nohup_ignores_a_hangup(self):
+        """A hangup ignored by whoever started the check, as nohup does, stopped it once the
+        check turned SIGHUP into an exit of its own."""
+        done = self.root / 'finished.txt'
+        runner = self.run_gate_in_a_child('import time; time.sleep(3); open(%r, "w").write("done")' % str(done),
+                                          preexec=lambda: signal.signal(signal.SIGHUP, signal.SIG_IGN))
+        time.sleep(1.5)
+        os.killpg(runner.pid, signal.SIGHUP)
+        self.assertEqual(runner.wait(timeout=60), 0)
+        self.assertTrue(done.exists(), 'the gate did not run to its end')
+
     def test_a_check_that_times_out_takes_its_children_with_it(self):
         """A gate past its deadline had only its own process killed, so what it started kept
         running behind `check` after the timeout was recorded."""
