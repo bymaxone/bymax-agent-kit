@@ -169,7 +169,7 @@ class NotUtf8Tests(unittest.TestCase):
 
     def test_a_branch_name_that_is_not_utf8_is_named_as_a_branch(self):
         """work_branch() and branch_ref() read a ref as strict UTF-8 and raised on such a name, so
-        a start told its base branch, as /bymax-pr:push always tells one, could not run on it."""
+        a start told its base branch could not run on it."""
         import review_flow
         with open(self.where / '.git' / 'packed-refs', 'ab') as packed:
             packed.write(b'%s refs/heads/caf\xe9\n' % self.base.encode())
