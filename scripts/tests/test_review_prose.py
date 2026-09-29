@@ -646,7 +646,7 @@ class EnvelopeShapeTests(unittest.TestCase):
         self.assertEqual(bench.offences(), [])
 
     def test_a_directive_after_a_non_ascii_docstring_keeps_its_place(self):
-        """The docstring spans are placed in UTF-8 bytes and the tokens in characters, so the code
+        """The docstring spans were placed in UTF-8 bytes and the tokens in characters, so the code
         after an accented docstring on its line read as part of it: shortening the docstring
         moved the place of every directive after it and was refused."""
         start = '"""\u00e9\u00e9\u00e9\u00e9\u00e9"""; x = 1\ny = 2  # noqa\n'

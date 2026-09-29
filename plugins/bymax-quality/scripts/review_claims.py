@@ -50,7 +50,7 @@ NOTED = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted
                    r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?)\b',
                    re.IGNORECASE)
 # A move or a new state records a removal only with its target, and only as the name's own: "`X` is
-# now `Y`" and "`X` was moved to y.py" are notes, while "`X` is now enabled", "`X` moved to the
+# now `Y`" and "`X` was moved to git.py" are notes, while "`X` is now enabled", "`X` moved to the
 # top" and "`X` stays because `Y` is now `Z`" describe X as live. An unquoted target counts only
 # spelled like a file after a move, or like code after "called" or "named" (targeted() asks).
 TARGETS = re.compile(r'(?:moved to|is now(?:\s+(?:called|named))?)\s+`'
@@ -560,7 +560,7 @@ def records_removal(line, token):
 
 def targeted(clause, token):
     """Whether the clause moves the name or gives it a new name, right after naming it: "`X` is
-    now `Y`", "`X` was moved to y.py". Another name's move in the same clause retires nothing."""
+    now `Y`", "`X` was moved to git.py". Another name's move in the same clause retires nothing."""
     for found in re.finditer(r'\b%s\b`?\s+(?:(?i:was|has been)\s+)?' % re.escape(token), clause):
         target = TARGETS.match(clause, found.end())
         if target and (target.group(1) is None or code_shaped(target.group(1))):

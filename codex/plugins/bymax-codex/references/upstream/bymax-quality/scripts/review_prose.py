@@ -273,8 +273,8 @@ def prose_size(name, text):
     return count
 
 
-# What may close a sentence after its stop: emphasis, strike-through, a straight or curly quote, a
-# bracket, or the target of the link whose text the stop ends.
+# What may close a sentence after its stop: closing markup or a closing quote, or the target of the
+# link whose text the stop ends.
 CLOSING = r'(?:\]\([^()\s]*\)|\]\[[^\]\s]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
 # A code span, by CommonMark's rule: a run of backticks closed by a run of the same length.
 SPAN = re.compile(r'(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)')
