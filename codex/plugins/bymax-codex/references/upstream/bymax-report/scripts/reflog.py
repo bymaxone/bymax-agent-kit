@@ -26,6 +26,9 @@ TOWARD = ('merge', 'reset', 'branch')
 DESTINATION = (' moving to ', ' Reset to ', ' Created from ')
 # An operand spelled as an object id says what the ref moved to and not whose it was.
 OBJECT_ID = re.compile(r'[0-9a-f]{7,64}')
+# A name git quotes in a merge subject. Git writes those subjects in English whatever the
+# reader's language, so the words around the names can be read.
+QUOTED = re.compile(r"'([^']*)'")
 
 
 def git_out(repo: Path, *args: str) -> tuple[int, str, str]:
@@ -71,6 +74,7 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
 
     Anything left over is read as local, because the actions that are not on either list —
     ``commit``, ``update by push``, ``am``, ``cherry-pick`` — move a ref because the work landed.
+    A ``commit (merge)`` concludes a merge, and ``committed_merge_syncs`` reads what it merged.
 
     An entry carrying no action at all is one ``GIT_REFLOG_ACTION=`` produces, and what
     it hides depends on which ref moved. A push writes ``update by push`` on the tracking ref
@@ -85,6 +89,8 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
         return tracking
     if action in SYNCED:
         return True
+    if words == ['commit', '(merge)']:
+        return committed_merge_syncs(repo, tail.strip())
     if action not in TOWARD:
         return False
     operands = words[1:]
@@ -96,6 +102,43 @@ def moved_by_syncing(repo: Path, message: str, tracking: bool) -> bool:
     if not operands:
         return True
     return any(names_another_repository(repo, operand) for operand in operands)
+
+
+# The subject git writes for a merge of refs of ours, and nothing else: every other shape,
+# a pull with no branch (`Merge <url>`), a tracking ref or a message written by hand, is read
+# as a catch-up.
+KIND = r"(?:branch|branches|tag|tags|commit|commits)"
+NAMED = r"'[^']*'(?: \(early part\))?"
+OURS_MERGED = re.compile(r"Merge %s %s(?:(?:,|, and| and) (?:%s )?%s)*(?: into \S+)?"
+                         % (KIND, NAMED, KIND, NAMED))
+
+
+def committed_merge_syncs(repo: Path, subject: str) -> bool:
+    """Whether a merge concluded by ``git commit`` caught this repository up with another one.
+
+    A merge that stops on a conflict writes nothing to the reflog, and the commit that
+    concludes it writes ``commit (merge):`` and the merge's subject. What was merged, which a
+    ``merge`` entry names before its colon, is then only in the words git's merge message
+    uses, and they decide it only one way: the merge is local work when the subject has a
+    shape git writes for refs of ours (``Merge branch 'feat/x'``, ``Merge tags 'v1' and 'v2'``,
+    ``Merge branches 'a' and 'b', tag 't'``, ``Merge branch 'feat' (early part)``) and every
+    name it quotes is a branch or a tag of ours today. Anything else is a
+    catch-up, which leaves the period's landing unknown rather than over-reported: a pull with
+    no branch writes ``Merge <url>``, a merge of ``FETCH_HEAD`` the same, a tracking ref or a
+    revision of one resolves outside ``refs/heads`` and ``refs/tags``, a message written by
+    hand or a branch deleted since names nothing that is ours.
+    """
+    if not OURS_MERGED.fullmatch(subject):
+        return True
+    return not all(ours(repo, name) for name in QUOTED.findall(subject))
+
+
+def ours(repo: Path, name: str) -> bool:
+    """Whether a name a merge subject quotes is a branch or a tag of this repository."""
+    # --verify, or rev-parse echoes --end-of-options back as a name of its own.
+    code, named, _ = git_out(repo, 'rev-parse', '--verify', '--quiet', '--symbolic-full-name',
+                             '--end-of-options', name)
+    return code == 0 and named.strip().startswith(('refs/heads/', 'refs/tags/'))
 
 
 def names_another_repository(repo: Path, operand: str) -> bool:

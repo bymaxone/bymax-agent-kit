@@ -13,6 +13,9 @@ Tiers, because precision differs and a gate nobody trusts is worse than no gate:
     retired            exact       a name this delta removed that the tree still asserts,
                                    spelled like code rather than like an English word. This
                                    one refuses: measured at no false positive over 40 commits.
+    noted              reported     a line naming such a name that also says it is gone. A
+                                   note and a live claim holding the word read alike, so it
+                                   is reported rather than refused (see noted_removals).
     unkept             reported     a removal claimed of a string still present. One false
                                    positive in those same 40 — a shell command read as the
                                    subject of a sentence near it — so it is read, not obeyed.
@@ -46,9 +49,18 @@ GONE = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|
 NOTED = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted|gone|'
                    r'renam(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|supersede[sd]?)\b',
                    re.IGNORECASE)
-# A move or a new state records a removal only with its target: "`X` is now `Y`" is a note, while
-# "`X` is now enabled" and "`X` moved to the top" describe X as live.
-TARGETED = re.compile(r'\b(moved to|is now)\s+`', re.IGNORECASE)
+# A move or a new state records a removal only with its target, and only as the name's own: "`X` is
+# now `Y`" and "`X` was moved to git.py" are notes, while "`X` is now enabled", "`X` moved to the
+# top" and "`X` stays because `Y` is now `Z`" describe X as live. An unquoted target counts only
+# spelled like a file after a move, or like code after "called" or "named" (targeted() asks).
+TARGETS = re.compile(r'(?:moved to|is now(?:\s+(?:called|named))?)\s+`'
+                     r'|moved to\s+(?:[\w-]+/)*[\w-]{2,}\.[A-Za-z]{1,5}\b'
+                     r'|is now\s+(?:called|named)\s+(\w+)', re.IGNORECASE)
+# A noun naming the kind of thing may stand between the name and its move: "`X` function is now
+# `Y`". Closed, so a clause about something else never reads as the name's own.
+KINDS = ('alias', 'argument', 'attribute', 'class', 'command', 'constant', 'decorator', 'field',
+         'file', 'fixture', 'flag', 'function', 'helper', 'hook', 'key', 'macro', 'method',
+         'module', 'option', 'parameter', 'property', 'script', 'setting', 'type', 'variable')
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
 # Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
@@ -532,12 +544,14 @@ def mentions(base, head, cwd=None):
 def records_removal(line, token):
     """Whether every clause naming the name also says it is gone, outside every quoted span. A
     clause naming it without such a word asserts it; "`OLD_HELPER` runs `git worktree remove`"
-    is one, since the word is the quoted command's."""
+    is one, since the word is the quoted command's. It accepts some live claims by design,
+    "`OLD_HELPER` removes the entry" among them: a line it accepts is reported by
+    noted_removals(), which says why, and refuses nothing."""
     # A period ends a clause only where no word follows it: `review_flow.py` is one name.
     parts = re.split(r'(\.(?!\w)|;|—)', line)
     clauses, marks = parts[0::2], parts[1::2]
     names = lambda clause: re.search(r'\b%s\b' % re.escape(token), clause)
-    says = lambda clause: NOTED.search(re.sub(r'`[^`]*`', ' ', clause)) or TARGETED.search(clause)
+    says = lambda clause: NOTED.search(re.sub(r'`[^`]*`', ' ', clause)) or targeted(clause, token)
     named = []
     for at, clause in enumerate(clauses):
         if not names(clause):
@@ -547,6 +561,19 @@ def records_removal(line, token):
         after = clauses[at + 1] if at < len(marks) and marks[at] == '—' else None
         named.append(clause + ' ' + after if not says(clause) and after and not names(after) else clause)
     return all(says(clause) for clause in named)
+
+
+def targeted(clause, token):
+    """Whether the clause moves the name or gives it a new name, right after naming it and at
+    most a noun of KINDS: "`X` is now `Y`", "`X` helper has moved to git.py". Another name's move
+    in the same clause retires nothing."""
+    kind = '|'.join(KINDS)
+    for found in re.finditer(r'\b%s\b`?\s+(?:(?i:%s)\s+)?(?:(?i:was|were|has|have|had)(?:\s+been)?\s+)?'
+                             % (re.escape(token), kind), clause):
+        target = TARGETS.match(clause, found.end())
+        if target and (target.group(1) is None or code_shaped(target.group(1))):
+            return True
+    return False
 
 
 def claimed(line, quote):
@@ -643,12 +670,13 @@ def report(base, head, cwd=None):
     for name, quote, where in broken:
         print('UNKEPT   %s claims removal of `%s`, still present in %s — reported, not refused'
               % (name, quote, where))
-    for name, token, line in noted_removals(base, head, cwd=cwd):
+    noted = noted_removals(base, head, cwd=cwd)
+    for name, token, line in noted:
         print('NOTED    %s says %s is gone, which this delta removed — reported for a reviewer to '
               'judge: %s' % (name, token, line))
     rest = unchecked(base, head, cwd=cwd)
     print('\n%d assertion(s) added; %d refusing, %d reported. No command here settles the '
-          'rest:' % (len(rest), len(gone), len(broken)))
+          'rest:' % (len(rest), len(gone), len(broken) + len(noted)))
     for name, line in rest[:40]:
         print('   %s: %s' % (name, line))
     if len(rest) > 40:

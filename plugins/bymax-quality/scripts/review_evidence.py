@@ -62,18 +62,21 @@ def tests_changed(base, head, branch=''):
             removed_tests(base, removed))
 
 
-def removed_tests(base, removed):
+def removed_tests(base, removed, unsure=True):
     """The deleted files that were tests at the base: named like one, or collected there. A
     deleted file cannot be asked about where it is gone, so the base's tree is asked, and a
     directory it cannot answer for keeps its files: a deletion reviewers are not shown is the
     one they cannot judge. A file that failed to collect there, or sits under a directory
-    that did, is kept too: the tolerant collect leaves it out of what it found."""
+    that did, is kept too: the tolerant collect leaves it out of what it found.
+
+    `unsure` is what both kinds count as. The scope rule passes False: a deletion it wrongly
+    exempts is one no later gate refuses, since a deleted file leaves no node for a matrix."""
     import review_matrix
     named = [name for name in removed if is_test_path(name)]
     other = [name for name in removed if not is_test_path(name)]
     if not other or importlib.util.find_spec('pytest') is None:
         return named
-    found = set()
+    found, doubted = set(), set()
     with archived(base) as older:
         wanted = [name for name in other if name.endswith('.py') or under_a_collect_hook(older, name)]
         for where in sorted({str(Path(name).parent) or '.' for name in wanted}):
@@ -81,11 +84,13 @@ def removed_tests(base, removed):
             try:
                 collected, failed = review_matrix.walked(older, [where])
             except (SystemExit, review_matrix.Unfinished):
-                found.update(here)
+                doubted.update(here)
                 continue
             found.update(collected)
-            found.update(name for name in here
-                         if {name, *(p.as_posix() for p in Path(name).parents)} & failed)
+            doubted.update(name for name in here
+                           if {name, *(p.as_posix() for p in Path(name).parents)} & failed)
+    if unsure:
+        found |= doubted
     return sorted(named + [name for name in other if name in found])
 
 
@@ -124,10 +129,25 @@ def collected_elsewhere(paths):
 
 def under_a_collect_hook(root, path):
     """Whether a conftest.py from this file's directory up to the root names
-    `pytest_collect_file`, which is how a conftest collects a file that is not Python."""
+    `pytest_collect_file`, which is how a conftest collects a file that is not Python, or
+    `pytest_plugins`, which loads modules that may define it. Those modules are not read:
+    naming one is reason enough to ask pytest, and asking is the direction that costs a
+    collect rather than a changed test nobody is shown.
+
+    Two limits follow, both stated because neither is guarded:
+
+    - A conftest naming `pytest_plugins` makes every changed document beneath it asked about,
+      one collect of each directory holding one, whether or not a named module collects documents.
+    - A collector an installed plugin registers through a `pytest11` entry point is not seen,
+      so a document only it collects is no changed test. The entry points are cheap to list,
+      but whether one defines the hook is settled only by importing it, which runs third-party
+      code at review time: its entry module's text both names the hook in a plugin that
+      registers it only on an option of its own, and misses one registered from elsewhere.
+    """
     for where in [Path(path).parent, *Path(path).parent.parents]:
         conftest = Path(root, where, 'conftest.py')
-        if conftest.is_file() and 'pytest_collect_file' in conftest.read_text(errors='replace'):
+        text = conftest.read_text(errors='replace') if conftest.is_file() else ''
+        if 'pytest_collect_file' in text or 'pytest_plugins' in text:
             return True
     return False
 
@@ -250,7 +270,9 @@ def matrix_first(state, directory):
     before, unread = failing_before(state['review_base'], state['regression_tests'], runnable)
     demanded = sorted(set(added) | set(before))
     caught_with_the_changed_test(kept, review_matrix.ran_alone(git('rev-parse', '--show-toplevel'), demanded))
-    return {'failing_before': before, 'unread_before': unread}
+    # The files whose nodes did run there, so the note can tell "every node passed" from "none ran".
+    return {'failing_before': before, 'unread_before': unread,
+            'read_before': [path for path in runnable if path not in unread]}
 
 
 def matrix_bound_to_this_tree(kept, head):
@@ -418,8 +440,9 @@ def tests_added(base, names):
 
 
 def failing_before(base, changed, names):
-    """The nodes of these test files that do not pass before the fix, and the files that could
-    not be asked: the head's copy of each file, run node by node against the base's tree.
+    """The nodes of these test files that do not pass before the fix, and the files and nodes
+    that could not be asked: the head's copy of each file, run node by node against the base's
+    tree.
 
     A regression claims to fail before its fix, and this asks exactly that. Which nodes a delta
     added cannot answer it: an edited regression exists on both sides, so it is demanded
@@ -429,11 +452,11 @@ def failing_before(base, changed, names):
 
     A file the base tree cannot collect — it imports what the fix adds — cannot say which of
     its nodes the fix concerns: demanding all of them would ask its unrelated neighbours to
-    catch a mutant, which nobody could satisfy. It is left to the added-node rule, and named.
-
-    Every test path the delta changed is copied, not only the files asked: a conftest or a
-    helper the head's tests need is a test path pytest collects nothing from, and the base's
-    copy of it would fail them for a reason that is not the fix.
+    catch a mutant, which nobody could satisfy. It is left to the added-node rule, and named;
+    so is a file the base tree collects no node from. A node the head collects and the base
+    tree does not — one defined only under a flag the fix adds — was never run there, and is
+    named by its id. The head's side of that comparison is collected in the working checkout,
+    as tests_added() collects it, which costs one more collect per changed file.
 
     An unpacked tree has no .git, so a test that reads the repository fails in it whatever the
     fix. A node counts only if the head, unpacked the same way, runs it and passes: a skip exits
@@ -446,16 +469,13 @@ def failing_before(base, changed, names):
     if not here:
         return failing, unread
     with archived(base) as older:
-        for name in [name for name in changed if Path(root, name).is_file()]:
-            target = unlinked(older, name)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(Path(root, name), target)
+        overlaid(older, root, base, changed)
         for name in here:
-            try:
-                nodes = review_matrix.ids(older, [name])
-            except (SystemExit, review_matrix.Unfinished):
+            nodes = collected_before(older, name)
+            if not nodes:
                 unread.append(name)
                 continue
+            unread += absent_before(root, name, nodes)
             for node in nodes:
                 code, tail = review_matrix.run_case(older, None, [node])
                 if review_matrix.outcome(code, tail) != 'passed':
@@ -466,15 +486,61 @@ def failing_before(base, changed, names):
     return sorted(failing), unread
 
 
+def overlaid(older, root, base, changed):
+    """Lay the head's test paths over the unpacked previous tree, which is then the base's code
+    under the head's tests.
+
+    Every test path the delta changed is copied, not only the files asked: a conftest or a
+    helper the head's tests need is a test path pytest collects nothing from, and the base's
+    copy of it would fail them for a reason that is not the fix. Every test the delta deleted is
+    removed, for the same reason: a conftest the head no longer has still ran there. A deleted
+    test is what removed_tests() calls one, named like a test or collected at the base, so a
+    file the project names its own way goes too.
+    """
+    removed = [name for name in git_raw('diff', '-z', '--name-only', '--no-renames', '--diff-filter=D',
+                                        base, 'HEAD').split('\0') if name]
+    for name in removed_tests(base, removed):
+        unlinked(older, name).unlink(missing_ok=True)
+    for name in [name for name in changed if Path(root, name).is_file()]:
+        target = unlinked(older, name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(Path(root, name), target)
+
+
+def collected_before(older, name):
+    """The node ids the overlaid previous tree collects from this file, or none where it could
+    not collect it: either way nothing of the file was asked there."""
+    import review_matrix
+    try:
+        return review_matrix.ids(older, [name])
+    except (SystemExit, review_matrix.Unfinished):
+        return []
+
+
+def absent_before(root, name, before):
+    """The node ids the head collects from this file and the previous tree, `before`, does not.
+    A head that cannot collect the file alone names none."""
+    import review_matrix
+    try:
+        now = review_matrix.ids(root, [name])
+    except (SystemExit, review_matrix.Unfinished):
+        return []
+    return sorted(set(now) - set(before))
+
+
 def unlinked(older, name):
-    """Where a file of the head goes in the unpacked tree, with every link on the way removed
-    rather than followed: the previous tree may track as a link what the head tracks as a file or
-    a directory, and a copy through that link wrote outside the tree."""
+    """Where a file of the head goes in the unpacked tree, with every component on the way made
+    the kind the head has there, and nothing followed: a link is removed, since a copy through
+    one wrote outside the tree, and so is a file where the head has a directory or a directory
+    where the head has the file, since the copy raised on either."""
     where = Path(older)
-    for part in Path(name).parts:
+    parts = Path(name).parts
+    for depth, part in enumerate(parts, 1):
         where = where / part
-        if where.is_symlink():
+        if where.is_symlink() or (where.is_file() and depth < len(parts)):
             where.unlink()
+        elif where.is_dir() and depth == len(parts):
+            shutil.rmtree(where)
     return where
 
 
@@ -499,7 +565,8 @@ def archived(revision):
 
 
 def caught_with_the_changed_test(kept, wanted):
-    """Every test this correction added must be a test that caught something.
+    """Every test this correction added, and every changed test that fails before it, must be a
+    test that caught something.
 
     Every, not one of them: a file is credited when any node of it failed, which an older
     neighbour of the new test satisfies, and one added test that catches would carry the
@@ -509,9 +576,9 @@ def caught_with_the_changed_test(kept, wanted):
     # parameters it was credited by the parameter beside it.
     failed = {node for r in kept.get('results') or [] for node in (r.get('nodes') or [])}
     idle = [node for node in wanted if node not in failed]
-    require(not idle, 'The recorded matrix caught nothing with %s, which this correction adds: '
-            '%s failed under a mutant and %s did not. A test that already discriminated proves '
-            'nothing about the one added beside it.'
+    require(not idle, 'The recorded matrix caught nothing with %s, which this correction adds or '
+            'which fails before it: %s failed under a mutant and %s did not. A test that already '
+            'discriminated proves nothing about the one added or edited beside it.'
             % (', '.join(idle), ', '.join(sorted(failed)) or 'nothing', ', '.join(idle)))
 
 

@@ -4,9 +4,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 INHERIT = object()  # push(): use whatever Codex this test's campaign ran against
@@ -26,6 +28,13 @@ OLD_TEST = 'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7\
 TEST_G = 'from values import ONE\ndef test_g(): assert ONE == 1\n'
 UNITTEST_TEST = ('import unittest\nfrom guard import LIMIT\n\n\nclass CalcTests(unittest.TestCase):\n'
                  '    def test_calc_old(self): assert LIMIT == 7\n')
+
+
+def alive(pid):
+    """Whether a process runs under this pid, a zombie not counting: ps prints nothing for a
+    process that is gone and a state starting with Z for one nobody has reaped yet."""
+    state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith('Z')
 
 
 class FlowBench(unittest.TestCase):
@@ -1484,6 +1493,146 @@ class ReviewFlowTests(FlowBench):
         self.flow('check', '--', str(self.root / 'absent-executable'), ok=False)
         self.flow('finish', ok=False)
         self.push('git push origin HEAD', ok=False)
+
+    def test_a_check_that_exits_takes_what_it_left_running_with_it(self):
+        """A gate is done when its command exits: a child it left running kept writing after
+        `check` had recorded the gate's exit status."""
+        self.start()
+        late = self.root / 'written-after-the-gate.txt'
+        gate = ('import subprocess, sys\n'
+                'subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3); '
+                'open(%r, \'w\').write(\'late\')"])\n' % str(late))
+        self.flow('check', '--', sys.executable, '-c', gate)
+        time.sleep(6)
+        self.assertFalse(late.exists(), 'a process the gate left running outlived the check')
+
+    def test_a_check_whose_group_is_signalled_takes_the_gate_with_it(self):
+        """The gate runs in a session of its own, so a hangup or a SIGTERM sent to the check's
+        process group reached only the check, which died without stopping the gate."""
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=sig.name):
+                self.start()
+                late = self.root / ('late-%s.txt' % sig.name)
+                gate = 'import time; time.sleep(4); open(%r, "w").write("late")' % str(late)
+                runner = subprocess.Popen([sys.executable, str(FLOW), 'check', '--', sys.executable, '-c', gate],
+                                          cwd=self.repo, start_new_session=True, env=self.codex_env(),
+                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(1.5)
+                os.killpg(runner.pid, sig)
+                runner.wait(timeout=30)
+                time.sleep(5)
+                self.assertFalse(late.exists(), 'the gate outlived a %s to the check' % sig.name)
+
+    def test_a_gate_check_stops_runs_its_own_cleanup(self):
+        """Stopping a gate went straight to SIGKILL, so a gate that cleans up on SIGTERM never
+        could; it is asked to stop first and killed only after a grace."""
+        self.start()
+        cleaned = self.root / 'cleaned.txt'
+        gate = ('import signal, sys, time\n'
+                'def stop(*_):\n    open(%r, "w").write("cleaned")\n    sys.exit(1)\n'
+                'signal.signal(signal.SIGTERM, stop)\ntime.sleep(30)\n' % str(cleaned))
+        argv = [sys.executable, '-c', 'import sys; sys.path.insert(0, %r)\nimport review_flow\n'
+                'review_flow.CHECK_TIMEOUT = 2\nreview_flow.cli()' % str(FLOW.parent)]
+        result = subprocess.run([*argv, 'check', '--', sys.executable, '-c', gate], cwd=self.repo,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertTrue(cleaned.exists(), 'the gate was killed before it could clean up')
+
+    def run_gate_in_a_child(self, gate, preexec=None):
+        """A process running review_run.run_gate on this gate, in a session of its own.
+
+        Its SIGINT starts at the default: validate.sh runs each suite as a background job,
+        which bash starts with SIGINT ignored, and a Python started that way never raises
+        KeyboardInterrupt, so a Ctrl-C case would measure nothing.
+        """
+        def started():
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            if preexec:
+                preexec()
+
+        check = ('import sys; sys.path.insert(0, %r); import review_run\n'
+                 'sys.exit(review_run.run_gate([sys.executable, "-c", %r], None, 1800))'
+                 % (str(FLOW.parent), gate))
+        return subprocess.Popen([sys.executable, '-c', check], start_new_session=True,
+                                stderr=subprocess.DEVNULL, preexec_fn=started)
+
+    def test_a_second_signal_during_the_grace_still_ends_the_gate(self):
+        """The handlers stayed on through the grace, so a second Ctrl-C or SIGTERM left before
+        the SIGKILL: a gate ignoring SIGTERM outlived the check, or held it without a bound."""
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal=sig.name):
+                late = self.root / ('twice-%s.txt' % sig.name)
+                gate = ('import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); '
+                        'time.sleep(8); open(%r, "w").write("late")' % str(late))
+                runner = self.run_gate_in_a_child(gate)
+                started = time.monotonic()
+                time.sleep(1.5)
+                os.killpg(runner.pid, sig)
+                time.sleep(1.5)
+                os.killpg(runner.pid, sig)
+                runner.wait(timeout=60)
+                self.assertLess(time.monotonic() - started, 7, 'the check waited on the gate')
+                time.sleep(max(0, started + 10 - time.monotonic()))
+                self.assertFalse(late.exists(), 'the gate outlived two %s' % sig.name)
+
+    def test_a_check_run_under_nohup_ignores_a_hangup(self):
+        """A hangup ignored by whoever started the check, as nohup does, stopped it once the
+        check turned SIGHUP into an exit of its own."""
+        done = self.root / 'finished.txt'
+        runner = self.run_gate_in_a_child('import time; time.sleep(3); open(%r, "w").write("done")' % str(done),
+                                          preexec=lambda: signal.signal(signal.SIGHUP, signal.SIG_IGN))
+        time.sleep(1.5)
+        os.killpg(runner.pid, signal.SIGHUP)
+        self.assertEqual(runner.wait(timeout=60), 0)
+        self.assertTrue(done.exists(), 'the gate did not run to its end')
+
+    def test_a_gate_ignoring_sigterm_is_killed_after_the_grace(self):
+        """Asked to stop, a gate that ignores SIGTERM is killed once the grace is over."""
+        late = self.root / 'ignored.txt'
+        gate = ('import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); '
+                'time.sleep(12); open(%r, "w").write("late")' % str(late))
+        check = ('import sys; sys.path.insert(0, %r); import review_run\n'
+                 'review_run.run_gate([sys.executable, "-c", %r], None, 1)' % (str(FLOW.parent), gate))
+        started = time.monotonic()
+        subprocess.run([sys.executable, '-c', check], capture_output=True, timeout=60)
+        self.assertLess(time.monotonic() - started, 10, 'the grace was not bounded')
+        time.sleep(max(0, started + 14 - time.monotonic()))
+        self.assertFalse(late.exists(), 'a gate ignoring SIGTERM outlived the grace')
+
+    def test_the_signal_handlers_are_restored_after_a_gate(self):
+        """The handlers turning a signal into an exit belong to the wait, on every way out of it."""
+        sys.path.insert(0, str(FLOW.parent))
+        import review_run
+        before = signal.getsignal(signal.SIGTERM)
+        with review_run.signals_raised((signal.SIGTERM,)):
+            self.assertIsNot(signal.getsignal(signal.SIGTERM), before)
+        self.assertIs(signal.getsignal(signal.SIGTERM), before)
+        with self.assertRaises(FileNotFoundError), review_run.signals_raised((signal.SIGTERM,)):
+            raise FileNotFoundError('absent-executable')
+        self.assertIs(signal.getsignal(signal.SIGTERM), before)
+
+    def test_a_check_that_times_out_takes_its_children_with_it(self):
+        """A gate past its deadline had only its own process killed, so what it started kept
+        running behind `check` after the timeout was recorded."""
+        self.start()
+        pid_file = self.root / 'grandchild.pid'
+        gate = ('import subprocess, sys, time\n'
+                'child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])\n'
+                'open(%r, "w").write(str(child.pid))\n'
+                'time.sleep(15)\n' % str(pid_file))
+        argv = [sys.executable, '-c', 'import sys; sys.path.insert(0, %r)\nimport review_flow\n'
+                'review_flow.CHECK_TIMEOUT = 3\nreview_flow.cli()' % str(FLOW.parent)]
+        result = subprocess.run([*argv, 'check', '--', sys.executable, '-c', gate], cwd=self.repo,
+                                capture_output=True, text=True, timeout=60)
+        pid = int(pid_file.read_text())
+        self.addCleanup(lambda: subprocess.run(['kill', '-9', str(pid)], capture_output=True))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('timed out after 3 seconds', result.stderr)
+        self.assertIsNone(self.flow('status')['checks'][-1]['exit_code'])
+        deadline = time.monotonic() + 5
+        while alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertFalse(alive(pid), 'the gate\'s child outlived its timeout')
 
     def test_incomplete_or_wrong_scope_reports_rejected(self):
         """Plausible prose cannot substitute for a completed matching report."""

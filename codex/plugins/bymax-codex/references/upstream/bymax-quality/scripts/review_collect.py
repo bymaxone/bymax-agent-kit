@@ -57,7 +57,9 @@ def pytest_collection_finish(session):
     where, token = _WHERE, _TOKEN
     if not where or not token or not _WALKED:
         return
-    with open(where, 'a', encoding='utf-8') as out:
+    # A node id spells its file as Python decoded the name, so one that is not UTF-8 holds
+    # surrogate escapes; written as the bytes they stand for, the reader gets the same id back.
+    with open(where, 'a', encoding='utf-8', errors='surrogateescape') as out:
         out.write('%s %s\n' % (MARK, token))
         for item in session.items:
             out.write('%s %s\n' % (token, item.nodeid))

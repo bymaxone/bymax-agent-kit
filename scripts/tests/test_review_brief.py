@@ -213,12 +213,12 @@ class BaseBranchStartTests(FlowBench):
 
     def test_the_base_branch_is_read_from_the_file_a_shipping_command_writes(self):
         """A ref name is never pasted into a command: push writes the default branch to a file in
-        the git directory, and start reads it there. A name no commit answers to is refused."""
+        the git directory, and start reads it there. A name no branch answers to is refused."""
         named = self.root / 'bymax-push-default'
         named.write_text('no/such/branch\n')
         refused = self.flow('start', '--base', self.base, '--context', str(self.context),
                             '--base-branch-file', str(named), ok=False)
-        self.assertIn('The base branch names no commit here: no/such/branch', refused.stderr)
+        self.assertIn('The base branch names no branch here: no/such/branch', refused.stderr)
         self.git('branch', 'upstream', self.base)
         named.write_text('upstream\n')
         state = self.flow('start', '--base', self.base, '--context', str(self.context),
@@ -238,6 +238,14 @@ class BaseBranchStartTests(FlowBench):
                                    '--base-branch', 'upstream')['base_branch'], 'upstream')
         self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context))['base_branch'],
                          'upstream')
+
+    def test_another_spelling_of_the_told_branch_is_the_same_branch(self):
+        """Compared as text, the full ref of the branch the campaign held was refused as another
+        branch; it names the same one, and the campaign keeps the spelling it froze."""
+        self.git('branch', 'upstream', self.base)
+        self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context),
+                                   '--base-branch', 'refs/heads/upstream')['base_branch'], 'upstream')
 
     def test_a_cleared_campaign_that_goes_on_keeps_its_base_branch(self):
         """An autonomous campaign continues past a cleared candidate, so the next round is still
@@ -263,6 +271,117 @@ class BaseBranchStartTests(FlowBench):
         self.commit('the next candidate')
         fresh = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'elsewhere')
         self.assertEqual((fresh['round'], fresh['base_branch']), (1, 'elsewhere'))
+
+    def test_the_base_branch_names_a_branch_not_any_commit(self):
+        """Anything that resolved to a commit was taken, the review base's own id included, and
+        a test carried in from upstream then read as this delta's own. A commit id, a tag and a
+        revision expression name no branch; a remote-tracking branch does."""
+        self.git('tag', 'v1', self.base)
+        for value in (self.base, 'v1', 'HEAD~1'):
+            refused = self.flow('start', '--base', self.base, '--context', str(self.context),
+                                '--base-branch', value, ok=False)
+            self.assertIn('The base branch names no branch here: ' + value, refused.stderr)
+        self.git('update-ref', 'refs/remotes/origin/main', self.base)
+        state = self.flow('start', '--base', self.base, '--context', str(self.context),
+                          '--base-branch', 'origin/main')
+        self.assertEqual(state['base_branch'], 'origin/main')
+
+    def test_the_base_branch_is_not_the_branch_this_work_is_on(self):
+        """HEAD names the work branch itself, which reaches every commit of the delta, so no
+        commit off the first-parent line could read as this delta's; any spelling of that branch
+        is refused. Its upstream is a real base and stays accepted."""
+        own = self.git('symbolic-ref', '--short', 'HEAD')
+        for value in ('HEAD', own, 'heads/' + own, 'refs/heads/' + own):
+            refused = self.flow('start', '--base', self.base, '--context', str(self.context),
+                                '--base-branch', value, ok=False)
+            self.assertIn('The base branch ' + value + ' is the branch this work is on', refused.stderr)
+        self.git('remote', 'add', 'origin', str(self.root / 'nowhere'))
+        self.git('update-ref', 'refs/remotes/origin/main', self.base)
+        self.git('branch', '--set-upstream-to=origin/main')
+        state = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', '@{u}')
+        self.assertEqual(state['base_branch'], '@{u}')
+
+    def test_the_prompt_names_the_told_branch_to_both_reviewers(self):
+        """A wrong branch is visible only if the reviewers are told which one the round read:
+        the one brief both of them receive names it."""
+        self.git('branch', 'upstream', self.base)
+        self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        self.checks()
+        brief = self.flow('prompt').stdout
+        self.assertIn('This round was told its base branch: upstream.', brief)
+
+    def test_a_restart_of_the_same_candidate_keeps_a_newly_told_branch(self):
+        """The same-candidate fast path returned the stored state before a branch named on the
+        restart was kept. Before any reviewer has read the candidate it is kept and stored; once
+        one has, the brief they read would change under the second, so it is refused."""
+        self.git('branch', 'upstream', self.base)
+        first = self.flow('start', '--base', self.base, '--context', str(self.context))
+        again = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        path = Path(first['directory']) / 'state.json'
+        self.assertEqual((again['base_branch'], json.loads(path.read_text())['base_branch']),
+                         ('upstream', 'upstream'))
+        path.write_text(json.dumps(dict(json.loads(path.read_text()), base_branch='', reviews={'claude': {}})))
+        refused = self.flow('start', '--base', self.base, '--context', str(self.context),
+                            '--base-branch', 'upstream', ok=False)
+        self.assertIn('A reviewer has already read this candidate without a base branch', refused.stderr)
+
+    def test_a_correction_restarted_with_a_branch_keeps_the_tests_it_froze(self):
+        """A correction froze its regression tests with no branch, and the gates measured those.
+        Told a branch that reads a side branch's test as this delta's own, the restart would
+        demand what was never measured, so it is refused rather than kept."""
+        self.git('branch', 'upstream', self.base)
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        self.git('checkout', '-q', '-b', 'topic')
+        (self.repo / 'tests').mkdir()
+        (self.repo / 'tests/test_side.py').write_text('def test_side():\n    assert True\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'a side branch writes a test')
+        self.git('checkout', '-q', '-')
+        self.git('merge', '-q', '--no-ff', '--no-edit', 'topic')
+        state = self.start(correction=True)
+        self.assertEqual(state['regression_tests'], [])
+        probe = self.root / 'probe.json'
+        refused = self.flow('start', '--base', self.base, '--context', str(self.context), '--probe', str(probe),
+                            '--no-regression-reason', 'fixture: no test needed', '--nit-round',
+                            'fixture: no blocking finding in play', '--base-branch', 'upstream', ok=False)
+        self.assertIn('Told upstream, this correction changes tests/test_side.py where it froze no test',
+                      refused.stderr)
+
+    def test_a_same_head_restart_of_a_cleared_candidate_keeps_its_branch(self):
+        """A restart on the same head hands back the stored candidate whether or not it cleared,
+        so that candidate's branch holds; a second copy of the continuation test said a cleared,
+        non-autonomous one holds nothing, and another branch was accepted and dropped in silence."""
+        self.git('branch', 'upstream', self.base)
+        self.git('branch', 'elsewhere', self.base)
+        state = self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        path = Path(state['directory']) / 'state.json'
+        path.write_text(json.dumps(dict(json.loads(path.read_text()), cleared=True)))
+        refused = self.flow('start', '--base', self.base, '--context', str(self.context),
+                            '--base-branch', 'elsewhere', ok=False)
+        self.assertIn('keeps the base branch it was told: upstream', refused.stderr)
+
+    def test_a_campaign_told_no_branch_may_be_told_one_in_a_later_round(self):
+        """A campaign that began under /bymax-quality:code-review without a branch is continued
+        by /bymax-pr:push with the file naming one, so a later round may name the branch the
+        first did not; once named, it is held."""
+        self.git('branch', 'upstream', self.base)
+        self.git('branch', 'elsewhere', self.base)
+        self.start()
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        self.commit('a correction')
+        probe = self.root / 'probe.json'
+        probe.write_text(json.dumps([dict(command='python3 -c "print(1)"', expected='1', observed='1')]))
+        told = ['start', '--base', self.base, '--context', str(self.context), '--probe', str(probe),
+                '--no-regression-reason', 'fixture: no test needed', '--nit-round', 'fixture: no finding']
+        state = self.flow(*told, '--base-branch', 'upstream')
+        self.assertEqual((state['round'], state['base_branch']), (2, 'upstream'))
+        refused = self.flow(*told, '--base-branch', 'elsewhere', ok=False)
+        self.assertIn('keeps the base branch it was told: upstream', refused.stderr)
 
 
 if __name__ == '__main__':
