@@ -75,7 +75,7 @@ after you and refuses the whole pass if any of that happened."""
 
 SCOPED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
-# How every git read here decodes, as review_git.git_raw() does: names as the filesystem encodes
+# How this module's own git reads decode, as review_git.git_raw() does: names as the filesystem encodes
 # them, with bytes that do not decode kept as surrogate escapes. A name need not be UTF-8, and a
 # strict read raised on it instead of listing it; an escape reaches git and os again as the byte.
 AS_GIT = dict(encoding=sys.getfilesystemencoding(), errors='surrogateescape')
