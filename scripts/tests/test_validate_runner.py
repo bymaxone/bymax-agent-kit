@@ -59,9 +59,9 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(reported(done), ['FAIL no test module ran'])
 
     def test_the_modules_it_runs_are_the_ones_discover_runs(self):
-        """unittest discover's default pattern is test*.py over the names its own rule admits,
-        which a Python identifier is not: test\u00b2.py ran under discover and was skipped here,
-        and a decomposed accent was selected here to run no test."""
+        """The runner runs what unittest discover runs: test*.py over the names discover's own rule
+        admits. An identifier test would differ both ways, skipping test\u00b2.py, which discover
+        runs, and selecting a decomposed accent, which discover skips, to run no test."""
         done = self.run_over({'test_a.py': PASSING, 'testb.py': PASSING, 'b_test.py': FAILING,
                               'test-c.py': FAILING, 'test\u00e9.py': PASSING, 'test\u00b2.py': PASSING,
                               'teste\u0301x.py': FAILING})
@@ -69,7 +69,8 @@ class RunnerTests(unittest.TestCase):
                                           'OK test\u00b2: Ran 1 test', 'OK test\u00e9: Ran 1 test'])
 
     def test_a_width_that_is_not_a_positive_integer_is_refused_before_any_module_runs(self):
-        """A zero or negative width, or one that is not a number, made the polling loop wait forever."""
+        """Only a positive integer is a width: the polling loop never starts a module for zero, a
+        negative number or a word, so each is refused before any module runs."""
         for jobs in ('0', '-1', 'abc', '1.5', '08', '2 '):
             with self.subTest(jobs=jobs):
                 done = self.run_over({'test_a.py': PASSING}, jobs=jobs, timeout=30)

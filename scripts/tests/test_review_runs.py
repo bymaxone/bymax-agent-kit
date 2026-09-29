@@ -142,8 +142,8 @@ class RunTests(unittest.TestCase):
             bench.run(rule(enumeration='python3 -c "print(\'1\\\\n\' * %d)"' % matrix.KEEP))
         self.assertIn('enumerates %d case(s)' % matrix.KEEP, str(caught.exception))
         # A row of bytes that are not UTF-8 states no count and does not stop the count: a strict
-        # decode raises a ValueError inside the reader, which ends the read, and the `1` row after
-        # it is never counted.
+        # decode would raise a ValueError inside the reader, end the read and leave the `1` row
+        # after it uncounted.
         self.assertEqual(matrix.enumerated(str(bench.where), {
             'rule': 'bytes', 'enumeration': 'python3 -c "import sys; sys.stdout.buffer.write('
                                             'bytes([255]) * 30000 + bytes([10, 49, 10]))"'}), 1)
