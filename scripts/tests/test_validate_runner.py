@@ -63,10 +63,10 @@ class RunnerTests(unittest.TestCase):
         admits. An identifier test would differ both ways, skipping test\u00b2.py, which discover
         runs, and selecting a decomposed accent, which discover skips, to run no test."""
         done = self.run_over({'test_a.py': PASSING, 'testb.py': PASSING, 'b_test.py': FAILING,
-                              'test-c.py': FAILING, 'test\u00e9.py': PASSING, 'test\u00b2.py': PASSING,
+                              'test-c.py': FAILING, 'test\u03c0.py': PASSING, 'test\u00b2.py': PASSING,
                               'teste\u0301x.py': FAILING})
         self.assertEqual(reported(done), ['OK test_a: Ran 1 test', 'OK testb: Ran 1 test',
-                                          'OK test\u00b2: Ran 1 test', 'OK test\u00e9: Ran 1 test'])
+                                          'OK test\u00b2: Ran 1 test', 'OK test\u03c0: Ran 1 test'])
 
     def test_a_width_that_is_not_a_positive_integer_is_refused_before_any_module_runs(self):
         """Only a positive integer is a width: the polling loop never starts a module for zero, a
