@@ -543,7 +543,10 @@ class EnvelopeShapeTests(unittest.TestCase):
         notes = '# Notes\n\nThe limit is ten.\nIt holds for every caller.\n'
         for added in ('[It is checked twice.](details)', '[It is checked twice.][ref]',
                       '~~It is checked twice.~~', '\u201cIt is checked twice.\u201d',
-                      '\u2018It is checked twice.\u2019'):
+                      '\u2018It is checked twice.\u2019', '[It is checked twice.](a(b))',
+                      '[It is checked twice.](a(b(c)))', '[It is checked twice.](url "title")',
+                      "[It is checked twice.](url 'title')", '[It is checked twice.](url (title))',
+                      '[It is checked twice.](<a b>)', '[It is checked twice.]()'):
             with self.subTest(added):
                 bench = Bench(self, {'NOTES.md': notes})
                 bench.write(notes.replace('The limit is ten.\nIt holds for every caller.\n',
@@ -562,6 +565,16 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench = Bench(self, {'thing.py': start})
         bench.write(start.replace('the dot', '``.``'))
         self.assertEqual(bench.offences(), [])
+
+    def test_a_code_span_crosses_a_line_ending_and_not_a_paragraph(self):
+        """A span broken over two lines left its `.` counted, so a reworded sentence quoting it was
+        refused as one that gained a sentence. A blank line ends the paragraph, and a backtick
+        before it opens no span reaching past it."""
+        notes = '# Notes\n\nName `x` here.\nContinue here.\n'
+        bench = Bench(self, {'NOTES.md': notes})
+        bench.write(notes.replace('`x` here.\n', '``line one.\nline two``. '), name='NOTES.md')
+        self.assertEqual(bench.offences(), [])
+        self.assertEqual(prose.sentences('NOTES.md', 'A ` b.\n\nC. D`.\n'), 3)
 
     def test_a_type_comment_is_what_a_type_checker_reads(self):
         """`# type: List[int]` is the annotation a type checker reads, and the tree compared

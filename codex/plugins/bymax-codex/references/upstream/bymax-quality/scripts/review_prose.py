@@ -273,11 +273,16 @@ def prose_size(name, text):
     return count
 
 
+# An inline link's destination and title, as CommonMark spells them: `<...>`, or a run balancing
+# its parentheses two levels deep, then a title quoted three ways.
+TARGET = (r'\(\s*(?:<[^<>\n]*>|(?:[^()\s]|\((?:[^()\s]|\([^()\s]*\))*\))*)'
+          r'(?:\s+(?:"[^"\n]*"|\'[^\'\n]*\'|\([^()\n]*\)))?\s*\)')
 # What may close a sentence after its stop: closing markup or a closing quote, or the target of the
 # link whose text the stop ends.
-CLOSING = r'(?:\]\([^()\s]*\)|\]\[[^\]\s]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
-# A code span, by CommonMark's rule: a run of backticks closed by a run of the same length.
-SPAN = re.compile(r'(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)')
+CLOSING = r'(?:\]' + TARGET + r'|\]\[[^\]\s]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
+# A code span, by CommonMark's rule: a run of backticks closed by a run of the same length, across a
+# line ending but not a blank line, which ends the paragraph it is in.
+SPAN = re.compile(r'(?<!`)(`+)(?!`)(?:[^\n]|\n(?![ \t]*(?:\n|$)))*?(?<!`)\1(?!`)')
 
 
 def sentences(name, text):
