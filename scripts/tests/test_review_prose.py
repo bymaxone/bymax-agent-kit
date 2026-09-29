@@ -566,27 +566,22 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench.write(start.replace('the dot', '``.``'))
         self.assertEqual(bench.offences(), [])
 
-    def test_a_code_span_crosses_a_line_ending_and_not_a_paragraph(self):
-        """A span broken over two lines left its `.` counted, so a reworded sentence quoting it was
-        refused as one that gained a sentence. A blank line ends the paragraph, and a backtick
-        before it opens no span reaching past it."""
-        notes = '# Notes\n\nName `x` here.\nContinue here.\n'
-        bench = Bench(self, {'NOTES.md': notes})
-        bench.write(notes.replace('`x` here.\n', '``line one.\nline two``. '), name='NOTES.md')
-        self.assertEqual(bench.offences(), [])
-        self.assertEqual(prose.sentences('NOTES.md', 'A ` b.\n\nC. D`.\n'), 3)
+    # Lines a code span must not cross, blank, plain or starting a block.
+    LINES = ('', '   ', 'plain words', '## Section', '   # Indented heading', '---', '***', '___',
+             '===', '- item', '* item', '+ item', '1. item', '2) item', '> quote', '```', '~~~', '<div>')
 
-    # Lines a code span must not cross: each may end the paragraph or start a block.
-    BLOCK_STARTS = ('', '   ', '## Section', '   # Indented heading', '---', '***', '___', '===',
-                    '- item', '* item', '+ item', '1. item', '2) item', '> quote', '```', '~~~', '<div>')
-
-    def test_a_code_span_stops_at_a_line_that_starts_a_block(self):
-        """A span stopped only at a blank line paired a backtick before a heading with one after
-        it, and hid the sentence added between them: the edit passed where it had been refused."""
-        for line in self.BLOCK_STARTS:
+    def test_a_code_span_holding_words_does_not_hide_them(self):
+        """A span let across a line ending paired a backtick before a heading with one after it
+        and hid the sentence added between them, and a span stopped early left its closer to pair
+        with a later backtick and hide the words between. Only a one-word span is masked."""
+        for line in self.LINES:
             with self.subTest(line=line):
                 self.assertIsNone(prose.SPAN.search('A `b.\n%s\nC. D`.' % line))
-        self.assertIsNotNone(prose.SPAN.search('A `b.\nplain words\nC. D`.'))
+        for text in ('A `b\n-c` d. e `f`.\n', 'A `b\n2) c` d. e `f`.\n', 'A `b\nc` d. e `f`.\n',
+                     'It is `checked twice.` Then.\n'):
+            with self.subTest(text=text):
+                self.assertEqual(prose.sentences('NOTES.md', text), 2)
+        self.assertEqual(prose.sentences('NOTES.md', 'Use ``a`b.`` here.\n'), 1)
         notes = '# Notes\n\nSome text ends here.\n## Section\nMore text ends here.\n'
         bench = Bench(self, {'NOTES.md': notes})
         bench.write('# Notes\n\nSome text ends `here. It adds a whole new claim about the code.\n'
