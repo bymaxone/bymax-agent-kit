@@ -472,9 +472,9 @@ def ran_clean(code, tail):
       reports one that returns there — `1 passed, 2 skipped`, a skipped report per subtest and a
       passed call, the same junit XML. Only a plain `assert` under `enable_assertion_pass_hook`
       reports its pass, and `self.assertEqual`, which is what a TestCase asserts with, never does.
-    - A node on pytest before 9 without pytest-subtests 0.14 or later. The first subTest that
-      skips ends the node, reported `1 skipped` whatever ran before it, and a subtest that passes
-      reports nothing at all, so no hook sees it either.
+    - A node on pytest before 9 without pytest-subtests 0.14.2 or later. A subtest that passes
+      reports nothing at all, so no hook sees it either, and without the plugin the first subTest
+      that skips ends the node, reported `1 skipped` whatever ran before it.
     """
     if outcome(code, tail) != 'passed' or not re.search(r'\d+ passed', tail):
         return False

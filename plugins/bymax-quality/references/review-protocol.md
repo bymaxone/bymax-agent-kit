@@ -347,7 +347,7 @@ campaign state. Three things follow, all enforced by `start`:
   and not advice, and the order is commit, `matrix`, `start`. A rule is
   `{rule, enumeration, why, mutants:[{file, anchor, becomes, case}]}`: the anchor must occur
   exactly once in its file, the case must pass on the clean tree before the mutation, and a
-  survivor stops the run. Subtest cases need pytest 9, or pytest-subtests 0.14 or later; on
+  survivor stops the run. Subtest cases need pytest 9, or pytest-subtests 0.14.2 or later; on
   older versions a node whose subtests skip reads as not run and is refused. Where a command derives the rule's case list, declare it and it is
   executed — a list shorter than its own count is refused; where none does, say
   `not derivable by command` and say why. Set `PYTHONDONTWRITEBYTECODE=1` and clear

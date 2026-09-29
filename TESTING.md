@@ -26,7 +26,7 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | Bundle drifts, package cannot be installed or skills are undiscoverable | `codex/tests/test_bundle.py`, `test_install.py` and isolated CLI skill discovery |
 
 The mutation matrix reads whether a node ran from what pytest reports. Subtest cases need
-pytest 9, or pytest-subtests 0.14 or later; on older versions a node whose subtests skip
+pytest 9, or pytest-subtests 0.14.2 or later; on older versions a node whose subtests skip
 reads as not run and is refused. On any version, a node that asserts after every subTest
 skipped reads as one that returned there, and is refused too; the test pinning that
 subtest behaviour skips on pytest before 9.
