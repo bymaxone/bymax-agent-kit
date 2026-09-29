@@ -56,6 +56,11 @@ NOTED = re.compile(r'\b(remove[sd]?|delete[sd]?|drop(?:s|ped)?|no longer|deleted
 TARGETS = re.compile(r'(?:moved to|is now(?:\s+(?:called|named))?)\s+`'
                      r'|moved to\s+(?:[\w-]+/)*[\w-]{2,}\.[A-Za-z]{1,5}\b'
                      r'|is now\s+(?:called|named)\s+(\w+)', re.IGNORECASE)
+# A noun naming the kind of thing may stand between the name and its move: "`X` function is now
+# `Y`". Closed, so a clause about something else never reads as the name's own.
+KINDS = ('alias', 'argument', 'attribute', 'class', 'command', 'constant', 'decorator', 'field',
+         'file', 'fixture', 'flag', 'function', 'helper', 'hook', 'key', 'macro', 'method',
+         'module', 'option', 'parameter', 'property', 'script', 'setting', 'type', 'variable')
 QUOTED = re.compile(r'`([^`\n]{4,80})`')
 # Both spellings of a Markdown file.
 MARKDOWN = ('.md', '.markdown')
@@ -559,9 +564,12 @@ def records_removal(line, token):
 
 
 def targeted(clause, token):
-    """Whether the clause moves the name or gives it a new name, right after naming it: "`X` is
-    now `Y`", "`X` was moved to git.py". Another name's move in the same clause retires nothing."""
-    for found in re.finditer(r'\b%s\b`?\s+(?:(?i:was|has been)\s+)?' % re.escape(token), clause):
+    """Whether the clause moves the name or gives it a new name, right after naming it and at
+    most a noun of KINDS: "`X` is now `Y`", "`X` helper was moved to git.py". Another name's move
+    in the same clause retires nothing."""
+    kind = '|'.join(KINDS)
+    for found in re.finditer(r'\b%s\b`?\s+(?:(?i:%s)\s+)?(?:(?i:was|has been)\s+)?'
+                             % (re.escape(token), kind), clause):
         target = TARGETS.match(clause, found.end())
         if target and (target.group(1) is None or code_shaped(target.group(1))):
             return True
