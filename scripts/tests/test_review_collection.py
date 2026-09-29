@@ -291,6 +291,25 @@ class NamedItsOwnWayTests(FlowBench):
         self.save('fix what the finding named, and delete a test')
         self.start(correction=True)
 
+    def test_a_deleted_file_the_base_cannot_collect_widens_the_scope(self):
+        """Asked about a deleted file whose directory the base could not collect, the rule that
+        keeps such a file for reviewers exempted it from scope: a production file deleted beside
+        a broken conftest passed as the correction's own test."""
+        (self.repo / 'pkg').mkdir()
+        (self.repo / 'pkg/conftest.py').write_text('raise RuntimeError("collection is broken")\n')
+        (self.repo / 'pkg/helper.py').write_text('VALUE = 1\n')
+        self.commit('a package whose collection is broken')
+        self.start()
+        self.report('claude', [dict(id='values.py:wrong', kind='defect', priority='P1', evidence='wrong')])
+        self.report('codex', [])
+        self.triage([dict(id='claude::values.py:wrong', status='open', evidence='Confirmed')])
+        (self.repo / 'values.py').write_text('ONE = 1\nTWO = 2\nTHREE = 3\n')
+        (self.repo / 'pkg/helper.py').unlink()
+        self.save('fix what the finding named, and delete a production file')
+        refused = self.start(ok=False, correction=True).stderr
+        self.assertIn('No open finding names', refused)
+        self.assertIn('pkg/helper.py', refused)
+
     def test_a_merged_in_test_named_its_own_way_is_listed(self):
         """The merged-in list was read by name, so a test merged from a side branch was not
         shown to reviewers as one."""

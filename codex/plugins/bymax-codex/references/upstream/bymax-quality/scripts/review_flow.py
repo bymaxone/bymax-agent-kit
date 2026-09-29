@@ -204,7 +204,7 @@ def widened(old, head, answers=()):
     # asked: a test the project names its own way, deleted, is still the correction's test.
     gone = extra & {path for path in git_raw('diff', '-z', '--name-only', '--no-renames',
                                              '--diff-filter=D', old['head'], head).split('\0') if path}
-    tests = collected_elsewhere(sorted(extra - gone)) | set(removed_tests(old['head'], sorted(gone)))
+    tests = collected_elsewhere(sorted(extra - gone)) | set(removed_tests(old['head'], sorted(gone), unsure=False))
     return sorted(extra - tests)
 
 

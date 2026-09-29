@@ -62,12 +62,15 @@ def tests_changed(base, head, branch=''):
             removed_tests(base, removed))
 
 
-def removed_tests(base, removed):
+def removed_tests(base, removed, unsure=True):
     """The deleted files that were tests at the base: named like one, or collected there. A
     deleted file cannot be asked about where it is gone, so the base's tree is asked, and a
     directory it cannot answer for keeps its files: a deletion reviewers are not shown is the
     one they cannot judge. A file that failed to collect there, or sits under a directory
-    that did, is kept too: the tolerant collect leaves it out of what it found."""
+    that did, is kept too: the tolerant collect leaves it out of what it found.
+
+    `unsure` is what such a file counts as. The scope rule passes False: a deletion it wrongly
+    exempts is one no later gate refuses, since a deleted file leaves no node for a matrix."""
     import review_matrix
     named = [name for name in removed if is_test_path(name)]
     other = [name for name in removed if not is_test_path(name)]
@@ -81,11 +84,11 @@ def removed_tests(base, removed):
             try:
                 collected, failed = review_matrix.walked(older, [where])
             except (SystemExit, review_matrix.Unfinished):
-                found.update(here)
+                found.update(here if unsure else ())
                 continue
             found.update(collected)
-            found.update(name for name in here
-                         if {name, *(p.as_posix() for p in Path(name).parents)} & failed)
+            found.update(name for name in here if unsure
+                         and {name, *(p.as_posix() for p in Path(name).parents)} & failed)
     return sorted(named + [name for name in other if name in found])
 
 
