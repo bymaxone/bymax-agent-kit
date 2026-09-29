@@ -286,6 +286,20 @@ class BaseBranchStartTests(FlowBench):
                           '--base-branch', 'origin/main')
         self.assertEqual(state['base_branch'], 'origin/main')
 
+    def test_a_branch_ref_that_holds_no_commit_names_no_branch(self):
+        """A remote-tracking ref pointing at a blob passed the namespace check alone, so start
+        froze a campaign whose base branch later failed in written_here() on ^{commit}."""
+        blob = subprocess.run(['git', 'hash-object', '-w', '--stdin'], cwd=self.repo, input='not a commit\n',
+                              capture_output=True, text=True, check=True).stdout.strip()
+        self.git('update-ref', 'refs/remotes/origin/base', blob)
+        refused = self.flow('start', '--base', self.base, '--context', str(self.context),
+                            '--base-branch', 'origin/base', ok=False)
+        self.assertIn('The base branch names no branch here: origin/base', refused.stderr)
+        self.git('branch', 'upstream', self.base)
+        state = self.flow('start', '--base', self.base, '--context', str(self.context),
+                          '--base-branch', 'upstream')
+        self.assertEqual(state['base_branch'], 'upstream')
+
     def test_the_base_branch_is_not_the_branch_this_work_is_on(self):
         """HEAD names the work branch itself, which reaches every commit of the delta, so no
         commit off the first-parent line could read as this delta's; any spelling of that branch

@@ -435,10 +435,17 @@ def branch_ref(ref):
 
     Asked without raising: a ref may contain what a shell would expand, so it only ever travels
     as one argument. A commit id, a tag or a revision expression resolves to a commit and names
-    no branch, and the round would then read what that commit reaches as the base branch's."""
+    no branch, and the round would then read what that commit reaches as the base branch's.
+
+    A ref under those namespaces may still hold a blob or a tree, and written_here() reads the
+    branch as a commit, so a ref that does not peel to one names no branch either."""
     full = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--symbolic-full-name',
                            '--end-of-options', ref], capture_output=True, **AS_NAMES).stdout.strip()
-    return full if full.startswith(('refs/heads/', 'refs/remotes/')) else ''
+    if not full.startswith(('refs/heads/', 'refs/remotes/')):
+        return ''
+    peeled = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--end-of-options',
+                             full + '^{commit}'], capture_output=True, **AS_NAMES)
+    return full if peeled.returncode == 0 else ''
 
 
 def work_branch():
