@@ -4,6 +4,7 @@ added and show each of them catching a mutant. Driven through the CLI in a fixtu
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import unittest
@@ -522,8 +523,10 @@ class MatrixGateTests(FlowBench):
         self.an_edited_regression()
         self.matrix('tests', [('LIMIT = 8', 'LIMIT = -1', 'test_calc_bound')],
                     where='guard.py', enumeration='echo 1')
-        self.assertIn('caught nothing with tests/test_calc.py::test_calc_old',
-                      self.start(ok=False, correction=True, reason='').stderr)
+        refusal = self.start(ok=False, correction=True, reason='').stderr
+        self.assertIn('caught nothing with tests/test_calc.py::test_calc_old', refusal)
+        # The node was edited, not added: the refusal names the rule that demanded it.
+        self.assertIn('which this correction adds or which fails before it', refusal)
 
     def test_an_edited_regression_that_catches_opens_the_round(self):
         """The positive control: the same edited regression, measured catching the guard."""
@@ -624,6 +627,9 @@ class MatrixGateTests(FlowBench):
         self.checks()
         prompt = self.text('prompt')
         self.assertIn('Not asked, because the previous tree could not collect them: tests/test_calc.py', prompt)
+        # The only changed file ran no node there, so no node passed there either.
+        self.assertNotIn('No test this correction changed fails before it', prompt)
+        self.assertIn('No node of the changed test files ran against the previous candidate', prompt)
 
     def test_a_file_the_previous_tree_cannot_read_is_named_beside_a_failing_one(self):
         """The unread files rode on the note that no changed test fails before the correction, so a
@@ -634,6 +640,130 @@ class MatrixGateTests(FlowBench):
                                                      'unread_before': ['tests/test_b.py']}))
         self.assertIn('Not asked, because the previous tree could not collect them: tests/test_b.py', note)
         self.assertNotIn('No test this correction changed fails before it', note)
+        # Beside a failing file the line is the only one, so it says on its own what was not asked.
+        self.assertIn("were never run against the previous candidate's code", note)
+
+    def inside_the_fixture(self):
+        """Work from the fixture repository, as the runtime does, until the test ends."""
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+
+    def a_guard_its_test_and_a_flagged_fix(self, test):
+        """A guard and the test that pins it, then a fix that adds a flag and rewrites the test
+        as `test`. Returns the previous candidate."""
+        (self.repo / 'guard.py').write_text('LIMIT = 7\n')
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST)
+        self.commit('a guard and its test')
+        before = self.git('rev-parse', 'HEAD')
+        (self.repo / 'guard.py').write_text('LIMIT = 7\nSTRICT = True\n')
+        (self.repo / 'tests/test_calc.py').write_text(test)
+        self.commit('a fix that adds a flag, and its test')
+        self.inside_the_fixture()
+        return before
+
+    def test_a_node_the_previous_tree_does_not_collect_is_named(self):
+        """A regression defined only when a flag the fix introduces is true does not exist on
+        the previous tree, so it was never run there, and its id on both sides of the
+        added-node rule demanded nothing either. It is named, node by node."""
+        flagged = 'import guard\n\nif getattr(guard, "STRICT", False):\n    def test_calc_strict(): assert guard.STRICT\n'
+        before = self.a_guard_its_test_and_a_flagged_fix(OLD_TEST + flagged)
+        self.assertEqual(review_evidence.failing_before(before, ['tests/test_calc.py'], ['tests/test_calc.py']),
+                         ([], ['tests/test_calc.py::test_calc_strict']))
+
+    def test_a_file_the_previous_tree_collects_nothing_from_is_named(self):
+        """A collect that completes with no node answered nothing about the file, like one that
+        could not collect it."""
+        flagged = 'import guard\n\nif getattr(guard, "STRICT", False):\n    def test_calc_strict(): assert guard.STRICT\n'
+        before = self.a_guard_its_test_and_a_flagged_fix(flagged)
+        self.assertEqual(review_evidence.failing_before(before, ['tests/test_calc.py'], ['tests/test_calc.py']),
+                         ([], ['tests/test_calc.py']))
+
+    def test_a_file_the_head_tracks_as_a_directory_is_mirrored(self):
+        """The previous tree tracked as a file a path the head tracks as a directory, and the copy
+        of the head's tests raised instead of mirroring the head's shape."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/test_shape.py').write_text('def test_shape():\n    assert True\n')
+        (self.repo / 'tests/support').write_text('a file here\n')
+        self.commit('a test and a support file')
+        before = self.git('rev-parse', 'HEAD')
+        (self.repo / 'tests/support').unlink()
+        (self.repo / 'tests/support').mkdir()
+        (self.repo / 'tests/support/__init__.py').write_text('VALUE = 1\n')
+        (self.repo / 'tests/test_shape.py').write_text('def test_shape():\n    assert 1\n')
+        self.commit('the head tracks it as a directory')
+        self.inside_the_fixture()
+        changed = ['tests/support/__init__.py', 'tests/test_shape.py']
+        self.assertEqual(review_evidence.failing_before(before, changed, ['tests/test_shape.py']), ([], []))
+
+    def test_a_directory_the_head_tracks_as_a_file_is_mirrored(self):
+        """The other direction: the previous tree tracked as a directory what the head tracks as
+        a file."""
+        (self.repo / 'tests/data').mkdir(parents=True, exist_ok=True)
+        (self.repo / 'tests/data/case.txt').write_text('one\n')
+        (self.repo / 'tests/test_shape.py').write_text('def test_shape():\n    assert True\n')
+        self.commit('a test and a data directory')
+        before = self.git('rev-parse', 'HEAD')
+        shutil.rmtree(self.repo / 'tests/data')
+        (self.repo / 'tests/data').write_text('one\n')
+        (self.repo / 'tests/test_shape.py').write_text('def test_shape():\n    assert 1\n')
+        self.commit('the head tracks it as a file')
+        self.inside_the_fixture()
+        changed = ['tests/data', 'tests/test_shape.py']
+        self.assertEqual(review_evidence.failing_before(before, changed, ['tests/test_shape.py']), ([], []))
+
+    def test_a_support_file_the_delta_deleted_is_not_left_to_fail_the_head(self):
+        """A conftest the delta deleted was still in the unpacked previous tree, and it failed
+        the head's test there for a reason that is not the fix."""
+        (self.repo / 'tests').mkdir(exist_ok=True)
+        (self.repo / 'tests/conftest.py').write_text(
+            'import pytest\n\n\n@pytest.fixture(autouse=True)\ndef offline(monkeypatch):\n'
+            '    monkeypatch.setenv("APP_OFFLINE", "1")\n')
+        (self.repo / 'tests/test_env.py').write_text(
+            'import os\n\n\ndef test_env():\n    assert os.environ.get("APP_OFFLINE") == "1"\n')
+        self.commit('a conftest every test runs under')
+        before = self.git('rev-parse', 'HEAD')
+        (self.repo / 'tests/conftest.py').unlink()
+        (self.repo / 'tests/test_env.py').write_text(
+            'import os\n\n\ndef test_env():\n    assert "APP_OFFLINE" not in os.environ\n')
+        self.commit('the conftest goes, and the test follows')
+        self.inside_the_fixture()
+        self.assertEqual(review_evidence.failing_before(before, ['tests/test_env.py'], ['tests/test_env.py']),
+                         ([], []))
+
+    def test_a_collected_support_file_the_delta_deleted_is_removed_too(self):
+        """A file the project names its own way is a test to pytest alone, and one the delta
+        deleted stayed in the unpacked previous tree while a file named like a test went."""
+        (self.repo / 'pytest.ini').write_text('[pytest]\npython_files = check_*.py\n')
+        (self.repo / 'checks').mkdir()
+        (self.repo / 'checks/check_support.py').write_text('def test_support():\n    assert True\n')
+        (self.repo / 'checks/check_g.py').write_text('def test_g():\n    assert True\n')
+        self.commit('checks the project names its own way')
+        before = self.git('rev-parse', 'HEAD')
+        (self.repo / 'checks/check_support.py').unlink()
+        self.commit('the delta deletes one of them')
+        self.inside_the_fixture()
+        with review_evidence.archived(before) as older:
+            review_evidence.overlaid(older, self.git('rev-parse', '--show-toplevel'), before, [])
+            self.assertFalse(Path(older, 'checks/check_support.py').exists())
+            self.assertTrue(Path(older, 'checks/check_g.py').exists())
+
+    def test_a_campaign_frozen_before_the_measurement_is_told_it_at_the_prompt(self):
+        """A campaign an earlier runtime froze carries no measurement of its changed tests, and
+        the recheck before the prompt measured it and threw the result away."""
+        self.a_guard_and_its_older_test()
+        (self.repo / 'tests/test_calc.py').write_text(OLD_TEST.replace('LIMIT == 7', 'LIMIT == 7 and LIMIT < 10'))
+        self.commit('a correction that tightens the test and changes no code')
+        self.guard_matrix()
+        self.start(correction=True, reason='')
+        self.checks()
+        directory = Path(self.flow('status')['directory'])
+        state = json.loads((directory / 'state.json').read_text())
+        del state['regression_measured']
+        (directory / 'state.json').write_text(json.dumps(state))
+        # flow(), not text(): the prompt reruns the measurement, a collect and a run per node.
+        self.assertIn('No test this correction changed fails before it', self.flow('prompt').stdout)
 
     def test_the_test_the_delta_changed_is_the_test_that_must_catch(self):
         """Found by a reviewer: a file is credited when any node of it failed, so a vacuous
