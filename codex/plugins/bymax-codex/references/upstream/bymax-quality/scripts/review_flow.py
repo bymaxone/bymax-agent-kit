@@ -459,7 +459,7 @@ def told_branch(args, old=None):
     told = args.base_branch
     if not told and args.base_branch_file:
         try:
-            told = Path(args.base_branch_file).read_text().split('\n', 1)[0].strip()
+            told = Path(args.base_branch_file).read_text(**AS_NAMES).split('\n', 1)[0].strip()
         except OSError:
             told = ''
     full = branch_ref(told) if told else ''

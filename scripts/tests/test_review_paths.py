@@ -1,6 +1,7 @@
 """The campaign's readers of changed test paths, against paths git quotes when it prints them
 one to a line. A quoted path matches no file, so each reader has to ask git for NUL-separated
 output, where a path is spelled as itself."""
+import argparse
 import json
 import os
 import shutil
@@ -177,6 +178,12 @@ class NotUtf8Tests(unittest.TestCase):
         (self.where / '.git' / 'HEAD').write_bytes(b'ref: refs/heads/caf\xe9\n')
         self.assertEqual(review_flow.work_branch(), 'refs/heads/caf\udce9')
         self.assertEqual(review_flow.branch_ref('main'), 'refs/heads/main')
+        # Told through the file /bymax-pr:push writes, the base branch is read by its bytes too.
+        self.git('symbolic-ref', 'HEAD', 'refs/heads/main')
+        named = self.where / 'base-branch'
+        named.write_bytes(b'caf\xe9\n')
+        told = review_flow.told_branch(argparse.Namespace(base_branch='', base_branch_file=str(named)))
+        self.assertEqual(told, 'caf\udce9')
 
     def test_the_command_line_prints_a_name_that_is_not_utf8(self):
         """What the runtime prints — a prompt — can carry such a name as an escape,
