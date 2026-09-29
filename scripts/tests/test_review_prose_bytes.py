@@ -19,7 +19,7 @@ from test_review_prose import Bench
 class NotUtf8EnvelopeTests(unittest.TestCase):
     """A name or a line that is not valid UTF-8 — a Latin-1 name committed on Linux, a Latin-1
     source — raised out of a strict read of a git listing, and the envelope stopped instead of
-    naming the file. Names keep their bytes as surrogate escapes, as git_raw() reads them."""
+    naming the file. Names keep their bytes as surrogate escapes."""
 
     def latin1_head(self, bench):
         """HEAD gains notes-caf\xe9.md, built without the worktree: APFS refuses such a name,
@@ -38,7 +38,7 @@ class NotUtf8EnvelopeTests(unittest.TestCase):
         self.assertIn('notes-caf\udce9.md was deleted', ' | '.join(bench.offences()))
 
     def test_a_sparse_checkout_excuses_a_latin1_name_it_left_out(self):
-        """The skip-worktree listing is NUL-delimited names too, read through the same helper."""
+        """The skip-worktree listing is NUL-delimited names too, decoded the same way."""
         bench = Bench(self)
         self.latin1_head(bench)
         run = lambda *a: subprocess.run(['git', '-C', str(bench.where), *a], check=True, capture_output=True)
