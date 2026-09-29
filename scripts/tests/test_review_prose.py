@@ -554,38 +554,24 @@ class EnvelopeShapeTests(unittest.TestCase):
                             name='NOTES.md')
                 self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
 
-    def test_a_stop_inside_a_code_span_is_not_a_sentence(self):
-        """A literal `.` spelled as code is a character the sentence names, not its end: a
-        reworded sentence quoting it was refused as one that gained a sentence."""
-        notes = '# Notes\n\nSplit the name on the dot first.\n'
-        bench = Bench(self, {'NOTES.md': notes})
-        bench.write(notes.replace('the dot', '`.`'), name='NOTES.md')
-        self.assertEqual(bench.offences(), [])
-        start = 'x = 1  # Split the name on the dot first.\n'
-        bench = Bench(self, {'thing.py': start})
-        bench.write(start.replace('the dot', '``.``'))
-        self.assertEqual(bench.offences(), [])
-
-    # Lines a code span must not cross, blank, plain or starting a block.
-    LINES = ('', '   ', 'plain words', '## Section', '   # Indented heading', '---', '***', '___',
-             '===', '- item', '* item', '+ item', '1. item', '2) item', '> quote', '```', '~~~', '<div>')
-
-    def test_a_code_span_holding_words_does_not_hide_them(self):
-        """A span let across a line ending paired a backtick before a heading with one after it
-        and hid the sentence added between them, and a span stopped early left its closer to pair
-        with a later backtick and hide the words between. Only a one-word span is masked."""
-        for line in self.LINES:
-            with self.subTest(line=line):
-                self.assertIsNone(prose.SPAN.search('A `b.\n%s\nC. D`.' % line))
-        for text in ('A `b\n-c` d. e `f`.\n', 'A `b\n2) c` d. e `f`.\n', 'A `b\nc` d. e `f`.\n',
-                     'It is `checked twice.` Then.\n'):
+    def test_a_code_span_hides_no_stop(self):
+        """Masked as code, a span paired otherwise than CommonMark pairs it hid the words between
+        its backticks: across a line into a heading, from a closer left unmatched, or a word ending
+        in a stop. Every stop counts, and a sentence quoting `.` as code reads as one more."""
+        for text, count in (('A `b\n-c` d. e `f`.\n', 2), ('A `b\nc` d. e `f`.\n', 2),
+                            ('It is `checked twice.` Then.\n', 2), ('The `cache `grows.` It is read once.\n', 2),
+                            ('# Notes\n\nThe `cache\nis `full.` It is read once.\n', 2), ('A `foo `end.` bar\n', 1),
+                            ('A `a `.` b\n', 1)):
             with self.subTest(text=text):
-                self.assertEqual(prose.sentences('NOTES.md', text), 2)
-        self.assertEqual(prose.sentences('NOTES.md', 'Use ``a`b.`` here.\n'), 1)
+                self.assertEqual(prose.sentences('NOTES.md', text), count)
         notes = '# Notes\n\nSome text ends here.\n## Section\nMore text ends here.\n'
         bench = Bench(self, {'NOTES.md': notes})
         bench.write('# Notes\n\nSome text ends `here. It adds a whole new claim about the code.\n'
                     '## Section\nMore text` ends here.\n', name='NOTES.md')
+        self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
+        notes = '# Notes\n\nSplit the name on the dot first.\n'
+        bench = Bench(self, {'NOTES.md': notes})
+        bench.write(notes.replace('the dot', '`.`'), name='NOTES.md')
         self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
 
     def test_a_type_comment_is_what_a_type_checker_reads(self):

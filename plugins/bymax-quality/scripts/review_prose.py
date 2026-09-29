@@ -280,20 +280,13 @@ TARGET = (r'\(\s*(?:<[^<>\n]*>|(?:[^()\s]|\((?:[^()\s]|\([^()\s]*\))*\))*)'
 # What may close a sentence after its stop: closing markup or a closing quote, or the target of the
 # link whose text the stop ends.
 CLOSING = r'(?:\]' + TARGET + r'|\]\[[^\]\s]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
-# A code span holding one word: a run of backticks closed by a run of the same length, with no
-# whitespace between. Masking one whose words were really prose hides their stops, and a pairing
-# that differs from CommonMark's (across a line, or with a backtick left unmatched before it) puts
-# words between two backticks that are not a span; a single word cannot hold a sentence end.
-SPAN = re.compile(r'(?<!`)(`+)(?!`)\S+?(?<!`)\1(?!`)')
-
-
 def sentences(name, text):
     """How many sentences a file's prose holds: a stop, a question or an exclamation, and any
-    closing markup after it, followed by a space or the end of the text. A one-word code span is
-    a word: a `.` spelled inside it is a character the sentence names, not where it ends. A span
-    holding whitespace is read as words, so a sentence written inside one is counted, and so is a
-    stop inside a span broken over two lines."""
-    said = SPAN.sub('code', review_claims.prose(name, text))
+    closing markup after it, followed by a space or the end of the text. A stop inside a code
+    span counts too. Pairing backticks as CommonMark does needs the paragraphs it reads, and every
+    pairing that differed from it hid the words it put between two backticks, so a sentence quoting
+    `.` as code reads as one more: name the character in words instead."""
+    said = review_claims.prose(name, text)
     return len(re.findall(r'[.!?]' + CLOSING + r'(?=\s|$)', said))
 
 
