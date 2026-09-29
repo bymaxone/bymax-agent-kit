@@ -1066,7 +1066,7 @@ def check(args, directory, state):
     require(bool(command), 'Supply a check command after --.')
     log = directory / f"check-{state['round']}-{len(state['checks'])}.log"
     # Record the attempt before running it: a timeout or a missing executable raises out
-    # of subprocess.run, and an unrecorded attempt would leave an earlier receipt cleared.
+    # of run_gate, and an unrecorded attempt would leave an earlier receipt cleared.
     state['checks'].append(dict(command=command, exit_code=None, log=str(log)))
     state['cleared'] = False
     save(directory, state)
