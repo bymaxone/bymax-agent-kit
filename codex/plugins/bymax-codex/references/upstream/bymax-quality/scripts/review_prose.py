@@ -444,8 +444,8 @@ def only_prose_cut(before, after):
 LAYOUT = {tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
           tokenize.ENDMARKER}
 # A type comment after code is the type checker's, placed or not, and so is a function's signature
-# comment on its own line: when one cannot be placed, typed() answers with the tree that has none,
-# and this is where they are compared then.
+# comment on its own line: when a type comment after code cannot be placed, typed() answers with
+# the tree that has none, and this is where they are compared then.
 TYPED = re.compile(r'#\s*type:')
 SIGNATURE = re.compile(r'#\s*type:\s*\(')
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
