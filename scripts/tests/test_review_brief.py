@@ -239,6 +239,14 @@ class BaseBranchStartTests(FlowBench):
         self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context))['base_branch'],
                          'upstream')
 
+    def test_another_spelling_of_the_told_branch_is_the_same_branch(self):
+        """Compared as text, the full ref of the branch the campaign held was refused as another
+        branch; it names the same one, and the campaign keeps the spelling it froze."""
+        self.git('branch', 'upstream', self.base)
+        self.flow('start', '--base', self.base, '--context', str(self.context), '--base-branch', 'upstream')
+        self.assertEqual(self.flow('start', '--base', self.base, '--context', str(self.context),
+                                   '--base-branch', 'refs/heads/upstream')['base_branch'], 'upstream')
+
     def test_a_cleared_campaign_that_goes_on_keeps_its_base_branch(self):
         """An autonomous campaign continues past a cleared candidate, so the next round is still
         the same campaign and still holds the branch it was told."""

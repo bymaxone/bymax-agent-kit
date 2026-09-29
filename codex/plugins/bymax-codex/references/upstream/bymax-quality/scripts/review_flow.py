@@ -459,9 +459,11 @@ def told_branch(args, old=None):
             'The base branch ' + told + ' is the branch this work is on (' + full + '). Name the '
             'branch it merges into, such as origin/main.')
     kept = old.get('base_branch', '') if old else ''
-    require(not (told and kept and told != kept),
+    # Compared as the branch each names, so another spelling of the same one is not refused;
+    # the campaign keeps the spelling it froze.
+    require(not (told and kept and full != branch_ref(kept)),
             'This campaign keeps the base branch it was told: ' + kept + '. Name that one, or none.')
-    return told
+    return kept or told
 
 
 def start(args, directory):
