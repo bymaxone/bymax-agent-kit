@@ -1536,12 +1536,22 @@ class ReviewFlowTests(FlowBench):
         self.assertTrue(cleaned.exists(), 'the gate was killed before it could clean up')
 
     def run_gate_in_a_child(self, gate, preexec=None):
-        """A process running review_run.run_gate on this gate, in a session of its own."""
+        """A process running review_run.run_gate on this gate, in a session of its own.
+
+        Its SIGINT starts at the default: validate.sh runs each suite as a background job,
+        which bash starts with SIGINT ignored, and a Python started that way never raises
+        KeyboardInterrupt, so a Ctrl-C case would measure nothing.
+        """
+        def started():
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            if preexec:
+                preexec()
+
         check = ('import sys; sys.path.insert(0, %r); import review_run\n'
                  'sys.exit(review_run.run_gate([sys.executable, "-c", %r], None, 1800))'
                  % (str(FLOW.parent), gate))
         return subprocess.Popen([sys.executable, '-c', check], start_new_session=True,
-                                stderr=subprocess.DEVNULL, preexec_fn=preexec)
+                                stderr=subprocess.DEVNULL, preexec_fn=started)
 
     def test_a_second_signal_during_the_grace_still_ends_the_gate(self):
         """The handlers stayed on through the grace, so a second Ctrl-C or SIGTERM left before
