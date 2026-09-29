@@ -537,6 +537,44 @@ class EnvelopeShapeTests(unittest.TestCase):
                     name='NOTES.md')
         self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
 
+    def test_a_sentence_closed_inside_any_markup_is_counted(self):
+        """A stop inside link text, before `~~` or before a curly quote ends a sentence as one
+        before `**` does, so joining lines to make room for it is growth too."""
+        notes = '# Notes\n\nThe limit is ten.\nIt holds for every caller.\n'
+        for added in ('[It is checked twice.](details)', '[It is checked twice.][ref]',
+                      '~~It is checked twice.~~', '\u201cIt is checked twice.\u201d',
+                      '\u2018It is checked twice.\u2019', '[It is checked twice.](a(b))',
+                      '[It is checked twice.](a(b(c)))', '[It is checked twice.](url "title")',
+                      "[It is checked twice.](url 'title')", '[It is checked twice.](url (title))',
+                      '[It is checked twice.](<a b>)', '[It is checked twice.]()',
+                      '[It is checked twice.][some label]'):
+            with self.subTest(added):
+                bench = Bench(self, {'NOTES.md': notes})
+                bench.write(notes.replace('The limit is ten.\nIt holds for every caller.\n',
+                                          'The limit is ten. It holds for every caller. %s\n' % added),
+                            name='NOTES.md')
+                self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
+
+    def test_a_code_span_hides_no_stop(self):
+        """Masked as code, a span paired otherwise than CommonMark pairs it hid the words between
+        its backticks: across a line into a heading, from a closer left unmatched, or a word ending
+        in a stop. Every stop counts, and a sentence quoting `.` as code reads as one more."""
+        for text, count in (('A `b\n-c` d. e `f`.\n', 2), ('A `b\nc` d. e `f`.\n', 2),
+                            ('It is `checked twice.` Then.\n', 2), ('The `cache `grows.` It is read once.\n', 2),
+                            ('# Notes\n\nThe `cache\nis `full.` It is read once.\n', 2), ('A `foo `end.` bar\n', 1),
+                            ('A `a `.` b\n', 1)):
+            with self.subTest(text=text):
+                self.assertEqual(prose.sentences('NOTES.md', text), count)
+        notes = '# Notes\n\nSome text ends here.\n## Section\nMore text ends here.\n'
+        bench = Bench(self, {'NOTES.md': notes})
+        bench.write('# Notes\n\nSome text ends `here. It adds a whole new claim about the code.\n'
+                    '## Section\nMore text` ends here.\n', name='NOTES.md')
+        self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
+        notes = '# Notes\n\nSplit the name on the dot first.\n'
+        bench = Bench(self, {'NOTES.md': notes})
+        bench.write(notes.replace('the dot', '`.`'), name='NOTES.md')
+        self.assertIn('NOTES.md: prose gained a sentence', ' | '.join(bench.offences()))
+
     def test_a_type_comment_is_what_a_type_checker_reads(self):
         """`# type: List[int]` is the annotation a type checker reads, and the tree compared
         without type comments called a changed one prose. A line of prose that begins `# type:`
@@ -547,6 +585,23 @@ class EnvelopeShapeTests(unittest.TestCase):
         self.assertIn('behaviour changed, not prose', ' | '.join(bench.offences()))
         bench.write(start.replace('the kind of cache this holds', 'what the cache keeps'))
         self.assertEqual(bench.offences(), [])
+
+    def test_a_type_comment_is_compared_when_another_cannot_be_placed(self):
+        """A trailing `# type:` the parser cannot place sends the tree back to one without type
+        comments, and there a changed annotation beside it, or anywhere in the file, read as
+        prose."""
+        start = 'from typing import List\nx = []  # type: List[int]\nprint(x)  # type: int\n'
+        bench = Bench(self, {'thing.py': start})
+        for after in (start.replace('List[int]', 'List[str]'), start.replace('# type: int', '# type: str')):
+            with self.subTest(after):
+                bench.write(after)
+                self.assertIn('thing.py: a comment a linter or a type checker reads changed',
+                              ' | '.join(bench.offences()))
+        # A function's signature comment stands on its own line and is the checker's all the same.
+        start = 'def f(a):\n    # type: (int) -> int\n    return a\nprint(1)  # type: int\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('(int) -> int', '(str) -> int'))
+        self.assertIn('thing.py: a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
     def test_a_comment_cut_above_a_type_ignore_is_prose(self):
         """The tree parsed with its type comments keeps each `# type: ignore` with its line
@@ -606,6 +661,31 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench = Bench(self, {'thing.py': elsewhere})
         bench.write(elsewhere.replace('    """Doc."""\n', ''))
         self.assertEqual(bench.offences(), [])
+
+    def test_a_directive_after_a_non_ascii_docstring_keeps_its_place(self):
+        """The docstring spans were placed in UTF-8 bytes and the tokens in characters, so the code
+        after an accented docstring on its line read as part of it: shortening the docstring
+        moved the place of every directive after it and was refused."""
+        start = '"""\u00e9\u00e9\u00e9\u00e9\u00e9"""; x = 1\ny = 2  # noqa\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('\u00e9\u00e9\u00e9\u00e9\u00e9', 'e'))
+        self.assertEqual(bench.offences(), [])
+
+    def test_a_docstring_beside_or_below_a_directive_is_prose(self):
+        """A directive's context is the statement it governs, and a docstring is no statement:
+        correcting the docstring a `# noqa: D401` ends, or the one right under a standalone
+        directive, was refused as a changed directive. Moving the directive off it still is."""
+        cases = ('def f():\n    """Returns one."""  # noqa: D401\n    return 1\n',
+                 'def f():\n    """One thing.\n\n    Returns one."""  # noqa: D401\n    return 1\n',
+                 'class A:\n    # pylint: disable=too-few-public-methods\n    """Returns one."""\n    x = 1\n')
+        for start in cases:
+            with self.subTest(start):
+                bench = Bench(self, {'thing.py': start})
+                bench.write(start.replace('Returns one', 'Return one'))
+                self.assertEqual(bench.offences(), [])
+        bench = Bench(self, {'thing.py': cases[0]})
+        bench.write(cases[0].replace('"""  # noqa: D401\n', '"""\n    # noqa: D401\n'))
+        self.assertIn('a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
     def test_a_block_moved_past_its_paragraph_is_not_prose(self):
         """Every code line kept, a fenced block moved ahead of the paragraph it depends on read as

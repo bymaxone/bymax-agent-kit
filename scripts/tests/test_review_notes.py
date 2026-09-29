@@ -22,7 +22,18 @@ class RemovalNoteTests(unittest.TestCase):
                 'Deleted `review_flow.py` and `OLD_HELPER`.', '`OLD_HELPER` was renamed to `NEW_HELPER`.',
                 'Rename `OLD_HELPER` to `NEW_HELPER`.', 'Replaced `OLD_HELPER` with `NEW_HELPER`.',
                 '`NEW_HELPER` supersedes `OLD_HELPER`.', '`OLD_HELPER` moved to `review_git.py`.',
-                '`OLD_HELPER` is now `NEW_HELPER`.', '`OLD_HELPER` — removed in 2.0.')
+                '`OLD_HELPER` is now `NEW_HELPER`.', '`OLD_HELPER` — removed in 2.0.',
+                '`OLD_HELPER` was moved to `review_git.py`.',
+                # A target a reader cannot mistake for anything but a name or a file, quoted or not.
+                '`OLD_HELPER` is now called `NEW_HELPER`.', '`OLD_HELPER` is now named NEW_HELPER.',
+                '`OLD_HELPER` moved to review_git.py.', '`OLD_HELPER` was moved to scripts/review_git.py.',
+                # A noun naming what the name is may stand between it and its move.
+                '`OLD_HELPER` function is now `NEW_HELPER`.',
+                'The `OLD_HELPER` helper was moved to `review_git.py`.',
+                # The move in any tense a note is written in.
+                '`OLD_HELPER` has moved to `NEW_HELPER`.', '`OLD_HELPER` had moved to `NEW_HELPER`.',
+                '`OLD_HELPER` had been moved to `review_git.py`.', '`OLD_HELPER` helper has moved to `review_git.py`.',
+                '`OLD_HELPER` has been moved to `review_git.py`.')
     # A clause naming the name with no removal word outside a quoted span asserts it.
     REFUSED = ('Call `OLD_HELPER` first.', 'Set `OLD_HELPER` first. The old cache was removed.',
                '`OLD_HELPER` runs `git worktree remove`.', 'Run `OLD_HELPER --deleted` to list them.',
@@ -31,7 +42,16 @@ class RemovalNoteTests(unittest.TestCase):
                '`OLD_HELPER` was removed; call `OLD_HELPER` first.', '`OLD_HELPER` — call it first.',
                '`OLD_HELPER` — removed; `OLD_HELPER` — call it.',
                # A move or a new state is a note only with a target: these describe the name as live.
-               '`OLD_HELPER` is now enabled by default.', '`OLD_HELPER` moved to the top of the list.')
+               '`OLD_HELPER` is now enabled by default.', '`OLD_HELPER` moved to the top of the list.',
+               # The move or the new state has to be the name's own: another name's does not retire it.
+               '`OLD_HELPER` remains enabled because `CACHE_MODE` is now `NEW_MODE`.',
+               '`OLD_HELPER` reads `x.py` since `CACHE` moved to `y.py`.',
+               # Unquoted, the target has to be spelled like code or like a file to be one.
+               '`OLD_HELPER` is now called twice.', '`OLD_HELPER` is now called by the loader.',
+               '`OLD_HELPER` moved to e.g. the top.', '`OLD_HELPER` flag is now enabled by default.',
+               '`OLD_HELPER` loader since `CACHE` is now `NEW_CACHE`.',
+               # A noun outside the kinds names a part of the name, which stays live.
+               '`OLD_HELPER` mode is now `FAST_MODE`.', '`OLD_HELPER` has moved to the top of the list.')
 
     def test_a_line_saying_the_name_is_gone_is_reported_not_refused(self):
         """Every clause naming the name must say it is gone, outside every quoted span, for the
@@ -61,6 +81,8 @@ class RemovalNoteTests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             claims.report(tree.base, tree.head, cwd=str(tree.where))
         self.assertIn('NOTED    README.md says OLD_HELPER is gone', out.getvalue())
+        # The summary counts what was printed: a NOTED line is reported, as an UNKEPT one is.
+        self.assertIn('0 refusing, 1 reported.', out.getvalue())
 
     def test_a_markdown_suffix_is_read_in_any_case(self):
         """README.MD is live documentation. Matched by case, it was neither read as prose nor
