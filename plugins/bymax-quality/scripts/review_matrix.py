@@ -115,18 +115,18 @@ def run_case(root, selector, files, deadline=CLEAN):
                              stderr=subprocess.PIPE, bufsize=0,
                              env=dict(pytest_env(), PYTHONPYCACHEPREFIX=empty),
                              start_new_session=True) as child:
-        code, out, err, _ = tailed(child, deadline)
+        code, out, err = tailed(child, deadline)
     if code is None:
         return None, 'timed out after %ds' % deadline
     tail = out.strip().splitlines()
     return code, ([line for line in tail if SUMMARY.match(line)] or tail or [err[-160:]])[-1]
 
 
-def tailed(child, deadline, feed=None):
+def tailed(child, deadline, feed=None, settle=None):
     """Wait up to `deadline` seconds for a child started in a session of its own with unbuffered
     stdout and stderr pipes, keeping each stream's last KEEP bytes as it is read. Returns the
-    exit status, both tails decoded, and whether stdout filled its tail, read from the bytes
-    kept rather than the text; the status is None past the deadline, when the group is killed.
+    exit status and both tails decoded; the status is None past the deadline, when the group is
+    killed.
     Anything else that stops the wait kills the group and propagates, and a run that ended on its
     own has its group killed too: a process a passing test started and did not wait for would
     otherwise write to the tree after the mutant is restored.
@@ -134,6 +134,8 @@ def tailed(child, deadline, feed=None):
     Unbuffered, so no read holds a lock: closing a buffered pipe waits on the lock a blocked
     reader holds, and a detached descendant keeping the pipe open held it for good. `feed`, when
     given, also receives every chunk of stdout as it is read, for a reader that needs all of it.
+    `settle`, when given, is called on a run that ended on its own, after the readers' bounded
+    wait and before its group is killed, with whether stdout reached its end in that wait.
     """
     tails = {'out': [b''], 'err': [b'']}
     readers = [threading.Thread(target=keep_tail, args=(stream, tails[key], feed if key == 'out' else None),
@@ -152,10 +154,13 @@ def tailed(child, deadline, feed=None):
         halt(child, readers)
         raise
     else:
+        if settle is not None:
+            drained(readers)
+            settle(not readers[0].is_alive())
         kill_group(child)
         drained(readers)
     out, err = (tails[key][0].decode('utf-8', 'replace') for key in ('out', 'err'))
-    return code, out, err, len(tails['out'][0]) >= KEEP
+    return code, out, err
 
 
 def keep_tail(stream, into, feed=None):
@@ -256,7 +261,14 @@ def per_row(rows):
 
 def enumerated(root, rule):
     """How many cases the rule's own enumeration command says exist, or None when it is not
-    a command — which the author must then say in words rather than leave to the default."""
+    a command — which the author must then say in words rather than leave to the default.
+
+    Everything the command's stdout carries is counted, a writer it left in the background
+    included: after the command exits, its pipes get the readers' bounded wait (five seconds)
+    to reach their end before its group is killed. A process still holding stdout open after
+    that wait is refused, one started in a session of its own with `setsid` included, since
+    its count would depend on when it was stopped. A descendant holding only stderr open is not
+    refused, and adds up to that wait, or twice it when the group's kill does not reach it."""
     how = (rule.get('enumeration') or '').strip()
     if not how:
         bail('Rule %r declares no enumeration: say how the case list was derived, as a command '
@@ -272,11 +284,19 @@ def enumerated(root, rule):
     # keeps too, since one that prints without end would hold it all until the deadline.
     with subprocess.Popen(how, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           stdin=subprocess.DEVNULL, bufsize=0, start_new_session=True) as child:
-        tally = Tally()
-        code, _, _, _ = tailed(child, CLEAN, feed=tally.feed)
+        tally, ended = Tally(), []
+        code, _, _ = tailed(child, CLEAN, feed=tally.feed, settle=ended.append)
     if code is None:
         bail('Rule %r: its enumeration command did not finish in %ds: %s'
              % (rule.get('rule'), CLEAN, how))
+    # A writer the command left in the background prints after it exits. Stopped at that exit,
+    # it was cut off at a moment nothing decides, and the count with it: an endless writer
+    # counted 26 on one run and 2211 on the next. So it is waited on, and one still writing is
+    # refused rather than counted in part.
+    if not all(ended):
+        bail('Rule %r: its enumeration command left a process writing to its output after it '
+             'exited, so its count depends on when that process is stopped. Wait for what it '
+             'starts: %s' % (rule.get('rule'), how))
     total = tally.total()
     if code != 0 or total is None:
         bail('Rule %r: its enumeration command produced no count (exit %d). A command that '
@@ -440,8 +460,22 @@ def ran_clean(code, tail):
     """Whether a node run alone ran and passed. A skip and an xfail exit zero without running;
     so does a unittest node whose every subTest skipped or expected to fail, which pytest
     reports as `1 passed, 2 skipped` or `1 passed, 2 xfailed` with no subtest passed — a mutant
-    that flips one read as a catch. A test that
-    returns early before any assertion still reads as run: nothing in a summary tells it apart."""
+    that flips one read as a catch. A test that returns early before any assertion still reads
+    as run: nothing in a summary tells it apart.
+
+    The refusal is wider than the nodes that did not run, and that is the chosen direction:
+    refused, a node that ran is left out of what the matrix measures and demands; accepted, one
+    that did not run turns a mutant into a catch. Two such nodes are measured, and neither can be
+    told apart from an all-skipped one by anything pytest reports:
+
+    - A node that runs an assertion after every subTest skipped. pytest 9 reports it as it
+      reports one that returns there — `1 passed, 2 skipped`, a skipped report per subtest and a
+      passed call, the same junit XML. Only a plain `assert` under `enable_assertion_pass_hook`
+      reports its pass, and `self.assertEqual`, which is what a TestCase asserts with, never does.
+    - A node on pytest before 9 without pytest-subtests 0.14.2 or later. A subtest that passes
+      reports nothing at all, so no hook sees it either, and without the plugin the first subTest
+      that skips ends the node, reported `1 skipped` whatever ran before it.
+    """
     if outcome(code, tail) != 'passed' or not re.search(r'\d+ passed', tail):
         return False
     return not (re.search(r'\d+ (skipped|xfailed)', tail) and not re.search(r'\d+ subtests? passed', tail))
@@ -787,7 +821,7 @@ def collect_run(real, root, files, selector, token, box):
     # its group killed if the wait times out or raises.
     with subprocess.Popen(args, cwd=real, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           bufsize=0, env=env, start_new_session=True) as child:
-        code, out, err, _ = tailed(child, CLEAN)
+        code, out, err = tailed(child, CLEAN)
     if code is None:
         raise Unfinished('BLOCKED: pytest did not finish collecting %s in %ds. A collect that '
                          'never ends names no test, and the matrix cannot run what it cannot '

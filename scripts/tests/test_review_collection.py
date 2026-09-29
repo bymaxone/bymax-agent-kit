@@ -1,5 +1,6 @@
 """What the matrix runner counts as a test that ran, and what the campaign asks pytest about which
 files hold one."""
+import importlib.metadata
 import os
 import subprocess
 import sys
@@ -35,6 +36,21 @@ YAML_CONFTEST = ('import pytest\ncollect_ignore = ["cases/skip.yaml"]\n\n\n'
                  'class YamlItem(pytest.Item):\n    def runtest(self):\n        assert True\n')
 
 
+def pytest_major():
+    """The major version of the pytest the matrix runs, which is this interpreter's; 0 where none
+    is installed."""
+    try:
+        return int(importlib.metadata.version('pytest').split('.')[0])
+    except importlib.metadata.PackageNotFoundError:
+        return 0
+
+
+# Before pytest 9, without pytest-subtests 0.14.2 or later, a subtest that passes reports nothing,
+# so a case about subtests there passes or fails for another reason.
+BEFORE_SUBTESTS = 'subtest cases need pytest 9, or pytest-subtests 0.14.2 or later; on older ' \
+                  'versions a node whose subtests skip reads as not run and is refused'
+
+
 def commit(where, message='more'):
     subprocess.run(['git', '-C', str(where), 'add', '-A'], check=True)
     subprocess.run(['git', '-C', str(where), '-c', 'user.email=a@b.invalid', '-c', 'user.name=A',
@@ -44,6 +60,7 @@ def commit(where, message='more'):
 class RanTests(unittest.TestCase):
     """What a clean run of one node must show before the matrix measures it or demands it."""
 
+    @unittest.skipIf(pytest_major() < 9, BEFORE_SUBTESTS)
     def test_a_node_whose_every_subtest_skipped_did_not_run(self):
         """pytest reports a unittest node whose every subTest skipped as `1 passed, 2 skipped`,
         so it was kept as run, and a mutant that un-skipped it was recorded as a catch. A node
@@ -52,6 +69,18 @@ class RanTests(unittest.TestCase):
         kept = matrix.ran_alone(str(bench.where), ['test_thing.py::Sub::test_all_skip',
                                                    'test_thing.py::Sub::test_some_run'])
         self.assertEqual(kept, ['test_thing.py::Sub::test_some_run'])
+
+    @unittest.skipIf(pytest_major() < 9, BEFORE_SUBTESTS)
+    def test_a_node_that_asserts_after_every_subtest_skipped_is_refused(self):
+        """Nothing pytest reports tells an assertion after all-skipped subtests from a return
+        there, so the node reads as one that did not run: the refusal is the chosen direction,
+        and a node that stops refusing it has found a signal that must be stated."""
+        bench = Bench(self, test=SUBTESTS + '\n    def test_assert_after(self):\n'
+                                            '        for value in (11, 12):\n'
+                                            '            with self.subTest(value=value):\n'
+                                            '                self.skipTest("later")\n'
+                                            '        self.assertTrue(over(12))\n')
+        self.assertEqual(matrix.ran_alone(str(bench.where), ['test_thing.py::Sub::test_assert_after']), [])
 
     def test_a_case_that_only_expects_to_fail_is_refused_by_what_it_did(self):
         """The refusal is right for a case whose every node is an expected failure; it said the
@@ -158,6 +187,26 @@ class CollectedTests(unittest.TestCase):
                          {'checks/check.yaml'})
         self.assertFalse(review_evidence.under_a_collect_hook(str(bench.where), 'docs/notes.yaml'))
 
+    def test_a_document_a_named_plugin_collects_is_a_changed_test(self):
+        """A conftest can register its collection hook from another module through
+        `pytest_plugins`, and its own source then never names the hook, so a YAML case that
+        plugin collects was left out of the tests a delta changed."""
+        bench = Bench(self)
+        base = subprocess.run(['git', '-C', str(bench.where), 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True, check=True).stdout.strip()
+        (bench.where / 'conftest.py').write_text('pytest_plugins = ["yaml_plugin"]\n')
+        (bench.where / 'yaml_plugin.py').write_text(
+            YAML_CONFTEST.replace('collect_ignore = ["cases/skip.yaml"]\n', ''))
+        (bench.where / 'checks').mkdir()
+        (bench.where / 'checks' / 'check.yaml').write_text('a: 1\n')
+        commit(bench.where)
+        cwd = os.getcwd()
+        os.chdir(bench.where)
+        self.addCleanup(os.chdir, cwd)
+        head = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True,
+                              check=True).stdout.strip()
+        self.assertIn('checks/check.yaml', review_evidence.tests_changed(base, head)[0])
+
     def test_a_directory_out_of_time_is_collected_once_for_all_its_files(self):
         """matrix_first asked each changed file of a directory whose collect ran out of time,
         and each ask waited out the same deadline again."""
@@ -226,6 +275,40 @@ class NamedItsOwnWayTests(FlowBench):
         refused = self.start(ok=False, correction=True, reason='').stderr
         self.assertNotIn('No open finding names', refused)
         self.assertIn('no measured mutation matrix exists', refused)
+
+    def test_a_correction_that_deletes_such_a_test_does_not_widen_its_scope(self):
+        """A deleted file cannot be asked about in the corrected tree, so a test the project
+        names its own way, once deleted, read as a file no finding named."""
+        self.the_project_names_its_tests()
+        (self.repo / 'checks/check_gone.py').write_text(TEST_G)
+        self.commit('a project that names its tests its own way')
+        self.start()
+        self.report('claude', [dict(id='values.py:wrong', kind='defect', priority='P1', evidence='wrong')])
+        self.report('codex', [])
+        self.triage([dict(id='claude::values.py:wrong', status='open', evidence='Confirmed')])
+        (self.repo / 'values.py').write_text('ONE = 1\nTWO = 2\nTHREE = 3\n')
+        (self.repo / 'checks/check_gone.py').unlink()
+        self.save('fix what the finding named, and delete a test')
+        self.start(correction=True)
+
+    def test_a_deleted_file_the_base_cannot_collect_widens_the_scope(self):
+        """Asked about a deleted file whose directory the base could not collect, the rule that
+        keeps such a file for reviewers exempted it from scope: a production file deleted beside
+        a broken conftest passed as the correction's own test."""
+        (self.repo / 'pkg').mkdir()
+        (self.repo / 'pkg/conftest.py').write_text('raise RuntimeError("collection is broken")\n')
+        (self.repo / 'pkg/helper.py').write_text('VALUE = 1\n')
+        self.commit('a package whose collection is broken')
+        self.start()
+        self.report('claude', [dict(id='values.py:wrong', kind='defect', priority='P1', evidence='wrong')])
+        self.report('codex', [])
+        self.triage([dict(id='claude::values.py:wrong', status='open', evidence='Confirmed')])
+        (self.repo / 'values.py').write_text('ONE = 1\nTWO = 2\nTHREE = 3\n')
+        (self.repo / 'pkg/helper.py').unlink()
+        self.save('fix what the finding named, and delete a production file')
+        refused = self.start(ok=False, correction=True).stderr
+        self.assertIn('No open finding names', refused)
+        self.assertIn('pkg/helper.py', refused)
 
     def test_a_merged_in_test_named_its_own_way_is_listed(self):
         """The merged-in list was read by name, so a test merged from a side branch was not

@@ -104,6 +104,20 @@ class RunTests(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(int((bench.where / 'enumerate.pid').read_text()), 0)
 
+    def test_an_enumeration_is_counted_after_what_it_left_behind_has_printed(self):
+        """A writer an enumeration starts in the background and does not wait for keeps printing
+        after the command exits, and its group was stopped at that exit, so the rows counted were
+        the ones printed before a moment nothing decides: a writer of endless rows counted 26 on
+        one run and 2211 on the next. What it left behind is waited on, boundedly, and counted
+        whole; one that never stops printing is refused rather than cut off."""
+        bench = Bench(self)
+        late = {'rule': 'late', 'enumeration': '(sleep 1; echo 5) & echo 1'}
+        self.assertEqual([matrix.enumerated(str(bench.where), late) for _ in range(3)], [6, 6, 6])
+        with self.assertRaises(SystemExit) as caught:
+            matrix.enumerated(str(bench.where), {
+                'rule': 'endless', 'enumeration': '(while true; do echo 1; done) & echo 1'})
+        self.assertIn('left a process writing to its output', str(caught.exception))
+
     def test_an_enumeration_longer_than_a_tail_is_counted_whole(self):
         """A `grep -c` over a large tree prints a row per file, and read through the bounded tail
         a run is, output that filled it was refused as no count at all. The rows are counted as
