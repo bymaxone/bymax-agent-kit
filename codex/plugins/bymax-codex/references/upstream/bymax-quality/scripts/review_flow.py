@@ -346,7 +346,7 @@ def gone_without(directory, after_archived):
             'both reviewers are told, and the budget still counts.')
 
 
-def reuse_candidate(old, context, directory, autonomous, base, head):
+def reuse_candidate(old, context, directory, autonomous, base, head, told=''):
     """Hand back the frozen candidate, storing a measurement corrected since it froze.
 
     The scope guard accepts a corrected `measured` on the candidate in hand, so this has to
@@ -376,43 +376,94 @@ def reuse_candidate(old, context, directory, autonomous, base, head):
             'the corrected measurement on the next candidate: changing it now would give the '
             'second reviewer a different context from the first, and a cleared candidate would '
             'have the evidence behind its receipt edited after the fact.')
+    branched = adopt_branch(old, told)
     old['context'] = context
     if autonomous:
         old.update(review_delivery.reserve(directory, head, base, context, old))
-    if autonomous or changed:
+    if autonomous or changed or branched:
         save(directory, old)
     return old
 
 
-def resolves(ref):
-    """Whether this spelling names a commit here, asked without raising: a ref may contain
-    what a shell would expand, so it only ever travels as one argument."""
-    return subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--end-of-options', ref + '^{commit}'],
-                          capture_output=True).returncode == 0
+def adopt_branch(old, told):
+    """Keep a base branch first named on a restart of the frozen candidate; True when it was.
+
+    Kept only while nothing it feeds has been read or frozen differently. The brief names it
+    and reads which tests this delta wrote through it, so once a reviewer has read the task a
+    new branch would hand the second reviewer a different brief from the first. And a
+    correction round froze its regression tests with no branch; the new one is kept only when
+    it reads the same tests, since the gates already measured those. A first round freezes
+    nothing the branch feeds. Deleted tests are read from the diff alone, so no branch moves them.
+    """
+    if not told or old.get('base_branch'):
+        return False
+    require(not old.get('reviews'),
+            'A reviewer has already read this candidate without a base branch, so the brief is '
+            'what they read. Name ' + told + ' on the next candidate.')
+    frozen_tests = old.get('regression_tests', [])
+    tests = tests_changed(old['review_base'], old['head'], told)[0] if old['round'] > 1 else frozen_tests
+    require(tests == frozen_tests,
+            'Told ' + told + ', this correction changes ' + ', '.join(tests) + ' where it froze '
+            + (', '.join(frozen_tests) or 'no test') + ', and its gates measured what it froze. '
+            'Name ' + told + ' on the next candidate.')
+    old['base_branch'] = told
+    return True
 
 
-def told_branch(args, old=None, autonomous=False):
-    """The base branch this start names, refused unless it names a commit: --base-branch, or
-    the first line of --base-branch-file, which a shipping command writes so no reader pastes a
-    ref name into a command. A file that is absent or empty names none.
+def branch_ref(ref):
+    """The branch this spelling names here, local or remote-tracking, as its full ref, or ''.
 
-    Held once a campaign that goes on has one: another branch named later would move which
-    commits count as this delta's, and with them which tests the correction gate demands. A
-    cleared campaign that is not continued holds nothing, since the next start opens a new one."""
+    Asked without raising: a ref may contain what a shell would expand, so it only ever travels
+    as one argument. A commit id, a tag or a revision expression resolves to a commit and names
+    no branch, and the round would then read what that commit reaches as the base branch's."""
+    full = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--symbolic-full-name',
+                           '--end-of-options', ref], capture_output=True, text=True).stdout.strip()
+    return full if full.startswith(('refs/heads/', 'refs/remotes/')) else ''
+
+
+def work_branch():
+    """The full ref HEAD points to, or '' when HEAD is detached."""
+    return subprocess.run(['git', 'symbolic-ref', '--quiet', 'HEAD'],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def told_branch(args, old=None):
+    """The base branch this start names, refused unless it names a branch other than the one
+    this work is on: --base-branch, or the first line of --base-branch-file, which a shipping
+    command writes so no reader pastes a ref name into a command. A file that is absent or
+    empty names none.
+
+    `old` is the campaign this start continues, as start() decided, or None when it opens one.
+    Once that campaign holds a branch, another named later is refused: it would move which
+    commits count as this delta's, and with them which tests the correction gate demands.
+
+    A campaign that holds none may be told one in any later round, since a campaign begun under
+    /bymax-quality:code-review without one is continued by /bymax-pr:push with the file naming
+    it. That weakens no gate: told a branch, written_here() adds to the first-parent line the
+    commits the branch does not reach and removes none, so the tests a round must answer for
+    can only grow. The rounds before it keep what they froze without one."""
     told = args.base_branch
     if not told and args.base_branch_file:
         try:
             told = Path(args.base_branch_file).read_text().split('\n', 1)[0].strip()
         except OSError:
             told = ''
-    require(not told or resolves(told),
-            'The base branch names no commit here: ' + told + '. Name the branch this work merges '
-            'into, as this repository spells it, such as origin/main.')
-    goes_on = old and (autonomous or not old.get('cleared'))
-    kept = old.get('base_branch', '') if goes_on else ''
-    require(not (told and kept and told != kept),
+    full = branch_ref(told) if told else ''
+    require(not told or full,
+            'The base branch names no branch here: ' + told + '. A commit id or a tag is not one; '
+            'name the branch this work merges into, a ref under refs/heads/ or refs/remotes/, '
+            'as this repository spells it, such as origin/main.')
+    # The work branch reaches every commit of the delta, so told it, nothing off the
+    # first-parent line could read as this delta's own.
+    require(not full or full != work_branch(),
+            'The base branch ' + told + ' is the branch this work is on (' + full + '). Name the '
+            'branch it merges into, such as origin/main.')
+    kept = old.get('base_branch', '') if old else ''
+    # Compared as the branch each names, so another spelling of the same one is not refused;
+    # the campaign keeps the spelling it froze.
+    require(not (told and kept and full != branch_ref(kept)),
             'This campaign keeps the base branch it was told: ' + kept + '. Name that one, or none.')
-    return told
+    return kept or told
 
 
 def start(args, directory):
@@ -433,15 +484,17 @@ def start(args, directory):
     if old and autonomous:
         old.update(autonomous=True,
                    max_rounds=review_delivery.cap(directory, pending=bool(args.extend_delivery)))
-    told = told_branch(args, old, autonomous)
+    # The one test of whether this start continues the stored campaign: the same candidate is
+    # handed back cleared or not, and a cleared one is otherwise continued only by a delivery.
+    goes_on = bool(old) and (old['head'] == head or autonomous or not old.get('cleared'))
+    told = told_branch(args, old if goes_on else None)
     if old and old['head'] == head:
         require(old['base'] == base and scope(old['context']) == scope(context),
                 'Same candidate has different scope/context.')
-        return reuse_candidate(old, context, directory, autonomous, base, head)
+        return reuse_candidate(old, context, directory, autonomous, base, head, told)
     if old and old.get('cleared'):
         (directory / ('completed-' + old['head'] + '.json')).write_text(json.dumps(old, indent=2))
-        if not autonomous:
-            old = None
+    old = old if goes_on else None
     require(old or not args.answers,
             '--answers is for a correction after a cleared candidate; this start opens a first round, '
             'which reviews the whole delta and has nothing to answer for.')
