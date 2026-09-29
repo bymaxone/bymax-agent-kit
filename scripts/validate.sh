@@ -207,10 +207,12 @@ run_module() {
   python3 -m unittest discover -s scripts/tests -p "${name}.py" -v > "${test_logs}/${name}.log" 2>&1 \
     || : > "${test_logs}/${name}.failed"
 }
-# Whether discover would import this file: its stem is a Python identifier, which may hold
-# letters outside ASCII that no bash 3.2 regex matches the same way in every locale.
+# Whether discover would import this file, asked with discover's own name rule: it admits names
+# outside ASCII that no bash 3.2 regex matches the same way in every locale, and differs from a
+# Python identifier both ways (test².py runs; a decomposed accent does not).
 importable() {
-  python3 -c 'import sys; sys.exit(not sys.argv[1][:-3].isidentifier())' "$(basename "$1")"
+  python3 -c 'import sys, unittest.loader as l; sys.exit(not l.VALID_MODULE_NAME.match(sys.argv[1]))' \
+    "$(basename "$1")"
 }
 # The modules `python3 -m unittest discover -s scripts/tests` runs: its default pattern,
 # test*.py, over file names that are importable module names.

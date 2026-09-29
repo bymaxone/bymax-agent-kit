@@ -59,12 +59,14 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(reported(done), ['FAIL no test module ran'])
 
     def test_the_modules_it_runs_are_the_ones_discover_runs(self):
-        """unittest discover's default pattern is test*.py over importable names, and a Python
-        identifier may hold letters outside ASCII; the runner's selection is the same."""
+        """unittest discover's default pattern is test*.py over the names its own rule admits,
+        which a Python identifier is not: test\u00b2.py ran under discover and was skipped here,
+        and a decomposed accent was selected here to run no test."""
         done = self.run_over({'test_a.py': PASSING, 'testb.py': PASSING, 'b_test.py': FAILING,
-                              'test-c.py': FAILING, 'test\u00e9.py': PASSING})
+                              'test-c.py': FAILING, 'test\u00e9.py': PASSING, 'test\u00b2.py': PASSING,
+                              'teste\u0301x.py': FAILING})
         self.assertEqual(reported(done), ['OK test_a: Ran 1 test', 'OK testb: Ran 1 test',
-                                          'OK test\u00e9: Ran 1 test'])
+                                          'OK test\u00b2: Ran 1 test', 'OK test\u00e9: Ran 1 test'])
 
     def test_a_width_that_is_not_a_positive_integer_is_refused_before_any_module_runs(self):
         """A zero or negative width, or one that is not a number, made the polling loop wait forever."""
