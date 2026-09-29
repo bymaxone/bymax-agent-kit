@@ -547,7 +547,10 @@ class EnvelopeShapeTests(unittest.TestCase):
                       '[It is checked twice.](a(b(c)))', '[It is checked twice.](url "title")',
                       "[It is checked twice.](url 'title')", '[It is checked twice.](url (title))',
                       '[It is checked twice.](<a b>)', '[It is checked twice.]()',
-                      '[It is checked twice.][some label]'):
+                      '[It is checked twice.][some label]', r'[It is checked twice.](foo\(bar)',
+                      r'[It is checked twice.](foo\)bar)', r'[It is checked twice.](a(b\)c))',
+                      r'[It is checked twice.](<a\>b>)', r'[It is checked twice.](url "ti\"tle")',
+                      r"[It is checked twice.](url 'ti\'tle')", r'[It is checked twice.](url (ti\)tle))'):
             with self.subTest(added):
                 bench = Bench(self, {'NOTES.md': notes})
                 bench.write(notes.replace('The limit is ten.\nIt holds for every caller.\n',
@@ -602,6 +605,18 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench = Bench(self, {'thing.py': start})
         bench.write(start.replace('(int) -> int', '(str) -> int'))
         self.assertIn('thing.py: a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
+        start = 'def f(a,\n      b):\n    # type: (int, int) -> int\n    return a\nprint(1)  # type: int\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('(int, int)', '(str, int)'))
+        self.assertIn('thing.py: a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
+
+    def test_a_signature_shaped_line_away_from_a_def_is_prose(self):
+        """Matched by its text alone, a line of prose opening `# type: (` was read as a function's
+        signature comment, and correcting it was refused as a changed directive."""
+        start = 'x = 1  # type: int\n# type: (legacy form) documents old syntax.\ny = 2\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('documents old syntax', 'records the old syntax'))
+        self.assertEqual(bench.offences(), [])
 
     def test_a_comment_cut_above_a_type_ignore_is_prose(self):
         """The tree parsed with its type comments keeps each `# type: ignore` with its line

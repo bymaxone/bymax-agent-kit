@@ -565,10 +565,10 @@ def records_removal(line, token):
 
 def targeted(clause, token):
     """Whether the clause moves the name or gives it a new name, right after naming it and at
-    most a noun of KINDS: "`X` is now `Y`", "`X` helper has moved to git.py". Another name's move
-    in the same clause retires nothing."""
+    most a noun of KINDS: "`X` is now `Y`", "`X` helper has moved to git.py", "**X** was moved to
+    `y.py`". Another name's move in the same clause retires nothing."""
     kind = '|'.join(KINDS)
-    for found in re.finditer(r'\b%s\b`?\s+(?:(?i:%s)\s+)?(?:(?i:was|were|has|have|had)(?:\s+been)?\s+)?'
+    for found in re.finditer(r'\b%s\b[`*]{0,4}\s+(?:(?i:%s)\s+)?(?:(?i:was|were|has|have|had)(?:\s+been)?\s+)?'
                              % (re.escape(token), kind), clause):
         target = TARGETS.match(clause, found.end())
         if target and (target.group(1) is None or code_shaped(target.group(1))):
