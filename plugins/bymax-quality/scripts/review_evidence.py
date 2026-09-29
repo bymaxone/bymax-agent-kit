@@ -76,7 +76,7 @@ def removed_tests(base, removed, unsure=True):
     other = [name for name in removed if not is_test_path(name)]
     if not other or importlib.util.find_spec('pytest') is None:
         return named
-    found = set()
+    found, doubted = set(), set()
     with archived(base) as older:
         wanted = [name for name in other if name.endswith('.py') or under_a_collect_hook(older, name)]
         for where in sorted({str(Path(name).parent) or '.' for name in wanted}):
@@ -84,11 +84,13 @@ def removed_tests(base, removed, unsure=True):
             try:
                 collected, failed = review_matrix.walked(older, [where])
             except (SystemExit, review_matrix.Unfinished):
-                found.update(here if unsure else ())
+                doubted.update(here)
                 continue
             found.update(collected)
-            found.update(name for name in here if unsure
-                         and {name, *(p.as_posix() for p in Path(name).parents)} & failed)
+            doubted.update(name for name in here
+                           if {name, *(p.as_posix() for p in Path(name).parents)} & failed)
+    if unsure:
+        found |= doubted
     return sorted(named + [name for name in other if name in found])
 
 
