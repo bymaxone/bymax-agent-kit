@@ -132,7 +132,7 @@ def under_a_collect_hook(root, path):
     Two limits follow, both stated because neither is guarded:
 
     - A conftest naming `pytest_plugins` makes every changed document beneath it asked about,
-      one collect of its directory each, whether or not a named module collects documents.
+      one collect of each directory holding one, whether or not a named module collects documents.
     - A collector an installed plugin registers through a `pytest11` entry point is not seen,
       so a document only it collects is no changed test. The entry points are cheap to list,
       but whether one defines the hook is settled only by importing it, which runs third-party
