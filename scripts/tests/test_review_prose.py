@@ -466,6 +466,16 @@ class EnvelopeTests(unittest.TestCase):
         named = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
         self.assertNotIn('file_digest', named)
 
+    def test_the_envelope_has_one_door(self):
+        """The campaign reaches the envelope through review_flow's `prose` command, whose output
+        is written with surrogate escapes. A second entry point of this module's own printed a
+        task naming a file that is not UTF-8 through a strict stdout, and raised
+        UnicodeEncodeError; nothing ran it and nothing documented it."""
+        tree = ast.parse(Path(prose.__file__).read_text(encoding='utf-8'))
+        named = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+        self.assertFalse(named & {'main', 'envelope'})
+        self.assertNotIn("'__main__'", Path(prose.__file__).read_text(encoding='utf-8'))
+
     def test_an_unreadable_ignored_file_is_recorded_not_refused(self):
         """A file the user cannot read must not raise a bare errno out of the snapshot. A
         reader with Edit alone cannot alter it either."""
@@ -731,7 +741,6 @@ class EnvelopeShapeTests(unittest.TestCase):
         bench = Bench(self, {'E.md': doc})
         bench.write(doc.replace('    one\n\n', '    one\n\n\n'), name='E.md')
         self.assertIn('E.md: its frontmatter or a fenced block changed', ' | '.join(bench.offences()))
-
 
 if __name__ == '__main__':
     unittest.main()

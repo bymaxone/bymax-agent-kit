@@ -70,12 +70,20 @@ class AttemptTests(FlowBench):
                             's["checks"] = [c for c in s["checks"] if c["log"] != "late"]\n'
                             'review_flow.save(d, s)\n' % str(FLOW.parent)], cwd=self.repo, check=True)
 
+def handed_on(kwargs):
+    """The bytes subprocess.run writes to a child's stdin for these arguments. Text with no
+    encoding named is encoded by the locale, and the one modelled here is Latin-1: under a
+    UTF-8 locale a missing encoding would hand on the same bytes and no test could see it."""
+    return kwargs['input'].encode(kwargs.get('encoding') or 'iso8859-1', kwargs.get('errors') or 'strict')
+
+
 class CodexStdinTests(unittest.TestCase):
     """What the Codex pass is handed on stdin."""
 
     def test_a_name_that_is_not_utf8_reaches_codex_as_valid_utf8(self):
         """Codex refuses stdin that is not valid UTF-8 before any model reads it, so a task
-        carrying a surrogate-escaped name goes with the byte spelled out."""
+        carrying a surrogate-escaped name goes with the byte spelled out, and the runtime's own
+        em dash goes as its UTF-8 whatever the locale."""
         sys.path.insert(0, str(FLOW.parent))
         import review_codex
         import review_flow
@@ -89,8 +97,31 @@ class CodexStdinTests(unittest.TestCase):
                 mock.patch.object(review_codex, 'codex_outcome', lambda *args: None), \
                 mock.patch.object(review_codex, 'escalation', lambda state: []):
             review_codex.run_codex(Path(box), review_flow, {'round': 1, 'codex_attempts': 0},
-                                   'tests/test_caf\udce9.py', 'codex', None)
-        self.assertEqual(seen['input'].encode(seen.get('encoding') or 'ascii'), b'tests/test_caf\\xe9.py')
+                                   'tests/test_caf\udce9.py \u2014 checked', 'codex', None)
+        self.assertEqual(handed_on(seen), b'tests/test_caf\\xe9.py \xe2\x80\x94 checked')
+
+
+
+class ProsePassStdinTests(unittest.TestCase):
+    """What the prose pass's reader is handed on stdin."""
+
+    def test_a_name_that_is_not_utf8_reaches_the_prose_reader_as_valid_utf8(self):
+        """The task names each file whose prose it hands over, and a name git gave as a
+        surrogate escape cannot be written to a strict UTF-8 stdin: it goes with the byte
+        spelled out, and the runtime's own em dash as its UTF-8 whatever the locale."""
+        sys.path.insert(0, str(FLOW.parent))
+        import review_prose_pass
+        seen = {}
+
+        def run(command, **kwargs):
+            seen.update(kwargs, command=command)
+            return subprocess.CompletedProcess(command, 0)
+        with tempfile.TemporaryDirectory() as box, \
+                mock.patch.object(review_prose_pass.subprocess, 'run', run), \
+                mock.patch.object(review_prose_pass, 'git', lambda *args: box):
+            review_prose_pass.read_with('--- notes-caf\udce9.md \u2014 checked', Path(box) / 'prose.log')
+        self.assertEqual(seen['command'][0], 'claude')
+        self.assertEqual(handed_on(seen), b'--- notes-caf\\xe9.md \xe2\x80\x94 checked')
 
 
 if __name__ == '__main__':
