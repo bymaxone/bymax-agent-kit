@@ -47,7 +47,7 @@ def pytest_major():
 
 # Before pytest 9, without pytest-subtests 0.14.2 or later, a subtest that passes reports nothing,
 # so a case about subtests there passes or fails for another reason.
-BEFORE_SUBTESTS = 'subtest cases need pytest 9, or pytest-subtests 0.14 or later; on older ' \
+BEFORE_SUBTESTS = 'subtest cases need pytest 9, or pytest-subtests 0.14.2 or later; on older ' \
                   'versions a node whose subtests skip reads as not run and is refused'
 
 
