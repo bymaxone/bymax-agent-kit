@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """A prose pass that corrects instead of reporting, inside an envelope a function checks.
 
 A false sentence costs a whole round today: freeze the candidate, two reviewers, triage, a
@@ -76,10 +75,15 @@ after you and refuses the whole pass if any of that happened."""
 
 SCOPED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
+# How this module's own git reads decode, as review_git.git_raw() does: names as the filesystem encodes
+# them, with bytes that do not decode kept as surrogate escapes. A name need not be UTF-8, and a
+# strict read raised on it instead of listing it; an escape reaches git and os again as the byte.
+AS_GIT = dict(encoding=sys.getfilesystemencoding(), errors='surrogateescape')
+
 
 def git(*args, cwd=None):
     """Answered about the worktree, not about the directory the process was started in."""
-    done = subprocess.run(['git', *args], capture_output=True, text=True,
+    done = subprocess.run(['git', *args], capture_output=True, **AS_GIT,
                           cwd=review_claims.root(cwd))
     return done.stdout if done.returncode == 0 else ''
 
@@ -111,9 +115,9 @@ def changed(cwd=None):
         # asked for explicitly, so a user who turned it off does not get a clean tree refused.
         listed = subprocess.run(['git', '-c', 'diff.autoRefreshIndex=true', 'diff', '--name-only', '-z',
                                  '--ignore-submodules=none', 'HEAD'],
-                                cwd=root, env=env, check=True, capture_output=True, text=True).stdout
+                                cwd=root, env=env, check=True, capture_output=True, **AS_GIT).stdout
         others = subprocess.run(['git', 'ls-files', '-z', '--others', '--exclude-standard'],
-                                cwd=root, env=env, check=True, capture_output=True, text=True).stdout
+                                cwd=root, env=env, check=True, capture_output=True, **AS_GIT).stdout
     finally:
         if os.path.exists(scratch):
             os.unlink(scratch)
@@ -147,7 +151,7 @@ def ignored(cwd=None):
     its inside is not this repository's; a directory entry is recorded by name alone."""
     root = review_claims.root(cwd)
     out = subprocess.run(['git', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
-                         cwd=root, check=True, capture_output=True, text=True).stdout
+                         cwd=root, check=True, capture_output=True, **AS_GIT).stdout
     found = {}
     for name in (n for n in out.split('\0') if n):
         found[name] = identity(Path(root) / name)
@@ -218,7 +222,9 @@ def typed(text):
     """The syntax tree with its type comments: `# type: List[int]` is the annotation a type
     checker reads. A comment line the parser cannot place as one — prose that happens to begin
     `# type:` on a line of its own — is only prose, so that line is blanked and the file parsed
-    again; any other syntax error is the plain parser's to raise."""
+    again. A type comment after code that cannot be placed leaves the tree without any, and
+    directives() compares every type comment that follows code, so none of them reads as prose
+    then; any other syntax error is the plain parser's to raise."""
     lines = text.split('\n')
     for _ in lines:
         try:
@@ -271,10 +277,21 @@ def prose_size(name, text):
     return count
 
 
+# An inline link's destination and title, as CommonMark spells them: `<...>`, or a run balancing
+# its parentheses two levels deep, then a title quoted three ways.
+TARGET = (r'\(\s*(?:<[^<>\n]*>|(?:[^()\s]|\((?:[^()\s]|\([^()\s]*\))*\))*)'
+          r'(?:\s+(?:"[^"\n]*"|\'[^\'\n]*\'|\([^()\n]*\)))?\s*\)')
+# What may close a sentence after its stop: closing markup or a closing quote, or the target of the
+# link whose text the stop ends.
+CLOSING = r'(?:\]' + TARGET + r'|\]\[[^\[\]\n]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
 def sentences(name, text):
     """How many sentences a file's prose holds: a stop, a question or an exclamation, and any
-    closing markup after it, followed by a space or the end of the text."""
-    return len(re.findall(r'[.!?][*_`\'")\]]*(?=\s|$)', review_claims.prose(name, text)))
+    closing markup after it, followed by a space or the end of the text. A stop inside a code
+    span counts too. Pairing backticks as CommonMark does needs the paragraphs it reads, and every
+    pairing that differed from it hid the words it put between two backticks, so a sentence quoting
+    `.` as code reads as one more: name the character in words instead."""
+    said = review_claims.prose(name, text)
+    return len(re.findall(r'[.!?]' + CLOSING + r'(?=\s|$)', said))
 
 
 def first_change(name, cwd=None):
@@ -430,6 +447,11 @@ def only_prose_cut(before, after):
 # What places a token rather than being one: a directive's position counts only the rest.
 LAYOUT = {tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
           tokenize.ENDMARKER}
+# A type comment after code is the type checker's, placed or not, and so is a function's signature
+# comment on its own line: when a type comment after code cannot be placed, typed() answers with
+# the tree that has none, and this is where they are compared then.
+TYPED = re.compile(r'#\s*type:')
+SIGNATURE = re.compile(r'#\s*type:\s*\(')
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
 
 
@@ -447,16 +469,17 @@ def directives(text):
     lines = text.split('\n')
     found = []
     try:
-        docstrings = [(node.body[0].lineno, node.body[0].col_offset,
-                       node.body[0].end_lineno, node.body[0].end_col_offset)
-                      for node in ast.walk(ast.parse(text)) if isinstance(node, SCOPED)
-                      and ast.get_docstring(node, clean=False) is not None]
+        docstrings = docstring_spans(text, lines)
+        said = unsaid(lines, docstrings)
         code, anything = 0, False
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
-            if tok.type == tokenize.COMMENT and DIRECTIVE.search(tok.string):
-                row, col = tok.start
-                beside = tok.line[:col].strip()
-                below = '' if beside else next((l.strip() for l in lines[row:]
+            row, col = tok.start
+            if tok.type == tokenize.COMMENT and (DIRECTIVE.search(tok.string)
+                                                 or TYPED.match(tok.string) and (tok.line[:col].strip()
+                                                                                 or SIGNATURE.match(tok.string))):
+                # A comment runs to the end of its line, so the mark shifts only what precedes it.
+                beside = said[row - 1][:col + len(said[row - 1]) - len(lines[row - 1])].strip()
+                below = '' if beside else next((l.strip() for l in said[row:]
                                                 if l.strip() and not l.strip().startswith('#')), '')
                 found.append((code, anything, beside, below, tok.string))
             elif tok.type not in LAYOUT:
@@ -467,17 +490,33 @@ def directives(text):
     return found
 
 
-def envelope(cwd=None):
-    """Refuse the pass's own edits when they leave the envelope. Exit status, not advice."""
-    broken = offences(cwd=cwd)
-    for line in broken:
-        print('OUTSIDE  ' + line)
-    if broken:
-        print('\nRevert these and run the pass again. A prose pass that edits behaviour is worse '
-              'than the sentence it came to fix: the reviewers were told it touched no code.')
-        return 1
-    print('%d file(s) changed, prose only, no growth.' % len(changed(cwd=cwd)))
-    return 0
+# What stands for a docstring's text in a directive's context: no source line can hold a NUL.
+DOCSTRING = '\0docstring'
+
+
+def unsaid(lines, spans):
+    """The lines with each docstring's text replaced by one mark on every row it spans. The
+    context a directive keeps is the statement it governs, and a docstring beside or below one
+    is prose, which a correction may change. The mark keeps the fact that a docstring is there,
+    so a directive moved off the docstring it ends still reads as moved."""
+    said = list(lines)
+    # Last first: replacing a span shifts only what follows it on its row.
+    for row, col, end_row, end_col in sorted(spans, reverse=True):
+        for at in range(row, end_row + 1):
+            line = said[at - 1]
+            said[at - 1] = (line[:col if at == row else 0] + DOCSTRING
+                            + line[end_col if at == end_row else len(line):])
+    return said
+
+
+def docstring_spans(text, lines):
+    """Where each docstring sits, as (row, column, end row, end column) in characters, the unit
+    tokenize places a token in. The syntax tree places it in UTF-8 bytes, and compared as they
+    were, the code after an accented docstring on its line read as part of the docstring."""
+    column = lambda row, offset: len(lines[row - 1].encode('utf-8')[:offset].decode('utf-8', 'replace'))
+    return [(doc.lineno, column(doc.lineno, doc.col_offset), doc.end_lineno, column(doc.end_lineno, doc.end_col_offset))
+            for doc in (node.body[0] for node in ast.walk(ast.parse(text)) if isinstance(node, SCOPED)
+                        and ast.get_docstring(node, clean=False) is not None)]
 
 
 def prepare(base, head, cwd=None):
@@ -503,18 +542,3 @@ def cut(cwd=None):
         if was is not None and now is not None:
             total += max(0, was - now)
     return total
-
-
-def main(argv):
-    if len(argv) == 4 and argv[1] == 'prepare':
-        text = prepare(argv[2], argv[3], cwd=str(Path.cwd()))
-        print(text or 'This delta added no prose; there is nothing for a prose pass to read.')
-        return 0
-    if len(argv) == 2 and argv[1] == 'verify':
-        return envelope(cwd=str(Path.cwd()))
-    print('usage: review_prose.py prepare <base> <head> | review_prose.py verify', file=sys.stderr)
-    return 2
-
-
-if __name__ == '__main__':
-    raise SystemExit(main(sys.argv))

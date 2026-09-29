@@ -1,6 +1,8 @@
 """The campaign's readers of changed test paths, against paths git quotes when it prints them
 one to a line. A quoted path matches no file, so each reader has to ask git for NUL-separated
 output, where a path is spelled as itself."""
+import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -152,6 +154,37 @@ class NotUtf8Tests(unittest.TestCase):
         self.assertIn(b'+caf\\xe9\n', capture.read_bytes())
         capture.read_bytes().decode('utf-8')
 
+    def test_a_branch_name_that_is_not_utf8_locates_its_campaign(self):
+        """A branch is named by bytes, and one that is not UTF-8 raised before any campaign step
+        could run. Its directory is the digest of those bytes, so a UTF-8 branch keeps the
+        directory it always had and a campaign started before is still found."""
+        import hashlib
+        import review_flow
+        common = Path(review_git.git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
+        (self.where / '.git' / 'HEAD').write_bytes(b'ref: refs/heads/caf\xe9\n')
+        self.assertEqual(review_flow.location(),
+                         common / hashlib.sha256(b'refs/heads/caf\xe9').hexdigest())
+        self.git('symbolic-ref', 'HEAD', 'refs/heads/feature/café')
+        self.assertEqual(review_flow.location(),
+                         common / hashlib.sha256('refs/heads/feature/café'.encode()).hexdigest())
+
+    def test_a_branch_name_that_is_not_utf8_is_named_as_a_branch(self):
+        """work_branch() and branch_ref() read a ref as strict UTF-8 and raised on such a name, so
+        a start told its base branch could not run on it."""
+        import review_flow
+        with open(self.where / '.git' / 'packed-refs', 'ab') as packed:
+            packed.write(b'%s refs/heads/caf\xe9\n' % self.base.encode())
+        self.assertEqual(review_flow.branch_ref(os.fsdecode(b'caf\xe9')), 'refs/heads/caf\udce9')
+        (self.where / '.git' / 'HEAD').write_bytes(b'ref: refs/heads/caf\xe9\n')
+        self.assertEqual(review_flow.work_branch(), 'refs/heads/caf\udce9')
+        self.assertEqual(review_flow.branch_ref('main'), 'refs/heads/main')
+        # Told through --base-branch-file, the base branch is read by its bytes too.
+        self.git('symbolic-ref', 'HEAD', 'refs/heads/main')
+        named = self.where / 'base-branch'
+        named.write_bytes(b'caf\xe9\n')
+        told = review_flow.told_branch(argparse.Namespace(base_branch='', base_branch_file=str(named)))
+        self.assertEqual(told, 'caf\udce9')
+
     def test_the_command_line_prints_a_name_that_is_not_utf8(self):
         """What the runtime prints — a prompt — can carry such a name as an escape,
         which a strict stdout refuses; it is printed as the bytes of the name."""
@@ -163,6 +196,18 @@ class NotUtf8Tests(unittest.TestCase):
                              env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(run.stdout, b'tests/test_caf\xe9.py\n')
+
+    def test_the_claims_command_line_prints_a_name_that_is_not_utf8(self):
+        """Reviewers are told to run review_claims.py on the delta, and its inventory names each
+        file that added prose. A strict stdout refused such a name as a surrogate escape; it is
+        printed as the bytes of the name. PYTHONIOENCODING makes stdout strict whatever the
+        locale, as a UTF-8 locale other than C.UTF-8 does."""
+        head = commit_with(self.where, self.base, {b'notes-caf\xe9.md': b'# Notes\n\nThis sentence has more than six words.\n'})
+        run = subprocess.run([sys.executable, str(FLOW.with_name('review_claims.py')), self.base, head],
+                             cwd=self.where, capture_output=True, timeout=60,
+                             env=dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONDONTWRITEBYTECODE='1'))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(b'notes-caf\xe9.md: This sentence has more than six words.', run.stdout)
 
 
 class ReaderTextTests(unittest.TestCase):
@@ -183,6 +228,34 @@ class ReaderTextTests(unittest.TestCase):
         with mock.patch.object(review_git.sys, 'getfilesystemencoding', return_value='iso8859-1'):
             text = review_git.for_a_reader('check \u2014 caf\u00c3\u00a9.md and plain ascii')
         self.assertEqual(text, 'check \u2014 caf\u00e9.md and plain ascii')
+
+    def test_the_context_reaches_the_reader_as_its_author_wrote_it_under_a_latin1_locale(self):
+        """The context is JSON the author wrote, and every reader of it treats its text as git_raw()
+        text: for_a_reader() encodes it back through the filesystem encoding, and a check's
+        arguments reach the child through the same. Read by the locale instead, a Latin-1 locale on
+        a system whose filesystem encoding is UTF-8 handed the reviewers `IntenÃ§Ã£o` for
+        `Intenção`. Run in a child under that locale, skipped where the system has none."""
+        where = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, where, True)
+        context = where / 'context.json'
+        context.write_bytes(json.dumps(dict(intent='Inten\u00e7\u00e3o \u2014 kept', acceptance=['a'],
+                                            measured=['m'], constraints=['c'], scope='s',
+                                            checks=[['echo', 'caf\u00e9']]), ensure_ascii=False).encode('utf-8'))
+        script = ('import json, locale, os, sys; sys.path.insert(0, %r)\n'
+                  'import review_flow\n'
+                  'text, checks = review_flow.context_contract(%r)\n'
+                  'print(json.dumps(dict(locale=locale.getpreferredencoding(False),\n'
+                  '    reader=review_flow.for_a_reader(text), argument=list(os.fsencode(checks[0][1])))))\n'
+                  % (str(FLOW.parent), str(context)))
+        env = dict(os.environ, LC_ALL='en_US.ISO8859-1', PYTHONUTF8='0')
+        env.pop('PYTHONIOENCODING', None)
+        run = subprocess.run([sys.executable, '-c', script], capture_output=True, env=env, timeout=30)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        seen = json.loads(run.stdout)
+        if seen['locale'].replace('-', '').lower() not in ('iso88591', 'latin1'):
+            self.skipTest('this system has no en_US.ISO8859-1 locale')
+        self.assertIn('Inten\u00e7\u00e3o \u2014 kept', seen['reader'])
+        self.assertEqual(bytes(seen['argument']), 'caf\u00e9'.encode('utf-8'))
 
     def test_a_digest_names_a_file_whose_name_is_not_utf8(self):
         """The digest a prose record binds to encoded each name strictly, so a Latin-1 file that
