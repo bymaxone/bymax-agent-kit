@@ -1573,6 +1573,31 @@ class ReviewFlowTests(FlowBench):
         self.assertEqual(runner.wait(timeout=60), 0)
         self.assertTrue(done.exists(), 'the gate did not run to its end')
 
+    def test_a_gate_ignoring_sigterm_is_killed_after_the_grace(self):
+        """Asked to stop, a gate that ignores SIGTERM is killed once the grace is over."""
+        late = self.root / 'ignored.txt'
+        gate = ('import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); '
+                'time.sleep(12); open(%r, "w").write("late")' % str(late))
+        check = ('import sys; sys.path.insert(0, %r); import review_run\n'
+                 'review_run.run_gate([sys.executable, "-c", %r], None, 1)' % (str(FLOW.parent), gate))
+        started = time.monotonic()
+        subprocess.run([sys.executable, '-c', check], capture_output=True, timeout=60)
+        self.assertLess(time.monotonic() - started, 10, 'the grace was not bounded')
+        time.sleep(max(0, started + 14 - time.monotonic()))
+        self.assertFalse(late.exists(), 'a gate ignoring SIGTERM outlived the grace')
+
+    def test_the_signal_handlers_are_restored_after_a_gate(self):
+        """The handlers turning a signal into an exit belong to the wait, on every way out of it."""
+        sys.path.insert(0, str(FLOW.parent))
+        import review_run
+        before = signal.getsignal(signal.SIGTERM)
+        with review_run.signals_raised((signal.SIGTERM,)):
+            self.assertIsNot(signal.getsignal(signal.SIGTERM), before)
+        self.assertIs(signal.getsignal(signal.SIGTERM), before)
+        with self.assertRaises(FileNotFoundError), review_run.signals_raised((signal.SIGTERM,)):
+            raise FileNotFoundError('absent-executable')
+        self.assertIs(signal.getsignal(signal.SIGTERM), before)
+
     def test_a_check_that_times_out_takes_its_children_with_it(self):
         """A gate past its deadline had only its own process killed, so what it started kept
         running behind `check` after the timeout was recorded."""
