@@ -167,6 +167,17 @@ class NotUtf8Tests(unittest.TestCase):
         self.assertEqual(review_flow.location(),
                          common / hashlib.sha256('refs/heads/feature/café'.encode()).hexdigest())
 
+    def test_a_branch_name_that_is_not_utf8_is_named_as_a_branch(self):
+        """work_branch() and branch_ref() read a ref as strict UTF-8 and raised on such a name, so
+        a start told its base branch, as /bymax-pr:push always tells one, could not run on it."""
+        import review_flow
+        with open(self.where / '.git' / 'packed-refs', 'ab') as packed:
+            packed.write(b'%s refs/heads/caf\xe9\n' % self.base.encode())
+        self.assertEqual(review_flow.branch_ref(os.fsdecode(b'caf\xe9')), 'refs/heads/caf\udce9')
+        (self.where / '.git' / 'HEAD').write_bytes(b'ref: refs/heads/caf\xe9\n')
+        self.assertEqual(review_flow.work_branch(), 'refs/heads/caf\udce9')
+        self.assertEqual(review_flow.branch_ref('main'), 'refs/heads/main')
+
     def test_the_command_line_prints_a_name_that_is_not_utf8(self):
         """What the runtime prints — a prompt — can carry such a name as an escape,
         which a strict stdout refuses; it is printed as the bytes of the name."""

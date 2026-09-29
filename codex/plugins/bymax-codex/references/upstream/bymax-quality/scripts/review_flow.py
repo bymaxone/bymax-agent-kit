@@ -419,6 +419,11 @@ def adopt_branch(old, told):
     return True
 
 
+# A ref is named by bytes: decoded as git_raw() decodes, a name that is not UTF-8 keeps its bytes
+# as surrogate escapes instead of raising.
+AS_NAMES = dict(encoding=sys.getfilesystemencoding(), errors='surrogateescape')
+
+
 def branch_ref(ref):
     """The branch this spelling names here, local or remote-tracking, as its full ref, or ''.
 
@@ -426,14 +431,14 @@ def branch_ref(ref):
     as one argument. A commit id, a tag or a revision expression resolves to a commit and names
     no branch, and the round would then read what that commit reaches as the base branch's."""
     full = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--symbolic-full-name',
-                           '--end-of-options', ref], capture_output=True, text=True).stdout.strip()
+                           '--end-of-options', ref], capture_output=True, **AS_NAMES).stdout.strip()
     return full if full.startswith(('refs/heads/', 'refs/remotes/')) else ''
 
 
 def work_branch():
     """The full ref HEAD points to, or '' when HEAD is detached."""
     return subprocess.run(['git', 'symbolic-ref', '--quiet', 'HEAD'],
-                          capture_output=True, text=True).stdout.strip()
+                          capture_output=True, **AS_NAMES).stdout.strip()
 
 
 def told_branch(args, old=None):
