@@ -16,8 +16,8 @@ from review_evidence import collected_elsewhere, is_test_path, matrix_first, mat
 from review_codex import codex_check, codex_review
 from review_git import clean_head, for_a_reader, git, git_raw, require
 from review_hook import install_hook
-from review_matrix import kill_group
 from review_prose_pass import prose_first, prose_run
+from review_run import run_gate
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
@@ -686,10 +686,11 @@ def regression_note(measured):
                      'says whether this correction\'s regression fails without it. Judge that '
                      'from the diff.')
     elif not measured['failing_before']:
-        lines.append('No test this correction changed fails before it: run against the previous '
-                     "candidate's code, every node it collected from the changed test files "
-                     'passed. That is right for a correction that repairs a test and no code; for '
-                     'one that changes code, judge whether its regression proves anything.')
+        lines.append('No test this correction changed fails before it: of the nodes collected from '
+                     "the changed test files, none failed against the previous candidate's code "
+                     'and passed with the correction (one failing in both says nothing about it). '
+                     'That is right for a correction that repairs a test and no code; for one that '
+                     'changes code, judge whether its regression proves anything.')
     if measured['unread_before']:
         lines.append('Not asked, because the previous tree could not collect them: '
                      + ', '.join(measured['unread_before']) + '. These changed tests were never '
@@ -1058,12 +1059,8 @@ def triage(args, directory, state):
 
 
 def check(args, directory, state):
-    """Execute and retain a required local gate against the current candidate.
-
-    The gate runs in a session of its own, without a controlling terminal, so that its whole
-    process group can be killed: a gate is done when its command exits, and nothing it started
-    outlives the check, whether it exited, timed out or was interrupted.
-    """
+    """Execute and retain a required local gate against the current candidate; how the gate
+    runs, and how everything it started ends with it, is review_run.run_gate's."""
     current(state)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     require(bool(command), 'Supply a check command after --.')
@@ -1073,13 +1070,8 @@ def check(args, directory, state):
     state['checks'].append(dict(command=command, exit_code=None, log=str(log)))
     state['cleared'] = False
     save(directory, state)
-    with log.open('w') as output, subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
-                                                   start_new_session=True) as child:
-        try:
-            code = child.wait(timeout=CHECK_TIMEOUT)
-        finally:
-            kill_group(child)
-            child.wait()
+    with log.open('w') as output:
+        code = run_gate(command, output, CHECK_TIMEOUT)
     current(state)
     state['checks'][-1]['exit_code'] = code
     save(directory, state)

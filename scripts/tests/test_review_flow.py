@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1501,6 +1502,38 @@ class ReviewFlowTests(FlowBench):
         self.flow('check', '--', sys.executable, '-c', gate)
         time.sleep(6)
         self.assertFalse(late.exists(), 'a process the gate left running outlived the check')
+
+    def test_a_check_whose_group_is_signalled_takes_the_gate_with_it(self):
+        """The gate runs in a session of its own, so a hangup or a SIGTERM sent to the check's
+        process group reached only the check, which died without stopping the gate."""
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=sig.name):
+                self.start()
+                late = self.root / ('late-%s.txt' % sig.name)
+                gate = 'import time; time.sleep(4); open(%r, "w").write("late")' % str(late)
+                runner = subprocess.Popen([sys.executable, str(FLOW), 'check', '--', sys.executable, '-c', gate],
+                                          cwd=self.repo, start_new_session=True, env=self.codex_env(),
+                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(1.5)
+                os.killpg(runner.pid, sig)
+                runner.wait(timeout=30)
+                time.sleep(5)
+                self.assertFalse(late.exists(), 'the gate outlived a %s to the check' % sig.name)
+
+    def test_a_gate_check_stops_runs_its_own_cleanup(self):
+        """Stopping a gate went straight to SIGKILL, so a gate that cleans up on SIGTERM never
+        could; it is asked to stop first and killed only after a grace."""
+        self.start()
+        cleaned = self.root / 'cleaned.txt'
+        gate = ('import signal, sys, time\n'
+                'def stop(*_):\n    open(%r, "w").write("cleaned")\n    sys.exit(1)\n'
+                'signal.signal(signal.SIGTERM, stop)\ntime.sleep(30)\n' % str(cleaned))
+        argv = [sys.executable, '-c', 'import sys; sys.path.insert(0, %r)\nimport review_flow\n'
+                'review_flow.CHECK_TIMEOUT = 2\nreview_flow.cli()' % str(FLOW.parent)]
+        result = subprocess.run([*argv, 'check', '--', sys.executable, '-c', gate], cwd=self.repo,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertTrue(cleaned.exists(), 'the gate was killed before it could clean up')
 
     def test_a_check_that_times_out_takes_its_children_with_it(self):
         """A gate past its deadline had only its own process killed, so what it started kept
