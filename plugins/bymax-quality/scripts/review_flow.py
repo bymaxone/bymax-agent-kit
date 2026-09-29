@@ -1240,7 +1240,7 @@ def parser():
                        help='A file whose first line is the base branch, as push writes one.')
     begin.add_argument('--after-archived', default='',
                        help='Start a campaign after an unfinished one: who authorised it, for what scope.')
-    begin.add_argument('--answers', nargs='+', metavar='PATH:SLUG',
+    begin.add_argument('--answers', nargs='+', action='extend', metavar='PATH:SLUG',
                        help='After a cleared candidate: the external findings this correction answers.')
     begin.add_argument('--extend-delivery', default='',
                        help='Continue past a spent delivery budget: who authorised it, and why.')
