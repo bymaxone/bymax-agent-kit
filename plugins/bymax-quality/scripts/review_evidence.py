@@ -69,7 +69,7 @@ def removed_tests(base, removed, unsure=True):
     one they cannot judge. A file that failed to collect there, or sits under a directory
     that did, is kept too: the tolerant collect leaves it out of what it found.
 
-    `unsure` is what such a file counts as. The scope rule passes False: a deletion it wrongly
+    `unsure` is what both kinds count as. The scope rule passes False: a deletion it wrongly
     exempts is one no later gate refuses, since a deleted file leaves no node for a matrix."""
     import review_matrix
     named = [name for name in removed if is_test_path(name)]
