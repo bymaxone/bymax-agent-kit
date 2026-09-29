@@ -279,7 +279,7 @@ TARGET = (r'\(\s*(?:<[^<>\n]*>|(?:[^()\s]|\((?:[^()\s]|\([^()\s]*\))*\))*)'
           r'(?:\s+(?:"[^"\n]*"|\'[^\'\n]*\'|\([^()\n]*\)))?\s*\)')
 # What may close a sentence after its stop: closing markup or a closing quote, or the target of the
 # link whose text the stop ends.
-CLOSING = r'(?:\]' + TARGET + r'|\]\[[^\]\s]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
+CLOSING = r'(?:\]' + TARGET + r'|\]\[[^\[\]\n]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
 def sentences(name, text):
     """How many sentences a file's prose holds: a stop, a question or an exclamation, and any
     closing markup after it, followed by a space or the end of the text. A stop inside a code
@@ -443,9 +443,11 @@ def only_prose_cut(before, after):
 # What places a token rather than being one: a directive's position counts only the rest.
 LAYOUT = {tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
           tokenize.ENDMARKER}
-# A type comment after code is the type checker's, placed or not: when one cannot be placed,
-# typed() answers with the tree that has none, and this is where they are compared then.
+# A type comment after code is the type checker's, placed or not, and so is a function's signature
+# comment on its own line: when one cannot be placed, typed() answers with the tree that has none,
+# and this is where they are compared then.
 TYPED = re.compile(r'#\s*type:')
+SIGNATURE = re.compile(r'#\s*type:\s*\(')
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
 
 
@@ -469,7 +471,8 @@ def directives(text):
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
             row, col = tok.start
             if tok.type == tokenize.COMMENT and (DIRECTIVE.search(tok.string)
-                                                 or TYPED.match(tok.string) and tok.line[:col].strip()):
+                                                 or TYPED.match(tok.string) and (tok.line[:col].strip()
+                                                                                 or SIGNATURE.match(tok.string))):
                 # A comment runs to the end of its line, so the mark shifts only what precedes it.
                 beside = said[row - 1][:col + len(said[row - 1]) - len(lines[row - 1])].strip()
                 below = '' if beside else next((l.strip() for l in said[row:]

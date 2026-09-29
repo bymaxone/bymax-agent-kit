@@ -546,7 +546,8 @@ class EnvelopeShapeTests(unittest.TestCase):
                       '\u2018It is checked twice.\u2019', '[It is checked twice.](a(b))',
                       '[It is checked twice.](a(b(c)))', '[It is checked twice.](url "title")',
                       "[It is checked twice.](url 'title')", '[It is checked twice.](url (title))',
-                      '[It is checked twice.](<a b>)', '[It is checked twice.]()'):
+                      '[It is checked twice.](<a b>)', '[It is checked twice.]()',
+                      '[It is checked twice.][some label]'):
             with self.subTest(added):
                 bench = Bench(self, {'NOTES.md': notes})
                 bench.write(notes.replace('The limit is ten.\nIt holds for every caller.\n',
@@ -596,6 +597,11 @@ class EnvelopeShapeTests(unittest.TestCase):
                 bench.write(after)
                 self.assertIn('thing.py: a comment a linter or a type checker reads changed',
                               ' | '.join(bench.offences()))
+        # A function's signature comment stands on its own line and is the checker's all the same.
+        start = 'def f(a):\n    # type: (int) -> int\n    return a\nprint(1)  # type: int\n'
+        bench = Bench(self, {'thing.py': start})
+        bench.write(start.replace('(int) -> int', '(str) -> int'))
+        self.assertIn('thing.py: a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
     def test_a_comment_cut_above_a_type_ignore_is_prose(self):
         """The tree parsed with its type comments keeps each `# type: ignore` with its line
