@@ -29,7 +29,11 @@ class RemovalNoteTests(unittest.TestCase):
                 '`OLD_HELPER` moved to review_git.py.', '`OLD_HELPER` was moved to scripts/review_git.py.',
                 # A noun naming what the name is may stand between it and its move.
                 '`OLD_HELPER` function is now `NEW_HELPER`.',
-                'The `OLD_HELPER` helper was moved to `review_git.py`.')
+                'The `OLD_HELPER` helper was moved to `review_git.py`.',
+                # The move in any tense a note is written in.
+                '`OLD_HELPER` has moved to `NEW_HELPER`.', '`OLD_HELPER` had moved to `NEW_HELPER`.',
+                '`OLD_HELPER` had been moved to `review_git.py`.', '`OLD_HELPER` helper has moved to `review_git.py`.',
+                '`OLD_HELPER` has been moved to `review_git.py`.')
     # A clause naming the name with no removal word outside a quoted span asserts it.
     REFUSED = ('Call `OLD_HELPER` first.', 'Set `OLD_HELPER` first. The old cache was removed.',
                '`OLD_HELPER` runs `git worktree remove`.', 'Run `OLD_HELPER --deleted` to list them.',
@@ -47,7 +51,7 @@ class RemovalNoteTests(unittest.TestCase):
                '`OLD_HELPER` moved to e.g. the top.', '`OLD_HELPER` flag is now enabled by default.',
                '`OLD_HELPER` loader since `CACHE` is now `NEW_CACHE`.',
                # A noun outside the kinds names a part of the name, which stays live.
-               '`OLD_HELPER` mode is now `FAST_MODE`.')
+               '`OLD_HELPER` mode is now `FAST_MODE`.', '`OLD_HELPER` has moved to the top of the list.')
 
     def test_a_line_saying_the_name_is_gone_is_reported_not_refused(self):
         """Every clause naming the name must say it is gone, outside every quoted span, for the
