@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'plugins/bymax-quality/scripts'))
 import review_claims as claims
+import review_markdown
 
 
 class CodeBlockTests(unittest.TestCase):
@@ -421,6 +422,34 @@ class CodeBlockTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertIn('OLD_HELPER', claims.prose('README.md', '# doc\n\n' + said + '\n'))
 
+
+
+class CodeMaskTests(unittest.TestCase):
+    """Which lines code_mask holds as code, blank lines included, each shape checked against
+    commonmark.js."""
+
+    # A blank run between two indented lines is code only inside one block: a quote closed or
+    # opened, or a list item opened, between them starts another block, and the run is outside both.
+    SHAPES = (('>     code\n\n\n      code', [1, 0, 0, 1]),
+              ('    code\n    \n-     code', [1, 0, 1]),
+              ('- >     code\n\n-     code', [1, 0, 1]),
+              ('  >     code\n\n>     code', [1, 0, 1]),
+              ('- a\n\n      one\n\n-     two', [0, 0, 1, 0, 1]),
+              ('> >     one\n>\n> >     two', [1, 0, 1]),
+              ('        one\n>\n    \n      two', [1, 0, 0, 1]),
+              ('    one\n\n    two', [1, 1, 1]),
+              ('>     one\n>\n>     two', [1, 1, 1]),
+              ('-     one\n\n      two', [1, 1, 1]),
+              ('- a\n\n      one\n\n      two', [0, 0, 1, 1, 1]),
+              ('> >     one\n> >\n> >     two', [1, 1, 1]))
+
+    def test_a_blank_run_is_code_only_inside_one_indented_block(self):
+        """Two indented blocks in different containers were joined over the blank run between
+        them, which made the envelope stricter than the document: a blank line added there was
+        refused as a changed block."""
+        for doc, expected in self.SHAPES:
+            with self.subTest(doc):
+                self.assertEqual([int(code) for code in review_markdown.code_mask(doc)], expected)
 
 if __name__ == '__main__':
     unittest.main()
