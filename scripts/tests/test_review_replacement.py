@@ -153,6 +153,28 @@ class ReplacementTests(FlowBench):
         self.refused_then_replaced(
             lambda state: self.flow('check', '--', sys.executable, '-c', 'raise SystemExit(1)', ok=False))
 
+    def read_then_refused(self, reading):
+        """Freeze a candidate, mark a reviewer attempt on it, record a failed gate run and try to
+        replace it; returns what start said."""
+        state = self.start()
+        self.checks()
+        path = Path(state['directory']) / 'state.json'
+        saved = dict(json.loads(path.read_text()), **reading)
+        saved['checks'].append(dict(command=GATE, exit_code=1, log=''))
+        path.write_text(json.dumps(saved))
+        self.commit('the fix')
+        return self.start(correction=True, ok=False).stderr
+
+    def test_a_candidate_codex_is_reading_is_not_replaced(self):
+        """An adapter reserves its attempt before the model reads and records the report after,
+        so an attempt still running is a reading: replacing the candidate would reject the
+        report it owes, and a later red gate leaves it needing both reviews."""
+        self.assertIn('Complete both reviews', self.read_then_refused(dict(codex_attempts=1, codex_running=True)))
+
+    def test_a_candidate_with_a_spent_claude_attempt_is_not_replaced(self):
+        """A spent attempt is a reading as much as a recorded report is."""
+        self.assertIn('Complete both reviews', self.read_then_refused(dict(claude_attempts=1)))
+
     def test_a_candidate_whose_gate_passed_is_not_replaced(self):
         """Only a failed gate replaces a candidate; a green one is ready for its reviewers."""
         self.start()

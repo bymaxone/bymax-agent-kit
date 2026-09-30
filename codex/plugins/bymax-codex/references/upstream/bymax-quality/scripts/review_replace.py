@@ -40,8 +40,17 @@ def replaceable(old):
     prompt() refuses a candidate a gate failed on, so no reviewer can read it and the
     round would never advance past it: the fixed commit takes its place. Once a reviewer has read
     a candidate that reading is spent on it, and a cleared candidate is answered by a correction.
+    An adapter reserves its attempt before the model reads and records the report after, so an
+    attempt spent or still running counts as a reading as much as a report does.
     """
-    return bool(old) and not old.get('cleared') and not old.get('reviews') and bool(failed_checks(old))
+    return (bool(old) and not old.get('cleared') and not old.get('reviews') and not read(old)
+            and bool(failed_checks(old)))
+
+
+def read(state):
+    """Whether a reviewer attempt was reserved on this candidate, finished or not."""
+    return bool(state.get('codex_running')) or any(
+        count for name, count in state.items() if name.endswith('_attempts'))
 
 
 def replacement(args, old, head, base, context, branch, *, evidence, widened):
