@@ -278,12 +278,16 @@ def prose_size(name, text):
 
 
 # An inline link's destination and title, as CommonMark spells them: `<...>`, or a run balancing
-# its parentheses two levels deep, then a title quoted three ways.
-TARGET = (r'\(\s*(?:<[^<>\n]*>|(?:[^()\s]|\((?:[^()\s]|\([^()\s]*\))*\))*)'
-          r'(?:\s+(?:"[^"\n]*"|\'[^\'\n]*\'|\([^()\n]*\)))?\s*\)')
+# its parentheses two levels deep, then a title quoted three ways. A backslash escape is one
+# character of either, so an escaped parenthesis balances nothing.
+ATOM = r'(?:\\.|[^()\s\\])'
+TARGET = (r'\(\s*(?:<(?:\\.|[^<>\n\\])*>|(?:%s|\((?:%s|\(%s*\))*\))*)' % (ATOM, ATOM, ATOM)
+          + r'(?:\s+(?:"(?:\\.|[^"\n\\])*"|\'(?:\\.|[^\'\n\\])*\'|\((?:\\.|[^()\n\\])*\)))?\s*\)')
 # What may close a sentence after its stop: closing markup or a closing quote, or the target of the
 # link whose text the stop ends.
 CLOSING = r'(?:\]' + TARGET + r'|\]\[[^\[\]\n]*\]|[*_~`\'"\u201d\u2019\u00bb)\]])*'
+
+
 def sentences(name, text):
     """How many sentences a file's prose holds: a stop, a question or an exclamation, and any
     closing markup after it, followed by a space or the end of the text. A stop inside a code
@@ -448,8 +452,8 @@ def only_prose_cut(before, after):
 LAYOUT = {tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
           tokenize.ENDMARKER}
 # A type comment after code is the type checker's, placed or not, and so is a function's signature
-# comment on its own line: when a type comment after code cannot be placed, typed() answers with
-# the tree that has none, and this is where they are compared then.
+# comment between its `def` and the next line of code: when a type comment after code cannot be
+# placed, typed() answers with the tree that has none, and this is where they are compared then.
 TYPED = re.compile(r'#\s*type:')
 SIGNATURE = re.compile(r'#\s*type:\s*\(')
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
@@ -471,20 +475,29 @@ def directives(text):
     try:
         docstrings = docstring_spans(text, lines)
         said = unsaid(lines, docstrings)
-        code, anything = 0, False
+        code, anything, head, signed, last = 0, False, None, False, ''
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
             row, col = tok.start
             if tok.type == tokenize.COMMENT and (DIRECTIVE.search(tok.string)
                                                  or TYPED.match(tok.string) and (tok.line[:col].strip()
-                                                                                 or SIGNATURE.match(tok.string))):
+                                                                                 or signed and SIGNATURE.match(tok.string))):
                 # A comment runs to the end of its line, so the mark shifts only what precedes it.
                 beside = said[row - 1][:col + len(said[row - 1]) - len(lines[row - 1])].strip()
                 below = '' if beside else next((l.strip() for l in said[row:]
                                                 if l.strip() and not l.strip().startswith('#')), '')
                 found.append((code, anything, beside, below, tok.string))
             elif tok.type not in LAYOUT:
+                # The first two words of each logical line tell a `def` header from the rest, and
+                # its last whether the body starts on the next line, where a signature comment sits.
+                head = head if head is not None else []
+                if len(head) < 2:
+                    head.append(tok.string)
+                signed, last = False, tok.string
                 anything = True
                 code += not any((d[0], d[1]) <= tok.start and tok.end <= (d[2], d[3]) for d in docstrings)
+            elif tok.type == tokenize.NEWLINE:
+                signed = last == ':' and head is not None and (head[:1] == ['def'] or head == ['async', 'def'])
+                head = None
     except (SyntaxError, tokenize.TokenError):
         return None
     return found

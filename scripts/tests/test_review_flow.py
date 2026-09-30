@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[2]
 FLOW = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
 sys.path.insert(0, str(FLOW.parent))
 PUSH = FLOW.with_name('review_push.py')
+# The bound on a lifecycle command a fixture runs. A correction `start` runs failing_before(),
+# measured at ~14 s at load 15, and it outran 60 s with three validations running at once.
+CAMPAIGN_TIMEOUT = 180
 
 
 OLD_TEST = 'from guard import LIMIT\n\n\ndef test_calc_old(): assert LIMIT == 7\n\n\n'
@@ -82,7 +85,7 @@ class FlowBench(unittest.TestCase):
                 else self.sealed('review_flow', 'cli', self.locations))
         env = dict(os.environ, CODEX_HOME=str(self.home)) if self.locations is None else self.codex_env()
         result = subprocess.run([*argv, *args], cwd=self.repo, capture_output=True, text=True,
-                                timeout=60, env=env)
+                                timeout=CAMPAIGN_TIMEOUT, env=env)
         self.assertEqual(result.returncode, 0 if ok else 2, result.stderr)
         return json.loads(result.stdout) if result.returncode == 0 and result.stdout.startswith('{') else result
 
@@ -951,7 +954,7 @@ class ReviewFlowTests(FlowBench):
     def start_from(self, arguments, where):
         """Run `start` from a given directory, since the rule must not depend on one."""
         return subprocess.run([sys.executable, *arguments], cwd=where,
-                              capture_output=True, text=True, timeout=10)
+                              capture_output=True, text=True, timeout=CAMPAIGN_TIMEOUT)
 
     def test_touching_only_the_named_file_is_not_widening(self):
         """However git spells that name.
@@ -1334,7 +1337,7 @@ class ReviewFlowTests(FlowBench):
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.context), '--after-archived',
                                  'Max authorised a fresh campaign for the hook probe only'],
-                                cwd=self.repo, capture_output=True, text=True, timeout=10)
+                                cwd=self.repo, capture_output=True, text=True, timeout=CAMPAIGN_TIMEOUT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.checks()
         self.assertIn('authorised to start over', self.flow('prompt').stdout)
@@ -1351,7 +1354,7 @@ class ReviewFlowTests(FlowBench):
         """The PR bots read files a repository must carry; a campaign says so and continues."""
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.context)],
-                                cwd=self.repo, capture_output=True, text=True, timeout=10)
+                                cwd=self.repo, capture_output=True, text=True, timeout=CAMPAIGN_TIMEOUT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('REVIEW.md', result.stderr)
         self.assertIn('Code Review Rules', result.stderr)
@@ -1365,7 +1368,7 @@ class ReviewFlowTests(FlowBench):
         self.assertEqual(self.read_prose()['outcome'], 'unchanged')
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.context)],
-                                cwd=self.repo, capture_output=True, text=True, timeout=10)
+                                cwd=self.repo, capture_output=True, text=True, timeout=CAMPAIGN_TIMEOUT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn('review-md', result.stderr)
 

@@ -8,6 +8,10 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+# test_review_flow's CAMPAIGN_TIMEOUT, where the measurement behind it lives. Not imported:
+# that module puts the plugin's scripts first on sys.path, and this suite is about the copy
+# the installer writes.
+CAMPAIGN_TIMEOUT = 180
 
 
 def installer():
@@ -217,7 +221,7 @@ class InstallTests(unittest.TestCase):
                                                scope='s', checks=[[sys.executable, '-c', 'pass']])))
             result = subprocess.run([sys.executable, str(runtime), 'start', '--base', base,
                                      '--context', str(context)], cwd=repo, env=env,
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True, timeout=CAMPAIGN_TIMEOUT)
             self.assertEqual(result.returncode, 0, result.stderr)
             hook = repo / '.git/hooks/pre-push'
             self.assertTrue(hook.exists() and os.access(hook, os.X_OK), 'hook missing from real install')

@@ -18,7 +18,7 @@ import unittest
 
 # The bench is test_review_prepush's, imported whether this file is run by path or by module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_review_prepush import FLOW, ROOT, PrePushBench
+from test_review_prepush import CAMPAIGN_TIMEOUT, FLOW, ROOT, PrePushBench
 
 
 class HookInstallTests(PrePushBench):
@@ -393,7 +393,8 @@ class HookInstallTests(PrePushBench):
 
         def start(name, cwd, delay):
             time.sleep(delay)
-            results[name] = subprocess.run(command, cwd=cwd, env=self.env, capture_output=True, text=True)
+            results[name] = subprocess.run(command, cwd=cwd, env=self.env, capture_output=True,
+                                           text=True, timeout=CAMPAIGN_TIMEOUT)
 
         for delay in (0.0, 0.5):
             threads = [threading.Thread(target=start, args=('repo', self.repo, 0.0)),
@@ -419,7 +420,8 @@ class HookInstallTests(PrePushBench):
         (self.repo / 'sub').mkdir()
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.root / 'context.json')],
-                                cwd=self.repo / 'sub', env=self.env, capture_output=True, text=True)
+                                cwd=self.repo / 'sub', env=self.env, capture_output=True, text=True,
+                                timeout=CAMPAIGN_TIMEOUT)
         self.assertEqual(result.returncode, 0, result.stderr)
         # The same hook keeps enforcing when git runs it from the root on a real push.
         self.commit('unreviewed')
@@ -676,7 +678,8 @@ class HookInstallTests(PrePushBench):
         hook.chmod(0o755)
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.root / 'context.json')],
-                                cwd=self.repo, env=stale_env, capture_output=True, text=True)
+                                cwd=self.repo, env=stale_env, capture_output=True, text=True,
+                                timeout=CAMPAIGN_TIMEOUT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.git('for-each-ref', '--format=%(refname)', 'refs/bymax-review/'),
                          'refs/bymax-review/probe-young')
@@ -735,7 +738,8 @@ class HookInstallTests(PrePushBench):
         self.commit('next')
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.root / 'context.json')],
-                                cwd=self.repo, env=self.env, capture_output=True, text=True)
+                                cwd=self.repo, env=self.env, capture_output=True, text=True,
+                                timeout=CAMPAIGN_TIMEOUT)
         self.assertEqual(result.returncode, 2)
         self.assertIn('not managed by this campaign', result.stderr)
         self.assertEqual(hook.read_text(), '#!/bin/sh\nexit 0\n')
