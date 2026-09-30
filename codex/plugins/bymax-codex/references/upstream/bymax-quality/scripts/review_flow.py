@@ -1309,7 +1309,12 @@ def main():
             state = read_state(directory)
             if args.action == 'prompt':
                 current(state)
-                print(prompt(state, directory))
+                task = prompt(state, directory)
+                # A task handed to a reader is a reading begun, counted like an adapter's attempt so
+                # a replacement refuses the candidate from here on.
+                state['prompt_attempts'] = state.get('prompt_attempts', 0) + 1
+                save(directory, state)
+                print(task)
                 return
             if args.action == 'lessons':
                 print(lessons(state))

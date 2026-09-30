@@ -175,6 +175,19 @@ class ReplacementTests(FlowBench):
         """A spent attempt is a reading as much as a recorded report is."""
         self.assertIn('Complete both reviews', self.read_then_refused(dict(claude_attempts=1)))
 
+    def test_a_candidate_handed_to_a_reader_is_not_replaced(self):
+        """The Claude pass hands `prompt`'s task to a subagent, which records no attempt of its own:
+        the task handed out is a reading, so a later red gate and a fixed commit need both reviews."""
+        state = self.start()
+        self.checks()
+        self.text('prompt')
+        path = Path(state['directory']) / 'state.json'
+        saved = json.loads(path.read_text())
+        saved['checks'].append(dict(command=GATE, exit_code=1, log=''))
+        path.write_text(json.dumps(saved))
+        self.commit('the fix')
+        self.assertIn('Complete both reviews', self.start(correction=True, ok=False).stderr)
+
     def test_a_candidate_whose_gate_passed_is_not_replaced(self):
         """Only a failed gate replaces a candidate; a green one is ready for its reviewers."""
         self.start()
