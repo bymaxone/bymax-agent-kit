@@ -21,6 +21,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 FLOW = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
 sys.path.insert(0, str(FLOW.parent))
+# The bound on a fixture `start`, and the measurement behind it, are test_review_flow's.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_review_flow import CAMPAIGN_TIMEOUT
 
 # Every form found across the review campaigns that ever reached git with argv `push`
 # while a text-level guard reported no push. Each must fail at the hook instead.
@@ -107,7 +110,7 @@ class PrePushBench(unittest.TestCase):
     def flow(self, *args):
         """Drive the campaign helper and require success."""
         result = subprocess.run([sys.executable, str(FLOW), *args], cwd=self.repo,
-                                env=self.env, capture_output=True, text=True, timeout=30)
+                                env=self.env, capture_output=True, text=True, timeout=CAMPAIGN_TIMEOUT)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
@@ -158,7 +161,8 @@ class PrePushBench(unittest.TestCase):
         """Run start expecting a refusal; return its message."""
         result = subprocess.run([sys.executable, str(FLOW), 'start', '--base', self.base,
                                  '--context', str(self.root / 'context.json')],
-                                cwd=self.repo, env=self.env, capture_output=True, text=True)
+                                cwd=self.repo, env=self.env, capture_output=True, text=True,
+                                timeout=CAMPAIGN_TIMEOUT)
         self.assertEqual(result.returncode, 2, result.stdout)
         return result.stderr
 
