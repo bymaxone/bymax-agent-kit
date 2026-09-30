@@ -99,6 +99,14 @@ a separate design audit, report it separately from this campaign.
    developer machine's Codex, and a bundler that swept a local cache into the shipped
    manifest — and a gate named both in seconds. Run the gates again after the correction
    commit of every later round, for the same reason.
+   **A fixed candidate replaces the failed one within the same round.** Commit the fix (a new
+   commit or an amend) and run `start` again on it: while no reviewer has read the candidate
+   and the latest run of a gate on it did not pass (failed, timed out or cut off), the new
+   head takes its place — same round, same review base, the replaced head listed under `replaced`. A
+   correction round still owes its `--probe` and regression evidence for the new head, a
+   delivery counts the replacement against its budget, and a head that does not descend from
+   the review base is refused. A candidate a reviewer has read is not replaced, and neither is
+   one whose gates passed or never ran: those need both reviews before the next round.
    Then start `review_flow.py codex` in a background shell. It runs a fresh read-only Codex
    context with the explicit diff and task contract, and persists its completed report.
    Its probe, not your reading of the error, decides whether a failure is a reviewer this

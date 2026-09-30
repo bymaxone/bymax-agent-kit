@@ -18,6 +18,7 @@ from review_codex import codex_check, codex_review
 from review_git import clean_head, for_a_reader, git, git_raw, require
 from review_hook import install_hook
 from review_prose_pass import prose_first, prose_run
+from review_replace import failed_checks, replaceable, replacement, within_scope
 from review_run import run_gate
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
@@ -327,12 +328,7 @@ def next_round(args, old, head, directory, base, context, branch=''):
             '--answers is for a correction after a cleared candidate. Here the open findings define '
             'the scope: touch what they name, record --widen-scope "<why>" for anything else, and '
             '--nit-round "<why>" to spend the round on nits.')
-    extra = widened(old, head, args.answers or ())
-    require(not extra or args.widen_scope,
-            'A correction round answers the open findings and nothing else. No open finding '
-            'names: ' + ', '.join(extra) + '. Revert what they do not name and file it as its '
-            'own campaign, or record why this round must widen with --widen-scope "<why>"; '
-            'both reviewers are told, and they will review the wider delta.')
+    within_scope(widened(old, head, args.answers or ()), args.widen_scope)
     require(blocking_open(old) or args.answers or args.nit_round,
             'No open finding is one a round is for: a P3, or a claim that names no trigger — the '
             'command or test that makes the defect appear. Defer them with their reasons and '
@@ -342,6 +338,19 @@ def next_round(args, old, head, directory, base, context, branch=''):
     return correction
 
 
+def opened(args, old, head, directory, base, context, branch):
+    """The candidate that opens the round after `old`'s, or a first round when there is none."""
+    correction = (next_round(args, old, head, directory, base, context, branch) if old
+                  else first_round(directory, args.after_archived))
+    return dict(head=head, nit_round=args.nit_round if old else '',
+                widen_scope=args.widen_scope if old else '',
+                answers=list(args.answers or ()) if old else [],
+                after_archived='' if old else args.after_archived, base_branch=branch,
+                round=old['round'] + 1 if old else 1,
+                review_base=old['head'] if old else base,
+                previous_triage=old.get('triage', []) if old else [],
+                retrospectives=old.get('retrospectives', []) if old else [],
+                **(correction if old else {}))
 
 
 def gone_without(directory, after_archived):
@@ -435,10 +444,17 @@ def branch_ref(ref):
 
     Asked without raising: a ref may contain what a shell would expand, so it only ever travels
     as one argument. A commit id, a tag or a revision expression resolves to a commit and names
-    no branch, and the round would then read what that commit reaches as the base branch's."""
+    no branch, and the round would then read what that commit reaches as the base branch's.
+
+    A ref under those namespaces may still hold a blob or a tree, and written_here() reads the
+    branch as a commit, so a ref that does not peel to one names no branch either."""
     full = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--symbolic-full-name',
                            '--end-of-options', ref], capture_output=True, **AS_NAMES).stdout.strip()
-    return full if full.startswith(('refs/heads/', 'refs/remotes/')) else ''
+    if not full.startswith(('refs/heads/', 'refs/remotes/')):
+        return ''
+    peeled = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--end-of-options',
+                             full + '^{commit}'], capture_output=True, **AS_NAMES)
+    return full if peeled.returncode == 0 else ''
 
 
 def work_branch():
@@ -487,7 +503,8 @@ def told_branch(args, old=None):
 
 
 def start(args, directory):
-    """Freeze a full baseline or advance a campaign to a correction delta."""
+    """Freeze a full baseline, advance a campaign to a correction delta, or replace within its
+    round a candidate whose gate failed before any reviewer read it."""
     review_rules_notice()
     install_hook()
     head = clean_head()
@@ -519,18 +536,13 @@ def start(args, directory):
             '--answers is for a correction after a cleared candidate; this start opens a first round, '
             'which reviews the whole delta and has nothing to answer for.')
     branch = told or (old.get('base_branch', '') if old else '')
-    correction = next_round(args, old, head, directory, base, context, branch) if old else first_round(directory, args.after_archived)
-    state = dict(policy=POLICY, head=head, base=base, context=context,
-                 nit_round=args.nit_round if old else '',
-                 widen_scope=args.widen_scope if old else '',
-                 answers=list(args.answers or ()) if old else [],
-                 after_archived='' if old else args.after_archived, base_branch=branch,
-                 round=old['round'] + 1 if old else 1,
-                 review_base=old['head'] if old else base,
-                 previous_triage=old.get('triage', []) if old else [],
-                 retrospectives=old.get('retrospectives', []) if old else [],
-                 reviews={}, checks=[], required_checks=required_checks, triage=None, cleared=False,
-                 **(correction if old else {}))
+    # A candidate its own gate failed before anyone read it is replaced in its round; any other
+    # new head opens the next one.
+    state = (replacement(args, old, head, base, context, branch, evidence=correction_evidence,
+                         widened=widened) if replaceable(old)
+             else opened(args, old, head, directory, base, context, branch))
+    state.update(policy=POLICY, base=base, context=context, reviews={}, checks=[],
+                 required_checks=required_checks, triage=None, cleared=False)
     frozen(state, directory, head)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
@@ -648,6 +660,12 @@ def correction_contract(args, old, head, branch=''):
     both reviewers judge them rather than discover their absence.
     """
     again = design_reasons(args, old)
+    return dict(design_round=bool(args.design_round), reopened=again,
+                **correction_evidence(args, old, head, branch))
+
+
+def correction_evidence(args, old, head, branch=''):
+    """The author's probe and the regression evidence of a correction from old['head'] to head."""
     require(args.probe, 'A correction round needs --probe <file>: the commands you ran against '
             'your own fix before committing, each with expected and observed results.')
     probe = json.loads(Path(args.probe).read_text())
@@ -668,8 +686,7 @@ def correction_contract(args, old, head, branch=''):
     tests, removed = tests_changed(old['head'], head, branch)
     reason = (args.no_regression_reason or '').strip()
     a_regression_or_a_reason(tests, reason, probe)
-    return dict(design_round=bool(args.design_round), reopened=again, probe=probe,
-                regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
+    return dict(probe=probe, regression_tests=tests, removed_tests=removed, no_regression_reason=reason)
 
 
 def a_regression_or_a_reason(tests, reason, probe):
@@ -863,8 +880,7 @@ def gate_first(state, directory):
             + '. Run each with `review_flow.py check -- <command>` before a reviewer reads the '
             'tree. A round spent on a failure the suite already names is a round not spent on '
             'what only a reader finds.')
-    failed = sorted(' '.join(c['command']) + f" (exit {c['exit_code']})"
-                    for c in latest.values() if c['exit_code'] != 0)
+    failed = [' '.join(command) + f' (exit {code})' for command, code in failed_checks(state)]
     require(not failed,
             'These gates failed on this candidate: ' + '; '.join(failed) + '. Fix the candidate, '
             're-run them, and only then ask for a review: reviewers read a tree its own gates '
@@ -1137,7 +1153,8 @@ def check(args, directory, state):
     current(state)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     require(bool(command), 'Supply a check command after --.')
-    log = directory / f"check-{state['round']}-{len(state['checks'])}.log"
+    # A replacement keeps the round and resets the checks: the heads it replaced keep their logs.
+    log = directory / f"check-{state['round']}-{len(state.get('replaced', []))}-{len(state['checks'])}.log"
     # Record the attempt before running it: a timeout or a missing executable raises out
     # of run_gate, and an unrecorded attempt would leave an earlier receipt cleared.
     state['checks'].append(dict(command=command, exit_code=None, log=str(log)))
@@ -1233,7 +1250,7 @@ def parser():
                        help='A file whose first line is the base branch, as push writes one.')
     begin.add_argument('--after-archived', default='',
                        help='Start a campaign after an unfinished one: who authorised it, for what scope.')
-    begin.add_argument('--answers', nargs='+', metavar='PATH:SLUG',
+    begin.add_argument('--answers', nargs='+', action='extend', metavar='PATH:SLUG',
                        help='After a cleared candidate: the external findings this correction answers.')
     begin.add_argument('--extend-delivery', default='',
                        help='Continue past a spent delivery budget: who authorised it, and why.')
@@ -1292,7 +1309,12 @@ def main():
             state = read_state(directory)
             if args.action == 'prompt':
                 current(state)
-                print(prompt(state, directory))
+                task = prompt(state, directory)
+                # A task handed to a reader is a reading begun, so from here on a new head no longer
+                # replaces this candidate.
+                state['prompt_attempts'] = state.get('prompt_attempts', 0) + 1
+                save(directory, state)
+                print(task)
                 return
             if args.action == 'lessons':
                 print(lessons(state))

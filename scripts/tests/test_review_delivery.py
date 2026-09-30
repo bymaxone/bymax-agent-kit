@@ -233,6 +233,26 @@ class DeliveryTests(unittest.TestCase):
         c.checks()
         self.assertIn('declared by the author as: code.txt:bot-thread', c.text('prompt'))
 
+    def test_every_answer_given_on_the_command_line_is_recorded(self):
+        """Every answer is recorded, whether --answers is repeated or given once with several
+        values: the scope rule measures the correction against all of them, and one keeping only
+        the last flag's would measure it against those alone."""
+        c = self.case
+        self.enroll()
+        c.complete()
+        c.commit('fix')
+        probe = c.root / 'probe.json'
+        probe.write_text(json.dumps([dict(command='python3 -c "print(1)"', expected='1', observed='1')]))
+        begin = ['start', '--base', c.base, '--context', str(c.context), '--probe', str(probe),
+                 '--no-regression-reason', 'fixture: no test needed']
+        repeated = c.flow(*begin, '--answers', 'code.txt:thread-a', '--answers', 'values.py:thread-b')
+        self.assertEqual(repeated['answers'], ['code.txt:thread-a', 'values.py:thread-b'])
+        c.complete()
+        c.commit('another fix')
+        listed = c.flow(*begin, '--answers', 'code.txt:thread-a', 'values.py:thread-b')
+        self.assertEqual(listed['round'], 3)
+        self.assertEqual(listed['answers'], ['code.txt:thread-a', 'values.py:thread-b'])
+
     def test_repeated_start_and_archive_do_not_renew_budget(self):
         """Same-head retries are free; moving campaign state aside preserves consumption."""
         c = self.case
