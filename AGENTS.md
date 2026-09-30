@@ -308,6 +308,17 @@ Some passages look like they could be trimmed and exist because the shorter form
 **Safe path:** a simplification of an instruction needs the same justification as a
 suppression — say what the longer form guarded against and why that no longer applies.
 
+### A test may name the failure it pins
+
+The shared rule's clause that flags "a failure that has since been fixed" does not apply inside a
+test: the docstring of a test function or test class under `scripts/tests/` or `codex/tests/`, or a
+comment in its body. There the failure is what the test exists to catch, and the test fails on it
+again if the fix is undone, so naming it in the past tense ("a gate ignoring SIGTERM outlived the
+check") states the test's constraint. **Safe path:** such a docstring or comment may state the
+failure in the past tense as long as it names the behaviour. The rest of the shared rule still
+applies there, and a phase, task, ticket, review round or finder named there is a finding, and a
+comment anywhere else stays under the whole shared rule.
+
 ### Trigger phrases in `Triggers:` lists may include Portuguese
 
 A `description`'s trigger list exists to match what a user actually types, and this
