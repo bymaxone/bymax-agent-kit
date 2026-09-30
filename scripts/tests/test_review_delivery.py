@@ -236,7 +236,7 @@ class DeliveryTests(unittest.TestCase):
     def test_every_answer_given_on_the_command_line_is_recorded(self):
         """Every answer is recorded, whether --answers is repeated or given once with several
         values: the scope rule measures the correction against all of them, and one keeping only
-        the last flag's would measure it against the last finding alone."""
+        the last flag's would measure it against those alone."""
         c = self.case
         self.enroll()
         c.complete()

@@ -1,5 +1,6 @@
 """Regression layer: a candidate whose declared gate failed before any reviewer read it is replaced
 within its round, and every other candidate still needs both reviews before a new head."""
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -124,6 +125,33 @@ class ReplacementTests(FlowBench):
         self.commit('the gate passes now')
         refused = self.start(correction=True, ok=False).stderr
         self.assertIn('Complete both reviews', refused)
+
+    def refused_then_replaced(self, refuse):
+        """Freeze a candidate whose declared gate passes, let `refuse` record a run prompt()
+        refuses, and replace the candidate with a fixed commit."""
+        state = self.start()
+        self.checks()
+        refuse(state)
+        self.assertIn('These gates failed', self.flow('prompt', ok=False).stderr)
+        self.commit('the fix')
+        replaced = self.start(correction=True)
+        self.assertEqual((replaced['round'], replaced['replaced']), (1, [state['head']]))
+
+    def test_a_gate_cut_off_with_no_exit_status_makes_a_candidate_replaceable(self):
+        """prompt() refuses a gate whose latest run has no exit status, so replacement takes it
+        too: a narrower test would leave that candidate unreadable and unreplaceable."""
+        def cut_off(state):
+            path = Path(state['directory']) / 'state.json'
+            saved = json.loads(path.read_text())
+            saved['checks'].append(dict(command=GATE, exit_code=None, log=''))
+            path.write_text(json.dumps(saved))
+        self.refused_then_replaced(cut_off)
+
+    def test_an_undeclared_gate_that_failed_makes_a_candidate_replaceable(self):
+        """prompt() refuses a failed run of a command the context does not declare, so replacement
+        takes it too."""
+        self.refused_then_replaced(
+            lambda state: self.flow('check', '--', sys.executable, '-c', 'raise SystemExit(1)', ok=False))
 
     def test_a_candidate_whose_gate_passed_is_not_replaced(self):
         """Only a failed gate replaces a candidate; a green one is ready for its reviewers."""

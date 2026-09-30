@@ -23,23 +23,25 @@ def within_scope(extra, reason):
             'both reviewers are told, and they will review the wider delta.')
 
 
-def gate_failed(state):
-    """Whether the latest run of a declared gate on this candidate exited non-zero.
+def failed_checks(state):
+    """The latest run of each gate recorded on this candidate that did not exit 0, as (command,
+    exit status), in command order.
 
-    A run with no exit status was interrupted or timed out: it says nothing about the tree, so
-    it is not a failure a replacement may cite."""
+    prompt() refuses a candidate with any of them and replaceable() takes the same set, so a
+    candidate no reviewer may read can always be replaced: a run that timed out or was
+    interrupted has no exit status and counts, and so does a command the context did not name."""
     latest = {tuple(c['command']): c['exit_code'] for c in state.get('checks') or []}
-    return any(latest.get(tuple(c)) not in (0, None) for c in state.get('required_checks') or [])
+    return sorted((command, code) for command, code in latest.items() if code != 0)
 
 
 def replaceable(old):
     """Whether a new head replaces this candidate within its round instead of opening the next.
 
-    prompt() refuses a candidate whose declared gate failed, so no reviewer can read it and the
+    prompt() refuses a candidate a gate failed on, so no reviewer can read it and the
     round would never advance past it: the fixed commit takes its place. Once a reviewer has read
     a candidate that reading is spent on it, and a cleared candidate is answered by a correction.
     """
-    return bool(old) and not old.get('cleared') and not old.get('reviews') and gate_failed(old)
+    return bool(old) and not old.get('cleared') and not old.get('reviews') and bool(failed_checks(old))
 
 
 def replacement(args, old, head, base, context, branch, *, evidence, widened):

@@ -18,7 +18,7 @@ from review_codex import codex_check, codex_review
 from review_git import clean_head, for_a_reader, git, git_raw, require
 from review_hook import install_hook
 from review_prose_pass import prose_first, prose_run
-from review_replace import replaceable, replacement, within_scope
+from review_replace import failed_checks, replaceable, replacement, within_scope
 from review_run import run_gate
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
@@ -880,8 +880,7 @@ def gate_first(state, directory):
             + '. Run each with `review_flow.py check -- <command>` before a reviewer reads the '
             'tree. A round spent on a failure the suite already names is a round not spent on '
             'what only a reader finds.')
-    failed = sorted(' '.join(c['command']) + f" (exit {c['exit_code']})"
-                    for c in latest.values() if c['exit_code'] != 0)
+    failed = [' '.join(command) + f' (exit {code})' for command, code in failed_checks(state)]
     require(not failed,
             'These gates failed on this candidate: ' + '; '.join(failed) + '. Fix the candidate, '
             're-run them, and only then ask for a review: reviewers read a tree its own gates '

@@ -425,11 +425,11 @@ build the same text. The gates ran on the way to `finish` until this; that order
 readers to judge a tree nobody had checked, and a round spent on a failure the suite already
 prints is a round not spent on what only a reader finds.
 
-A candidate whose declared gate failed is therefore never read, so it is **replaced within its
+A candidate a gate refuses is not read while that refusal stands, so it is **replaced within its
 round**, not advanced past: `start` on a fixed head — a new commit or an amend — keeps the round,
 its review base and what it was told, resets checks, reviews and triage, and lists the replaced
 head under `replaced`. It applies only while no reviewer has read the candidate and the latest
-run of one of its declared gates exited non-zero. The new head must descend from the review
+run of a gate recorded on it did not exit 0: a failure, a timeout or a cut-off run. The new head must descend from the review
 base; a correction round re-derives its probe, regression and scope evidence for it from that
 base; a delivery counts it against the budget. A candidate a reviewer has read, or one whose
 gates passed or never ran, still needs both reviews before a new head.
