@@ -48,9 +48,9 @@ def replaceable(old):
 
 
 def read(state):
-    """Whether a reviewer attempt was reserved on this candidate, finished or not."""
-    return bool(state.get('codex_running')) or any(
-        count for name, count in state.items() if name.endswith('_attempts'))
+    """Whether a reviewer attempt was reserved on this candidate, finished or not: each adapter
+    counts it under `<reviewer>_attempts` as it launches the model."""
+    return any(count for name, count in state.items() if name.endswith('_attempts'))
 
 
 def replacement(args, old, head, base, context, branch, *, evidence, widened):
