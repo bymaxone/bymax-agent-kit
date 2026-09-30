@@ -52,9 +52,9 @@ preferences is how a one-line fix reaches its seventh round.
   (`scripts/tests/test_review_flow.py`), bundle drift (`validate-codex.sh`).
 - `CHANGELOG.md` wording, and the phrasing of refusal messages whose behaviour a test pins.
 - A missing test for prose. Prose is reviewed once; shell inside prose is tested instead.
-- A test's docstring or comment that names, in the past tense, the failure the test pins
-  (`AGENTS.md`, "A test may name the failure it pins"). A review round, a ticket or a finder named
-  there is still a finding.
+- The docstring of a test function or test class, or a comment in its body, that names in the past
+  tense the failure the test pins (`AGENTS.md`, "A test may name the failure it pins"). A phase,
+  task, ticket, review round or finder named there is a finding.
 
 ## Verification bar
 

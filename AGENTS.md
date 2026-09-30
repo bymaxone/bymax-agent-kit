@@ -310,13 +310,14 @@ suppression — say what the longer form guarded against and why that no longer 
 
 ### A test may name the failure it pins
 
-The shared rule flags a comment that narrates "a failure that has since been fixed". In a test — its
-docstring, or a comment inside it, under `scripts/tests/` or `codex/tests/` — this repository reads
-that clause the other way: the failure is what the test exists to catch, and the test fails on it
+The shared rule's clause that flags "a failure that has since been fixed" does not apply inside a
+test: the docstring of a test function or test class under `scripts/tests/` or `codex/tests/`, or a
+comment in its body. There the failure is what the test exists to catch, and the test fails on it
 again if the fix is undone, so naming it in the past tense ("a gate ignoring SIGTERM outlived the
-check") states the test's constraint. **Safe path:** a test may state its failure in the past tense
-as long as it names the behaviour; a review round, a ticket or who found the failure named there is
-still a finding, and a comment in a source file stays under the shared rule.
+check") states the test's constraint. **Safe path:** such a docstring or comment may state the
+failure in the past tense as long as it names the behaviour. The rest of the shared rule still
+applies there, so a phase, task, ticket, review round or finder named in it is a finding, and a
+comment anywhere else stays under the whole shared rule.
 
 ### Trigger phrases in `Triggers:` lists may include Portuguese
 
