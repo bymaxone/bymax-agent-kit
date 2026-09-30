@@ -316,7 +316,7 @@ comment in its body. There the failure is what the test exists to catch, and the
 again if the fix is undone, so naming it in the past tense ("a gate ignoring SIGTERM outlived the
 check") states the test's constraint. **Safe path:** such a docstring or comment may state the
 failure in the past tense as long as it names the behaviour. The rest of the shared rule still
-applies there, so a phase, task, ticket, review round or finder named in it is a finding, and a
+applies there, and a phase, task, ticket, review round or finder named there is a finding, and a
 comment anywhere else stays under the whole shared rule.
 
 ### Trigger phrases in `Triggers:` lists may include Portuguese
