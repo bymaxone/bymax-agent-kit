@@ -621,12 +621,15 @@ class EnvelopeShapeTests(unittest.TestCase):
         self.assertIn('thing.py: a comment a linter or a type checker reads changed', ' | '.join(bench.offences()))
 
     def test_a_signature_shaped_line_away_from_a_def_is_prose(self):
-        """A signature comment is the line after a `def`: a line of prose opening `# type: (`
-        anywhere else stays prose, and matched by its text alone it would be a directive."""
-        start = 'x = 1  # type: int\n# type: (legacy form) documents old syntax.\ny = 2\n'
-        bench = Bench(self, {'thing.py': start})
-        bench.write(start.replace('documents old syntax', 'records the old syntax'))
-        self.assertEqual(bench.offences(), [])
+        """A signature comment sits between a `def` whose body starts below and the next line of
+        code: a line of prose opening `# type: (` anywhere else stays prose, and matched by its
+        text alone it would be a directive."""
+        for start in ('x = 1  # type: int\n# type: (legacy form) documents old syntax.\ny = 2\n',
+                      'x = 1  # type: int\ndef f(): pass\n# type: (legacy form) documents old syntax.\ny = 2\n'):
+            with self.subTest(start=start):
+                bench = Bench(self, {'thing.py': start})
+                bench.write(start.replace('documents old syntax', 'records the old syntax'))
+                self.assertEqual(bench.offences(), [])
 
     def test_a_comment_cut_above_a_type_ignore_is_prose(self):
         """The tree parsed with its type comments keeps each `# type: ignore` with its line

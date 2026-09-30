@@ -55,7 +55,9 @@ class RemovalNoteTests(unittest.TestCase):
                '`OLD_HELPER` loader since `CACHE` is now `NEW_CACHE`.',
                # A noun outside the kinds names a part of the name, which stays live.
                '`OLD_HELPER` mode is now `FAST_MODE`.', '`OLD_HELPER` has moved to the top of the list.',
-               '**OLD_HELPER** is now enabled by default.')
+               '**OLD_HELPER** is now enabled by default.',
+               # A longer name that holds this one moves only itself.
+               '`foo-OLD_HELPER` was moved to `review_git.py`.')
 
     def test_a_line_saying_the_name_is_gone_is_reported_not_refused(self):
         """Every clause naming the name must say it is gone, outside every quoted span, for the

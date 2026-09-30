@@ -452,8 +452,8 @@ def only_prose_cut(before, after):
 LAYOUT = {tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
           tokenize.ENDMARKER}
 # A type comment after code is the type checker's, placed or not, and so is a function's signature
-# comment on the line after its `def`: when a type comment after code cannot be placed, typed()
-# answers with the tree that has none, and this is where they are compared then.
+# comment between its `def` and the next line of code: when a type comment after code cannot be
+# placed, typed() answers with the tree that has none, and this is where they are compared then.
 TYPED = re.compile(r'#\s*type:')
 SIGNATURE = re.compile(r'#\s*type:\s*\(')
 DIRECTIVE = re.compile(r'#\s*(noqa\b|type:\s*ignore|pragma\b|pylint:|flake8:|mypy:|ruff:|pyright:|nosec\b|fmt:|isort:)', re.I)
@@ -475,7 +475,7 @@ def directives(text):
     try:
         docstrings = docstring_spans(text, lines)
         said = unsaid(lines, docstrings)
-        code, anything, head, signed = 0, False, None, False
+        code, anything, head, signed, last = 0, False, None, False, ''
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
             row, col = tok.start
             if tok.type == tokenize.COMMENT and (DIRECTIVE.search(tok.string)
@@ -487,15 +487,16 @@ def directives(text):
                                                 if l.strip() and not l.strip().startswith('#')), '')
                 found.append((code, anything, beside, below, tok.string))
             elif tok.type not in LAYOUT:
-                # The first two words of each logical line tell a `def` header from the rest.
+                # The first two words of each logical line tell a `def` header from the rest, and
+                # its last whether the body starts on the next line, where a signature comment sits.
                 head = head if head is not None else []
                 if len(head) < 2:
                     head.append(tok.string)
-                signed = False
+                signed, last = False, tok.string
                 anything = True
                 code += not any((d[0], d[1]) <= tok.start and tok.end <= (d[2], d[3]) for d in docstrings)
             elif tok.type == tokenize.NEWLINE:
-                signed = head is not None and (head[:1] == ['def'] or head == ['async', 'def'])
+                signed = last == ':' and head is not None and (head[:1] == ['def'] or head == ['async', 'def'])
                 head = None
     except (SyntaxError, tokenize.TokenError):
         return None
