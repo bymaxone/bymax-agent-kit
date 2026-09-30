@@ -12,7 +12,8 @@ import sys
 import review_delivery
 from review_delivery import scope_of as scope
 from review_delta import claims_settled, delta_view
-from review_evidence import collected_elsewhere, is_test_path, matrix_first, matrix_run, tests_changed
+from review_evidence import (collected_elsewhere, is_test_path, matrix_first, matrix_run, removed_tests,
+                             tests_changed)
 from review_codex import codex_check, codex_review
 from review_git import clean_head, for_a_reader, git, git_raw, require
 from review_hook import install_hook
@@ -29,12 +30,16 @@ CHECK_TIMEOUT = 1800
 
 
 def location():
-    """Locate branch state under the shared Git directory, outside source files."""
-    result = subprocess.run(['git', 'symbolic-ref', '--quiet', 'HEAD'], capture_output=True, text=True)
+    """Locate branch state under the shared Git directory, outside source files.
+
+    The directory is the digest of the branch's ref name as the bytes git gave: a name need not
+    be UTF-8, and a UTF-8 one hashes to the directory it always has.
+    """
+    result = subprocess.run(['git', 'symbolic-ref', '--quiet', 'HEAD'], capture_output=True)
     require(result.returncode == 0, 'Detached HEAD has no campaign branch; check out the candidate branch.')
     branch = result.stdout.strip()
     common = Path(git('rev-parse', '--git-common-dir')).resolve()
-    return common / 'bymax-review' / hashlib.sha256(branch.encode()).hexdigest()
+    return common / 'bymax-review' / hashlib.sha256(branch).hexdigest()
 
 
 @contextlib.contextmanager
@@ -72,8 +77,13 @@ def current(state):
 
 
 def context_contract(path):
-    """Validate the shared intent, what was measured against real data, and the gate commands."""
-    text = Path(path).read_text().strip()
+    """Validate the shared intent, what was measured against real data, and the gate commands.
+
+    Decoded as git_raw() decodes, not by the locale: for_a_reader() hands the text on and a check
+    reaches its child through the filesystem encoding, so any other decoding changes the bytes
+    the author wrote — on macOS the filesystem encoding is UTF-8 whatever the locale says.
+    """
+    text = Path(path).read_text(encoding=sys.getfilesystemencoding(), errors='surrogateescape').strip()
     data = json.loads(text)
     require(isinstance(data, dict), 'Context must be a JSON object.')
     for key in ('intent', 'acceptance', 'constraints', 'scope', 'checks'):
@@ -188,9 +198,14 @@ def widened(old, head, answers=()):
     # listing above yields it raw, and the two sets then spell the same file differently.
     changed = git_raw('diff', '-z', '--name-only', old['head'], head)
     touched = [path for path in changed.split('\0') if path]
-    extra = [path for path in touched
-             if path not in named and not is_test_path(path) and not generated_path(path)]
-    return sorted(set(extra) - collected_elsewhere(extra))
+    extra = {path for path in touched
+             if path not in named and not is_test_path(path) and not generated_path(path)}
+    # A deleted file cannot be asked about in the corrected tree, so the reviewed candidate's is
+    # asked: a test the project names its own way, deleted, is still the correction's test.
+    gone = extra & {path for path in git_raw('diff', '-z', '--name-only', '--no-renames',
+                                             '--diff-filter=D', old['head'], head).split('\0') if path}
+    tests = collected_elsewhere(sorted(extra - gone)) | set(removed_tests(old['head'], sorted(gone), unsure=False))
+    return sorted(extra - tests)
 
 
 def blocks_a_receipt(finding):
@@ -410,6 +425,11 @@ def adopt_branch(old, told):
     return True
 
 
+# A ref is named by bytes: decoded as git_raw() decodes, a name that is not UTF-8 keeps its bytes
+# as surrogate escapes instead of raising.
+AS_NAMES = dict(encoding=sys.getfilesystemencoding(), errors='surrogateescape')
+
+
 def branch_ref(ref):
     """The branch this spelling names here, local or remote-tracking, as its full ref, or ''.
 
@@ -417,14 +437,14 @@ def branch_ref(ref):
     as one argument. A commit id, a tag or a revision expression resolves to a commit and names
     no branch, and the round would then read what that commit reaches as the base branch's."""
     full = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', '--symbolic-full-name',
-                           '--end-of-options', ref], capture_output=True, text=True).stdout.strip()
+                           '--end-of-options', ref], capture_output=True, **AS_NAMES).stdout.strip()
     return full if full.startswith(('refs/heads/', 'refs/remotes/')) else ''
 
 
 def work_branch():
     """The full ref HEAD points to, or '' when HEAD is detached."""
     return subprocess.run(['git', 'symbolic-ref', '--quiet', 'HEAD'],
-                          capture_output=True, text=True).stdout.strip()
+                          capture_output=True, **AS_NAMES).stdout.strip()
 
 
 def told_branch(args, old=None):
@@ -445,7 +465,7 @@ def told_branch(args, old=None):
     told = args.base_branch
     if not told and args.base_branch_file:
         try:
-            told = Path(args.base_branch_file).read_text().split('\n', 1)[0].strip()
+            told = Path(args.base_branch_file).read_text(**AS_NAMES).split('\n', 1)[0].strip()
         except OSError:
             told = ''
     full = branch_ref(told) if told else ''

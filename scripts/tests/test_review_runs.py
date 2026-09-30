@@ -69,17 +69,26 @@ class RunTests(unittest.TestCase):
         interrupted matrix would leave it running. Whatever stops the wait stops the group too."""
         bench = Bench(self, test='import os, time\n\n\ndef test_sleeps():\n'
                                  '    open("pytest.pid", "w").write(str(os.getpid()))\n    time.sleep(600)\n')
+        pid, waited = bench.where / 'pytest.pid', time.monotonic() + 60
+
+        # Interrupted once the test body has written its pid, polled rather than after a fixed
+        # delay: under load pytest can take longer than any such delay to reach the body.
         def interrupt(*_):
-            raise KeyboardInterrupt
+            if pid.is_file() and pid.read_text():
+                raise KeyboardInterrupt
+            if time.monotonic() > waited:
+                raise AssertionError('pytest never reached the test body')
+            signal.setitimer(signal.ITIMER_REAL, 0.1)
         previous = signal.signal(signal.SIGALRM, interrupt)
         self.addCleanup(signal.signal, signal.SIGALRM, previous)
-        signal.alarm(3)
+        self.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
+        signal.setitimer(signal.ITIMER_REAL, 0.1)
         with self.assertRaises(KeyboardInterrupt):
             matrix.run_case(str(bench.where), None, ['test_thing.py::test_sleeps'])
-        signal.alarm(0)
+        signal.setitimer(signal.ITIMER_REAL, 0)
         time.sleep(0.5)
         with self.assertRaises(ProcessLookupError):
-            os.kill(int((bench.where / 'pytest.pid').read_text()), 0)
+            os.kill(int(pid.read_text()), 0)
 
     def test_an_enumeration_that_never_ends_is_refused(self):
         """A rule's enumeration command is the author's, and one that waits for input or loops
@@ -104,10 +113,25 @@ class RunTests(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(int((bench.where / 'enumerate.pid').read_text()), 0)
 
+    def test_an_enumeration_is_counted_after_what_it_left_behind_has_printed(self):
+        """A writer an enumeration starts in the background and does not wait for keeps printing
+        after the command exits, and its group was stopped at that exit, so the rows counted were
+        the ones printed before a moment nothing decides: a writer of endless rows counted 26 on
+        one run and 2211 on the next. What it left behind is waited on, boundedly, and counted
+        whole; one that never stops printing is refused rather than cut off."""
+        bench = Bench(self)
+        late = {'rule': 'late', 'enumeration': '(sleep 1; echo 5) & echo 1'}
+        self.assertEqual([matrix.enumerated(str(bench.where), late) for _ in range(3)], [6, 6, 6])
+        with self.assertRaises(SystemExit) as caught:
+            matrix.enumerated(str(bench.where), {
+                'rule': 'endless', 'enumeration': '(while true; do echo 1; done) & echo 1'})
+        self.assertIn('left a process writing to its output', str(caught.exception))
+
     def test_an_enumeration_longer_than_a_tail_is_counted_whole(self):
-        """A `grep -c` over a large tree prints a row per file, and read through the bounded tail
-        a run is, output that filled it was refused as no count at all. The rows are counted as
-        they arrive instead."""
+        """A `grep -c` over a large tree prints a row per file, more than the KEEP bytes a run's
+        tail holds: every row is counted as it arrives, not only those the tail kept. A count of
+        KEEP cases is read as that many, and an output that never ends is still stopped at the
+        deadline."""
         bench = Bench(self)
         rows = 5000
         self.assertEqual(matrix.enumerated(str(bench.where), {
@@ -117,8 +141,9 @@ class RunTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             bench.run(rule(enumeration='python3 -c "print(\'1\\\\n\' * %d)"' % matrix.KEEP))
         self.assertIn('enumerates %d case(s)' % matrix.KEEP, str(caught.exception))
-        # Bytes that are not UTF-8 are measured as bytes: decoded and re-encoded, each would count
-        # three, and a short output would read as one that filled the tail.
+        # A row of bytes that are not UTF-8 states no count and does not stop the count: a strict
+        # decode would raise a ValueError inside the reader, end the read and leave the `1` row
+        # after it uncounted.
         self.assertEqual(matrix.enumerated(str(bench.where), {
             'rule': 'bytes', 'enumeration': 'python3 -c "import sys; sys.stdout.buffer.write('
                                             'bytes([255]) * 30000 + bytes([10, 49, 10]))"'}), 1)

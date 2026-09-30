@@ -62,18 +62,21 @@ def tests_changed(base, head, branch=''):
             removed_tests(base, removed))
 
 
-def removed_tests(base, removed):
+def removed_tests(base, removed, unsure=True):
     """The deleted files that were tests at the base: named like one, or collected there. A
     deleted file cannot be asked about where it is gone, so the base's tree is asked, and a
     directory it cannot answer for keeps its files: a deletion reviewers are not shown is the
     one they cannot judge. A file that failed to collect there, or sits under a directory
-    that did, is kept too: the tolerant collect leaves it out of what it found."""
+    that did, is kept too: the tolerant collect leaves it out of what it found.
+
+    `unsure` is what both kinds count as. The scope rule passes False: a deletion it wrongly
+    exempts is one no later gate refuses, since a deleted file leaves no node for a matrix."""
     import review_matrix
     named = [name for name in removed if is_test_path(name)]
     other = [name for name in removed if not is_test_path(name)]
     if not other or importlib.util.find_spec('pytest') is None:
         return named
-    found = set()
+    found, doubted = set(), set()
     with archived(base) as older:
         wanted = [name for name in other if name.endswith('.py') or under_a_collect_hook(older, name)]
         for where in sorted({str(Path(name).parent) or '.' for name in wanted}):
@@ -81,11 +84,13 @@ def removed_tests(base, removed):
             try:
                 collected, failed = review_matrix.walked(older, [where])
             except (SystemExit, review_matrix.Unfinished):
-                found.update(here)
+                doubted.update(here)
                 continue
             found.update(collected)
-            found.update(name for name in here
-                         if {name, *(p.as_posix() for p in Path(name).parents)} & failed)
+            doubted.update(name for name in here
+                           if {name, *(p.as_posix() for p in Path(name).parents)} & failed)
+    if unsure:
+        found |= doubted
     return sorted(named + [name for name in other if name in found])
 
 
@@ -124,10 +129,25 @@ def collected_elsewhere(paths):
 
 def under_a_collect_hook(root, path):
     """Whether a conftest.py from this file's directory up to the root names
-    `pytest_collect_file`, which is how a conftest collects a file that is not Python."""
+    `pytest_collect_file`, which is how a conftest collects a file that is not Python, or
+    `pytest_plugins`, which loads modules that may define it. Those modules are not read:
+    naming one is reason enough to ask pytest, and asking is the direction that costs a
+    collect rather than a changed test nobody is shown.
+
+    Two limits follow, both stated because neither is guarded:
+
+    - A conftest naming `pytest_plugins` makes every changed document beneath it asked about,
+      one collect of each directory holding one, whether or not a named module collects documents.
+    - A collector an installed plugin registers through a `pytest11` entry point is not seen,
+      so a document only it collects is no changed test. The entry points are cheap to list,
+      but whether one defines the hook is settled only by importing it, which runs third-party
+      code at review time: its entry module's text both names the hook in a plugin that
+      registers it only on an option of its own, and misses one registered from elsewhere.
+    """
     for where in [Path(path).parent, *Path(path).parent.parents]:
         conftest = Path(root, where, 'conftest.py')
-        if conftest.is_file() and 'pytest_collect_file' in conftest.read_text(errors='replace'):
+        text = conftest.read_text(errors='replace') if conftest.is_file() else ''
+        if 'pytest_collect_file' in text or 'pytest_plugins' in text:
             return True
     return False
 
