@@ -308,16 +308,15 @@ Some passages look like they could be trimmed and exist because the shorter form
 **Safe path:** a simplification of an instruction needs the same justification as a
 suppression — say what the longer form guarded against and why that no longer applies.
 
-### A test's docstring may name the failure it pins
+### A test may name the failure it pins
 
-The shared rule flags a comment that narrates what a previous version did. A test's docstring is
-the exception: it states the failure the test exists to catch, and the plainest name for that
-failure is the shape it took — "a second Ctrl-C left the gate running". The sentence stays true for
-the next reader, since it is what the test fails on if the fix is undone: the measurement the shared
-rule keeps beside a constraint. The suite is written that way throughout. **Safe path:** a test's
-docstring may state its failure in the past tense, as long as it names the behaviour; a review
-round, a ticket or who found it named there is still a finding, and a comment in a source file stays
-under the shared rule.
+The shared rule flags a comment that narrates "a failure that has since been fixed". In a test — its
+docstring, or a comment inside it, under `scripts/tests/` or `codex/tests/` — this repository reads
+that clause the other way: the failure is what the test exists to catch, and the test fails on it
+again if the fix is undone, so naming it in the past tense ("a gate ignoring SIGTERM outlived the
+check") states the test's constraint. **Safe path:** a test may state its failure in the past tense
+as long as it names the behaviour; a review round, a ticket or who found the failure named there is
+still a finding, and a comment in a source file stays under the shared rule.
 
 ### Trigger phrases in `Triggers:` lists may include Portuguese
 
