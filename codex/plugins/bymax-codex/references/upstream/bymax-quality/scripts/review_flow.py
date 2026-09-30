@@ -1154,7 +1154,8 @@ def check(args, directory, state):
     current(state)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     require(bool(command), 'Supply a check command after --.')
-    log = directory / f"check-{state['round']}-{len(state['checks'])}.log"
+    # A replacement keeps the round and resets the checks: the heads it replaced keep their logs.
+    log = directory / f"check-{state['round']}-{len(state.get('replaced', []))}-{len(state['checks'])}.log"
     # Record the attempt before running it: a timeout or a missing executable raises out
     # of run_gate, and an unrecorded attempt would leave an earlier receipt cleared.
     state['checks'].append(dict(command=command, exit_code=None, log=str(log)))

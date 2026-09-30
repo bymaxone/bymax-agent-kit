@@ -83,6 +83,24 @@ class ReplacementTests(FlowBench):
         self.checks()
         self.assertIn('Round 2/', self.text('prompt'))
 
+    def test_a_replacement_keeps_the_gate_log_of_the_candidate_it_replaced(self):
+        """The failed head stays listed under `replaced`, so its gate log stays on disk as it
+        was: the new candidate's first gate run writes a file of its own. A log named by round
+        and check index alone would be the same file for both, and the new run would erase the
+        failure the replacement cites."""
+        self.red()
+        self.start()
+        self.gate_fails()
+        failed = Path(self.flow('status')['checks'][0]['log'])
+        failure = failed.read_text()
+        self.assertIn('AssertionError', failure)
+        self.commit('the gate passes now')
+        self.start()
+        self.checks()
+        passed = Path(self.flow('status')['checks'][0]['log'])
+        self.assertNotEqual(passed, failed)
+        self.assertEqual(failed.read_text(), failure)
+
     def test_a_replacement_must_descend_from_the_review_base(self):
         """Unrelated history is not a fixed candidate: the delta reviewers read starts at the
         review base, so a head that does not descend from it has no delta to read."""
