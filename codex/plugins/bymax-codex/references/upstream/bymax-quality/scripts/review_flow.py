@@ -18,6 +18,7 @@ from review_codex import codex_check, codex_review
 from review_git import clean_head, for_a_reader, git, git_raw, require
 from review_hook import install_hook
 from review_prose_pass import prose_first, prose_run
+from review_replace import replaceable, replacement, within_scope
 from review_run import run_gate
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
@@ -337,76 +338,6 @@ def next_round(args, old, head, directory, base, context, branch=''):
     return correction
 
 
-def within_scope(extra, reason):
-    """Refuse a correction touching files no open finding names, unless a reason was recorded."""
-    require(not extra or reason,
-            'A correction round answers the open findings and nothing else. No open finding '
-            'names: ' + ', '.join(extra) + '. Revert what they do not name and file it as its '
-            'own campaign, or record why this round must widen with --widen-scope "<why>"; '
-            'both reviewers are told, and they will review the wider delta.')
-
-
-def gate_failed(state):
-    """Whether the latest run of a declared gate on this candidate exited non-zero.
-
-    A run with no exit status was interrupted or timed out: it says nothing about the tree, so
-    it is not a failure a replacement may cite."""
-    latest = {tuple(c['command']): c['exit_code'] for c in state.get('checks') or []}
-    return any(latest.get(tuple(c)) not in (0, None) for c in state.get('required_checks') or [])
-
-
-def replaceable(old):
-    """Whether a new head replaces this candidate within its round instead of opening the next.
-
-    prompt() refuses a candidate whose declared gate failed, so no reviewer can read it and the
-    round could never advance past it: the fixed commit takes its place. Once a reviewer has read
-    a candidate that reading is spent on it, and a cleared candidate is answered by a correction.
-    """
-    return bool(old) and not old.get('cleared') and not old.get('reviews') and gate_failed(old)
-
-
-# What a replacement keeps of the candidate it replaces: the round and everything it was told.
-KEPT = ('round', 'review_base', 'previous_triage', 'retrospectives', 'answers', 'widen_scope',
-        'nit_round', 'after_archived', 'design_round', 'reopened')
-
-
-def replacement(args, old, head, base, context, branch):
-    """The candidate that replaces one its own declared gate failed, in the same round.
-
-    What belonged to the failed head — its checks, its reviews, its triage — is not kept, and
-    the replaced head is listed so the history stays visible. The delta reviewers read starts at
-    the review base, so the new head descends from it: an amend of the failed candidate does,
-    unrelated history does not.
-    """
-    require(old['base'] == base and scope(old['context']) == scope(context),
-            'Scope changed. Stop and agree on a separate campaign.')
-    review_base = old['review_base']
-    require(git('merge-base', review_base, head) == review_base,
-            'This candidate does not descend from ' + review_base[:12] + ', the review base of the '
-            'candidate whose gate failed. A replacement fixes that candidate; history that does '
-            'not reach its review base has no delta to review.')
-    kept = old.get('answers') or []
-    require(not args.answers or list(args.answers) == kept,
-            'A replacement keeps the answers its round was started with ('
-            + (', '.join(kept) or 'none') + '); name those, or none.')
-    state = {name: old[name] for name in KEPT if name in old}
-    state.update(head=head, base_branch=branch, replaced=old.get('replaced', []) + [old['head']])
-    if old['round'] > 1:
-        state.update(replaced_correction(args, old, head, branch))
-    return state
-
-
-def replaced_correction(args, old, head, branch):
-    """A replacement's correction contract, measured as the failed candidate's was: from the
-    review base, against the findings its round answers. The design decision is kept, since
-    the triages it was read from have not changed."""
-    predecessor = dict(old, head=old['review_base'], triage=old['previous_triage'])
-    evidence = correction_evidence(args, predecessor, head, branch)
-    widen = old.get('widen_scope') or args.widen_scope
-    within_scope(widened(predecessor, head, old.get('answers') or ()), widen)
-    return dict(evidence, widen_scope=widen)
-
-
 def opened(args, old, head, directory, base, context, branch):
     """The candidate that opens the round after `old`'s, or a first round when there is none."""
     correction = (next_round(args, old, head, directory, base, context, branch) if old
@@ -420,7 +351,6 @@ def opened(args, old, head, directory, base, context, branch):
                 previous_triage=old.get('triage', []) if old else [],
                 retrospectives=old.get('retrospectives', []) if old else [],
                 **(correction if old else {}))
-
 
 
 def gone_without(directory, after_archived):
@@ -608,7 +538,8 @@ def start(args, directory):
     branch = told or (old.get('base_branch', '') if old else '')
     # A candidate its own gate failed before anyone read it is replaced in its round; any other
     # new head opens the next one.
-    state = (replacement(args, old, head, base, context, branch) if replaceable(old)
+    state = (replacement(args, old, head, base, context, branch, evidence=correction_evidence,
+                         widened=widened) if replaceable(old)
              else opened(args, old, head, directory, base, context, branch))
     state.update(policy=POLICY, base=base, context=context, reviews={}, checks=[],
                  required_checks=required_checks, triage=None, cleared=False)
