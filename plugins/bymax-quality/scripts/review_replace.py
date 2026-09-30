@@ -36,7 +36,7 @@ def replaceable(old):
     """Whether a new head replaces this candidate within its round instead of opening the next.
 
     prompt() refuses a candidate whose declared gate failed, so no reviewer can read it and the
-    round could never advance past it: the fixed commit takes its place. Once a reviewer has read
+    round would never advance past it: the fixed commit takes its place. Once a reviewer has read
     a candidate that reading is spent on it, and a cleared candidate is answered by a correction.
     """
     return bool(old) and not old.get('cleared') and not old.get('reviews') and gate_failed(old)

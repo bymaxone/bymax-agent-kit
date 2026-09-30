@@ -41,8 +41,10 @@ class ReplacementTests(FlowBench):
         return first, red
 
     def test_a_first_round_candidate_its_gate_failed_is_replaced_and_counted(self):
-        """A first round whose gate failed could not take the fixed commit: start asked for both
-        reviews, prompt refused to build their task, and only archiving the campaign got out."""
+        """A first-round candidate whose gate failed is replaced by the fixed commit in round one,
+        and a delivery counts it. prompt refuses to build a reviewer task for the failed
+        candidate, so a start that demanded both reviews of it would leave archiving the
+        campaign as the only exit."""
         red = self.red()
         self.assertEqual(self.start(autonomous=True)['delivery_used'], 1)
         self.gate_fails()
@@ -54,8 +56,9 @@ class ReplacementTests(FlowBench):
         self.assertIn('already ran on this candidate and passed', self.text('prompt'))
 
     def test_an_amended_candidate_replaces_the_one_its_gate_failed(self):
-        """An amend rewrites the failed candidate rather than descending from it, and the round
-        refused it as rewritten history though no reviewer had read what it rewrote."""
+        """An amend rewrites the failed candidate rather than descending from it. No reviewer read
+        what it rewrites, so it replaces that candidate rather than being refused as rewritten
+        history."""
         red = self.red()
         self.start()
         self.gate_fails()
@@ -65,8 +68,9 @@ class ReplacementTests(FlowBench):
         self.assertEqual((state['round'], state['replaced']), (1, [red]))
 
     def test_a_correction_its_gate_failed_is_replaced_within_its_round(self):
-        """A correction round whose gate failed could not take the fixed commit either, and the
-        replacement still owes the correction contract measured from the same review base."""
+        """A correction round whose gate failed is replaced within that round too, and the
+        replacement still owes the correction contract measured from the same review base: its
+        scope, its probe and its regression evidence."""
         first, red = self.correction_on_red()
         (self.repo / 'other.txt').write_text('a file no open finding names\n')
         self.commit('the correction, fixed, and a file beside it')

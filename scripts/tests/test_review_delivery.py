@@ -234,8 +234,9 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn('declared by the author as: code.txt:bot-thread', c.text('prompt'))
 
     def test_every_answer_given_on_the_command_line_is_recorded(self):
-        """A repeated --answers flag replaced the one before it, so a correction answering two
-        external findings recorded only the last and the scope rule measured it against one."""
+        """Every answer is recorded, whether --answers is repeated or given once with several
+        values: the scope rule measures the correction against all of them, and one keeping only
+        the last flag's would measure it against the last finding alone."""
         c = self.case
         self.enroll()
         c.complete()

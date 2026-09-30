@@ -287,8 +287,9 @@ class BaseBranchStartTests(FlowBench):
         self.assertEqual(state['base_branch'], 'origin/main')
 
     def test_a_branch_ref_that_holds_no_commit_names_no_branch(self):
-        """A remote-tracking ref pointing at a blob passed the namespace check alone, so start
-        froze a campaign whose base branch later failed in written_here() on ^{commit}."""
+        """A ref under refs/remotes/ may hold a blob, and written_here() reads the base branch as
+        a commit: start refuses a ref that does not peel to one, since a campaign frozen on it
+        would fail later on ^{commit}. A local branch holding a commit is still taken."""
         blob = subprocess.run(['git', 'hash-object', '-w', '--stdin'], cwd=self.repo, input='not a commit\n',
                               capture_output=True, text=True, check=True).stdout.strip()
         self.git('update-ref', 'refs/remotes/origin/base', blob)
