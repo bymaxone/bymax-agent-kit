@@ -34,7 +34,7 @@ class RemovalNoteTests(unittest.TestCase):
                 '`OLD_HELPER` has moved to `NEW_HELPER`.', '`OLD_HELPER` had moved to `NEW_HELPER`.',
                 '`OLD_HELPER` had been moved to `review_git.py`.', '`OLD_HELPER` helper has moved to `review_git.py`.',
                 '`OLD_HELPER` has been moved to `review_git.py`.',
-                # The name set in emphasis rather than as code.
+                # The name set in emphasis.
                 '**OLD_HELPER** was moved to `NEW_HELPER`.', '*OLD_HELPER* is now `NEW_HELPER`.',
                 '**`OLD_HELPER`** has moved to `review_git.py`.')
     # A clause naming the name with no removal word outside a quoted span asserts it.
@@ -56,7 +56,7 @@ class RemovalNoteTests(unittest.TestCase):
                # A noun outside the kinds names a part of the name, which stays live.
                '`OLD_HELPER` mode is now `FAST_MODE`.', '`OLD_HELPER` has moved to the top of the list.',
                '**OLD_HELPER** is now enabled by default.',
-               # A longer name that holds this one moves only itself.
+               # A hyphenated name that holds this one moves only itself.
                '`foo-OLD_HELPER` was moved to `review_git.py`.')
 
     def test_a_line_saying_the_name_is_gone_is_reported_not_refused(self):
