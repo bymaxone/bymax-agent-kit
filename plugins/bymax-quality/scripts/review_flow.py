@@ -504,7 +504,7 @@ def told_branch(args, old=None):
 
 def start(args, directory):
     """Freeze a full baseline, advance a campaign to a correction delta, or replace within its
-    round a candidate whose declared gate failed before any reviewer read it."""
+    round a candidate whose gate failed before any reviewer read it."""
     review_rules_notice()
     install_hook()
     head = clean_head()

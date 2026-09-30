@@ -1,4 +1,4 @@
-"""Regression layer: a candidate whose declared gate failed before any reviewer read it is replaced
+"""Regression layer: a candidate whose gate failed before any reviewer read it is replaced
 within its round, and every other candidate still needs both reviews before a new head."""
 import json
 from pathlib import Path

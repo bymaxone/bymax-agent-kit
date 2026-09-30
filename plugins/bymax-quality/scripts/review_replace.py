@@ -1,4 +1,4 @@
-"""Replacement layer: the candidate a fixed head becomes when the declared gate of the frozen one
+"""Replacement layer: the candidate a fixed head becomes when a gate of the frozen one
 failed before any reviewer read it, kept in the same round, and the scope refusal a correction
 and a replacement both raise.
 
@@ -45,7 +45,7 @@ def replaceable(old):
 
 
 def replacement(args, old, head, base, context, branch, *, evidence, widened):
-    """The candidate that replaces one its own declared gate failed, in the same round.
+    """The candidate that replaces one its own gate failed, in the same round.
 
     What belonged to the failed head — its checks, its reviews, its triage — is not kept, and
     the replaced head is listed so the history stays visible. The delta reviewers read starts at
