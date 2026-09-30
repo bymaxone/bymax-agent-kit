@@ -308,6 +308,17 @@ Some passages look like they could be trimmed and exist because the shorter form
 **Safe path:** a simplification of an instruction needs the same justification as a
 suppression — say what the longer form guarded against and why that no longer applies.
 
+### A test's docstring may name the failure it pins
+
+The shared rule flags a comment that narrates what a previous version did. A test's docstring is
+the exception: it states the failure the test exists to catch, and the plainest name for that
+failure is the shape it took — "a second Ctrl-C left the gate running". The sentence stays true for
+the next reader, since it is what the test fails on if the fix is undone: the measurement the shared
+rule keeps beside a constraint. The suite is written that way throughout. **Safe path:** a test's
+docstring may state its failure in the past tense, as long as it names the behaviour; a review
+round, a ticket or who found it named there is still a finding, and a comment in a source file stays
+under the shared rule.
+
 ### Trigger phrases in `Triggers:` lists may include Portuguese
 
 A `description`'s trigger list exists to match what a user actually types, and this

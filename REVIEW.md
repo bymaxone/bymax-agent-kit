@@ -52,6 +52,9 @@ preferences is how a one-line fix reaches its seventh round.
   (`scripts/tests/test_review_flow.py`), bundle drift (`validate-codex.sh`).
 - `CHANGELOG.md` wording, and the phrasing of refusal messages whose behaviour a test pins.
 - A missing test for prose. Prose is reviewed once; shell inside prose is tested instead.
+- A test's docstring that names, in the past tense, the failure its test pins (`AGENTS.md`, "A
+  test's docstring may name the failure it pins"). A review round, a ticket or a finder named there
+  is still a finding.
 
 ## Verification bar
 
