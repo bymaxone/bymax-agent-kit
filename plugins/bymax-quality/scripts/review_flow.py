@@ -1310,8 +1310,8 @@ def main():
             if args.action == 'prompt':
                 current(state)
                 task = prompt(state, directory)
-                # A task handed to a reader is a reading begun, counted like an adapter's attempt so
-                # a replacement refuses the candidate from here on.
+                # A task handed to a reader is a reading begun, so from here on a new head no longer
+                # replaces this candidate.
                 state['prompt_attempts'] = state.get('prompt_attempts', 0) + 1
                 save(directory, state)
                 print(task)

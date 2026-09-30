@@ -176,8 +176,8 @@ class ReplacementTests(FlowBench):
         self.assertIn('Complete both reviews', self.read_then_refused(dict(claude_attempts=1)))
 
     def test_a_candidate_handed_to_a_reader_is_not_replaced(self):
-        """The Claude pass hands `prompt`'s task to a subagent, which records no attempt of its own:
-        the task handed out is a reading, so a later red gate and a fixed commit need both reviews."""
+        """The task `prompt` hands out is a reading, so a later red gate and a fixed commit need
+        both reviews."""
         state = self.start()
         self.checks()
         self.text('prompt')
