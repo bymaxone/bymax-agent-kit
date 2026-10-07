@@ -53,6 +53,33 @@ class VendorSkillTests(unittest.TestCase):
         self.assertFalse((skills / ECC[0].name).is_symlink())
         self.assertEqual((skills / ECC[0].stem / 'SKILL.md').resolve(), ECC[0].resolve())
 
+    def test_an_entry_already_at_the_skill_path_is_replaced_without_writing_through_it(self):
+        """mkdir -p followed a symlink at skills/<name>, and the SKILL.md inside the directory it
+        pointed to was moved aside and replaced. A link at that path is removed and its target left
+        as it was; a file there is backed up; either way skills/<name> becomes a real directory."""
+        for case in ('link to a directory', 'broken link', 'regular file'):
+            with self.subTest(case=case):
+                home = self.scratch_home()
+                skills = home / '.claude/skills'
+                skills.mkdir(parents=True)
+                elsewhere = home / 'elsewhere'
+                elsewhere.mkdir()
+                (elsewhere / 'SKILL.md').write_text('theirs\n')
+                entry = skills / ECC[0].stem
+                if case == 'link to a directory':
+                    entry.symlink_to(elsewhere)
+                elif case == 'broken link':
+                    entry.symlink_to(home / 'missing')
+                else:
+                    entry.write_text('theirs\n')
+                self.install(home)
+                self.assertEqual(sorted(p.name for p in elsewhere.iterdir()), ['SKILL.md'])
+                self.assertEqual((elsewhere / 'SKILL.md').read_text(), 'theirs\n')
+                self.assertTrue(entry.is_dir() and not entry.is_symlink())
+                self.assertEqual((entry / 'SKILL.md').resolve(), ECC[0].resolve())
+                backups = [p for p in skills.iterdir() if p.name.startswith(entry.name + '.bak-')]
+                self.assertEqual([p.read_text() for p in backups], ['theirs\n'] if case == 'regular file' else [])
+
 
 if __name__ == '__main__':
     unittest.main()
