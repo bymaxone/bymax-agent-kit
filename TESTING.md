@@ -18,6 +18,7 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | Counter renewal after completed campaign, retry or archive | `scripts/tests/test_review_delivery.py` |
 | Codex-led Claude review fails or gains editing tools | Delivery tests capture real process argv, input diff and structured output |
 | Installer drops user configuration or omits runtime dependencies | `scripts/tests/test_review_install.py` and installed-runtime execution |
+| `scripts/install.sh` lays a vendored skill out where Claude Code never loads it | `scripts/tests/test_install_vendor.py` |
 | Codex misses staged/untracked changes or pins wrong revisions | `codex/tests/test_review_scope.py` |
 | Standup collector admits a harness-written line as a request, misses a worktree session, or loses a commit to git's `--since` cutoff | `scripts/tests/test_report_collect.py` |
 | Standup skill block reads another run's arguments, runs the collect with no temporary directory, or leaves a failed collect's directory behind | `scripts/tests/test_report_skill_block.py` |

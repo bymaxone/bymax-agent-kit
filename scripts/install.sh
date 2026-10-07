@@ -154,13 +154,26 @@ copy_once() {
 if [[ "${INCLUDE_VENDOR}" == true ]]; then
   log "Installing vendor (third-party MIT-licensed skills)"
 
+  # A personal skill is read only as ~/.claude/skills/<name>/SKILL.md: a loose <name>.md in
+  # skills/ is never loaded, so each file gets a directory of its own, and a loose link an
+  # earlier run of this script left there is removed.
   if [[ -d "${REPO_ROOT}/vendor/ecc-skills" ]]; then
     for f in "${REPO_ROOT}"/vendor/ecc-skills/*.md; do
       [[ -e "${f}" ]] || continue
       base="$(basename "${f}")"
       [[ "${base}" == "ATTRIBUTION.md" ]] && continue
       [[ "${base}" == "LICENSE" ]] && continue
-      link_one "${f}" "${TARGET}/skills/${base}"
+      name="${base%.md}"
+      if [[ "${DRY_RUN}" == true ]]; then
+        dry "mkdir -p ${TARGET}/skills/${name}"
+      else
+        mkdir -p "${TARGET}/skills/${name}"
+        if [[ -L "${TARGET}/skills/${base}" ]]; then
+          rm "${TARGET}/skills/${base}"
+          ok "removed loose link: ${TARGET}/skills/${base}"
+        fi
+      fi
+      link_one "${f}" "${TARGET}/skills/${name}/SKILL.md"
     done
   fi
 
