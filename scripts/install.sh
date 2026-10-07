@@ -154,13 +154,37 @@ copy_once() {
 if [[ "${INCLUDE_VENDOR}" == true ]]; then
   log "Installing vendor (third-party MIT-licensed skills)"
 
+  # A personal skill is read only as ~/.claude/skills/<name>/SKILL.md: a loose <name>.md in
+  # skills/ is never loaded, so each file gets a directory of its own, and a loose link an
+  # earlier run of this script left there is removed. skills/<name> must be a real directory
+  # before SKILL.md is linked into it: mkdir -p follows a symlink there, and link_one would then
+  # replace the SKILL.md of whatever directory it points to. So a symlink there is removed
+  # (its target untouched) and any other non-directory is backed up, as link_one does.
   if [[ -d "${REPO_ROOT}/vendor/ecc-skills" ]]; then
     for f in "${REPO_ROOT}"/vendor/ecc-skills/*.md; do
       [[ -e "${f}" ]] || continue
       base="$(basename "${f}")"
       [[ "${base}" == "ATTRIBUTION.md" ]] && continue
       [[ "${base}" == "LICENSE" ]] && continue
-      link_one "${f}" "${TARGET}/skills/${base}"
+      name="${base%.md}"
+      dir="${TARGET}/skills/${name}"
+      if [[ "${DRY_RUN}" == true ]]; then
+        dry "mkdir -p ${dir}"
+      else
+        if [[ -L "${dir}" ]]; then
+          rm "${dir}"
+          ok "removed link: ${dir}"
+        elif [[ -e "${dir}" && ! -d "${dir}" ]]; then
+          mv "${dir}" "${dir}.bak-${TIMESTAMP}"
+          ok "backed up: ${dir} (old → ${dir}.bak-${TIMESTAMP})"
+        fi
+        mkdir -p "${dir}"
+        if [[ -L "${TARGET}/skills/${base}" ]]; then
+          rm "${TARGET}/skills/${base}"
+          ok "removed loose link: ${TARGET}/skills/${base}"
+        fi
+      fi
+      link_one "${f}" "${dir}/SKILL.md"
     done
   fi
 
