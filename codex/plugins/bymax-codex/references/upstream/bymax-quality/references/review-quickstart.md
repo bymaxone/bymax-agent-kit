@@ -17,10 +17,9 @@ git status --short                                     # inspect what the reader
 The reader's edits are part of the candidate, so commit them before `start`: `start` reviews
 a clean tree. Run `verify` without the handoff and it certifies prose nobody read.
 
-Then choose how the campaign starts. A push request enrolls the branch in a delivery, six
-candidates shared across its pushes, and that enrollment is persistent: every later `start` on
-the branch stays in it. A standalone review does not enroll and keeps the three-candidate
-default.
+Then choose how the campaign starts. A push request enrolls the branch in a delivery whose
+candidate budget is shared across its pushes, and that enrollment is persistent: every later
+`start` on the branch stays in it. A standalone review does not enroll.
 
 ```bash
 FLOW="$HOME/.claude/bymax-review/review_flow.py"
