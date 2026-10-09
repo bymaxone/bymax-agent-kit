@@ -925,6 +925,9 @@ original base ({state['base']}), which is shown only to locate the work; record 
 with "Report scope mismatch", and on a correction round the two differ.
 Review diff: git diff {state['review_base']} {state['head']} --
 Round {state['round']}/{state.get('max_rounds', 3)}. Read surrounding code, callers, tests, and installed API contracts.
+When the diff changes a file the runtime copies somewhere and then keeps (an installed hook, a vendored or
+bundled copy), trace what an installation holding the previous version does with the new behaviour: replaced,
+or kept and refusing what the new runtime accepts. A reviewer reading only the diff cannot see that case.
 Context and acceptance contract:
 {state['context']}
 {archived_note(state)}

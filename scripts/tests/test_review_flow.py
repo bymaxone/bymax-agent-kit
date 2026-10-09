@@ -592,6 +592,13 @@ class ReviewFlowTests(FlowBench):
         # And the value the prompt names is the one record accepts, which is the whole claim.
         self.report('claude')
 
+    def test_the_reviewer_is_told_to_trace_an_installation_holding_the_previous_version(self):
+        """Both reviewers read only the diff and cleared a hook change that existing
+        installations would have refused; the question has to be in the task they are given."""
+        self.start()
+        self.checks()
+        self.assertIn('installation holding the previous version', self.text('prompt'))
+
     def test_a_standalone_campaign_stores_a_corrected_measurement_too(self):
         """The non-autonomous branch is the live default, not a corner: a campaign is autonomous
         only once enrolled, and main() does not write state after start. Without the `changed`
