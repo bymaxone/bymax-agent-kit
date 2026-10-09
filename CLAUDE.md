@@ -48,7 +48,9 @@ This file adds only what is specific to working here with Claude Code.
 ```
 
 Together they take longer than a ten-minute foreground command allows; run them in the
-background. A missing `claude`, `python3` or PyYAML is a red run, not a skipped check.
+background. Between a change and its commit, `BYMAX_TEST_ONLY=test_review_hook,test_review_claude_*
+./scripts/validate.sh` runs only the matching modules and exits 3 (never 0): it proves those
+modules, not the change, and the two full runs above stay the gate. A missing `claude`, `python3` or PyYAML is a red run, not a skipped check.
 
 ---
 
