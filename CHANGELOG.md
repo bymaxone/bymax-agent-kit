@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`BYMAX_TEST_ONLY` narrows `scripts/validate.sh` to the test modules a pattern names** — for the loop between a change and its commit. A narrowed run ends with exit status 3 and says it is partial, so it can never stand in for the full validation, and a pattern that matches no module fails instead of passing empty.
+
 ### Fixed
 
 - **`bymax-quality` 1.33.1 and `bymax-codex` 1.25.1 support reciprocal quota substitution** — runtime-confirmed Claude account exhaustion permits two independent fresh Codex reviews (`codex` and `codex-b`), with separate attempt budgets and reports. The pre-push hook still requires both completed reviews and quota evidence bound to the exact candidate, round, installed CLI and expiry; authentication errors, transient limits and incomplete reviews remain blocked.
