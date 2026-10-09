@@ -6,13 +6,18 @@ each step costs, for a candidate that is already committed on a clean tree.
 ```bash
 FLOW="$HOME/.claude/bymax-review/review_flow.py"
 CONTEXT="<outside the repository>/context.json"   # intent, acceptance, measured, checks
-BASE="$(git merge-base origin/main HEAD)"
+TARGET="<the verified base branch of this work>"     # resolved as code-review.md describes
+BASE="$(git merge-base "$TARGET" HEAD)"
 
 python3 "$FLOW" prose --base "$BASE" --stage prepare > "<outside the repository>/prose-task.txt"
 # Hand prose-task.txt to a fresh subagent that can edit; it corrects comments and markdown only.
 python3 "$FLOW" prose --base "$BASE" --stage verify    # refuses prose that grew or code that moved
 git status --short                                     # inspect what the reader left, then commit it
 ```
+
+`TARGET` is the branch this work merges into, read from the PR or the branch as the command
+file requires; an empty or failed `merge-base` ends the run, and no other base is guessed. When
+`prepare` prints no task the delta adds no prose, and `verify` has nothing to check.
 
 The reader's edits are part of the candidate, so commit them before `start`: `start` reviews
 a clean tree. Run `verify` without the handoff and it certifies prose nobody read.
@@ -24,7 +29,8 @@ candidate budget is shared across its pushes, and that enrollment is persistent:
 ```bash
 FLOW="$HOME/.claude/bymax-review/review_flow.py"
 CONTEXT="<outside the repository>/context.json"
-BASE="$(git merge-base origin/main HEAD)"
+TARGET="<the verified base branch of this work>"
+BASE="$(git merge-base "$TARGET" HEAD)"
 ENROLL="--autonomous"                                  # empty for a standalone review
 
 python3 "$FLOW" start $ENROLL --base "$BASE" --context "$CONTEXT"
