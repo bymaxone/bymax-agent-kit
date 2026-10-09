@@ -229,9 +229,8 @@ def matrix_run(args, directory, state):
 def failing_before_kept(directory, state, runnable):
     """failing_before, taken once for a candidate and read back for every later question.
 
-    It runs each node of every changed test file against the base's tree, which on this
-    repository's largest module is ten minutes, and start, prompt, both reviewers' tasks and
-    finish each ask it about the same candidate. The answer depends on the base, the head, the
+    It runs each node of every changed test file against the base's tree, which is slow, and
+    several commands ask it about the same candidate. The answer depends on the base, the head, the
     files asked and those files' bytes, so all of them are the key; any of them differing
     measures again. Only a completed measurement is stored, so a refusal is never replayed.
     """

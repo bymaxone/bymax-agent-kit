@@ -42,9 +42,8 @@ file no finding names. Tests and the generated bundle never count as widening.
 ## What is slow
 
 The regression measurement runs every node of a changed test file against the base tree. It
-is taken once per candidate and kept in the campaign directory, so `start`, `prompt`,
-`codex` and `finish` after the first read it back. The first one can take minutes on a large
-module; do not read that as a hang. `codex` also spends that time before it reserves an
+is taken once per candidate and kept in the campaign directory, so later commands read it
+back. The first one can take minutes on a large module; do not read that as a hang. `codex` also spends that time before it reserves an
 attempt, so no attempt is lost to a wait.
 
 ## What the push guard refuses

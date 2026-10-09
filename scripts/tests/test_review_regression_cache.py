@@ -44,7 +44,7 @@ class RegressionCacheTests(unittest.TestCase):
 
     def test_a_second_question_about_the_same_candidate_is_not_measured_again(self):
         """The measurement runs every node of the changed files against the base's tree, which
-        on a large module is ten minutes, and five commands ask it about one candidate."""
+        is slow, and several commands ask it about one candidate."""
         first = self.ask()
         second = self.ask()
         self.assertEqual(first, second)
