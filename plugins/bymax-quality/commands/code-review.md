@@ -19,7 +19,8 @@ this command recursively or start a Stop-hook review loop. `deep` widens risk an
 not the number of automatic review/correction rounds. `quick` focuses the same pair on
 correctness and security; it does not skip a reviewer.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/review-protocol.md` before running. It defines
+`${CLAUDE_PLUGIN_ROOT}/references/review-quickstart.md` lists the commands of a campaign in
+order, on one page. Read `${CLAUDE_PLUGIN_ROOT}/references/review-protocol.md` before running. It defines
 context capture, executable lifecycle commands, report/triage schemas, correction scope,
 and the exact conditions for a completed review. Its verification and scope rules take
 precedence over the generic checklist below. Read the target project's actual policies;
