@@ -571,6 +571,23 @@ class HookInstallTests(PrePushBench):
         self.assertIn('Claude this machine measured out of quota', str(refusal.exception))
         self.assertEqual(hook.read_bytes(), older)
 
+    def test_a_kept_hook_that_honours_expired_claude_quota_evidence_is_refused(self):
+        """Claude quota evidence is dated like a Codex waiver, and a kept hook may bound only
+        one of them. The Codex probes cannot see that, so the stale Claude receipt is shown to
+        the hook on its own."""
+        flow = self.modules()['review_hook']
+        hook = self.repo / '.git/hooks/pre-push'
+        bundle = FLOW.with_name('review_prepush.py').read_bytes()
+        clause = b'    if at > now + 60 or now - at > WAIVER_TTL:\n'
+        head, _, tail = bundle.partition(clause)  # the Claude check is declared first
+        self.assertEqual(bundle.count(clause), 2)
+        unbounded = head + b'    if at > now + 60:\n' + tail + b'\n# merged by hand\n'
+        hook.write_bytes(unbounded)
+        hook.chmod(0o755)
+        with self.assertRaises(ValueError) as refusal:
+            self.install(flow)
+        self.assertIn('Claude quota evidence is past the window', str(refusal.exception))
+
     def test_the_hook_shipped_before_the_claude_quota_receipt_is_replaced(self):
         """An untouched bundle from the release before is this campaign's own file, so start
         replaces it rather than leaving existing installations without the feature."""
