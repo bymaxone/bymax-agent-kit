@@ -7,7 +7,7 @@ each step costs, for a candidate that is already committed on a clean tree.
 FLOW="$HOME/.claude/bymax-review/review_flow.py"
 CONTEXT="<outside the repository>/context.json"   # intent, acceptance, measured, checks
 TARGETFILE="$(git rev-parse --git-dir)/bymax-push-default"   # first line: the verified base branch
-BASE="$(git merge-base "$(sed -n 1p "$TARGETFILE")" HEAD)"
+BASE="$(git merge-base -- "$(sed -n 1p "$TARGETFILE")" HEAD)"
 test -n "$BASE" || exit 1                              # no base, no campaign
 
 python3 "$FLOW" prose --base "$BASE" --stage prepare > "<outside the repository>/prose-task.txt"
@@ -33,7 +33,7 @@ candidate budget is shared across its pushes, and that enrollment is persistent:
 FLOW="$HOME/.claude/bymax-review/review_flow.py"
 CONTEXT="<outside the repository>/context.json"
 TARGETFILE="$(git rev-parse --git-dir)/bymax-push-default"
-BASE="$(git merge-base "$(sed -n 1p "$TARGETFILE")" HEAD)"
+BASE="$(git merge-base -- "$(sed -n 1p "$TARGETFILE")" HEAD)"
 test -n "$BASE" || exit 1
 ENROLL="--autonomous"                                  # empty for a standalone review
 
