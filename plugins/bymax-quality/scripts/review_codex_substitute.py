@@ -13,7 +13,7 @@ from review_prepush import resolve_codex
 
 
 def reserve(directory, flow, opening):
-    """Reserve one of two attempts against unchanged gates and the quota-bound candidate."""
+    """Reserve an attempt against unchanged gates and the quota-bound candidate."""
     with flow.locked(directory):
         state = flow.read_state(directory)
         flow.current(state)
