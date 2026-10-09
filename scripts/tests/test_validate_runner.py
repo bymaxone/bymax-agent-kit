@@ -29,6 +29,29 @@ def runner():
     return text[start:end]
 
 
+def summary():
+    """The lines of validate.sh that turn the counts into an exit status."""
+    text = (ROOT / 'scripts/validate.sh').read_text()
+    return text[text.index('echo\nif [[ "${errors}"'):]
+
+
+class SummaryTests(unittest.TestCase):
+    """The exit status a finished run reports, over the counts the runner leaves behind."""
+
+    def status(self, errors, partial):
+        script = ("GREEN=''; YELLOW=''; RED=''; NC=''\nerrors=%d\npartial='%s'\n" % (errors, partial)) + summary()
+        return subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=30).returncode
+
+    def test_a_partial_run_that_passes_exits_3_never_0(self):
+        self.assertEqual(self.status(0, 'PARTIAL: x'), 3)
+
+    def test_a_full_run_that_passes_exits_0(self):
+        self.assertEqual(self.status(0, ''), 0)
+
+    def test_a_partial_run_that_fails_exits_1(self):
+        self.assertEqual(self.status(2, 'PARTIAL: x'), 1)
+
+
 class RunnerTests(unittest.TestCase):
     """What the runner reports, over a directory of fixture modules."""
 
