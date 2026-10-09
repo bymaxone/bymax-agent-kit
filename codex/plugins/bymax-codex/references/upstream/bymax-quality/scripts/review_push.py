@@ -155,8 +155,8 @@ def sources(words):
 class MissingReceipt(ValueError):
     """The one refusal the review campaign can answer: a pushed commit without a usable receipt.
 
-    Every other refusal is about how the command is spelled, and finishing a review cannot
-    change that, so it must not tell the caller to run one.
+    Every other refusal is about the command's spelling or the repository's configuration,
+    and finishing a review cannot change either, so it must not tell the caller to run one.
     """
 
 
