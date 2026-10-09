@@ -38,7 +38,12 @@ test -n "$BASE" || exit 1
 ENROLL="--autonomous"                                  # empty for a standalone review
 
 python3 "$FLOW" start $ENROLL --base "$BASE" --base-branch-file "$TARGETFILE" --context "$CONTEXT"
-python3 "$FLOW" check -- <each gate the context names>  # before any reviewer reads
+python3 - "$FLOW" "$CONTEXT" <<'PY'                    # one check per declared gate, before any reviewer reads
+import json, subprocess, sys
+flow, context = sys.argv[1:3]
+for argv in json.load(open(context))['checks']:
+    subprocess.run(['python3', flow, 'check', '--', *argv], check=True)
+PY
 python3 "$FLOW" prompt > "<outside the repository>/prompt.txt"
 python3 "$FLOW" codex                                   # background; minutes
 # Claude pass: a fresh subagent given only prompt.txt, then

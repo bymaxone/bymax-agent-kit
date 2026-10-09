@@ -80,7 +80,7 @@
   "bymax-quality/hooks/secret-scanner.sh": "08758863c13c2e51955e62cac23db4d9fafe4ddfb20d3acf5e1c90641b423e6f",
   "bymax-quality/references/autonomous-delivery.md": "d598f0552b5925655eb43ccc8277760dfee9b329c22fbd40a055b0a6365ec4e6",
   "bymax-quality/references/review-protocol.md": "04711d31018eebb6f5164b6f9f274d08ddce883e2fb77a7fba130bc1fc5de216",
-  "bymax-quality/references/review-quickstart.md": "86bcb935b8d31a8f463341d441cb1e91057eb2e7a50918885a371e48aa590d02",
+  "bymax-quality/references/review-quickstart.md": "c89157f1cbb38d4d69d8b0c013ead79eaa701abfbeb24108f99335ac6701cc42",
   "bymax-quality/scripts/codex-review.sh": "514bf17cb6cb44be94acc3a274b72e26c18bc3a12e32b7269a0cd2832d045b7b",
   "bymax-quality/scripts/review-report.schema.json": "57ea49d9698c093fe1e25c7ca737dce3ac8f31e1fc745b45b0ddec0a21c15e25",
   "bymax-quality/scripts/review_claims.py": "6e2c0a47418f407fffe98432b2e30fad1dd6f015ca5391211a13c95af8abad1f",
