@@ -29,20 +29,45 @@ def runner():
     return text[start:end]
 
 
+def summary():
+    """The lines of validate.sh that turn the counts into an exit status."""
+    text = (ROOT / 'scripts/validate.sh').read_text()
+    return text[text.index('echo\nif [[ "${errors}"'):]
+
+
+class SummaryTests(unittest.TestCase):
+    """The exit status a finished run reports, over the counts the runner leaves behind."""
+
+    def status(self, errors, partial):
+        script = ("GREEN=''; YELLOW=''; RED=''; NC=''\nerrors=%d\npartial='%s'\n" % (errors, partial)) + summary()
+        return subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=30).returncode
+
+    def test_a_partial_run_that_passes_exits_3_never_0(self):
+        self.assertEqual(self.status(0, 'PARTIAL: x'), 3)
+
+    def test_a_full_run_that_passes_exits_0(self):
+        self.assertEqual(self.status(0, ''), 0)
+
+    def test_a_partial_run_that_fails_exits_1(self):
+        self.assertEqual(self.status(2, 'PARTIAL: x'), 1)
+
+
 class RunnerTests(unittest.TestCase):
     """What the runner reports, over a directory of fixture modules."""
 
-    def run_over(self, modules, jobs=None, timeout=120):
+    def run_over(self, modules, jobs=None, timeout=120, only=None, after=''):
         """Run the runner block in a fresh directory holding `modules`, with BYMAX_TEST_JOBS set to `jobs`."""
         where = Path(tempfile.mkdtemp())
         self.addCleanup(subprocess.run, ['rm', '-rf', str(where)])
         (where / 'scripts/tests').mkdir(parents=True)
         for name, text in modules.items():
             (where / 'scripts/tests' / name).write_text(text)
-        script = ("RED=''; NC=''\nfail() { echo \"FAIL $1\"; }\nok() { echo \"OK $1\"; }\n" + runner())
-        env = {k: v for k, v in os.environ.items() if k != 'BYMAX_TEST_JOBS'}
+        script = ("RED=''; NC=''\nfail() { echo \"FAIL $1\"; }\nok() { echo \"OK $1\"; }\n" + runner() + after)
+        env = {k: v for k, v in os.environ.items() if k not in ('BYMAX_TEST_JOBS', 'BYMAX_TEST_ONLY')}
         if jobs is not None:
             env['BYMAX_TEST_JOBS'] = jobs
+        if only is not None:
+            env['BYMAX_TEST_ONLY'] = only
         return subprocess.run(['bash', '-c', script], cwd=where, capture_output=True, text=True,
                               timeout=timeout, env=env)
 
@@ -83,6 +108,22 @@ class RunnerTests(unittest.TestCase):
         done = self.run_over({'test_a.py': PASSING, 'test_b.py': PASSING}, jobs='1')
         self.assertEqual(done.returncode, 0)
         self.assertEqual(reported(done), ['OK test_a: Ran 1 test', 'OK test_b: Ran 1 test'])
+
+    def test_a_narrowed_run_runs_only_the_matching_modules_and_says_it_is_partial(self):
+        """The loop between a change and its commit runs a few modules; what it proves is only
+        those, so the runner must leave a mark the summary turns into a non-zero status."""
+        done = self.run_over({'test_a.py': PASSING, 'test_b.py': FAILING, 'test_c.py': PASSING},
+                             only='test_a,test_c', after='\necho "PARTIAL=${partial}"\n')
+        self.assertEqual(reported(done), ['OK test_a: Ran 1 test', 'OK test_c: Ran 1 test',
+                                          "PARTIAL=PARTIAL: only modules matching 'test_a,test_c' ran"])
+
+    def test_a_narrowing_that_matches_nothing_fails_rather_than_passing_empty(self):
+        done = self.run_over({'test_a.py': PASSING}, only='test_zzz*')
+        self.assertEqual(reported(done), ['FAIL no test module ran'])
+
+    def test_an_unnarrowed_run_leaves_no_partial_mark(self):
+        done = self.run_over({'test_a.py': PASSING}, after='\necho "PARTIAL=[${partial}]"\n')
+        self.assertIn('PARTIAL=[]', done.stdout)
 
 
 if __name__ == '__main__':

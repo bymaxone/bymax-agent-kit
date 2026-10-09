@@ -200,6 +200,16 @@ if [[ ! "${test_jobs}" =~ ^[1-9][0-9]*$ ]]; then
   printf "${RED}BYMAX_TEST_JOBS must be a positive integer, got '%s'.${NC}\n" "${test_jobs}" >&2
   exit 1
 fi
+# BYMAX_TEST_ONLY narrows the run to modules whose name matches one of its comma-separated
+# patterns, for the loop between a change and its candidate commit. It proves only the modules
+# it ran, so a run that uses it ends with exit status 3, never 0: the full run stays the gate.
+test_only="${BYMAX_TEST_ONLY:-}"
+partial=""
+selected() {
+  [[ -n "${test_only}" ]] || return 0
+  python3 -c 'import fnmatch, sys; name = sys.argv[1]; sys.exit(not any(fnmatch.fnmatchcase(name, p) for p in sys.argv[2].split(",") if p))' \
+    "$(basename "$1" .py)" "${test_only}"
+}
 test_logs="$(mktemp -d)"
 run_module() {
   local name
@@ -219,6 +229,7 @@ importable() {
 for module in scripts/tests/test*.py; do
   [[ -e "${module}" ]] || continue
   importable "${module}" || continue
+  selected "${module}" || continue
   # Polled rather than `wait -n`, which the bash macOS ships (3.2) does not have.
   while [[ "$(jobs -rp | wc -l)" -ge "${test_jobs}" ]]; do sleep 0.2; done
   run_module "${module}" &
@@ -235,6 +246,7 @@ for log in "${test_logs}"/*.log; do
   fi
 done
 [[ -n "$(ls "${test_logs}"/*.log 2>/dev/null)" ]] || fail "no test module ran"
+[[ -z "${test_only}" ]] || partial="PARTIAL: only modules matching '${test_only}' ran"
 rm -rf "${test_logs}"
 
 # ---------------------------------------------------------------------------
@@ -242,7 +254,10 @@ rm -rf "${test_logs}"
 # ---------------------------------------------------------------------------
 
 echo
-if [[ "${errors}" -eq 0 ]]; then
+if [[ "${errors}" -eq 0 && -n "${partial}" ]]; then
+  printf "${YELLOW}⚠ ${partial}. This is not a validation; run without BYMAX_TEST_ONLY.${NC}\n"
+  exit 3
+elif [[ "${errors}" -eq 0 ]]; then
   printf "${GREEN}✓ All validations passed.${NC}\n"
   exit 0
 else

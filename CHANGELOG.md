@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`BYMAX_TEST_ONLY` narrows `scripts/validate.sh` to the test modules a pattern names** — for the loop between a change and its commit. A narrowed run ends with exit status 3 and says it is partial, so it can never stand in for the full validation, and a pattern that matches no module fails instead of passing empty.
+
 ### Fixed
 
 - **`bymax-quality` 1.33.2 and `bymax-codex` 1.25.2 say how to run a read the push guard refuses** — a line holding a path that spells `push` (such as `hooks/pre-push`) and a program able to start another, `git` among them, is refused by design; the message promised that naming a token is never refused and now tells the caller to run the read as its own command. Only a push whose commit lacks a usable receipt is told to run a review and retry the push; a refusal about how a command is spelled no longer is, since finishing a review cannot change that.
