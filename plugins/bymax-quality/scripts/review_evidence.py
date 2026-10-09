@@ -2,6 +2,7 @@
 mutation matrix a correction that changes a test must carry, bound to the candidate it
 measured and never to what an author said about it."""
 import contextlib
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -225,6 +226,34 @@ def matrix_run(args, directory, state):
                                 list(args.paths), out=str(where))
 
 
+def failing_before_kept(directory, state, runnable):
+    """failing_before, taken once for a candidate and read back for every later question.
+
+    It runs each node of every changed test file against the base's tree, which on this
+    repository's largest module is ten minutes, and start, prompt, both reviewers' tasks and
+    finish each ask it about the same candidate. The answer depends on the base, the head, the
+    files asked and those files' bytes, so all of them are the key; any of them differing
+    measures again. Only a completed measurement is stored, so a refusal is never replayed.
+    """
+    root = git('rev-parse', '--show-toplevel')
+    changed = sorted(state['regression_tests'])
+    digests = {name: hashlib.sha256(Path(root, name).read_bytes()).hexdigest()
+               for name in changed if Path(root, name).is_file()}
+    key = dict(base=state['review_base'], head=state['head'], changed=changed,
+               names=sorted(runnable), digests=digests)
+    where = directory / ('failing-before-' + state['head'] + '.json')
+    try:
+        kept = json.loads(where.read_text())
+    except (OSError, ValueError):
+        kept = None
+    if isinstance(kept, dict) and kept.get('key') == key \
+            and isinstance(kept.get('before'), list) and isinstance(kept.get('unread'), list):
+        return kept['before'], kept['unread']
+    before, unread = failing_before(state['review_base'], state['regression_tests'], runnable)
+    where.write_text(json.dumps(dict(key=key, before=before, unread=unread)))
+    return before, unread
+
+
 def matrix_first(state, directory):
     """A correction that changes a test must carry a measured matrix, not a claim of one.
 
@@ -267,7 +296,7 @@ def matrix_first(state, directory):
     results_agree(kept, names)
     import review_matrix
     added = tests_added(state['review_base'], runnable)
-    before, unread = failing_before(state['review_base'], state['regression_tests'], runnable)
+    before, unread = failing_before_kept(directory, state, runnable)
     demanded = sorted(set(added) | set(before))
     caught_with_the_changed_test(kept, review_matrix.ran_alone(git('rev-parse', '--show-toplevel'), demanded))
     # The files whose nodes did run there, so the note can tell "every node passed" from "none ran".
