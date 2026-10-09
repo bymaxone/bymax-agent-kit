@@ -10,7 +10,10 @@ one Claude review and one independent Codex review. Where this machine has no Co
 run — none installed, or an account with nothing left to spend — the runtime's own probe
 waives it and the second reviewer becomes `claude-b`, a fresh-context Claude pass that
 shares nothing with the first; the campaign never drops to a single reading, and a missing
-Codex never blocks a push. See **When Codex cannot run** in the protocol. The Claude review
+Codex never blocks a push. Reciprocally, runtime-confirmed Claude quota exhaustion selects
+`codex` plus `codex-b`, two independent fresh-context Codex sessions. Login failures,
+transient limits and incomplete reviews are never waived. See **When Codex cannot run**
+and **When Claude quota is exhausted** in the protocol. The Claude review
 is this command's read-only pass; do not additionally invoke the built-in `/code-review`. Never invoke
 this command recursively or start a Stop-hook review loop. `deep` widens risk analysis,
 not the number of automatic review/correction rounds. `quick` focuses the same pair on

@@ -10,6 +10,16 @@ import unittest
 import test_review_flow as fixtures
 
 
+def fake_claude_argv(*args):
+    """Run the adapter against the fixture PATH, never an installed canonical Claude binary."""
+    script = ('import sys; sys.path.insert(0, %r)\n'
+              'import review_prepush; review_prepush.CLAUDE_LOCATIONS = ()\n'
+              'import review_flow\n'
+              'sys.argv = ["review_flow.py", *sys.argv[1:]]\n'
+              'review_flow.cli()\n' % str(fixtures.FLOW.parent))
+    return [sys.executable, '-c', script, *args]
+
+
 class DeliveryTests(unittest.TestCase):
     """Drive public commands against isolated repositories without calling real models."""
 
@@ -319,7 +329,7 @@ class DeliveryTests(unittest.TestCase):
         self.enroll()
         c.checks()
         env, _ = self.fake_claude(dict(structured_output={}, is_error=False))
-        run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude', '--as', 'claude-b'],
+        run = subprocess.run(fake_claude_argv('claude', '--as', 'claude-b'),
                              cwd=c.repo, env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(run.returncode, 2, run.stdout)
         self.assertIn('no valid waiver', run.stderr)
@@ -327,7 +337,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(state.get('claude_b_attempts', 0), 0)
         self.assertNotIn('claude-b', state['reviews'])
         # The first pass is unaffected: only the substitute needs a waiver behind it.
-        run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
+        run = subprocess.run(fake_claude_argv('claude'), cwd=c.repo,
                              env=env, capture_output=True, text=True, timeout=30)
         self.assertNotIn('no valid waiver', run.stderr)
         self.assertEqual(c.flow('status').get('claude_attempts', 0), 1)
@@ -346,7 +356,7 @@ class DeliveryTests(unittest.TestCase):
         c = self.case
         self.enroll()
         env, _ = self.fake_claude(dict(structured_output={}, is_error=False))
-        run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
+        run = subprocess.run(fake_claude_argv('claude'), cwd=c.repo,
                              env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(run.returncode, 2, run.stdout)
         self.assertIn('have not run on this candidate', run.stderr)
@@ -361,7 +371,7 @@ class DeliveryTests(unittest.TestCase):
                       summary='Inspected fixture', findings=[], resolutions=[])
         env, capture = self.fake_claude(dict(structured_output=report, is_error=False))
         c.checks()
-        run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
+        run = subprocess.run(fake_claude_argv('claude'), cwd=c.repo,
                              env=env, capture_output=True, text=True, timeout=10)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(c.flow('status')['reviews']['claude'], report)
@@ -384,7 +394,7 @@ class DeliveryTests(unittest.TestCase):
         env, _ = self.fake_claude(dict(structured_output={'status': 'incomplete'}))
         for _ in range(3):
             c.checks()
-            run = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
+            run = subprocess.run(fake_claude_argv('claude'), cwd=c.repo,
                                  env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(run.returncode, 2)
         state = c.flow('status')
@@ -406,14 +416,14 @@ class DeliveryTests(unittest.TestCase):
                                 f'while not pathlib.Path({str(release)!r}).exists(): time.sleep(0.01)\nprint(', 1)
         binary.write_text(source)
         c.checks()
-        process = subprocess.Popen([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
+        process = subprocess.Popen(fake_claude_argv('claude'), cwd=c.repo,
                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             deadline = time.monotonic() + 5
             while not ready.exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
             self.assertTrue(ready.exists())
-            duplicate = subprocess.run([sys.executable, str(fixtures.FLOW), 'claude'], cwd=c.repo,
+            duplicate = subprocess.run(fake_claude_argv('claude'), cwd=c.repo,
                                        env=env, capture_output=True, text=True, timeout=5)
             self.assertEqual(duplicate.returncode, 2)
             self.assertIn('already running', duplicate.stderr)

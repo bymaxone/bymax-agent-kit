@@ -553,6 +553,47 @@ class HookInstallTests(PrePushBench):
         self.assertIn('waiver', str(refusal.exception).lower())
         self.assertEqual(hook.read_bytes(), shorter)
 
+    def test_a_kept_hook_that_predates_the_claude_quota_receipt_is_refused(self):
+        """A hook left by the release before the Claude quota substitution requires claude and
+        codex, so it rejects the codex + codex-b receipt the runtime now clears. Kept as is it
+        would refuse that push in silence, after a campaign spent its rounds; the probe shows
+        it the receipt shape and refuses it at start."""
+        flow = self.modules()['review_hook']
+        hook = self.repo / '.git/hooks/pre-push'
+        bundle = FLOW.with_name('review_prepush.py').read_bytes()
+        older = bundle.replace(b"        return {'codex', 'codex-b'}\n", b"        return {'claude', 'codex'}\n")
+        self.assertNotEqual(older, bundle)
+        older += b'\n# merged by hand\n'
+        hook.write_bytes(older)
+        hook.chmod(0o755)
+        with self.assertRaises(ValueError) as refusal:
+            self.install(flow)
+        self.assertIn('Claude this machine measured out of quota', str(refusal.exception))
+        self.assertEqual(hook.read_bytes(), older)
+
+    def test_a_kept_hook_that_honours_expired_claude_quota_evidence_is_refused(self):
+        """Claude quota evidence is dated like a Codex waiver, and a kept hook may bound only
+        one of them. The Codex probes cannot see that, so the stale Claude receipt is shown to
+        the hook on its own."""
+        flow = self.modules()['review_hook']
+        hook = self.repo / '.git/hooks/pre-push'
+        bundle = FLOW.with_name('review_prepush.py').read_bytes()
+        clause = b'    if at > now + 60 or now - at > WAIVER_TTL:\n'
+        head, _, tail = bundle.partition(clause)  # the Claude check is declared first
+        self.assertEqual(bundle.count(clause), 2)
+        unbounded = head + b'    if at > now + 60:\n' + tail + b'\n# merged by hand\n'
+        hook.write_bytes(unbounded)
+        hook.chmod(0o755)
+        with self.assertRaises(ValueError) as refusal:
+            self.install(flow)
+        self.assertIn('Claude quota evidence is past the window', str(refusal.exception))
+
+    def test_the_hook_shipped_before_the_claude_quota_receipt_is_replaced(self):
+        """An untouched bundle from the release before is this campaign's own file, so start
+        replaces it rather than leaving existing installations without the feature."""
+        flow = self.modules()['review_hook']
+        self.assertIn('75fc8870c63073d3c9446110acc81b0d45c35dfd2d8c7d4357356d61e3c3906d', flow.SUPERSEDED)
+
     def test_a_kept_hook_that_resolves_this_machine_differently_is_refused(self):
         """A kept hook that computes the Codex name differently refuses every real waived push,
         because the receipt the runtime writes names the other path. The waived probe catches

@@ -23,7 +23,8 @@ from review_run import run_gate
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
-from review_prepush import explain, reviewers_needed, satisfied, waiver_ok
+from review_prepush import (explain, reviewers_needed, satisfied, waiver_ok,
+                            claude_waiver_ok, claude_substitution_ok)
 
 POLICY = 2
 # Seconds a declared gate may run before `check` stops it and records no exit status.
@@ -587,7 +588,8 @@ def review_range(directory):
 # finding on a real file under a codex/ directory can never be mistaken for one.
 SEPARATOR = '::'
 SUBSTITUTE = 'claude-b'
-REVIEWERS = ('claude' + SEPARATOR, SUBSTITUTE + SEPARATOR, 'codex' + SEPARATOR)
+CLAUDE_SUBSTITUTE = 'codex-b'
+REVIEWERS = tuple(name + SEPARATOR for name in ('claude', SUBSTITUTE, 'codex', CLAUDE_SUBSTITUTE))
 
 
 def key(reviewer, finding_id):
@@ -811,6 +813,11 @@ def archived_note(state):
 
 def waiver_note(state):
     """Name the substitute a receipt rests on, or say why a recorded waiver no longer holds."""
+    if claude_substitution_ok(state):
+        return (' Claude quota was measured by the runtime; the second review is codex-b, '
+                'a fresh independent Codex session on the same committed diff.')
+    if state.get('claude_waiver'):
+        return ' ' + explain(state)
     waiver = state.get('codex_waiver')
     if not waiver:
         return ''
@@ -822,7 +829,11 @@ def waiver_note(state):
 
 
 def substitute_note(state):
-    """Tell a reviewer when it is one of two Claude passes standing in for Codex."""
+    """Disclose a same-provider pair without sharing one reviewer's findings with the other."""
+    if claude_substitution_ok(state):
+        return ('Claude could not review this candidate because its account quota was exhausted. '
+                'Two independent fresh-context Codex passes review the same diff instead. '
+                'Neither is the author or sees the other pass findings. Assume no coverage from the other pass.')
     if not waiver_ok(state.get('codex_waiver')):
         return ''
     return ('This candidate could not be given to Codex (' + state['codex_waiver']['reason'] + '), so it is '
@@ -971,7 +982,10 @@ def substitute_allowed(state, reviewer):
     attempt on a refusal no reviewer ever saw; answering it twice in two places would be worse,
     because the copy that drifts is the one nobody reads.
     """
-    require(reviewer != SUBSTITUTE or waiver_ok(state.get('codex_waiver')),
+    require(reviewer != CLAUDE_SUBSTITUTE or claude_substitution_ok(state),
+            'codex-b requires current runtime-measured Claude quota evidence on this head and round.')
+    require(reviewer != SUBSTITUTE or (waiver_ok(state.get('codex_waiver'))
+            and not claude_waiver_ok(state.get('claude_waiver'))),
             SUBSTITUTE + ' stands in for a Codex the runtime could not run, and no valid waiver '
             'covers this candidate. A waiver is evidence about one candidate, so the one from the '
             'previous round does not carry: run `review_flow.py codex` again on THIS head and let '
@@ -1029,6 +1043,8 @@ def record(args, directory, state):
     require(args.reviewer not in state['reviews'], 'Reviewer already recorded for this candidate; reuse it.')
     substitute_allowed(state, args.reviewer)
     state['reviews'][args.reviewer] = report
+    if args.reviewer == 'claude':
+        state.pop('claude_waiver', None)
     if args.reviewer == 'codex':
         # Codex reviewed after all — credits returned, or a report was obtained elsewhere.
         # The real reviewer replaces the reason it was missing, so the receipt names it.
@@ -1225,6 +1241,17 @@ def prose_base(args, directory, head):
     return git('rev-parse', '--verify', args.base + '^{commit}')
 
 
+def reviewer_parsers(sub):
+    """Declare both provider adapters and quota-bound substitute report identities."""
+    cod = sub.add_parser('codex')
+    cod.add_argument('--as', dest='reviewer', choices=('codex', CLAUDE_SUBSTITUTE), default='codex')
+    pas = sub.add_parser('claude')
+    pas.add_argument('--as', dest='reviewer', choices=('claude', SUBSTITUTE), default='claude',
+                     help='Which Claude pass this run is: the first, or the substitute for a waived Codex.')
+    rec = sub.add_parser('record')
+    rec.add_argument('--reviewer', choices=('claude', SUBSTITUTE, 'codex', CLAUDE_SUBSTITUTE), required=True)
+    rec.add_argument('--report', required=True)
+
 def parser():
     """Define the small explicit campaign lifecycle CLI."""
     cli = argparse.ArgumentParser(description=__doc__)
@@ -1254,14 +1281,9 @@ def parser():
                        help='After a cleared candidate: the external findings this correction answers.')
     begin.add_argument('--extend-delivery', default='',
                        help='Continue past a spent delivery budget: who authorised it, and why.')
-    for action in ('status', 'prompt', 'finish', 'codex', 'codex-check', 'range', 'lessons'):
+    for action in ('status', 'prompt', 'finish', 'codex-check', 'range', 'lessons'):
         sub.add_parser(action)
-    pas = sub.add_parser('claude')
-    pas.add_argument('--as', dest='reviewer', choices=('claude', SUBSTITUTE), default='claude',
-                     help='Which Claude pass this run is: the first, or the substitute for a waived Codex.')
-    rec = sub.add_parser('record')
-    rec.add_argument('--reviewer', choices=('claude', SUBSTITUTE, 'codex'), required=True)
-    rec.add_argument('--report', required=True)
+    reviewer_parsers(sub)
     tri = sub.add_parser('triage')
     tri.add_argument('--report', required=True)
     gate = sub.add_parser('check')
@@ -1277,6 +1299,23 @@ def parser():
     return cli
 
 
+def review_action(args, directory):
+    """Dispatch fresh read-only provider sessions without editing the shipping candidate."""
+    if args.action == 'claude':
+        import review_claude
+        print(json.dumps(review_claude.run(directory, sys.modules[__name__], args.reviewer), indent=2))
+        return True
+    if args.action == 'codex':
+        if args.reviewer == CLAUDE_SUBSTITUTE:
+            from review_codex_substitute import run
+            state = run(directory, sys.modules[__name__])
+        else:
+            state = codex_review(directory, sys.modules[__name__])
+        print(json.dumps(state, indent=2))
+        return True
+    return False
+
+
 def main():
     """Run a serialized operation and surface actionable failures."""
     args = parser().parse_args()
@@ -1284,12 +1323,7 @@ def main():
         print(json.dumps(codex_check(), indent=2))
         return
     directory = location()
-    if args.action == 'claude':
-        import review_claude
-        print(json.dumps(review_claude.run(directory, sys.modules[__name__], args.reviewer), indent=2))
-        return
-    if args.action == 'codex':
-        print(json.dumps(codex_review(directory, sys.modules[__name__]), indent=2))
+    if review_action(args, directory):
         return
     if args.action == 'range':
         print(review_range(directory))

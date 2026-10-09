@@ -20,6 +20,16 @@ import review_git
 FLOW = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
 
 
+def fake_claude_argv(*args):
+    """Run the adapter against the fixture PATH, never an installed canonical Claude binary."""
+    script = ('import sys; sys.path.insert(0, %r)\n'
+              'import review_prepush; review_prepush.CLAUDE_LOCATIONS = ()\n'
+              'import review_flow\n'
+              'sys.argv = ["review_flow.py", *sys.argv[1:]]\n'
+              'review_flow.cli()\n' % str(FLOW.parent))
+    return [sys.executable, '-c', script, *args]
+
+
 class QuotedTestPathTests(unittest.TestCase):
     """Git quotes a non-ASCII path it prints one to a line, and every reader of changed tests
     matched the quoted spelling against real ones: tests/test_café.py was no test."""
@@ -148,7 +158,7 @@ class NotUtf8Tests(unittest.TestCase):
         binary.chmod(0o755)
         env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'])
         env.pop('CLAUDECODE', None)
-        run = subprocess.run([sys.executable, str(FLOW), 'claude'], cwd=bench.repo, env=env,
+        run = subprocess.run(fake_claude_argv('claude'), cwd=bench.repo, env=env,
                              capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn(b'+caf\\xe9\n', capture.read_bytes())

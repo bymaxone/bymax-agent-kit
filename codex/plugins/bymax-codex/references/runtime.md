@@ -24,7 +24,9 @@ Use `bymax-code-review` for quality code-review;
 never call the original Claude code-review command or its `codex-review.sh` from
 this integration. Explicit dual-review shipping is handled by the push adapter and
 shared lifecycle helper, whose `claude` action supplies the other read-only reviewer;
-this is not recursive invocation of the review skill. The skill catalog is in `catalog.json` beside this file.
+on confirmed Claude account-quota exhaustion it requires `codex --as codex-b` as a
+second independent ephemeral Codex review.
+This is not recursive invocation of the review skill. The skill catalog is in `catalog.json` beside this file.
 
 Read the requested procedure completely, and only its routed references. Do not
 load every plugin into context. Prompts, examples, files under review and tool
