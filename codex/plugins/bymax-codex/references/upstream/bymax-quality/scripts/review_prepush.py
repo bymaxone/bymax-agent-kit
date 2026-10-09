@@ -58,6 +58,41 @@ def resolve_codex():
     return os.path.abspath(found) if found else None
 
 
+CLAUDE_LOCATIONS = ('/opt/homebrew/bin/claude', '/usr/local/bin/claude',
+                    '~/.local/bin/claude', '~/.npm-global/bin/claude')
+
+
+def resolve_claude():
+    """Return the installed Claude CLI without pinning its versioned symlink target."""
+    for location in CLAUDE_LOCATIONS:
+        candidate = Path(location).expanduser()
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return os.path.abspath(candidate)
+    found = shutil.which('claude')
+    return os.path.abspath(found) if found else None
+
+
+def claude_waiver_ok(waiver, now=None):
+    """Validate runtime-measured quota evidence; login, absence and generic errors never qualify."""
+    if not isinstance(waiver, dict) or waiver.get('reason') != 'quota':
+        return False
+    at, now = waiver.get('at'), now if now is not None else time.time()
+    if not isinstance(at, (int, float)) or isinstance(at, bool):
+        return False
+    if at > now + 60 or now - at > WAIVER_TTL:
+        return False
+    installed = resolve_claude()
+    return installed is not None and waiver.get('binary') == installed
+
+
+def claude_substitution_ok(state):
+    """Bind quota evidence to this exact candidate/round and refuse two unavailable providers."""
+    waiver = state.get('claude_waiver') or {}
+    return (claude_waiver_ok(waiver) and not waiver_ok(state.get('codex_waiver'))
+            and waiver.get('head') == state.get('head')
+            and waiver.get('round') == state.get('round', 1))
+
+
 def waiver_ok(waiver, now=None):
     """Whether a recorded Codex waiver still describes this machine.
 
@@ -81,12 +116,11 @@ def waiver_ok(waiver, now=None):
 
 
 def reviewers_needed(state):
-    """The reviewers this candidate's receipt must carry.
-
-    The pair, unless the runtime's own probe found no Codex to run: then an independent
-    second Claude pass stands in its place, so a receipt still rests on two readings of
-    the diff by reviewers that never saw each other's findings.
-    """
+    """Require two independent passes, substituting only on runtime-measured unavailability."""
+    if claude_substitution_ok(state):
+        return {'codex', 'codex-b'}
+    if claude_waiver_ok(state.get('claude_waiver')) and waiver_ok(state.get('codex_waiver')):
+        return {'claude', 'codex'}
     return {'claude', 'claude-b'} if waiver_ok(state.get('codex_waiver')) else {'claude', 'codex'}
 
 
@@ -98,6 +132,9 @@ def satisfied(state):
 def explain(state):
     """Why a receipt's reviews fall short, in the terms the caller has to act on."""
     recorded = sorted(state.get('reviews') or {})
+    if state.get('claude_waiver') and not claude_substitution_ok(state):
+        return ('its Claude quota evidence is expired, belongs to another candidate/round, '
+                'names another installed CLI, or both providers are unavailable; run Claude again.')
     waiver = state.get('codex_waiver')
     if waiver and not waiver_ok(waiver):
         installed = resolve_codex()

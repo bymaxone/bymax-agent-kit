@@ -226,6 +226,29 @@ Report the waiver to the user in the campaign's result — which reviewer was mi
 and that the second reading came from `claude-b`. `python3 "$FLOW" codex-check` prints what
 the probe sees at any time, spending neither an attempt nor a token.
 
+## When Claude quota is exhausted
+
+Only the runtime's own `claude` invocation can establish exhausted account quota.
+An anchored CLI quota error or an actual `is_error` result records `claude_waiver`;
+review prose, a caller's claim, login failure, missing CLI, transient 429, timeout,
+crash, command budget limits and incomplete output never authorize substitution.
+The adapter keeps its two-attempt budget and does not manufacture a Claude report.
+
+```bash
+python3 "$FLOW" claude                    # runtime detects actual exhausted quota
+python3 "$FLOW" codex                     # ordinary independent Codex review
+python3 "$FLOW" codex --as codex-b        # second independent ephemeral Codex session
+```
+
+The required pair becomes `codex` and `codex-b`. The second pass has its own lock,
+attempt budget and report file. Neither pass is the implementer or sees the other's
+findings. The hook checks the quota evidence against this HEAD and round, installed
+Claude binary and a 24-hour window. If both providers are unavailable, no substitution
+can clear the candidate. A real completed Claude report removes its waiver and restores
+the normal pair. Every correction needs its own evidence; old candidate waivers do not
+carry forward. Describe the same-provider pair and its reason in the final report.
+
+
 ## The reviewer on a decisive round
 
 Most rounds get the standing Codex model. Three do not, and the runtime decides which from

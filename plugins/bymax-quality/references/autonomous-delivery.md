@@ -114,6 +114,11 @@ helper and lifecycle. Record the independent Codex report from a fresh context a
 `review_flow.py claude` for the other side (or run both helper reviewers from the parent).
 The Claude adapter exposes only Read/Grep/Glob, supplies the exact committed diff,
 disables skills/hooks/MCP in that child, and accepts only matching structured output.
+When that `claude` action reports runtime-confirmed exhausted account quota, continue
+with `codex` and `codex --as codex-b`: two independent fresh ephemeral Codex sessions,
+not the implementer's report relabeled Claude. The quota-bound waiver and both completed
+reports remain mandatory for the hook. Login errors, transient failures and unavailable
+Codex do not authorize this replacement. Disclose the same-provider pair to the user.
 A standalone Codex code-review remains single-reviewer and never manufactures a receipt.
 
 ## Official guidance checked
