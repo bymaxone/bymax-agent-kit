@@ -365,7 +365,13 @@ class ReviewFlowTests(FlowBench):
         self.start()
         self.complete()
         result = self.push('shasum .git/hooks/pre-push; git log -1', ok=False)
-        self.assertIn('as its own command', result.stderr)
+        self.assertTrue(result.stderr.startswith('BLOCKED: That would disable or redirect'), result.stderr)
+        self.assertIn('run the read as its own command', result.stderr)
+        # Finishing a review cannot change how a command is spelled, so a refusal about spelling
+        # must not send the caller to one, nor ask it to retry a push that was never requested.
+        self.assertNotIn('AUTOMATIC CONTINUATION', result.stderr)
+        spelled = self.push('git -c core.hooksPath=/dev/null push origin HEAD', ok=False)
+        self.assertNotIn('AUTOMATIC CONTINUATION', spelled.stderr)
 
     def test_a_disarming_option_is_still_refused_wherever_it_appears(self):
         """The scan did not get weaker: it got a precondition. Every shape that could reach a

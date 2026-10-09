@@ -152,6 +152,14 @@ def sources(words):
     return positional[0], [s.split(':')[0] for s in specs]
 
 
+class MissingReceipt(ValueError):
+    """The one refusal the review campaign can answer: a pushed commit without a usable receipt.
+
+    Every other refusal is about how the command is spelled, and finishing a review cannot
+    change that, so it must not tell the caller to run one.
+    """
+
+
 def approved(cwd, source):
     """Look up only the exact pushed commit, never another linked worktree tip."""
     sha = git(cwd, 'rev-parse', '--verify', source + '^{commit}')
@@ -167,9 +175,10 @@ def approved(cwd, source):
             continue
         # Same predicate the hook applies, including the fresh probe behind a Codex waiver:
         # this adapter exists to report the refusal usefully, never to reach a softer verdict.
-        require(satisfied(state), 'The receipt for ' + sha[:12] + ' cannot clear this push: ' + explain(state))
+        if not satisfied(state):
+            raise MissingReceipt('The receipt for ' + sha[:12] + ' cannot clear this push: ' + explain(state))
         return
-    raise ValueError('No completed review for pushed commit ' + sha[:12])
+    raise MissingReceipt('No completed review for pushed commit ' + sha[:12])
 
 
 def main():
@@ -194,11 +203,14 @@ def cli():
     try:
         main()
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
-        print('BLOCKED: ' + str(error) + '\nAUTOMATIC CONTINUATION: the authorized push is pending. '
-              'Run /bymax-quality:code-review using start --autonomous, reuse evidence, complete both '
-              'reviewers, triage proven blockers, run gates and finish. Retry the original push destination/refspec. '
-              'Do not ask whether to review or continue ordinary verified corrections. Keep the original scope '
-              'and six-candidate delivery budget; never bypass a real blocker or disable this hook.', file=sys.stderr)
+        message = 'BLOCKED: ' + str(error)
+        if isinstance(error, MissingReceipt):
+            message += ('\nAUTOMATIC CONTINUATION: the authorized push is pending. '
+                        'Run /bymax-quality:code-review using start --autonomous, reuse evidence, complete both '
+                        'reviewers, triage proven blockers, run gates and finish. Retry the original push destination/refspec. '
+                        'Do not ask whether to review or continue ordinary verified corrections. Keep the original scope '
+                        'and six-candidate delivery budget; never bypass a real blocker or disable this hook.')
+        print(message, file=sys.stderr)
         sys.exit(2)
 
 
