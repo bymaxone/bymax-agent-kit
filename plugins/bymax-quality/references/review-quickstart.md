@@ -8,9 +8,27 @@ FLOW="$HOME/.claude/bymax-review/review_flow.py"
 CONTEXT="<outside the repository>/context.json"   # intent, acceptance, measured, checks
 BASE="$(git merge-base origin/main HEAD)"
 
-python3 "$FLOW" prose --base "$BASE" --stage prepare   # a fresh reader corrects new prose
-python3 "$FLOW" prose --base "$BASE" --stage verify    # refuses prose that grew
-python3 "$FLOW" start --autonomous --base "$BASE" --context "$CONTEXT"
+python3 "$FLOW" prose --base "$BASE" --stage prepare > "<outside the repository>/prose-task.txt"
+# Hand prose-task.txt to a fresh subagent that can edit; it corrects comments and markdown only.
+python3 "$FLOW" prose --base "$BASE" --stage verify    # refuses prose that grew or code that moved
+git status --short                                     # inspect what the reader left, then commit it
+```
+
+The reader's edits are part of the candidate, so commit them before `start`: `start` reviews
+a clean tree. Run `verify` without the handoff and it certifies prose nobody read.
+
+Then choose how the campaign starts. A push request enrolls the branch in a delivery, six
+candidates shared across its pushes, and that enrollment is persistent: every later `start` on
+the branch stays in it. A standalone review does not enroll and keeps the three-candidate
+default.
+
+```bash
+FLOW="$HOME/.claude/bymax-review/review_flow.py"
+CONTEXT="<outside the repository>/context.json"
+BASE="$(git merge-base origin/main HEAD)"
+ENROLL="--autonomous"                                  # empty for a standalone review
+
+python3 "$FLOW" start $ENROLL --base "$BASE" --context "$CONTEXT"
 python3 "$FLOW" check -- <each gate the context names>  # before any reviewer reads
 python3 "$FLOW" prompt > "<outside the repository>/prompt.txt"
 python3 "$FLOW" codex                                   # background; minutes
