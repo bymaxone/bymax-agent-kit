@@ -357,6 +357,16 @@ class ReviewFlowTests(FlowBench):
                         "git log --oneline | grep -E -- '--no-verify'"):
             self.push(command)
 
+    def test_a_read_sharing_a_line_with_git_is_refused_and_says_how_to_run_it(self):
+        """A path spelling "push" beside a program able to start another could be the second
+        half of a hook-skipping push, so the scan applies to the whole line. That is a
+        deliberate refusal, and it was reported as a bug because the message promised that
+        merely naming a token is never refused. It must name the remedy."""
+        self.start()
+        self.complete()
+        result = self.push('shasum .git/hooks/pre-push; git log -1', ok=False)
+        self.assertIn('as its own command', result.stderr)
+
     def test_a_disarming_option_is_still_refused_wherever_it_appears(self):
         """The scan did not get weaker: it got a precondition. Every shape that could reach a
         remote is still read for a hook-skipping option, in any arrangement."""

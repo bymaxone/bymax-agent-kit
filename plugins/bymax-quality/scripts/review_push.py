@@ -110,7 +110,10 @@ def parse(command, cwd):
     require(not pushes or not any(token.lower() in seen for token in DISARMS),
             'That would disable or redirect the pre-push receipt check; run a plain git push. '
             'A command that only names one of these — reading a hook, grepping for the token — '
-            'is not this refusal: it applies where the command could reach a remote.')
+            'is not this refusal: it applies where the command could reach a remote. That '
+            'includes one command holding both a word spelling "push" (a path such as '
+            'hooks/pre-push counts) and a program able to start another, git among them, so '
+            'a read that shares a line with a git command is refused: run the read as its own command.')
     if words is None:
         return None
     tail = command
