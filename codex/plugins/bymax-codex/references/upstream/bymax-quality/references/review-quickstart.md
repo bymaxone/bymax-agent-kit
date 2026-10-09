@@ -6,8 +6,9 @@ each step costs, for a candidate that is already committed on a clean tree.
 ```bash
 FLOW="$HOME/.claude/bymax-review/review_flow.py"
 CONTEXT="<outside the repository>/context.json"   # intent, acceptance, measured, checks
-TARGET="<the verified base branch of this work>"     # resolved as code-review.md describes
-BASE="$(git merge-base "$TARGET" HEAD)"
+TARGETFILE="$(git rev-parse --git-dir)/bymax-push-default"   # first line: the verified base branch
+BASE="$(git merge-base "$(sed -n 1p "$TARGETFILE")" HEAD)"
+test -n "$BASE" || exit 1                              # no base, no campaign
 
 python3 "$FLOW" prose --base "$BASE" --stage prepare > "<outside the repository>/prose-task.txt"
 # Hand prose-task.txt to a fresh subagent that can edit; it corrects comments and markdown only.
@@ -15,9 +16,11 @@ python3 "$FLOW" prose --base "$BASE" --stage verify    # refuses prose that grew
 git status --short                                     # inspect what the reader left, then commit it
 ```
 
-`TARGET` is the branch this work merges into, read from the PR or the branch as the command
-file requires; an empty or failed `merge-base` ends the run, and no other base is guessed. When
-`prepare` prints no task the pass is recorded as skipped; do not run `verify`.
+The first line of `TARGETFILE` is the branch this work merges into, resolved from the PR or the
+branch as the command file requires. `/bymax-pr:push` writes it; otherwise write it there with a
+file-writing tool, never by pasting the name into shell source, since a ref name may contain
+`$( )`. No other base is guessed. When `prepare` prints no task the pass is recorded as skipped;
+do not run `verify`.
 
 The reader's edits are part of the candidate, so commit them before `start`: `start` reviews
 a clean tree. Run `verify` without the handoff and it certifies prose nobody read.
@@ -29,11 +32,12 @@ candidate budget is shared across its pushes, and that enrollment is persistent:
 ```bash
 FLOW="$HOME/.claude/bymax-review/review_flow.py"
 CONTEXT="<outside the repository>/context.json"
-TARGET="<the verified base branch of this work>"
-BASE="$(git merge-base "$TARGET" HEAD)"
+TARGETFILE="$(git rev-parse --git-dir)/bymax-push-default"
+BASE="$(git merge-base "$(sed -n 1p "$TARGETFILE")" HEAD)"
+test -n "$BASE" || exit 1
 ENROLL="--autonomous"                                  # empty for a standalone review
 
-python3 "$FLOW" start $ENROLL --base "$BASE" --context "$CONTEXT"
+python3 "$FLOW" start $ENROLL --base "$BASE" --base-branch-file "$TARGETFILE" --context "$CONTEXT"
 python3 "$FLOW" check -- <each gate the context names>  # before any reviewer reads
 python3 "$FLOW" prompt > "<outside the repository>/prompt.txt"
 python3 "$FLOW" codex                                   # background; minutes
