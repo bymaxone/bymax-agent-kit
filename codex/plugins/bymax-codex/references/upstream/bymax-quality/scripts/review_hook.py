@@ -23,7 +23,7 @@ import time
 from review_git import git, require
 # The policy a receipt is written under is the hook's own: review_prepush is self-contained and
 # cannot import the runtime, and test_review_prepush asserts the runtime declares the same one.
-from review_prepush import POLICY, WAIVER_TTL, resolve_codex
+from review_prepush import POLICY, WAIVER_TTL, resolve_claude, resolve_codex
 
 
 HOOK_MARKER = 'Git pre-push hook: refuse to publish any commit that lacks a completed review receipt.'
@@ -33,7 +33,8 @@ HOOK_MARKER = 'Git pre-push hook: refuse to publish any commit that lacks a comp
 # untouched bundle is this campaign's own file and is replaced, and anything else — a hook
 # somebody merged a check into, or wrote — is never overwritten, only reported.
 SUPERSEDED = frozenset({'c02a58c70dddeba812740dd2f83a5be43c14ad8e6cd2e35cbba62355f42f8ecc',
-                        'cd0a2f7f5b49b3557b1362a707347604f24cc136a3a96a3cb3fe7b956f52f7db'})
+                        'cd0a2f7f5b49b3557b1362a707347604f24cc136a3a96a3cb3fe7b956f52f7db',
+                        '75fc8870c63073d3c9446110acc81b0d45c35dfd2d8c7d4357356d61e3c3906d'})
 
 
 def install_hook():
@@ -206,8 +207,19 @@ def waived_shape(stale=False):
     return {'claude': {}, 'claude-b': {}}, waiver
 
 
+def claude_waived_shape(sha, stale=False):
+    """The receipt shape for a candidate whose Claude the runtime measured out of quota.
+
+    Dated like waived_shape, so a hook with a shorter window refuses the current receipt and
+    one with a longer window accepts the stale one. Nothing here runs the hook.
+    """
+    at = int(time.time()) - WAIVER_TTL + (-PROBE_MARGIN if stale else PROBE_MARGIN)
+    waiver = dict(reason='quota', at=at, binary=resolve_claude() or '', head=sha, round=1)
+    return {'codex': {}, 'codex-b': {}}, waiver
+
+
 @contextlib.contextmanager
-def probe_receipt(sha, held=True, legacy=False, waived=None, stale=False):
+def probe_receipt(sha, held=True, legacy=False, waived=None, stale=False, claude_waived=False):
     """Hold a completed receipt for one commit only while this process probes the hook.
 
     Each probe gets a directory of its own, so concurrent starts in linked worktrees do
@@ -218,7 +230,8 @@ def probe_receipt(sha, held=True, legacy=False, waived=None, stale=False):
     to hold. A checker must treat both as void: a probe receipt is valid only while held.
     With waived=True the receipt carries what waived_shape() builds, which a current hook
     must honour; with stale=True that waiver is past the window, which every hook must
-    refuse.
+    refuse. With claude_waived=True the receipt carries what claude_waived_shape(sha) builds,
+    under the same dating rule.
     """
     root = Path(git('rev-parse', '--git-common-dir')).resolve() / 'bymax-review'
     root.mkdir(parents=True, exist_ok=True)
@@ -228,6 +241,8 @@ def probe_receipt(sha, held=True, legacy=False, waived=None, stale=False):
                    probe_pid=os.getpid())
     if waived:
         receipt['reviews'], receipt['codex_waiver'] = waived_shape(stale)
+    if claude_waived:
+        receipt['reviews'], receipt['claude_waiver'] = claude_waived_shape(sha, stale)
     if not legacy:
         receipt['probe_lock'] = 'holder'
     (directory / 'completed-probe.json').write_text(json.dumps(receipt))
@@ -348,7 +363,8 @@ def usable_hook(path):
     upholds(path, checker, *push_probes(path))
 
 
-def upholds(path, checker, unreceipted, held, orphaned, legacy, partial, waived, stale):
+def upholds(path, checker, unreceipted, held, orphaned, legacy, partial, waived, stale,
+            claude_quota=0, claude_stale=1):
     """What each probe push must have returned, and what its exit status means if not."""
     require(unreceipted != 0,
             f'{path} accepted a push of a commit with no receipt (exit 0), so it does not enforce '
@@ -371,6 +387,14 @@ def upholds(path, checker, unreceipted, held, orphaned, legacy, partial, waived,
             '0), or honours a longer window than this runtime. A waiver is evidence about a machine '
             'at a moment, and the two sides must agree when it stops being evidence, or a receipt '
             f'means one thing here and another at the hook. ' + hook_remedy(path, checker))
+    require(claude_quota == 0,
+            f'{path} refused a push of a commit whose receipt carries two independent Codex reviews '
+            f'in place of a Claude this machine measured out of quota (exit {claude_quota}). Either '
+            'it predates that receipt shape, or it honours a shorter window than this runtime; '
+            'either way it would block every such push in silence. ' + hook_remedy(path, checker))
+    require(claude_stale != 0,
+            f'{path} accepted a push named by a receipt whose Claude quota evidence is past the '
+            'window (exit 0), or honours a longer window than this runtime. ' + hook_remedy(path, checker))
     require(all(status != 0 for status in partial),
             f'{path} accepted a push of three refs one of whose commits holds no receipt (exit 0). git '
             'hands a hook one record per pushed ref and every record must be checked; a hook that leaves '
@@ -421,7 +445,7 @@ def push_probes(path):
     try:
         unreceipted = run_hook(path, remote, line)
         if unreceipted == 0:
-            return unreceipted, None, None, None, (), None, None
+            return unreceipted, None, None, None, (), None, None, 0, 1
         with probe_receipt(dangling):
             held = run_hook(path, remote, line)
             partial = tuple(run_hook(path, remote, records) for records in multi)
@@ -433,7 +457,13 @@ def push_probes(path):
             waived = run_hook(path, remote, line)
         with probe_receipt(dangling, waived=True, stale=True):
             stale = run_hook(path, remote, line)
+        claude_quota, claude_stale = 0, 1  # no Claude to name: the shape cannot be probed
+        if resolve_claude():
+            with probe_receipt(dangling, claude_waived=True):
+                claude_quota = run_hook(path, remote, line)
+            with probe_receipt(dangling, claude_waived=True, stale=True):
+                claude_stale = run_hook(path, remote, line)
     finally:
         for name in refs:
             git('update-ref', '-d', name)
-    return unreceipted, held, orphaned, legacy, partial, waived, stale
+    return unreceipted, held, orphaned, legacy, partial, waived, stale, claude_quota, claude_stale
