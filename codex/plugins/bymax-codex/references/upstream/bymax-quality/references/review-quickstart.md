@@ -17,7 +17,7 @@ git status --short                                     # inspect what the reader
 
 `TARGET` is the branch this work merges into, read from the PR or the branch as the command
 file requires; an empty or failed `merge-base` ends the run, and no other base is guessed. When
-`prepare` prints no task the delta adds no prose, and `verify` has nothing to check.
+`prepare` prints no task the pass is recorded as skipped; do not run `verify`.
 
 The reader's edits are part of the candidate, so commit them before `start`: `start` reviews
 a clean tree. Run `verify` without the handoff and it certifies prose nobody read.
