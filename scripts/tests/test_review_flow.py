@@ -357,6 +357,35 @@ class ReviewFlowTests(FlowBench):
                         "git log --oneline | grep -E -- '--no-verify'"):
             self.push(command)
 
+    def test_a_read_sharing_a_line_with_git_is_refused_and_says_how_to_run_it(self):
+        """A path spelling "push" beside a program able to start another could be the second
+        half of a hook-skipping push, so the scan applies to the whole line. That is a
+        deliberate refusal, and it was reported as a bug because the message promised that
+        merely naming a token is never refused. It must name the remedy."""
+        self.start()
+        self.complete()
+        result = self.push('shasum .git/hooks/pre-push; git log -1', ok=False)
+        self.assertTrue(result.stderr.startswith('BLOCKED: That would disable or redirect'), result.stderr)
+        self.assertIn('run the read as its own command', result.stderr)
+        # Finishing a review cannot change how a command is spelled, so a refusal about spelling
+        # must not send the caller to one, nor ask it to retry a push that was never requested.
+        self.assertNotIn('AUTOMATIC CONTINUATION', result.stderr)
+        spelled = self.push('git -c core.hooksPath=/dev/null push origin HEAD', ok=False)
+        self.assertNotIn('AUTOMATIC CONTINUATION', spelled.stderr)
+
+    def test_a_receipt_that_cannot_clear_the_push_still_sends_the_caller_to_a_review(self):
+        """The handoff survives for the refusal a review can answer: a cleared candidate whose
+        recorded reviewers fall short of the pair its receipt needs."""
+        self.start()
+        self.complete()
+        path = Path(self.flow('status')['directory']) / 'state.json'
+        state = json.loads(path.read_text())
+        del state['reviews']['codex']
+        path.write_text(json.dumps(state))
+        result = self.push('git push origin HEAD:feature', ok=False)
+        self.assertIn('cannot clear this push', result.stderr)
+        self.assertIn('AUTOMATIC CONTINUATION', result.stderr)
+
     def test_a_disarming_option_is_still_refused_wherever_it_appears(self):
         """The scan did not get weaker: it got a precondition. Every shape that could reach a
         remote is still read for a hook-skipping option, in any arrangement."""
