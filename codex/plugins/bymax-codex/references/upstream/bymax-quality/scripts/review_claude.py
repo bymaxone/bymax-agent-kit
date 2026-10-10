@@ -16,7 +16,9 @@ from review_codex import MOVED, unmoved
 ERROR_LINE = re.compile(r'^\s*(?:ERROR\s*:|API\s+Error\s*:|claude:\s*error\s*:)', re.I)
 AUTH_LINE = re.compile(r'^(?:not logged in|please (?:log|sign) in|unauthorized|invalid api key|no credentials|authentication (?:failed|error))\b', re.I)
 QUOTA_LINE = re.compile(
-    r"^(?:you(?:'ve| have) (?:hit|reached) your (?:usage |daily |weekly |monthly |5-hour )?limit|"
+    r"^(?:you(?:'ve| have) (?:hit|reached) your (?:(?:usage|daily|weekly|monthly|5-hour|session) )*limit|"
+    r"you(?:'ve| have) (?:hit|reached) your (?:team's shared budget|monthly spend limit)|"
+    r"spend limit reached\b|"
     r"(?:claude(?: ai)? )?(?:your )?usage limit (?:reached|exceeded)|"
     r"(?:5-hour|weekly|daily|monthly|session) limit (?:reached|exceeded)|insufficient_quota\b|"
     r"(?:you have )?exceeded your current quota\b|quota exceeded\b|"

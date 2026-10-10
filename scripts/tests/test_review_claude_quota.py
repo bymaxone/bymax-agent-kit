@@ -77,6 +77,21 @@ class ClaudeQuotaTests(unittest.TestCase):
         for message in ('please reduce your limit of tokens', 'Usage limit notes in prompt'):
             self.assertEqual(review_claude.claude_verdict({'is_error': True, 'result': message}, '')[0], 'failed', message)
 
+    def test_limit_messages_the_claude_cli_binary_carries_are_quota_and_its_budget_stop_is_not(self):
+        """Wording read from the strings of the installed Claude Code binary rather than recalled:
+        the "You've hit your" opener with its limit, budget and spend variants, the weekly
+        sentence, and the billing_error a gateway spend limit returns. "Budget limit reached"
+        is the CLI's own --max-budget-usd stop and must never read as exhausted quota."""
+        for message in ("You've hit your limit · resets 3pm", 'You have reached your weekly usage limit',
+                        "You've hit your monthly spend limit.", "You've hit your team's shared budget.",
+                        'spend limit reached (daily; resets 2026-08-08 00:00 UTC) — request an increase'):
+            self.assertEqual(review_claude.claude_verdict({'is_error': True, 'result': message}, '')[0], 'quota', message)
+        gateway = json.dumps({'type': 'error', 'error': {'type': 'billing_error', 'message':
+                              'spend limit reached (daily; resets 2026-08-08 00:00 UTC)'}})
+        self.assertEqual(review_claude.claude_verdict(None, 'API Error: 402 ' + gateway)[0], 'quota')
+        for message in ('Budget limit reached ($5.00)', 'Context limit reached', "You've hit your fast limit"):
+            self.assertEqual(review_claude.claude_verdict({'is_error': True, 'result': message}, '')[0], 'failed', message)
+
     def test_terminal_cli_error_line_is_quota(self):
         """Anchored fatal CLI diagnostics count; prompt text before them does not."""
         self.assertEqual(review_claude.claude_verdict(None, 'Prompt: usage limit\nError: Credit balance is too low')[0], 'quota')

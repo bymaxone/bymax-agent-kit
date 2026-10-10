@@ -20,6 +20,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_review_prepush import CAMPAIGN_TIMEOUT, FLOW, ROOT, PrePushBench
 
+FIXTURES = Path(__file__).resolve().parent / 'fixtures'
+
 
 class HookInstallTests(PrePushBench):
     """A hook git would skip, or one that does not enforce receipts, never survives `start`."""
@@ -60,6 +62,30 @@ class HookInstallTests(PrePushBench):
         self.assertIn('waived_shape', called,
                       'the receipt no longer carries what waived_shape dates, so the margin '
                       'above is arithmetic nothing reads')
+
+    def test_every_released_hook_but_the_current_one_is_superseded(self):
+        """A repository keeps the hook its last `start` installed, so changing the bundled
+        checker without recording the digest it replaces leaves existing installations on a
+        checker that refuses what the runtime now clears. Fixture `released` lists every
+        digest a release shipped: when this fails, append the new digest there and add the one
+        it replaces to SUPERSEDED in review_hook.py."""
+        flow = self.modules()['review_hook']
+        released = json.loads((FIXTURES / 'hook-digests.json').read_text())['released']
+        current = hashlib.sha256(FLOW.with_name('review_prepush.py').read_bytes()).hexdigest()
+        self.assertIn(current, released)
+        self.assertEqual(set(released) - {current}, set(flow.SUPERSEDED))
+
+    def test_the_hook_the_previous_release_installed_is_replaced_and_honours_the_current_receipt(self):
+        """The previous release's checker, byte for byte, as an existing installation holds it.
+        `start` must replace it, and what replaces it must pass the probes, among them the
+        receipt shapes added since. A kept copy would refuse the push the runtime just cleared."""
+        flow = self.modules()['review_hook']
+        hook = self.repo / '.git/hooks/pre-push'
+        older = (FIXTURES / 'prepush-75fc8870.hook').read_bytes()
+        hook.write_bytes(older)
+        hook.chmod(0o755)
+        self.install(flow)
+        self.assertEqual(hook.read_bytes(), FLOW.with_name('review_prepush.py').read_bytes())
 
     def test_a_hook_that_resolves_this_machine_differently_is_replaced(self):
         """A receipt names the Codex its waiver was measured against, and the hook re-resolves
