@@ -10,7 +10,7 @@ CALL = re.compile(r'git merge-base(?! -- )')
 
 
 def shipped():
-    """Every shell-bearing file a plugin ships: command and reference text a model runs, and scripts."""
+    """Every Markdown and shell file a plugin ships."""
     plugins = ROOT / 'plugins'
     return sorted([*plugins.rglob('*.md'), *plugins.rglob('*.sh')])
 
