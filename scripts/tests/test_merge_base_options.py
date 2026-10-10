@@ -25,6 +25,11 @@ class MergeBaseOptionTests(unittest.TestCase):
                  if CALL.search(line)]
         self.assertEqual(loose, [], 'git merge-base without `--` before its refs')
 
+    def test_the_pattern_tells_a_loose_call_from_a_terminated_one(self):
+        """A pattern that matches nothing passes whatever the files say."""
+        self.assertTrue(CALL.search('BASE=$(git merge-base "$TARGET" HEAD)'))
+        self.assertFalse(CALL.search('BASE=$(git merge-base -- "$TARGET" HEAD)'))
+
     def test_the_scan_reads_the_files_it_is_meant_to(self):
         """A scan over nothing passes however the commands are spelled."""
         names = {path.name for path in shipped()}
