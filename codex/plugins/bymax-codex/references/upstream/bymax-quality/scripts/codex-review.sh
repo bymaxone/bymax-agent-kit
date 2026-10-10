@@ -267,7 +267,7 @@ fi
 # over whatever it chose.
 # (`merge-base` has no `-q`; an unknown option exits 129, which read as "no
 # history" and refused every valid base — the positive case must be tested too.)
-if [ "${TARGET}" = "base" ] && ! git merge-base "${REF}" HEAD >/dev/null 2>&1; then
+if [ "${TARGET}" = "base" ] && ! git merge-base -- "${REF}" HEAD >/dev/null 2>&1; then
   status_only "unsupported-target" "ref '${REF}' shares no history with HEAD — no diff to review"
 fi
 # An empty range bills a reviewer over nothing and is counted as a clean second
