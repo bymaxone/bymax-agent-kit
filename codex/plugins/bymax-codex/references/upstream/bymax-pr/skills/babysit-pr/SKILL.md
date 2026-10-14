@@ -496,16 +496,50 @@ articulate.
    `user.login`, e.g. Copilot, CodeRabbit, SonarCloud).
 5. Complete the same autonomous delivery with both independent reviewers, declared
    gates and a receipt, then push. Do not create one commit/review per comment.
-6. Reply on the thread with the marker:
-   `<!-- babysit-reply --> Fixed in <commit-sha>: <one-sentence explanation>.`
+6. Reply on the thread with the marker, written as "Reply body format" below says:
+   ```text
+   <!-- babysit-reply -->
+
+   Fixed in <commit-sha>: <one-sentence explanation>.
+   ```
 7. Resolve the review thread via GraphQL — **follow the MANDATORY procedure in
    "Resolving review threads correctly" below. Never reuse a thread ID.**
 
 ### Dismissing an irrelevant comment
-1. Reply with the marker and a **specific** reason citing the SKIP criterion:
-   `<!-- babysit-reply --> Not applied: <criterion>. <one-sentence why>.`
+1. Reply with the marker and a **specific** reason citing the SKIP criterion, written
+   as "Reply body format" below says:
+   ```text
+   <!-- babysit-reply -->
+
+   Not applied: <criterion>. <one-sentence why>.
+   ```
 2. Resolve the thread (see "Resolving review threads correctly" below).
 3. Add the comment ID to `processedCommentIds` in state.
+
+### Reply body format
+
+GitHub renders a reply as GitHub Flavored Markdown, and two mistakes turn it into raw
+HTML. Measured on a live PR: one reply quoting `<h1>` posted as a page-sized heading,
+another quoting `<details>` as a collapsible section.
+
+| Rule | Why |
+|---|---|
+| The marker `<!-- babysit-reply -->` is the whole first line, followed by one blank line, then the text | A line that starts with `<!--` opens an HTML block that ends only at the end of the line holding `-->`. On the marker's line, the whole reply is that block: backticks stay literal and every quoted tag becomes a real element. The body still starts with the marker, so the already-processed guard matches it unchanged |
+| Every HTML tag the text quotes sits in backticks: `` `<h1>` ``, never the bare tag | A bare tag is HTML even below the blank line: a quoted message such as `no <h1> on the page`, written without backticks, still renders a heading |
+
+Before posting, write the body to a file with the file tool and render it with GitHub's
+own renderer. Fix the body and render it again until the check below passes; post only
+after a clean render.
+```bash
+# bymax-babysit-reply is written with the file tool: it holds the reply body, marker first.
+# -F reads the file after @; -f would send the literal path and render that instead.
+gh api markdown -f mode=gfm -F text=@"$(git rev-parse --git-dir)/bymax-babysit-reply.md"
+```
+The render wraps the text in `<p>` and turns Markdown into its usual elements; those are
+expected. The check is on the tags your text quotes: each must appear escaped, as
+`&lt;h1&gt;` inside `<code>`. One that appears as a real element (an `<h1>`, a
+`<details>`) is the defect. Post the body from that same file (`-F body=@…`), so what was
+rendered is what is posted.
 
 ### Resolving review threads correctly (MANDATORY — read every time)
 
