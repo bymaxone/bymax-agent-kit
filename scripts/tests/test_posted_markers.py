@@ -20,7 +20,7 @@ TEMPLATE = re.compile(r'```text\n(.*?)```', re.S)
 
 
 def documents():
-    """Every command, skill and agent document a model reads."""
+    """The canonical command, skill and agent documents a model reads."""
     return sorted(path for pattern in ('plugins/*/commands/*.md', 'plugins/*/skills/**/*.md',
                                        'plugins/*/agents/*.md')
                   for path in ROOT.glob(pattern))

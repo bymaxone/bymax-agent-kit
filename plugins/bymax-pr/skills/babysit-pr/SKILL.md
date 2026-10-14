@@ -518,7 +518,7 @@ articulate.
 
 ### Reply body format
 
-GitHub renders a reply as GitHub Flavored Markdown, and two mistakes turn it into raw
+GitHub renders a reply as GitHub Flavored Markdown, and the mistakes below turn it into raw
 HTML. Measured on a live PR: one reply quoting `<h1>` posted as a page-sized heading,
 another quoting `<details>` as a collapsible section.
 
