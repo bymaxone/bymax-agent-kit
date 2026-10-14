@@ -60,7 +60,7 @@ Resolve the target branch/PR's actual base. For a PR, read its base/head with
 `gh pr view <target> --json baseRefName,baseRefOid,headRefOid`; fetch missing objects
 without checkout, and verify the requested head equals the current HEAD. For a branch,
 use its intended integration branch; do not substitute a pushed upstream already equal
-to HEAD. Resolve `git merge-base <verified-target-base> HEAD` to a nonempty SHA.
+to HEAD. Resolve `git merge-base -- <verified-target-base> HEAD` to a nonempty SHA.
 Never guess another base on resolution failure. Read the existing campaign with
 `review_flow.py status` before starting: reuse its original base, contract and reports
 through correction rounds. A changed PR base or rewritten history requires reassessment.

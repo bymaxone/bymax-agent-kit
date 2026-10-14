@@ -224,7 +224,7 @@ shipping includes the review. Do it in this order:
    # HEAD when the branch is a single root commit. Each of those ends the command.
    REVIEW_BASE=""
    if [ -n "${DEFAULT_REF}" ]; then
-     REVIEW_BASE=$(git merge-base "${DEFAULT_REF}" HEAD 2>/dev/null) || REVIEW_BASE=""
+     REVIEW_BASE=$(git merge-base -- "${DEFAULT_REF}" HEAD 2>/dev/null) || REVIEW_BASE=""
    else
      REVIEW_BASE=$(git rev-list --max-parents=0 HEAD | tail -1)
    fi
