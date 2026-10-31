@@ -48,7 +48,7 @@ writes need care, not approval.
 
 | Playbook | What it writes |
 | --- | --- |
-| `implementing-secret-scanning-with-gitleaks` | `--create-baseline` writes unredacted secrets to `.gitleaks-baseline.json` inside the repository; keep it out of git. `agent.py` and `process.py` print every finding's secret in full, so run them where the output is not logged (never in CI). `agent.py` reports "No secrets detected" when gitleaks errors |
+| `implementing-secret-scanning-with-gitleaks` | `--create-baseline` writes unredacted secrets to `.gitleaks-baseline.json` inside the repository; keep it out of git. `agent.py` and `process.py` print part of the secrets they find, so run them where the output is not logged (never in CI). `agent.py` reports "No secrets detected" when gitleaks errors |
 | `implementing-api-key-security-controls` | `generate` writes the full plaintext key into its report and prints its first 20 characters |
 | `implementing-gdpr-data-subject-access-request` | file scans write raw personal data to `file_scan_results.json`; the database scan only prints queries and its `CAST(* AS TEXT)` is not valid SQL |
 | `scanning-docker-images-with-trivy` | `agent.py` writes to `./trivy_docker/` and reports zero vulnerabilities when trivy errors; `process.py` puts the first 50 characters of each detected secret in its report |
