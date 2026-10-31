@@ -173,7 +173,7 @@ modes), **frontend** (XSS, token storage, CSP, accessibility, Core Web Vitals),
 **supply chain** (advisories, secrets in history, pipeline integrity, artifact
 provenance), and **AI/LLM and agents** (tool authority, untrusted context, output handling,
 model spend), hunted only when recon finds LLM or agent tooling. Each
-one carries a "what to expect by stack" table and a "common non-findings" list,
+one carries a "common non-findings" list,
 so a delegated or intentional control is not reported as a gap.
 
 ### Scripts

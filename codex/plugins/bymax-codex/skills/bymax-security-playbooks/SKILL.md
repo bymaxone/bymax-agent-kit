@@ -7,4 +7,4 @@ description: "Defensive security playbooks for the project in front of you, load
 
 Read [the Codex runtime contract](../../references/runtime.md) first.
 
-Then read [the source index](../../references/upstream/bymax-qa/skills/security-playbooks/SKILL.md). It is the only file to load up front: open one playbook it links to only when the task calls for it, and that playbook's notes section only before its first command. Resolve each link from the file that contains it. Every approval the source requires before publishing, sending data to a third party, spending money or writing secrets applies unchanged in Codex.
+Then read [the source index](../../references/upstream/bymax-qa/skills/security-playbooks/SKILL.md). It is the only file to load up front: open one playbook it links to only when the task calls for it, and that playbook's notes rows only before its first command. Resolve each link from the file that contains it. Every approval the source requires before publishing, sending data to a third party, spending money or writing secrets applies unchanged in Codex.

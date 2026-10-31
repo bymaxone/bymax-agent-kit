@@ -1,12 +1,12 @@
 # Security playbook notes — read before running a playbook's commands or scripts
 
 The playbooks under `acs/` ship unchanged, so what their helpers do is fixed upstream. Each
-section below says what one playbook's commands and `scripts/` do beyond reading the project.
-Read only the section for the playbook in hand, before its first command. A playbook with no
+row below says what a playbook's commands and `scripts/` do beyond reading the project.
+Read only the rows for the playbook in hand, before its first command. A playbook with no
 row here publishes nothing and writes no secrets; its helpers may still write a report to the
 current directory, and provenance verification reads the image's registry and the Rekor log.
 
-Two rules hold for all of them:
+These rules hold for all of them:
 
 - **A clean result is only as good as the tool run behind it.** Several helpers report zero
   findings when the scanner itself failed. Check the scanner's exit status and output before

@@ -54,8 +54,8 @@ the request, say so and stop; do not load a playbook that merely sounds close.
 
 - The playbook's commands and its `scripts/` helpers are run only when the user asked for the
   work, against this project and systems it owns, never a third-party or production target.
-- Before the first command of a playbook, read its section in
-  [the playbook notes](../../references/security-playbook-notes.md), and only that section. It
+- Before the first command of a playbook, read its rows in
+  [the playbook notes](../../references/security-playbook-notes.md), and only those rows. It
   lists what publishes, sends data to a third party, spends money or writes secrets, and each of
   those needs the user's approval first.
 - Read a script before running it, and run it with the arguments the playbook gives.
