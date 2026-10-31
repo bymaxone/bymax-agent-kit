@@ -1,8 +1,8 @@
 """Measurement layer: what each campaign round found, how it was decided, and what cleared.
 
 Every mechanism in this runtime was added because a campaign went wrong, and none can be kept or
-retired on evidence without a record of what the reviewers actually caught. `triage` appends one
-line per round with each reviewer's findings by disposition, and `finish` appends the clearance;
+retired on evidence without a record of what the reviewers actually caught. `triage` appends a
+line with each reviewer's findings by disposition, and `finish` appends the clearance;
 `review_flow.py outcomes` reads them back. The log lives beside the campaign directories, in the
 shared Git directory, so it survives campaigns, archives and worktrees.
 
@@ -31,7 +31,7 @@ def append(directory, kind, state):
 
 
 def summary(directory):
-    """Per reviewer: findings raised and how they were decided; per campaign: rounds to clear."""
+    """Per reviewer: findings raised and how they were decided; rounds to clear."""
     path = directory.parent / LOG
     entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
     reviewers = {}
