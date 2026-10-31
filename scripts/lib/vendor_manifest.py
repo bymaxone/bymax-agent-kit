@@ -1,8 +1,7 @@
 """Library layer: which files of a vendored skill folder came from upstream, and their hashes.
 
-A vendored folder ships upstream's files unchanged beside two files this repository writes,
-`ATTRIBUTION.md` and `upstream.json`, at its top level. The vendor test compares the hash of
-every other file against the manifest in `upstream.json`.
+A vendored folder ships upstream's files unchanged beside the `OWN` files this repository
+writes at its top level.
 """
 import hashlib
 from pathlib import Path

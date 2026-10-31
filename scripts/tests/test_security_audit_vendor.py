@@ -101,8 +101,8 @@ class SecurityAuditVendorTests(unittest.TestCase):
         shutil.copytree(SKILL, target)
         (target / 'extra').mkdir()
         (target / 'extra' / 'NOTE.md').write_text('added\n')
-        # Only the top-level ATTRIBUTION.md and upstream.json are this repository's own; a file
-        # with either name deeper down is an addition like any other.
+        # Only the top-level `OWN` files are this repository's own; a file with one of those
+        # names deeper down is an addition like any other.
         (target / 'extra' / 'ATTRIBUTION.md').write_text('added\n')
         present = copied(target)
         self.assertIn('extra/NOTE.md', present)
