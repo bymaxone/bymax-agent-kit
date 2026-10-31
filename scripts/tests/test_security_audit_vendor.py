@@ -34,6 +34,11 @@ _SPEC = importlib.util.spec_from_file_location('vendor_manifest',
 vendor_manifest = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(vendor_manifest)
 digest = vendor_manifest.digest
+_EFFECTS = importlib.util.spec_from_file_location('playbook_effects',
+                                                  ROOT / 'scripts/lib/playbook_effects.py')
+playbook_effects = importlib.util.module_from_spec(_EFFECTS)
+_EFFECTS.loader.exec_module(playbook_effects)
+NOTES = ROOT / 'plugins/bymax-qa/references/security-playbook-notes.md'
 
 
 def copied(skill=SKILL):
@@ -205,6 +210,51 @@ class AcsPlaybookVendorTests(unittest.TestCase):
         router.write_text(''.join(rows))
         self.assertNotIn(first, indexed(router))
         self.assertNotEqual(indexed(router), playbooks())
+
+
+class PlaybookApprovalTests(unittest.TestCase):
+    """Every command a playbook prescribes that changes another system needs an approval row."""
+
+    def test_every_remote_write_in_a_playbook_has_an_approval_row(self):
+        """The notes are the approval list, so a remote write they do not name runs unasked.
+
+        The list was built from the helper scripts alone, and two procedures went unlisted: an
+        upload that switched a Cloudflare zone to blocking, and a PUT that replaced a branch's
+        protection.
+        """
+        self.assertEqual(playbook_effects.unlisted(ACS, NOTES), {})
+
+    def test_the_detector_reads_known_remote_writes(self):
+        """A detector that stops matching would make the case above pass on nothing."""
+        found = playbook_effects.remote_writes(ACS)
+        self.assertIn('api.cloudflare.com', found['implementing-api-schema-validation-security'])
+        self.assertIn('gh api', found['integrating-sast-into-github-actions-pipeline'])
+        self.assertIn('--force', found['implementing-secret-scanning-with-gitleaks'])
+        self.assertIn('cosign sign', found['implementing-sigstore-for-software-signing'])
+
+    def test_a_command_continued_on_the_next_line_is_read_whole(self):
+        """A method flag on a continuation line belongs to the command above it."""
+        scratch = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, scratch, True)
+        (scratch / 'demo').mkdir()
+        (scratch / 'demo' / 'SKILL.md').write_text('gh api repos/o/r/branches/main/protection \\\n'
+                                                   '  --method PUT --input rules.json\n'
+                                                   'cosign verify --key k img\n')
+        self.assertEqual(playbook_effects.remote_writes(scratch), {'demo': {'gh api': ['SKILL.md:1']}})
+
+    def test_only_a_playbook_row_in_the_approval_table_lists_an_effect(self):
+        """An effect named under another heading, or in another playbook's row, asks nobody."""
+        scratch = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, scratch, True)
+        for name, command in (('first', 'curl -X POST https://api.example.org/x'),
+                              ('second', 'git push --force origin main')):
+            (scratch / 'acs' / name).mkdir(parents=True)
+            (scratch / 'acs' / name / 'SKILL.md').write_text(command + '\n')
+        notes = scratch / 'notes.md'
+        notes.write_text('## Ask before running\n\n| Playbook | Effect |\n| --- | --- |\n'
+                         '| `other` | like `first`, it writes to api.example.org |\n\n'
+                         '## Writes that need care\n\n| `second` | `--force` rewrites history |\n')
+        self.assertEqual(sorted(playbook_effects.unlisted(scratch / 'acs', notes)), ['first', 'second'])
 
 
 if __name__ == '__main__':

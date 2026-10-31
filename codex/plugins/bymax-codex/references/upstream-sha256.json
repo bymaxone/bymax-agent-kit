@@ -160,7 +160,7 @@
   "bymax-qa/references/acs/verifying-build-provenance-with-slsa-sigstore/references/api-reference.md": "2cd5c8920b9bf12ad889734af2b8348b099d14dec450308922a66b00a2f0dc58",
   "bymax-qa/references/acs/verifying-build-provenance-with-slsa-sigstore/references/standards.md": "4df225832328c924876182f69f890e0bb5448fd0c196be1fa88f148dad8f18e5",
   "bymax-qa/references/acs/verifying-build-provenance-with-slsa-sigstore/scripts/agent.py": "82a817d59e5d343a78ccdaad9fd0e4b24145d148a1a08054a46cd4fe2fafe696",
-  "bymax-qa/references/security-playbook-notes.md": "d6ce3a134c0c7266c216ef7fbdb8a87678101b4341b7a94b65cfda69d24d78c2",
+  "bymax-qa/references/security-playbook-notes.md": "bd9109064470349de6b6e6f5c9d4ef7797e46e209f9a47f8d71366306b804d91",
   "bymax-qa/scripts/qa-log-audit.sh": "5e4ace3858ebb98fbb10d06c6641efe5df66d63c0a565619f016a82a5528e585",
   "bymax-qa/scripts/qa-probe.sh": "46320686773fe7e4e917e407d8bfd88d912a9615f0c769bb0419bc0d8aaa4d72",
   "bymax-qa/scripts/qa-tools.sh": "78fefb8cc3a477e5cb886635a870a8eefc62f545de585b7e254b6eb259ec726f",
