@@ -1527,7 +1527,7 @@ class ReviewFlowTests(FlowBench):
         self.complete()
         self.push('git push origin HEAD')
         # Interrupted by the check's own bound: a program that cannot run at all is refused
-        # before anything is recorded (test_review_check_command), so it no longer stands in
+        # before anything is recorded (test_review_check_command), so it cannot stand in
         # for a gate that started and never finished.
         argv = [sys.executable, '-c', 'import sys; sys.path.insert(0, %r)\nimport review_flow\n'
                 'review_flow.CHECK_TIMEOUT = 1\nreview_flow.cli()' % str(FLOW.parent)]

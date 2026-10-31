@@ -4,8 +4,8 @@ A release tag points at the squash commit GitHub wrote on origin/main when it me
 pull request. No receipt names that commit, since GitHub made it, so both the Bash guard and the
 pre-push hook refused a push that publishes no new source. A push of tags only, each peeling to a
 commit already on that remote's default branch — read from the remote itself and matching the
-remote-tracking ref — needs no receipt. Every other shape is refused as before, and each refused
-shape is a case below, judged by what the remote received.
+remote-tracking ref — needs no receipt. Every other shape is judged by receipts as before, and
+the cases below by what the remote received.
 
 The fixture is test_review_prepush's: a repository whose hook `start` installed, and a bare
 remote whose contents are the only evidence of what a push did.
@@ -24,7 +24,7 @@ PUSH = FLOW.with_name('review_push.py')
 
 
 class TagPushTests(PrePushBench):
-    """Tags on published commits pass the guard and the hook; nothing else does."""
+    """Tags on published commits pass the guard and the hook."""
 
     def setUp(self):
         """Publish a squash commit on the remote's main, as a merge on GitHub would, and fetch it."""

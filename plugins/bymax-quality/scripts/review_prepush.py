@@ -25,7 +25,7 @@ import time
 POLICY = 2
 DELETION = '0' * 40
 TAGS = 'refs/tags/'
-# Seconds the remote may take to say what its default branch holds before a tag push is refused.
+# Seconds a git read may take before a tag push falls back to needing a receipt.
 REMOTE_SECONDS = 10
 
 # A Codex the runtime could not run is waived, and the waiver is re-checked here rather

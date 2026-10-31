@@ -48,7 +48,7 @@ class CheckCommandTests(FlowBench):
 
     def test_a_program_that_does_not_resolve_is_refused_before_it_is_recorded(self):
         """A gate whose script path was wrong froze a campaign the same way: its attempt never
-        reported an exit status. A missing file and one git would not execute are both refused."""
+        reported an exit status. A missing file and one that is not executable are both refused."""
         self.start()
         missing = self.flow('check', '--', './scripts/missing-gate.sh', ok=False).stderr
         self.assertIn('does not resolve', missing)
@@ -59,7 +59,7 @@ class CheckCommandTests(FlowBench):
         self.assertEqual(self.flow('status')['checks'], [])
 
     def test_a_context_declaring_an_unsplit_gate_is_refused_at_start(self):
-        """`checks` is the other place the runtime records commands; a context declaring
+        """`checks` is also where the runtime records commands; a context declaring
         ["pnpm test:cov"] froze a candidate whose gate could never run."""
         self.write_context([['pnpm test:cov']])
         refused = self.start(ok=False).stderr
@@ -86,7 +86,7 @@ class CheckCommandTests(FlowBench):
         self.assertEqual(self.flow('status')['checks'][0]['exit_code'], 0)
 
     def test_a_context_gate_with_a_relative_path_is_read_from_the_worktree_root(self):
-        """A context's gates are run from the root, and `start` may be run from anywhere: a
+        """A context's gates are meant to run from the root, and `start` may be run from anywhere: a
         relative script path the root holds is accepted from a subdirectory."""
         script = self.repo / 'gate.sh'
         script.write_text('#!/bin/sh\nexit 0\n')

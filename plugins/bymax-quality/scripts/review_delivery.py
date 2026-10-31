@@ -115,7 +115,7 @@ def checks_of(context):
     return data.get('checks') if isinstance(data, dict) else None
 
 
-# Named by the refusal every scope guard raises when only the gates differ.
+# Named by a scope refusal when only the gates differ.
 CORRECTION_HINT = (' A declared gate that is wrong — one over a file this scope deletes, say — is '
                    'corrected with --correct-checks "<why>", which changes the gates and nothing '
                    'else, spends the budget as before and is recorded for both reviewers.')

@@ -458,9 +458,9 @@ class HookInstallTests(PrePushBench):
 
     def test_husky_layout_enforces_with_or_without_a_tracked_check(self):
         """husky points core.hooksPath at a generated directory and rewrites its stubs on every
-        install. start chains the check into the stub it finds there, so a tracked hook that also
+        install. start chains the check ahead of the stub it finds there, so a tracked hook that also
         runs the check keeps working, a regenerated stub is chained again, and a tracked hook
-        without the check no longer leaves the repository unguarded (test_review_husky)."""
+        without the check does not leave the repository unguarded (test_review_husky)."""
         husky = self.repo / '.husky'
         (husky / '_').mkdir(parents=True)
         (husky / '_' / '.gitignore').write_text('*\n')

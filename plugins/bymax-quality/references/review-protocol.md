@@ -324,10 +324,10 @@ python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--desig
 
 A declared gate that turns out wrong — one over a file this scope deletes — is corrected with
 `--correct-checks "<why>"`: the context's `checks` may then differ from the campaign's, or from
-the delivery ledger's after `--after-archived`, and nothing else may. It lands on a new head (an
-empty commit when only the gates were wrong), since the frozen candidate keeps the runs of its
-own gates. It counts against the budget like any candidate, the ledger keeps an entry with the
-reason and both gate lists, and both reviewers are told what changed.
+the delivery ledger's after `--after-archived`, and nothing else may. In a live campaign it
+lands on a new head (an empty commit when only the gates were wrong), since the frozen candidate
+keeps the runs of its own gates. It counts against the budget like any candidate, the ledger
+keeps an entry with the reason and both gate lists, and both reviewers are told what changed.
 
 A correction that adds or changes a test must also show that test failing. `start` refuses one
 whose probe carries no `without_fix` entry: a string naming what was reverted and what failed as
@@ -477,8 +477,8 @@ python3 "$FLOW" status
 Pass the gate as separate words: `check -- pnpm test:cov`, never `check -- "pnpm test:cov"`,
 and in zsh not an unquoted `$var`, which zsh does not split (`${=var}` does). A command whose
 program does not resolve to an executable — one word holding a space, or a wrong script path —
-is refused before anything is recorded, with the corrected spelling; `start` refuses the same
-shapes in the context's `checks`.
+is refused before anything is recorded, the first with its corrected spelling; `start` refuses
+the same shapes in the context's `checks`.
 
 The helper captures command, exit code and output. A nonzero check cannot be cleared by
 running a different trivial command; rerun the same failed command successfully after

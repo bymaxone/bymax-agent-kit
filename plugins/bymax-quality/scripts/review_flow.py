@@ -514,9 +514,9 @@ def told_branch(args, old=None):
 def checks_correction(args, old, directory, context, head):
     """The audit entry of a recorded correction of the declared gates, or None without one.
 
-    `old` is the campaign this start continues, or None. Its gates are what is corrected, or the
-    delivery ledger's when the campaign was kept aside. The candidate already frozen keeps its
-    own: the runs of its gates stay on its record, so the correction lands on the next head.
+    `old` is the campaign this start continues, or None. Its gates are what is corrected, or,
+    without one, the delivery ledger's. The candidate already frozen keeps its own: the runs of
+    its gates stay on its record, so the correction lands on the next head.
     """
     if not args.correct_checks:
         return None
