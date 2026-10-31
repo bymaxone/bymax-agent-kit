@@ -245,7 +245,7 @@
   "bymax-quality/scripts/review_install.py": "0a46157b5fb880e9c271a923081016d4732dd319ff5414f47d48594a776608b3",
   "bymax-quality/scripts/review_markdown.py": "bf4c51e9fe4b15b4350b466d2e3e2c713e4c84f37e0d24225b102a1a1f5642f4",
   "bymax-quality/scripts/review_matrix.py": "3e3a0870dee819eee12c4cf3e4ffcd0be978bd7b66da88bcbb5110872e1b7cc8",
-  "bymax-quality/scripts/review_outcomes.py": "48fd4a388f86d304e039ea02984f645fd136a074d59bab3cd7dca32aa3e87275",
+  "bymax-quality/scripts/review_outcomes.py": "f8d302760d1e485cf1c17cf3d83e56ead1c58d476de050a5d5e50ffd9aec490c",
   "bymax-quality/scripts/review_prepush.py": "e1a59fb3f9ae3380b0aa9c0a08c84cca383fb44fc881bc00f8296f78285f4c86",
   "bymax-quality/scripts/review_prose.py": "f233cd658c78bd340409b708ad77c9ac38780d2af3d28d74036bc549d0fd4d37",
   "bymax-quality/scripts/review_prose_pass.py": "e1366aa466e2402aa1094a231b37a0c765b7209de82084342800a753031c9331",

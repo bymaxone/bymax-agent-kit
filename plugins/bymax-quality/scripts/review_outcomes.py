@@ -34,12 +34,13 @@ def summary(directory):
     """Per reviewer: findings raised and how they were decided; rounds to clear."""
     path = directory.parent / LOG
     entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+    triaged = {(e['campaign'], e['head'], e['round']): e for e in entries if e['kind'] == 'triage'}
+    cleared = {(e['campaign'], e['head']): e for e in entries if e['kind'] == 'cleared'}
     reviewers = {}
-    for entry in (e for e in entries if e['kind'] == 'triage'):
+    for entry in triaged.values():
         for name, counts in entry.get('reviewers', {}).items():
             reviewers.setdefault(name, Counter()).update(counts)
-    cleared = [e for e in entries if e['kind'] == 'cleared']
-    rounds = Counter(e['round'] for e in cleared)
-    return dict(log=str(path), triaged_rounds=sum(1 for e in entries if e['kind'] == 'triage'),
-                cleared_candidates=len(cleared), rounds_to_clear=dict(sorted(rounds.items())),
+    rounds = Counter(e['round'] for e in cleared.values())
+    return dict(log=str(path), triaged_rounds=len(triaged), cleared_candidates=len(cleared),
+                rounds_to_clear=dict(sorted(rounds.items())),
                 reviewers={name: dict(counts) for name, counts in sorted(reviewers.items())})

@@ -29,6 +29,21 @@ class OutcomeTests(FlowBench):
         self.assertEqual(summary['rounds_to_clear'], {'1': 1})
         self.assertEqual(summary['reviewers'], {'claude': {'rejected': 1}, 'codex': {}})
 
+    def test_a_round_triaged_twice_and_finished_twice_counts_once(self):
+        """A second triage of the same candidate replaces the first, and a repeated finish is the
+        same clearance: counting each run doubled every reviewer's numbers."""
+        self.start()
+        self.report('claude', [FINDING])
+        self.report('codex')
+        for status in ('open', 'rejected'):
+            self.triage([dict(id='claude::code.txt:content', status=status, evidence='Measured')])
+        self.checks()
+        self.flow('finish')
+        self.flow('finish')
+        summary = self.flow('outcomes')
+        self.assertEqual((summary['triaged_rounds'], summary['cleared_candidates']), (1, 1))
+        self.assertEqual(summary['reviewers'], {'claude': {'rejected': 1}, 'codex': {}})
+
     def test_a_branch_with_no_campaign_reports_nothing_measured(self):
         """No log is an empty measurement, never a refusal."""
         summary = self.flow('outcomes')
