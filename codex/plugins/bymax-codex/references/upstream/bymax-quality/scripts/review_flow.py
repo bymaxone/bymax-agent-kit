@@ -325,7 +325,7 @@ def first_round(directory, after_archived):
 
 def round_closable(old):
     """What every way of opening the round after `old`'s requires of it: a correction and a rebase
-    that changed the delta both advance the round, so both answer to the same limit and reviews."""
+    that keeps no reviews both advance the round, so both answer to the same limit and reviews."""
     # The refusal names its remedy: a delivery's limit is an alarm a human may answer with a
     # recorded decision, while a standalone campaign's limit hands the scope decision over.
     require(old['round'] < old.get('max_rounds', 3),
