@@ -14,6 +14,7 @@
   "bymax-review-md": "bymax-quality/commands/review-md.md",
   "bymax-roadmap": "bymax-workflow/commands/roadmap.md",
   "bymax-security-audit": "bymax-qa/skills/security-audit/SKILL.md",
+  "bymax-security-playbooks": "bymax-qa/skills/security-playbooks/SKILL.md",
   "bymax-sim-android": "bymax-mobile/commands/sim-android.md",
   "bymax-sim-ios": "bymax-mobile/commands/sim-ios.md",
   "bymax-spec": "bymax-workflow/commands/spec.md",

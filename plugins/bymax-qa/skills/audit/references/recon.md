@@ -23,6 +23,7 @@ target to the next. Detect and record:
 | Logging / telemetry | Pino, Winston, `console`, OpenTelemetry, a log shipper config |
 | Frontend, if any | a `web/` or `app/` tree, a framework, a bundler — or none (a headless API) |
 | CI gates | `.github/workflows/`, other CI config — what already runs |
+| LLM / agent tooling | a model SDK (`openai`, `@anthropic-ai/sdk`, `ai`, `@ai-sdk/*`), an agent framework (LangChain, LlamaIndex), an MCP server or client (`@modelcontextprotocol/sdk`, `.mcp.json`) — or none; this decides whether the `ai-llm` domain runs |
 
 Record the versions. A finding about a library's behaviour cites the version
 in the lockfile, never a remembered one.

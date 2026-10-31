@@ -36,6 +36,21 @@ gap, not an error.
   convention).
 - **Least privilege** — `permissions:` scoped per workflow, not a blanket
   `write-all`. A `contents: write` where a read would do is a finding.
+- **Script injection** — an attacker-controlled expression interpolated into a
+  `run:` script: `${{ github.event.pull_request.title }}`, `.body`,
+  `.head.ref`, `github.event.issue.*`, `github.event.comment.body`,
+  `github.head_ref`. The expression is substituted before the shell parses the
+  line, so a crafted title runs as a command. Passing it through `env:` and
+  quoting `"$VAR"` is the fix; its presence on a trigger an outsider can fire
+  is a finding.
+- **Privileged triggers running untrusted code** — `pull_request_target` or
+  `workflow_run` that checks out the pull request's head
+  (`ref: ${{ github.event.pull_request.head.sha }}`) and then builds, tests or
+  runs a script from it executes a fork's code with the base repository's
+  secrets and write token.
+- **Secrets and runners exposed to forks** — secrets or an OIDC
+  `id-token: write` available to jobs a fork's pull request can trigger, and a
+  self-hosted runner attached to a public repository.
 - **A gate that passes without being satisfied** — the most valuable finding in
   this domain. Every gate runs the configuration on the branch under review, so
   a change that weakens a threshold, widens an ignore glob, or disables a check
@@ -47,6 +62,15 @@ gap, not an error.
   scanning, and SAST in CI at all? Their absence is a gap to report at a
   severity matched to the app's exposure, framed as a recommendation with the
   concrete workflow to add.
+- **Artifact provenance** — for a project that publishes images, packages or
+  binaries: is an SBOM generated, and are artifacts signed and verified before
+  deploy? Absence is a recommendation, not a finding, unless the project states
+  it ships signed artifacts and the pipeline does not.
+
+The concrete workflow for each recommendation above — SHA pinning, Gitleaks,
+CodeQL/Semgrep, Trivy, SBOMs, cosign and SLSA verification — is in
+`/bymax-qa:security-playbooks`; name the playbook in the recommendation rather
+than restating it.
 
 ## Common non-findings (drop these)
 
