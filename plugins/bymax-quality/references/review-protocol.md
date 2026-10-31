@@ -699,8 +699,9 @@ Every other command is read for one thing only, and only when it could reach a r
 holds a word spelling `push` (a path such as `hooks/pre-push` counts) and names a program able
 to start another (`git`, a shell, `env`, `xargs` and the like). Such a command is refused when it
 carries an option that would skip or redirect the hook. A command that does not parse — an
-apostrophe in a comment is enough — counts as able to push and is scanned whole, and `git rev-parse
---git-dir` — how the commands locate their handoff files — is not read as `git --git-dir=`. A push
+apostrophe in a comment is enough — counts as able to push and is scanned whole, and the literal
+`$(git rev-parse --git-dir)` — how the commands locate their handoff files — is not read as
+`git --git-dir=`; any other spelling of that query is. A push
 hidden inside any other shape is stopped by the hook when git runs it.
 `scripts/tests/test_prescribed_blocks_guard.py` feeds every bash block the commands and skills
 prescribe through the adapter and requires each to pass, except a literal push template.

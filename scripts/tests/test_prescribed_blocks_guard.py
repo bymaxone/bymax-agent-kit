@@ -71,6 +71,9 @@ class PrescribedBlocksTests(unittest.TestCase):
                         'git rev-parse --git-dir=/x push origin HEAD:f',
                         # rev-parse as a mere word on the line set the redirection aside.
                         'env A=rev-parse git --git-dir /tmp/other push origin HEAD:f',
+                        # A variable split into words made rev-parse an option's value.
+                        "X='. --namespace'; git -C $X rev-parse --git-dir /y push origin HEAD:f",
+                        'git rev-parse --git-dir /y push origin HEAD:f',
                         'echo rev-parse x --git-dir && git --git-dir /x push origin HEAD:f',
                         'git -c core.hooksPath=/dev/null rev-parse --git-dir && git push origin HEAD:f',
                         # A `#` inside a word is not a comment to the shell; read as one, the

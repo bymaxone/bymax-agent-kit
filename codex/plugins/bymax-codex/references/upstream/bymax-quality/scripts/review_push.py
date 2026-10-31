@@ -31,14 +31,14 @@ DISARMS = ('no-verify', 'hooksPath', 'hooks-path', 'GIT_DIR', '--git-dir',
 # would let a refspec name a commit other than the literal one.
 EXPANSIONS = '*?[]{}~^+,!'
 ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
-# `git rev-parse --git-dir` prints where the git directory is; it points git nowhere. Every
-# handoff file the commands write lives at `$(git rev-parse --git-dir)/bymax-*`, so reading the
-# token there as `git --git-dir=` refused blocks the kit itself prescribes. Only that exact
-# query — git, an optional `-C <dir>`, rev-parse and its options, then `--git-dir` ending the
-# word — is set aside: `git --git-dir=X push`, `git --git-dir X push`, and a `rev-parse` that is
-# merely a word elsewhere on the line are still read. It is matched on the lowercased text, where
-# `-C` reads as `-c`; a `-c` setting that disarms is refused by its own token.
-GIT_DIR_QUERY = re.compile(r'(\bgit\s+(?:-c\s+\S+\s+)?rev-parse(?:\s+--?[a-z-]+)*?\s+)--git-dir(?=[\s)"\';|&]|$)')
+# `git rev-parse --git-dir` prints where the git directory is; it points git nowhere. The
+# commands write handoff files at `$(git rev-parse --git-dir)/bymax-*`, so reading the token
+# there as `git --git-dir=` refused blocks the kit itself prescribes. Only that literal
+# substitution is set aside, character for character: its content is fixed, so nothing a variable
+# expands to can turn it into another command. A pattern loose enough to accept `-C <dir>` or
+# options was bypassed twice — by `rev-parse` as a mere word on the line, and by `git -C $X
+# rev-parse --git-dir /y push` with X holding `. --namespace` — so every other spelling is read.
+GIT_DIR_QUERY = '$(git rev-parse --git-dir)'
 
 
 # Programs that could start another program, so a command carrying one could reach a remote
@@ -119,7 +119,7 @@ def parse(command, cwd):
     # half of the previous round's fix, which moved the precondition to the words and left the
     # scan a line below it on the raw command.
     seen = lowered + '\n' + ' '.join(words).lower() if words is not None else lowered
-    seen = GIT_DIR_QUERY.sub(r'\1', seen)
+    seen = seen.replace(GIT_DIR_QUERY, '')
     require(not pushes or not any(token.lower() in seen for token in DISARMS),
             'That would disable or redirect the pre-push receipt check; run a plain git push. '
             'A command that only names one of these — reading a hook, grepping for the token — '
