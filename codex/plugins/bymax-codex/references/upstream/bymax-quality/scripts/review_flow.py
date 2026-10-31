@@ -14,12 +14,12 @@ from review_delivery import scope_of as scope
 from review_delta import claims_settled, delta_view
 from review_evidence import (collected_elsewhere, is_test_path, matrix_first, matrix_run, removed_tests,
                              tests_changed)
-from review_codex import codex_check, codex_review
+from review_codex import codex_check, codex_liveness, codex_review
 from review_git import clean_head, for_a_reader, git, git_raw, require
-from review_hook import install_hook
+from review_hook import chain_husky, install_hook
 from review_prose_pass import prose_first, prose_run
 from review_replace import failed_checks, replaceable, replacement, within_scope
-from review_run import run_gate
+from review_run import run_gate, runnable
 # The receipt predicate lives in the hook, which is the enforcement boundary and must stay
 # self-contained; it is imported here rather than restated, so the runtime cannot clear a
 # candidate on terms the hook would not honour.
@@ -95,6 +95,8 @@ def context_contract(path):
     require(isinstance(checks, list), 'checks must be a list of argument lists.')
     require(all(isinstance(c, list) and c and all(isinstance(a, str) and a for a in c)
                 for c in checks), 'Each check must be a nonempty command argument list.')
+    for command in checks:
+        runnable(command, git('rev-parse', '--show-toplevel'))
     return text, checks
 
 
@@ -290,6 +292,11 @@ def review_rules_notice():
               'Run /bymax-quality:review-md once per repository. The campaign continues.', file=sys.stderr)
 
 
+def correctable(old, context):
+    """The remedy a scope refusal names when the declared gates are all that differ."""
+    return review_delivery.CORRECTION_HINT if scope(old['context'], True) == scope(context, True) else ''
+
+
 def first_round(directory, after_archived):
     """What a campaign needs before it may be the first one on this branch."""
     aside = abandoned(directory)
@@ -302,8 +309,9 @@ def first_round(directory, after_archived):
 
 def next_round(args, old, head, directory, base, context, branch=''):
     """What advancing a campaign to a correction delta requires; returns its contract."""
-    require(old['base'] == base and scope(old['context']) == scope(context),
-            'Scope changed. Stop and agree on a separate campaign.')
+    corrected = bool(args.correct_checks)
+    require(old['base'] == base and scope(old['context'], corrected) == scope(context, corrected),
+            'Scope changed. Stop and agree on a separate campaign.' + correctable(old, context))
     # The refusal names its remedy: a delivery's limit is an alarm a human may answer with a
     # recorded decision, while a standalone campaign's limit hands the scope decision over.
     require(old['round'] < old.get('max_rounds', 3),
@@ -503,6 +511,23 @@ def told_branch(args, old=None):
     return kept or told
 
 
+def checks_correction(args, old, directory, context, head):
+    """The audit entry of a recorded correction of the declared gates, or None without one.
+
+    `old` is the campaign this start continues, or None. Its gates are what is corrected, or,
+    without one, the delivery ledger's. The candidate already frozen keeps its own: the runs of
+    its gates stay on its record, so the correction lands on the next head.
+    """
+    if not args.correct_checks:
+        return None
+    require(not old or old['head'] != head,
+            'This candidate is already frozen with the gates it declared, and their runs stay on its '
+            'record. Correct them on the next head: commit the change (git commit --allow-empty when '
+            'only the gates were wrong) and start again with --correct-checks.')
+    before = old['context'] if old else (review_delivery.load(directory) or {}).get('context')
+    return review_delivery.check_correction(args.correct_checks, before, context, head)
+
+
 def start(args, directory):
     """Freeze a full baseline, advance a campaign to a correction delta, or replace within its
     round a candidate whose gate failed before any reviewer read it."""
@@ -526,9 +551,10 @@ def start(args, directory):
     # handed back cleared or not, and a cleared one is otherwise continued only by a delivery.
     goes_on = bool(old) and (old['head'] == head or autonomous or not old.get('cleared'))
     told = told_branch(args, old if goes_on else None)
+    corrected = checks_correction(args, old if goes_on else None, directory, context, head)
     if old and old['head'] == head:
         require(old['base'] == base and scope(old['context']) == scope(context),
-                'Same candidate has different scope/context.')
+                'Same candidate has different scope/context.' + correctable(old, context))
         return reuse_candidate(old, context, directory, autonomous, base, head, told)
     if old and old.get('cleared'):
         (directory / ('completed-' + old['head'] + '.json')).write_text(json.dumps(old, indent=2))
@@ -543,10 +569,12 @@ def start(args, directory):
                          widened=widened) if replaceable(old)
              else opened(args, old, head, directory, base, context, branch))
     state.update(policy=POLICY, base=base, context=context, reviews={}, checks=[],
-                 required_checks=required_checks, triage=None, cleared=False)
+                 required_checks=required_checks, triage=None, cleared=False,
+                 **(dict(checks_corrected=corrected) if corrected else {}))
     frozen(state, directory, head)
     if autonomous:
-        state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery))
+        state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery,
+                                             args.correct_checks))
     save(directory, state)
     return state
 
@@ -811,6 +839,17 @@ def archived_note(state):
             'over; report anything that still holds.')
 
 
+def checks_note(state):
+    """What the reviewers must know when this candidate's declared gates were corrected."""
+    corrected = state.get('checks_corrected')
+    if not corrected:
+        return ''
+    return ('The declared gates were corrected on this candidate by a recorded decision: '
+            + corrected['reason'] + '. They were ' + json.dumps(corrected['before']) + ' and are now '
+            + json.dumps(corrected['after']) + '. Judge whether the new gates still measure what the '
+            'old ones did; a gate dropped or weakened to get a candidate past it is a finding.')
+
+
 def waiver_note(state):
     """Name the substitute a receipt rests on, or say why a recorded waiver no longer holds."""
     if claude_substitution_ok(state):
@@ -931,6 +970,7 @@ or kept and refusing what the new runtime accepts. A reviewer reading only the d
 Context and acceptance contract:
 {state['context']}
 {archived_note(state)}
+{checks_note(state)}
 {substitute_note(state)}
 {delivery_note(state)}
 The checks listed in that context already ran on this candidate and passed; review_flow.py refuses
@@ -1172,6 +1212,7 @@ def check(args, directory, state):
     current(state)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     require(bool(command), 'Supply a check command after --.')
+    runnable(command)
     # A replacement keeps the round and resets the checks: the heads it replaced keep their logs.
     log = directory / f"check-{state['round']}-{len(state.get('replaced', []))}-{len(state['checks'])}.log"
     # Record the attempt before running it: a timeout or a missing executable raises out
@@ -1284,6 +1325,9 @@ def parser():
                        help='After a cleared candidate: the external findings this correction answers.')
     begin.add_argument('--extend-delivery', default='',
                        help='Continue past a spent delivery budget: who authorised it, and why.')
+    begin.add_argument('--correct-checks', default='',
+                       help='Replace declared gates that were wrong, changing nothing else: why, '
+                            'recorded in the ledger and shown to both reviewers.')
     for action in ('status', 'prompt', 'finish', 'codex-check', 'range', 'lessons'):
         sub.add_parser(action)
     reviewer_parsers(sub)
@@ -1331,6 +1375,10 @@ def main():
     if args.action == 'range':
         print(review_range(directory))
         return
+    if args.action in ('status', 'finish'):
+        # husky regenerates its hooks between steps; start writes the check in, and these two
+        # put it back, loudly, before a push is likely.
+        chain_husky()
     with locked(directory):
         if args.action == 'start':
             state = start(args, directory)
@@ -1360,6 +1408,8 @@ def main():
                 globals()[args.action](args, directory, state)
             elif args.action == 'finish':
                 finish(directory, state)
+            elif args.action == 'status':
+                state = codex_liveness(directory, state)
         print(json.dumps(dict(directory=str(directory), **state), indent=2))
 
 

@@ -220,6 +220,28 @@ def availability(directory, flow, state, owner_fd):
     return waive(directory, flow, state, 'quota', detail, log, binary)
 
 
+def codex_liveness(directory, state):
+    """The state as `status` reports it: a pass marked running whose lock nobody holds is over.
+
+    codex_running is cleared by the pass itself on its way out, and a wrapper that kills the pass
+    on a timeout or a signal skips that, so the flag alone said "running" forever. The pass holds
+    codex.lock, and so does the Codex child it starts, so the lock answers whether anything of it
+    still lives. A dead pass recorded no report: it is reported incomplete, never as a review, and
+    nothing is written — the attempt stays spent, and the next `codex` reserves its own.
+    """
+    if not state.get('codex_running'):
+        return state
+    try:
+        with (directory / 'codex.lock').open('a') as handle:
+            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return state
+    return dict(state, codex_running=False, codex_pass=(
+        f"incomplete: Codex attempt {state.get('codex_attempts', 0)} ended with no report recorded; its "
+        'process was killed (a wrapper timeout or a signal) before the runtime could close the '
+        'reservation. This is not a review. Run `review_flow.py codex` again; the attempt stays spent.'))
+
+
 def codex_review(directory, flow):
     """Hold a separate OS lock, released on exit, without blocking Claude's writer."""
     directory.mkdir(parents=True, exist_ok=True)

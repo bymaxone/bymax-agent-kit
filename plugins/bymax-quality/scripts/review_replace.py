@@ -11,7 +11,7 @@ from review_git import git, require
 
 # What a replacement keeps of the candidate it replaces: the round and everything it was told.
 KEPT = ('round', 'review_base', 'previous_triage', 'retrospectives', 'answers', 'widen_scope',
-        'nit_round', 'after_archived', 'design_round', 'reopened')
+        'nit_round', 'after_archived', 'design_round', 'reopened', 'checks_corrected')
 
 
 def within_scope(extra, reason):
@@ -61,7 +61,8 @@ def replacement(args, old, head, base, context, branch, *, evidence, widened):
     unrelated history does not. `evidence` and `widened` are review_flow's correction_evidence
     and widened, which a correction round's replacement is measured by.
     """
-    require(old['base'] == base and scope(old['context']) == scope(context),
+    corrected = bool(args.correct_checks)
+    require(old['base'] == base and scope(old['context'], corrected) == scope(context, corrected),
             'Scope changed. Stop and agree on a separate campaign.')
     review_base = old['review_base']
     require(git('merge-base', review_base, head) == review_base,

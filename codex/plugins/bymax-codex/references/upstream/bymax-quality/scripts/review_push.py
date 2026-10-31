@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 from review_flow import POLICY, require
-from review_prepush import explain, orphaned, satisfied
+from review_prepush import TAGS, explain, orphaned, published, satisfied
 
 # Anything that would skip the pre-push hook or point git at another repository, plus
 # husky's own skip switch (its dispatcher exits before the tracked hook when HUSKY=0).
@@ -181,6 +181,26 @@ def approved(cwd, source):
     raise MissingReceipt('No completed review for pushed commit ' + sha[:12])
 
 
+def tags_unpublished(cwd, remote, words):
+    """None when the push is not of tags only; '' when every push URL's default branch already
+    holds each tag's commit; otherwise why not.
+
+    The hook decides the same from the records git hands it. Only the full spelling
+    refs/tags/<name> counts, on both sides: a short name may be a branch, and a tag written to
+    refs/heads/ is a branch push. A tag that is not published still passes on a receipt.
+    """
+    specs = [word for word in words if not word.startswith('-')][1:]
+    if not specs or not all(spec.split(':')[0].startswith(TAGS) and spec.split(':')[-1].startswith(TAGS)
+                            for spec in specs):
+        return None
+    urls = subprocess.run(['git', '-C', str(cwd), 'remote', 'get-url', '--push', '--all', '--', remote],
+                          capture_output=True, text=True)
+    if urls.returncode != 0 or not urls.stdout.split():
+        return remote + ' is not a configured remote'
+    targets = [spec.split(':')[0] for spec in specs]
+    return next((r for r in (published(remote, url, targets, cwd=cwd) for url in urls.stdout.split()) if r), '')
+
+
 def main():
     """Read Claude's Bash payload and block without starting any review."""
     payload = json.load(sys.stdin)
@@ -193,8 +213,18 @@ def main():
                                     capture_output=True, text=True)
             require(result.returncode in (0, 1) and result.stdout.strip() != 'true',
                     'Implicit additional refs enabled by ' + key + '; use an explicit non-mirror remote without followTags.')
-        for source in refs:
-            approved(cwd, source)
+        unpublished = tags_unpublished(cwd, remote, words)
+        if unpublished == '':
+            return
+        try:
+            for source in refs:
+                approved(cwd, source)
+        except MissingReceipt as missing:
+            if unpublished is None:
+                raise
+            raise MissingReceipt(str(missing) + '. A push of tags only needs no receipt when each '
+                                 "tag's commit is already on " + remote + "'s default branch, and "
+                                 'here ' + unpublished + '.') from None
 
 
 def cli():

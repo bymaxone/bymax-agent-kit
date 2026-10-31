@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -34,7 +35,8 @@ HOOK_MARKER = 'Git pre-push hook: refuse to publish any commit that lacks a comp
 # somebody merged a check into, or wrote — is never overwritten, only reported.
 SUPERSEDED = frozenset({'c02a58c70dddeba812740dd2f83a5be43c14ad8e6cd2e35cbba62355f42f8ecc',
                         'cd0a2f7f5b49b3557b1362a707347604f24cc136a3a96a3cb3fe7b956f52f7db',
-                        '75fc8870c63073d3c9446110acc81b0d45c35dfd2d8c7d4357356d61e3c3906d'})
+                        '75fc8870c63073d3c9446110acc81b0d45c35dfd2d8c7d4357356d61e3c3906d',
+                        'a371cbc30b8789c051d8f137c9ec677781b5c8a4a2ef84cd4fd366d9216679b6'})
 
 
 def install_hook():
@@ -47,6 +49,8 @@ def install_hook():
     source = Path(__file__).with_name('review_prepush.py')
     custom = subprocess.run(['git', 'config', '--get', 'core.hooksPath'], capture_output=True, text=True)
     if custom.returncode == 0:
+        if chain_husky():
+            return
         # A custom hooks directory is the user's: never write into it. Its pre-push
         # qualifies by behaviour alone, so a generated stub that delegates to a tracked
         # hook (husky's layout) qualifies when the hook it runs invokes the check.
@@ -82,6 +86,74 @@ def install_hook():
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(source.read_bytes())
     target.chmod(0o755)
+
+
+# husky 9 writes every hook in its generated directory as this one line after the shebang:
+# `. "$(dirname "$0")/h"`, or `. "${0%/*}/h"` in its first releases.
+HUSKY_STUB = re.compile(r'^\. "(?:\$\{0%/\*\}|\$\(dirname "\$0"\))/h"$', re.MULTILINE)
+HUSKY_CHAIN = 'bymax-review: the receipt check runs first, then husky; written by the review runtime.'
+
+
+def husky_hook():
+    """The pre-push in husky's generated hooks directory, when core.hooksPath names one.
+
+    husky 9 points core.hooksPath at `<dir>/_`, which holds its dispatcher `h` and a
+    `.gitignore` of `*`: a directory it owns, rewrites on every install and keeps out of git.
+    Any other hooks directory is the user's and is never written into.
+    """
+    custom = subprocess.run(['git', 'config', '--get', 'core.hooksPath'], capture_output=True, text=True)
+    if custom.returncode != 0:
+        return None
+    directory = Path(git('rev-parse', '--show-toplevel')) / Path(custom.stdout.strip()).expanduser()
+    ignore = directory / '.gitignore'
+    if (directory.name != '_' or not (directory / 'h').is_file() or not ignore.is_file()
+            or ignore.read_text(errors='replace').strip() != '*'):
+        return None
+    return directory / 'pre-push'
+
+
+def husky_chain():
+    """The pre-push this runtime keeps in husky's generated directory.
+
+    git hands a pre-push its records on stdin once, and both the receipt check and husky's own
+    hook need them, so they are read once and handed to each. The check runs first and its
+    refusal is final; husky's dispatcher then runs the tracked `.husky/pre-push` exactly as its
+    stub would, sourced so it sees this file's name, and its status is the hook's.
+    """
+    checker = Path(__file__).resolve().with_name('review_prepush.py')
+    return ('#!/bin/sh\n# ' + HOOK_MARKER + '\n# ' + HUSKY_CHAIN + '\n'
+            'records=$(cat)\n'
+            'printf \'%s\\n\' "$records" | ' + shlex.quote(sys.executable) + ' '
+            + shlex.quote(str(checker)) + ' "$@" || exit $?\n'
+            'printf \'%s\\n\' "$records" | { . "$(dirname "$0")/h"; }\n')
+
+
+def chain_husky():
+    """Keep the receipt check in husky's generated pre-push; True when that is where it lives.
+
+    husky rewrites its stubs on every install, and `prepare` — run by many package scripts — is
+    one, so a check placed there by hand was dropped without a word. Its own stub, or a missing
+    file, is replaced by the chain and the caller is told loudly; a chain an earlier runtime
+    wrote is brought up to date quietly. Anything else there was written by somebody and is left
+    for install_hook's probe pushes to judge. Nothing is committed: git ignores the directory.
+    """
+    hook = husky_hook()
+    if hook is None:
+        return False
+    text = hook.read_text(errors='replace') if hook.is_file() else ''
+    stub = not text or (HUSKY_STUB.search(text) is not None and len(text.splitlines()) <= 2)
+    if not stub and HUSKY_CHAIN not in text:
+        return False
+    chain = husky_chain()
+    if text != chain:
+        hook.write_text(chain)
+    hook.chmod(0o755)
+    if stub:
+        print('WARNING: husky regenerated ' + str(hook) + ' (core.hooksPath), which drops the '
+              'pre-push receipt check; it is chained back ahead of husky\'s own hook. A push made '
+              'outside Claude since husky last installed ran without it. Nothing in the repository '
+              'changed: git ignores husky\'s generated directory.', file=sys.stderr)
+    return True
 
 
 HOOK_SECONDS = 60

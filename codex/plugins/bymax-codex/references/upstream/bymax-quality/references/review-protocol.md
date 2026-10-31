@@ -131,7 +131,10 @@ A separate OS lock prevents simultaneous Codex attempts while Claude can still r
 The Codex child inherits that lock: if its launcher dies, wait for the child to exit before
 retrying `codex`. Once both processes exit, the next invocation recovers an abandoned
 reservation automatically and retains the consumed attempt count. `codex_running` is
-persisted diagnostic metadata, not a liveness check; the lock determines availability.
+persisted diagnostic metadata; `status` reads the lock beside it, and a pass marked running whose
+lock nobody holds — its wrapper killed it on a timeout or a signal — is shown with
+`codex_running: false` and a `codex_pass` that calls it incomplete. That is never a review: the
+attempt stays spent, and the next `codex` reserves its own.
 Never reset the attempt counter to work around an exhausted budget.
 
 The caller performs the Claude read-only review from that same generated prompt, freezes
@@ -315,8 +318,16 @@ A correction round carries evidence the helper requires and both reviewers see:
 ```bash
 python3 "$FLOW" start --base <sha> --context <ctx> --probe <probe.json> [--design-round] \
     [--no-regression-reason "<why>"] [--nit-round "<why>"] [--after-archived "<authorization>"] \
-    [--widen-scope "<why>"] [--answers <path:slug>...] [--extend-delivery "<authorization>"]
+    [--widen-scope "<why>"] [--answers <path:slug>...] [--extend-delivery "<authorization>"] \
+    [--correct-checks "<why>"]
 ```
+
+A declared gate that turns out wrong — one over a file this scope deletes — is corrected with
+`--correct-checks "<why>"`: the context's `checks` may then differ from the campaign's, or from
+the delivery ledger's after `--after-archived`, and nothing else may. In a live campaign it
+lands on a new head (an empty commit when only the gates were wrong), since the frozen candidate
+keeps the runs of its own gates. It counts against the budget like any candidate, the ledger
+keeps an entry with the reason and both gate lists, and both reviewers are told what changed.
 
 A correction that adds or changes a test must also show that test failing. `start` refuses one
 whose probe carries no `without_fix` entry: a string naming what was reverted and what failed as
@@ -463,6 +474,12 @@ python3 "$FLOW" finish
 python3 "$FLOW" status
 ```
 
+Pass the gate as separate words: `check -- pnpm test:cov`, never `check -- "pnpm test:cov"`,
+and in zsh not an unquoted `$var`, which zsh does not split (`${=var}` does). A command whose
+program does not resolve to an executable — one word holding a space, or a wrong script path —
+is refused before anything is recorded, the first with its corrected spelling; `start` refuses
+the same shapes in the context's `checks`.
+
 The helper captures command, exit code and output. A nonzero check cannot be cleared by
 running a different trivial command; rerun the same failed command successfully after
 fixing its cause. The helper requires every command declared in the context. It cannot infer whether that
@@ -492,7 +509,13 @@ keep that separate loop disabled when this workflow is active.
 
 Enforcement is a Git **`pre-push` hook**, `review_prepush.py`. Git hands it the pushed
 SHAs on stdin, so it holds however the push command was spelled: it refuses any commit
-without a cleared receipt, for every ref in the push, and allows ref deletions.
+without a cleared receipt, for every ref in the push, and allows ref deletions. A push of
+tags only — every record a `refs/tags/` ref sent to a `refs/tags/` ref — needs no receipt when
+each tag peels to a commit the remote's default branch already holds, such as the squash commit
+GitHub wrote merging a reviewed pull request: the default branch and its tip are read from the
+push URL at push time, the remote-tracking ref must hold that same tip (`git fetch` first), and
+a bare URL, a tag beside any other ref, a tag written to a branch and a tag on an unpushed
+commit are judged by receipts as before.
 `review_flow.py start` installs it into the repository's hooks directory when none is
 present. An existing `pre-push` it does not manage is reported for the human to merge
 the check into by hand, never overwritten; one that carries the check at the current
@@ -501,7 +524,13 @@ policy is kept as merged. A custom `core.hooksPath` directory is never written i
 hook — husky's `.husky/_/pre-push` running `.husky/pre-push` — qualifies when the hook it
 runs invokes `review_prepush.py`, and survives the stub being regenerated. In either
 place, a hook that declares another policy or is not executable is refused at `start`,
-with the remedy named. Before
+with the remedy named. husky's own generated directory is the one exception to never writing:
+where `core.hooksPath` names `<dir>/_` holding husky's dispatcher `h` and a `.gitignore` of `*`,
+and its `pre-push` is husky's one-line stub, `start` replaces the stub with a chain that runs the
+check and then husky's dispatcher on the same records. husky rewrites that directory on every
+install, `prepare` included, so `status` and `finish` write the chain again whenever they find
+the stub back, with a warning; git ignores the directory, so nothing is committed. A `pre-push`
+there that is neither the stub nor the chain is judged by the probe pushes as before. Before
 the candidate is frozen, `start` also runs that hook seven times as git would (from the
 worktree root, through `sh` when it has no shebang, within 60 seconds each, with origin's
 name and URL as arguments), feeding it one push line shaped like a real push: a temporary
