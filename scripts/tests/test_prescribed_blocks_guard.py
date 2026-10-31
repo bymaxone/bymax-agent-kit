@@ -2,7 +2,7 @@
 
 The PreToolUse adapter (review_push.py) and the command documents are two halves of one contract.
 When they disagree, the documented step cannot be executed as written and a session improvises
-around it. This module feeds each fenced bash block of every command and skill document to the
+around it. This module feeds each fenced bash block of the kit's own commands and skills to the
 adapter exactly as Claude Code's hook would, and requires it to pass. The one exception is a block
 that is nothing but a literal `git push` template with a `<placeholder>`, which the model fills in
 before running and the adapter rightly refuses while it holds `<`.

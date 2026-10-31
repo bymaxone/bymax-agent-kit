@@ -591,8 +591,6 @@ def start(args, directory):
             '--answers is for a correction after a cleared candidate; this start opens a first round, '
             'which reviews the whole delta and has nothing to answer for.')
     branch = told or (old.get('base_branch', '') if old else '')
-    # A candidate its own gate failed before anyone read it is replaced in its round; any other
-    # new head opens the next one.
     state = candidate_state(args, old, head, directory, base, context, branch)
     kept = review_rebase.carried(state)
     state.update(policy=POLICY, base=base, context=context, reviews={}, checks=[],
