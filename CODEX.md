@@ -172,7 +172,7 @@ python3 codex/scripts/bundle.py
 ```
 
 Development validation requires PyYAML as the existing Claude validator does.
-The Codex gate checks source drift, all 29 entrypoints, portable links, manifest
+The Codex gate checks source drift, every entrypoint, portable links, manifest
 contracts and real Git regression scenarios. With the Codex CLI installed it also
 runs an isolated installation and actual `skills/list` discovery test. CI requires that CLI test explicitly. It does
 not bill a model call or change your real Codex/Claude configuration.

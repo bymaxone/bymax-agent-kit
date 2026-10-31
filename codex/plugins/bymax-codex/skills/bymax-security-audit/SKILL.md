@@ -7,6 +7,6 @@ description: "Security guidance and vulnerability review for codebases, APIs, se
 
 Read [the Codex runtime contract](../../references/runtime.md) first.
 
-This is Cloudflare's `security-audit` skill, bundled unchanged. Read [the security audit adapter](../../references/security-audit-runtime.md) before the source: it resolves the source's platform terms (parent, Task tool, `research` and `general` agents, skill directory) to Codex, and states what to report when a required capability is missing. Preserve every source rule on operating modes, execution safety, write isolation, validation and verdicts.
+This is Cloudflare's `security-audit` skill, bundled unchanged. Read [the security audit adapter](../../references/security-audit-runtime.md) before the source: it resolves the source's platform terms to Codex, and states what to report when a required capability is missing. Preserve every source rule on operating modes, execution safety, write isolation, validation and verdicts.
 
-Then read [the complete source procedure](../../references/upstream/bymax-qa/skills/security-audit/SKILL.md) and only the phase and attack-class references it routes to. Apply the Codex mappings above before executing any step.
+Then read [the complete source procedure](../../references/upstream/bymax-qa/skills/security-audit/SKILL.md) and only the phase and attack-class references it routes to. Apply the adapter's Codex mappings before executing any step.

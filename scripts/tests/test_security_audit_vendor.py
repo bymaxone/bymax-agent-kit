@@ -93,7 +93,7 @@ class SecurityAuditVendorTests(unittest.TestCase):
         self.assertEqual(drifted, ['report-schema.json'])
 
     def test_the_upstream_validator_suites_pass(self):
-        """The validators the skill runs in Phases 1 to 5 still pass their own suites.
+        """The validators the skill runs still pass their own suites.
 
         Node is installed in CI, where this case is required. Locally a machine without it
         skips the case and says so.

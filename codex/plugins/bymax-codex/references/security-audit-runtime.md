@@ -38,5 +38,5 @@ target code, keep the lead as `needs_validation`, and give the safe validation p
 
 The source default, `~/security-audit-skill/<repo-name>/run-<N>`, is outside the workspace. If
 the host refuses that write, ask for approval or for another external path. Do not fall back to
-`/tmp`, to the host home directory, or to a directory inside the target that version control
-does not ignore; the source forbids each. This audit does not use `.bymax/codex/`.
+a directory inside the target that version control does not ignore, which the source forbids,
+nor to `/tmp` or the host home directory. This audit does not use `.bymax/codex/`.
