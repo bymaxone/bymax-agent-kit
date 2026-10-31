@@ -700,7 +700,7 @@ holds a word spelling `push` (a path such as `hooks/pre-push` counts) and names 
 to start another (`git`, a shell, `env`, `xargs` and the like). Such a command is refused when it
 carries an option that would skip or redirect the hook. A command that does not parse — an
 apostrophe in a comment is enough — counts as able to push and is scanned whole, and the literal
-`$(git rev-parse --git-dir)` — how the commands locate their handoff files — is not read as
+`$(git rev-parse --git-dir)/bymax-` — the commands' handoff path — is not read as
 `git --git-dir=`; any other spelling of that query is. A push
 hidden inside any other shape is stopped by the hook when git runs it.
 `scripts/tests/test_prescribed_blocks_guard.py` checks the kit's own prescribed blocks against the adapter.
