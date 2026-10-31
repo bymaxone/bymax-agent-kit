@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Review orchestration layer: persist bounded, evidence-backed candidate reviews."""
-import argparse
 import contextlib
 import fcntl
 import hashlib
@@ -10,6 +9,10 @@ import subprocess
 import sys
 
 import review_delivery
+import review_install
+import review_outcomes
+import review_rebase
+from review_cli import CLAUDE_SUBSTITUTE, SUBSTITUTE, parser
 from review_delivery import scope_of as scope
 from review_delta import claims_settled, delta_view
 from review_evidence import (collected_elsewhere, is_test_path, matrix_first, matrix_run, removed_tests,
@@ -76,6 +79,17 @@ def save(directory, state):
 def current(state):
     """Reject receipts and results belonging to another candidate."""
     require(state['head'] == clean_head(), 'Candidate changed; start the next bounded round.')
+
+
+def rebase_context(args, old):
+    """The frozen context and gates a rebase keeps, or None when a context file must be read."""
+    if args.context:
+        require(not args.rebased_from or old is None or scope(old['context']) == scope(
+            context_contract(args.context)[0]), 'A rebase keeps the frozen scope; omit --context.')
+        return None
+    require(args.rebased_from and old is not None,
+            'start needs --context, except with --rebased-from on a frozen campaign.')
+    return old['context'], old['required_checks']
 
 
 def context_contract(path):
@@ -275,12 +289,14 @@ def abandoned(directory):
 
 
 def review_rules_notice():
-    """Tell the caller when this repository never generated the rules its reviewers read.
+    """Tell the caller when this repository never generated the rules its reviewers read, and
+    when the runtime in hand is not the one this checkout ships.
 
     The bounded campaign is one reviewer pair; the PR bots are another, and they read
     REVIEW.md and the repository's own Code Review Rules. A repository without them gets
     every wording preference as a blocking finding, which is how a review loop starts.
     """
+    review_install.drift_notice()
     toplevel = Path(git('rev-parse', '--show-toplevel'))
     missing = [name for name in ('REVIEW.md',) if not (toplevel / name).exists()]
     agents = toplevel / 'AGENTS.md'
@@ -528,6 +544,17 @@ def checks_correction(args, old, directory, context, head):
     return review_delivery.check_correction(args.correct_checks, before, context, head)
 
 
+def candidate_state(args, old, head, directory, base, context, branch):
+    """The new head's state: a rebase of the frozen candidate, a replacement within its round of
+    one whose gate failed before any reviewer read it, or the round after it."""
+    if args.rebased_from:
+        return review_rebase.rebased(args, old, head, base, branch)
+    if replaceable(old):
+        return replacement(args, old, head, base, context, branch, evidence=correction_evidence,
+                           widened=widened)
+    return opened(args, old, head, directory, base, context, branch)
+
+
 def start(args, directory):
     """Freeze a full baseline, advance a campaign to a correction delta, or replace within its
     round a candidate whose gate failed before any reviewer read it."""
@@ -536,9 +563,9 @@ def start(args, directory):
     head = clean_head()
     base = git('rev-parse', '--verify', args.base + '^{commit}')
     require(git('merge-base', base, head) == base, 'Base must be an ancestor; use the target merge-base.')
-    context, required_checks = context_contract(args.context)
     path = directory / 'state.json'
     old = read_state(directory) if path.exists() else None
+    context, required_checks = rebase_context(args, old) or context_contract(args.context)
     autonomous = review_delivery.active(directory, args.autonomous)
     if args.extend_delivery:
         review_delivery.check_extension(directory, args.extend_delivery)
@@ -549,7 +576,8 @@ def start(args, directory):
                    max_rounds=review_delivery.cap(directory, pending=bool(args.extend_delivery)))
     # The one test of whether this start continues the stored campaign: the same candidate is
     # handed back cleared or not, and a cleared one is otherwise continued only by a delivery.
-    goes_on = bool(old) and (old['head'] == head or autonomous or not old.get('cleared'))
+    goes_on = bool(old) and (old['head'] == head or autonomous or not old.get('cleared')
+                             or bool(args.rebased_from))
     told = told_branch(args, old if goes_on else None)
     corrected = checks_correction(args, old if goes_on else None, directory, context, head)
     if old and old['head'] == head:
@@ -565,16 +593,16 @@ def start(args, directory):
     branch = told or (old.get('base_branch', '') if old else '')
     # A candidate its own gate failed before anyone read it is replaced in its round; any other
     # new head opens the next one.
-    state = (replacement(args, old, head, base, context, branch, evidence=correction_evidence,
-                         widened=widened) if replaceable(old)
-             else opened(args, old, head, directory, base, context, branch))
+    state = candidate_state(args, old, head, directory, base, context, branch)
+    kept = review_rebase.carried(state)
     state.update(policy=POLICY, base=base, context=context, reviews={}, checks=[],
                  required_checks=required_checks, triage=None, cleared=False,
                  **(dict(checks_corrected=corrected) if corrected else {}))
+    state.update(kept)
     frozen(state, directory, head)
     if autonomous:
         state.update(review_delivery.reserve(directory, head, base, context, old, args.extend_delivery,
-                                             args.correct_checks))
+                                             args.correct_checks, rebased=state.get('rebased')))
     save(directory, state)
     return state
 
@@ -586,7 +614,9 @@ def frozen(state, directory, head):
     measured = matrix_first(state, directory)
     if measured:
         state['regression_measured'] = measured
-    prose_first(state, directory)
+    # A rebind carries a delta identical to the one its prose pass read, under another base.
+    if not (state.get('rebased') or {}).get('same_delta'):
+        prose_first(state, directory)
 
 def review_range(directory):
     """The endpoints this branch's campaign froze, while they are still the scope in hand.
@@ -615,8 +645,6 @@ def review_range(directory):
 # `claude-b::` or `codex::`, so a copied key is recognised by its prefix alone and a
 # finding on a real file under a codex/ directory can never be mistaken for one.
 SEPARATOR = '::'
-SUBSTITUTE = 'claude-b'
-CLAUDE_SUBSTITUTE = 'codex-b'
 REVIEWERS = tuple(name + SEPARATOR for name in ('claude', SUBSTITUTE, 'codex', CLAUDE_SUBSTITUTE))
 
 
@@ -1204,29 +1232,45 @@ def triage(args, directory, state):
     state['retrospectives'] = retrospective(state, items)
     state['cleared'] = False
     save(directory, state)
+    review_outcomes.append(directory, 'triage', state)
 
 
-def check(args, directory, state):
+def check(args, directory):
     """Execute and retain a required local gate against the current candidate; how the gate
-    runs, and how everything it started ends with it, is review_run.run_gate's."""
-    current(state)
+    runs, and how everything it started ends with it, is review_run.run_gate's.
+
+    The campaign lock is held to record the attempt and to record its result, never while the
+    gate runs: a gate may take up to CHECK_TIMEOUT, and holding the lock that long made `status`,
+    `record` and a reviewer's reservation wait behind it.
+    """
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     require(bool(command), 'Supply a check command after --.')
     runnable(command)
-    # A replacement keeps the round and resets the checks: the heads it replaced keep their logs.
-    log = directory / f"check-{state['round']}-{len(state.get('replaced', []))}-{len(state['checks'])}.log"
-    # Record the attempt before running it: a timeout or a missing executable raises out
-    # of run_gate, and an unrecorded attempt would leave an earlier receipt cleared.
-    state['checks'].append(dict(command=command, exit_code=None, log=str(log)))
-    state['cleared'] = False
-    save(directory, state)
+    with locked(directory):
+        state = read_state(directory)
+        current(state)
+        # A replacement keeps the round and resets the checks: the heads it replaced keep their logs.
+        log = directory / f"check-{state['round']}-{len(state.get('replaced', []))}-{len(state['checks'])}.log"
+        # Record the attempt before running it: a timeout or a missing executable raises out
+        # of run_gate, and an unrecorded attempt would leave an earlier receipt cleared.
+        state['checks'].append(dict(command=command, exit_code=None, log=str(log)))
+        state['cleared'] = False
+        save(directory, state)
+        head, attempt = state['head'], len(state['checks']) - 1
     with log.open('w') as output:
         code = run_gate(command, output, CHECK_TIMEOUT)
-    current(state)
-    state['checks'][-1]['exit_code'] = code
-    save(directory, state)
+    with locked(directory):
+        state = read_state(directory)
+        require(state['head'] == head and len(state['checks']) > attempt
+                and state['checks'][attempt]['log'] == str(log),
+                'The campaign moved to another candidate while the gate ran; run the gate again '
+                'on the candidate in hand.')
+        current(state)
+        state['checks'][attempt]['exit_code'] = code
+        save(directory, state)
     print(log.read_text())
     require(code == 0, 'Check failed. Fix or report; do not clear.')
+    return state
 
 
 def finish(directory, state):
@@ -1249,6 +1293,7 @@ def finish(directory, state):
     settled(state, directory)
     state['cleared'] = True
     save(directory, state)
+    review_outcomes.append(directory, 'cleared', state)
 
 
 def measured_matrix(args, directory):
@@ -1279,71 +1324,15 @@ def prose_base(args, directory, head):
         # The rule start applies: a cleared campaign that is not an enrolled delivery is no
         # campaign, and the next candidate opens a first round from the given base, so the
         # pass reads from that base too or start never finds the record.
-        if not old.get('cleared') or review_delivery.active(directory, False):
-            return old['head']
+        rebased = git('merge-base', old['head'], head) != old['head']
+        if (not old.get('cleared') or review_delivery.active(directory, False)) and not rebased:
+            # A candidate its own gate failed before any reviewer read it is replaced in its
+            # round, and start reads the replacement's delta from that round's review base.
+            return old['review_base'] if replaceable(old) else old['head']
+        require(not rebased or args.base, 'The frozen head is not an ancestor of this one, so the '
+                'branch was rebased: name the new merge-base with --base.')
     require(args.base, 'No campaign is frozen on this branch, so the pass needs --base <merge-base>.')
     return git('rev-parse', '--verify', args.base + '^{commit}')
-
-
-def reviewer_parsers(sub):
-    """Declare both provider adapters and quota-bound substitute report identities."""
-    cod = sub.add_parser('codex')
-    cod.add_argument('--as', dest='reviewer', choices=('codex', CLAUDE_SUBSTITUTE), default='codex')
-    pas = sub.add_parser('claude')
-    pas.add_argument('--as', dest='reviewer', choices=('claude', SUBSTITUTE), default='claude',
-                     help='Which Claude pass this run is: the first, or the substitute for a waived Codex.')
-    rec = sub.add_parser('record')
-    rec.add_argument('--reviewer', choices=('claude', SUBSTITUTE, 'codex', CLAUDE_SUBSTITUTE), required=True)
-    rec.add_argument('--report', required=True)
-
-def parser():
-    """Define the small explicit campaign lifecycle CLI."""
-    cli = argparse.ArgumentParser(description=__doc__)
-    sub = cli.add_subparsers(dest='action', required=True)
-    begin = sub.add_parser('start')
-    begin.add_argument('--autonomous', action='store_true',
-                       help='Enroll shipping work in a six-candidate budget shared across pushes on this branch.')
-    begin.add_argument('--base', required=True)
-    begin.add_argument('--context', required=True)
-    begin.add_argument('--probe', help='Correction rounds: JSON list of {command, expected, observed}.')
-    begin.add_argument('--design-round', action='store_true',
-                       help='Acknowledge a reopened finding and review the approach, not the instance.')
-    begin.add_argument('--no-regression-reason', default='',
-                       help='Correction rounds that touch no test: why a regression is infeasible.')
-    begin.add_argument('--nit-round', default='',
-                       help='Spend a round on P3 findings anyway: why, shown to both reviewers.')
-    begin.add_argument('--widen-scope', default='',
-                       help='Touch a file no open finding names: why, shown to both reviewers.')
-    begin.add_argument('--base-branch', default='',
-                       help='The branch this work merges into, such as origin/main: what a commit '
-                            'reachable from it did not write, whatever line it sits on.')
-    begin.add_argument('--base-branch-file', default='',
-                       help='A file whose first line is the base branch, as push writes one.')
-    begin.add_argument('--after-archived', default='',
-                       help='Start a campaign after an unfinished one: who authorised it, for what scope.')
-    begin.add_argument('--answers', nargs='+', action='extend', metavar='PATH:SLUG',
-                       help='After a cleared candidate: the external findings this correction answers.')
-    begin.add_argument('--extend-delivery', default='',
-                       help='Continue past a spent delivery budget: who authorised it, and why.')
-    begin.add_argument('--correct-checks', default='',
-                       help='Replace declared gates that were wrong, changing nothing else: why, '
-                            'recorded in the ledger and shown to both reviewers.')
-    for action in ('status', 'prompt', 'finish', 'codex-check', 'range', 'lessons'):
-        sub.add_parser(action)
-    reviewer_parsers(sub)
-    tri = sub.add_parser('triage')
-    tri.add_argument('--report', required=True)
-    gate = sub.add_parser('check')
-    gate.add_argument('command', nargs=argparse.REMAINDER)
-    mut = sub.add_parser('matrix')
-    mut.add_argument('--spec', required=True, help='the matrix: rules, their enumeration, their mutants')
-    mut.add_argument('paths', nargs='+', help='test paths the cases live in')
-    pro = sub.add_parser('prose')
-    pro.add_argument('--base', default='', help='the merge-base the pass reads the delta from; '
-                     'unneeded while a correction is being prepared')
-    pro.add_argument('--stage', choices=('run', 'prepare', 'verify'), default='run',
-                     help='run: the CLI does it all; prepare/verify: a subagent does the editing')
-    return cli
 
 
 def review_action(args, directory):
@@ -1363,17 +1352,31 @@ def review_action(args, directory):
     return False
 
 
+def unlocked(args, directory):
+    """Run an action that does not hold the campaign lock throughout; False for every other.
+
+    `range` only reads, and `check` takes the lock itself around the state it writes, never
+    while the gate runs.
+    """
+    if args.action in ('range', 'outcomes'):
+        print(review_range(directory) if args.action == 'range'
+              else json.dumps(review_outcomes.summary(directory), indent=2))
+        return True
+    if args.action == 'check':
+        state = check(args, directory)
+        print(json.dumps(dict(directory=str(directory), **state), indent=2))
+        return True
+    return False
+
+
 def main():
     """Run a serialized operation and surface actionable failures."""
-    args = parser().parse_args()
+    args = parser(__doc__).parse_args()
     if args.action == 'codex-check':
         print(json.dumps(codex_check(), indent=2))
         return
     directory = location()
-    if review_action(args, directory):
-        return
-    if args.action == 'range':
-        print(review_range(directory))
+    if review_action(args, directory) or unlocked(args, directory):
         return
     if args.action in ('status', 'finish'):
         # husky regenerates its hooks between steps; start writes the check in, and these two
@@ -1404,7 +1407,7 @@ def main():
             if args.action == 'lessons':
                 print(lessons(state))
                 return
-            if args.action in ('record', 'triage', 'check'):
+            if args.action in ('record', 'triage'):
                 globals()[args.action](args, directory, state)
             elif args.action == 'finish':
                 finish(directory, state)

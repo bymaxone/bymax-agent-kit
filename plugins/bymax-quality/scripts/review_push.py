@@ -31,6 +31,11 @@ DISARMS = ('no-verify', 'hooksPath', 'hooks-path', 'GIT_DIR', '--git-dir',
 # would let a refspec name a commit other than the literal one.
 EXPANSIONS = '*?[]{}~^+,!'
 ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
+# `git rev-parse --git-dir` prints where the git directory is; it points git nowhere. Every
+# handoff file the commands write lives at `$(git rev-parse --git-dir)/bymax-*`, so reading the
+# token there as `git --git-dir=` refused blocks the kit itself prescribes. Only that query
+# within one command segment is set aside: `git --git-dir=X push` and `--git-dir=` are still read.
+GIT_DIR_QUERY = re.compile(r'(\brev-parse\b[^;&|\n)]*?)--git-dir\b(?!=)')
 
 
 # Programs that could start another program, so a command carrying one could reach a remote
@@ -83,8 +88,10 @@ def words_of(command):
     strictly beats reading one, and calling it "what the shell hands on" made the gap between
     them look closed when it is the residue this adapter has always had.
     """
+    # A comment is not a word: the shell drops it, so an apostrophe in one ("the PR's state")
+    # must not make the whole command unparseable, which reads as able to push.
     try:
-        return shlex.split(command)
+        return shlex.split(command, comments=True)
     except ValueError:
         return None
 
@@ -107,6 +114,7 @@ def parse(command, cwd):
     # half of the previous round's fix, which moved the precondition to the words and left the
     # scan a line below it on the raw command.
     seen = lowered + '\n' + ' '.join(words).lower() if words is not None else lowered
+    seen = GIT_DIR_QUERY.sub(r'\1', seen)
     require(not pushes or not any(token.lower() in seen for token in DISARMS),
             'That would disable or redirect the pre-push receipt check; run a plain git push. '
             'A command that only names one of these — reading a hook, grepping for the token — '
@@ -130,7 +138,7 @@ def parse(command, cwd):
     if words[:1] != ['push']:
         return None
     # The shape matched, so from here the command is a push and must be exactly one.
-    require(not any(c in tail for c in '$`;|&<>\n'), 'Use a literal git push in its own command.')
+    require(not any(c in tail.strip() for c in '$`;|&<>\n'), 'Use a literal git push in its own command.')
     return cwd, words[1:]
 
 

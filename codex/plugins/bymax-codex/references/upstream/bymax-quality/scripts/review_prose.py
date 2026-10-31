@@ -348,6 +348,10 @@ def offences(cwd=None, ignored_before=None):
     """
     found = [] if ignored_before is None else ignored_since(ignored_before, cwd=cwd)
     for name in changed(cwd=cwd):
+        if name.startswith(review_claims.foreign(cwd)):
+            found.append('%s is shipped unchanged from another project (an ATTRIBUTION.md beside '
+                         'a LICENSE marks its folder): a pass never edits it' % name)
+            continue
         if not (review_claims.markdown(name) or name.endswith('.py')):
             found.append('%s is not a file this pass can read, so nothing here can show its '
                          'change is prose' % name)
