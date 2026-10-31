@@ -68,11 +68,13 @@ def could_push(command):
     words = words_of(command)
     if words is None:
         return True
-    # The parsed words, never the raw text. The shell and git act on these, so a push verb
-    # spelled pu""sh or pu\sh is invisible in the raw command and fully present here — measured:
-    # a hooksPath redirection written that way was returned as no-opinion while the commit
-    # reached the remote with the hook in place and never invoked.
-    if not any('push' in word.lower() for word in words):
+    # The parsed words, because the shell and git act on these: a push verb spelled pu""sh or
+    # pu\sh is invisible in the raw command and fully present here — measured: a hooksPath
+    # redirection written that way was returned as no-opinion while the commit reached the
+    # remote with the hook in place and never invoked. And the raw text as well, because the
+    # words may have been read with comment lines removed, and a `push` the removal hid must
+    # still count.
+    if not any('push' in word.lower() for word in words) and 'push' not in command.lower():
         return False
     return any(Path(word).name in RUNNERS for word in words)
 
@@ -91,12 +93,17 @@ def words_of(command):
     strictly beats reading one, and calling it "what the shell hands on" made the gap between
     them look closed when it is the residue this adapter has always had.
     """
-    # A comment is not a word: the shell drops it, so an apostrophe in one ("the PR's state")
-    # must not make the whole command unparseable, which reads as able to push.
-    try:
-        return shlex.split(command, comments=True)
-    except ValueError:
-        return None
+    # An apostrophe in a comment line ("the PR's state") must not make the whole command
+    # unparseable, which reads as able to push. Only whole comment lines are removed, and only
+    # when the command does not parse as written: shlex's own comment handling ends a word at a
+    # `#` inside it, which the shell does not, so `echo x#; git push --no-verify` read as `echo x`.
+    for text in (command, '\n'.join(line for line in command.split('\n')
+                                    if not line.lstrip().startswith('#'))):
+        try:
+            return shlex.split(text)
+        except ValueError:
+            continue
+    return None
 
 
 def parse(command, cwd):
