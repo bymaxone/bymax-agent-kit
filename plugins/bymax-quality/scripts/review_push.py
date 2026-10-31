@@ -33,9 +33,12 @@ EXPANSIONS = '*?[]{}~^+,!'
 ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
 # `git rev-parse --git-dir` prints where the git directory is; it points git nowhere. Every
 # handoff file the commands write lives at `$(git rev-parse --git-dir)/bymax-*`, so reading the
-# token there as `git --git-dir=` refused blocks the kit itself prescribes. Only that query
-# within one command segment is set aside: `git --git-dir=X push` and `--git-dir=` are still read.
-GIT_DIR_QUERY = re.compile(r'(\brev-parse\b[^;&|\n)]*?)--git-dir\b(?!=)')
+# token there as `git --git-dir=` refused blocks the kit itself prescribes. Only that exact
+# query — git, an optional `-C <dir>`, rev-parse and its options, then `--git-dir` ending the
+# word — is set aside: `git --git-dir=X push`, `git --git-dir X push`, and a `rev-parse` that is
+# merely a word elsewhere on the line are still read. It is matched on the lowercased text, where
+# `-C` reads as `-c`; a `-c` setting that disarms is refused by its own token.
+GIT_DIR_QUERY = re.compile(r'(\bgit\s+(?:-c\s+\S+\s+)?rev-parse(?:\s+--?[a-z-]+)*?\s+)--git-dir(?=[\s)"\';|&]|$)')
 
 
 # Programs that could start another program, so a command carrying one could reach a remote

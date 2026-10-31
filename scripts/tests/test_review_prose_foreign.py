@@ -46,6 +46,15 @@ class ForeignTreeTests(unittest.TestCase):
         touched = review_claims.touched('HEAD~1', 'HEAD', cwd=str(bench.where))
         self.assertIn('vendor/tool/README.md', touched)
 
+    def test_markers_at_the_repository_root_exempt_nothing(self):
+        """An ATTRIBUTION.md beside the root LICENSE describes the project; its empty prefix
+        would have matched every path and taken the whole repository out of the pass."""
+        bench = Bench(self)
+        commit(bench, {'ATTRIBUTION.md': 'Credits.\n', 'LICENSE': 'MIT\n',
+                       'docs/own.md': '# Own\n\nThe limit is ten.\n'})
+        touched = review_claims.touched('HEAD~1', 'HEAD', cwd=str(bench.where))
+        self.assertIn('docs/own.md', touched)
+
     def test_an_edit_inside_a_vendored_folder_leaves_the_envelope(self):
         """A pass that corrects vendored prose breaks the pin the vendor test holds."""
         bench = Bench(self, files=VENDORED)

@@ -69,6 +69,10 @@ class PrescribedBlocksTests(unittest.TestCase):
         """Setting the query aside must not set aside a real redirection on the same line."""
         for command in ('X=$(git rev-parse --git-dir); git --git-dir=/x push origin HEAD:f',
                         'git rev-parse --git-dir=/x push origin HEAD:f',
+                        # rev-parse as a mere word on the line set the redirection aside.
+                        'env A=rev-parse git --git-dir /tmp/other push origin HEAD:f',
+                        'echo rev-parse x --git-dir && git --git-dir /x push origin HEAD:f',
+                        'git -c core.hooksPath=/dev/null rev-parse --git-dir && git push origin HEAD:f',
                         "# the PR's branch\ngit -c core.hooksPath=/dev/null push origin HEAD:f"):
             with self.subTest(command=command):
                 self.assertIn('BLOCKED', verdict(command))

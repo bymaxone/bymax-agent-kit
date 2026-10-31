@@ -213,8 +213,10 @@ def foreign(cwd=None):
     cannot exempt a folder.
     """
     tracked = set(git('ls-files', '-z', cwd=cwd).split('\0'))
+    # A marker at the repository root names the project itself, not a folder inside it: its
+    # prefix would be empty, and every path starts with the empty string.
     return tuple(name[:-len('ATTRIBUTION.md')] for name in sorted(tracked)
-                 if name.endswith('ATTRIBUTION.md')
+                 if name.endswith('/ATTRIBUTION.md')
                  and name[:-len('ATTRIBUTION.md')] + 'LICENSE' in tracked)
 
 
