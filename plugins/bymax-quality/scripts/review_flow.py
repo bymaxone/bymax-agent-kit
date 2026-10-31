@@ -323,11 +323,9 @@ def first_round(directory, after_archived):
             '--after-archived "<who authorised it and for what scope>".')
 
 
-def next_round(args, old, head, directory, base, context, branch=''):
-    """What advancing a campaign to a correction delta requires; returns its contract."""
-    corrected = bool(args.correct_checks)
-    require(old['base'] == base and scope(old['context'], corrected) == scope(context, corrected),
-            'Scope changed. Stop and agree on a separate campaign.' + correctable(old, context))
+def round_closable(old):
+    """What every way of opening the round after `old`'s requires of it: a correction and a rebase
+    that changed the delta both advance the round, so both answer to the same limit and reviews."""
     # The refusal names its remedy: a delivery's limit is an alarm a human may answer with a
     # recorded decision, while a standalone campaign's limit hands the scope decision over.
     require(old['round'] < old.get('max_rounds', 3),
@@ -337,6 +335,14 @@ def next_round(args, old, head, directory, base, context, branch=''):
     require(satisfied(old), 'Complete both reviews before advancing a correction round: '
             + ', '.join(sorted(reviewers_needed(old))) + '.' + waiver_note(old))
     require(old.get('triage') is not None, 'Record every finding disposition before advancing.')
+
+
+def next_round(args, old, head, directory, base, context, branch=''):
+    """What advancing a campaign to a correction delta requires; returns its contract."""
+    corrected = bool(args.correct_checks)
+    require(old['base'] == base and scope(old['context'], corrected) == scope(context, corrected),
+            'Scope changed. Stop and agree on a separate campaign.' + correctable(old, context))
+    round_closable(old)
     require(git('merge-base', old['head'], head) == old['head'], 'History rewritten; stop and reassess full coverage.')
     correction = correction_contract(args, old, head, branch)
     # A correction after a cleared candidate answers something the campaign never saw — a
@@ -548,7 +554,11 @@ def candidate_state(args, old, head, directory, base, context, branch):
     """The new head's state: a rebase of the frozen candidate, a replacement within its round of
     one whose gate failed before any reviewer read it, or the round after it."""
     if args.rebased_from:
-        return review_rebase.rebased(args, old, head, base, branch)
+        state = review_rebase.rebased(args, old, head, base, branch)
+        if not state['rebased']['same_delta']:
+            round_closable(old)
+            (directory / f"round-{old['round']}.json").write_text(json.dumps(old, indent=2))
+        return state
     if replaceable(old):
         return replacement(args, old, head, base, context, branch, evidence=correction_evidence,
                            widened=widened)

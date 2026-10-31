@@ -78,6 +78,49 @@ class RebaseTests(FlowBench):
         self.checks()
         self.flow('finish', ok=False)
 
+    def test_a_rebase_that_opens_a_round_answers_to_the_round_limit(self):
+        """A rebase whose candidate had not cleared opens the next round; it opened round 4 of a
+        three-round campaign that a correction was refused, and the amended head then cleared."""
+        self.start()
+        for n in (1, 2):
+            self.report('claude')
+            self.report('codex')
+            self.triage()
+            self.commit('fix' + str(n))
+            self.start(correction=True)
+        self.report('claude')
+        self.report('codex')
+        self.triage()
+        frozen = self.git('rev-parse', 'HEAD')
+        self.git('commit', '--amend', '-qm', 'the round-3 candidate, amended')
+        refused = self.flow('start', '--base', self.base, '--rebased-from', frozen, ok=False).stderr
+        self.assertIn('Round limit reached', refused)
+        self.assertEqual(self.flow('status')['round'], 3)
+
+    def test_a_rebase_that_opens_a_round_needs_the_round_reviewed_and_archives_it(self):
+        """An untriaged blocker and a missing review vanished: the next round opened with neither,
+        and no round file kept the report."""
+        self.start()
+        self.report('claude', [dict(id='code.txt:content', kind='defect', priority='P1',
+                                    evidence='code.txt is wrong')])
+        frozen = self.git('rev-parse', 'HEAD')
+
+        def amended(ok=False):
+            self.git('reset', '-q', '--hard', frozen)
+            self.git('commit', '--amend', '-qm', 'the round-1 candidate, amended')
+            return self.rebase_start(frozen, self.base, ok=ok)
+
+        self.assertIn('Complete both reviews', amended().stderr)
+        self.git('reset', '-q', '--hard', frozen)
+        self.report('codex')
+        self.assertIn('Record every finding disposition', amended().stderr)
+        self.git('reset', '-q', '--hard', frozen)
+        self.triage([dict(id='claude::code.txt:content', status='open', evidence='Measured')])
+        state = amended(ok=True)
+        self.assertEqual(state['round'], 2)
+        archived = json.loads((Path(state['directory']) / 'round-1.json').read_text())
+        self.assertEqual((archived['head'], sorted(archived['reviews'])), (frozen, ['claude', 'codex']))
+
     def test_what_is_not_a_rebase_of_the_frozen_candidate_is_refused(self):
         """A descendant is a correction, and a head the campaign never froze is not this campaign's."""
         self.cleared()

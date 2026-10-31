@@ -35,7 +35,7 @@ ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
 # commands write handoff files at `$(git rev-parse --git-dir)/bymax-*`, so reading the token
 # there as `git --git-dir=` refused blocks the kit itself prescribes. Only that literal handoff
 # path is set aside, character for character: its content is fixed, so nothing a variable expands
-# to can turn it into another command, and a path into the hooks directory is still read. A
+# to can turn it into another command, and `$(git rev-parse --git-dir)/hooks` is still read. A
 # pattern loose enough to accept `-C <dir>` or options was bypassed twice — by `rev-parse` as a
 # mere word on the line, and by `git -C $X rev-parse --git-dir /y push` with X holding
 # `. --namespace` — so every other spelling is read.

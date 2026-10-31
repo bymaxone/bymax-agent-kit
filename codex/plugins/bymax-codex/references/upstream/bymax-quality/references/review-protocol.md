@@ -531,7 +531,7 @@ rebased delta with the one the reviewers read, by `git patch-id --verbatim` over
 | The rebased delta | The campaign |
 |---|---|
 | identical, and the frozen candidate had cleared | keeps both reports and the triage; the gates run again on the new tree, then `finish`. No delivery candidate is spent. |
-| changed (a conflict resolved, a commit dropped or added), or the frozen candidate had not cleared | opens the next round, reviewing the new delta in full from the new base; it counts against the budget |
+| changed (a conflict resolved, a commit dropped or added), or the frozen candidate had not cleared | opens the next round, reviewing the new delta in full from the new base, on the terms a correction round meets: within the round limit, after both reviews and the triage of the frozen round, which is archived |
 
 A head that descends from the frozen one is a correction, not a rebase, and a head the campaign
 never froze is refused. The prose pass after a rebase reads from the base named with `--base`.
