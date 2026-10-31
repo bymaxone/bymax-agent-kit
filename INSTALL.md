@@ -39,14 +39,9 @@ cd bymax-agent-kit
 
 ## Claude package
 
-Register the marketplace and install all nine components. If this machine still has the
-former `bymax-claude-code` marketplace registered, remove it first — the GitHub URL
-redirects but the marketplace id does not, and mixing the two suffixes installs two copies:
+Register the marketplace and install all nine components:
 
 ```bash
-claude plugin marketplace list                      # only if bymax-claude-code is listed:
-claude plugin marketplace remove bymax-claude-code
-
 claude plugin marketplace add bymaxone/bymax-agent-kit
 claude plugin install bymax-quality@bymax-agent-kit
 claude plugin install bymax-workflow@bymax-agent-kit

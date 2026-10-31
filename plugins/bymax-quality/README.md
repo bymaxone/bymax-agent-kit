@@ -56,8 +56,7 @@ settings and hooks, reports its rollback directory under `~/.claude/backups/`, a
 rather than deleting a legacy hook chained to another command. `--local-plugin-overlay`
 also copies this checkout over the installed quality/workflow/PR caches — official plugin
 updates replace that overlay, so publish these plugin versions before relying on remote
-updates. The overlay resolves a cache installed under either the current `bymax-agent-kit`
-marketplace id or the former `bymax-claude-code` one.
+updates. The overlay resolves the cache installed under the `bymax-agent-kit` marketplace id.
 
 ### Also in Codex
 

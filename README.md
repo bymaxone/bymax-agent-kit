@@ -36,19 +36,6 @@
 
 ---
 
-> **Renamed.** This project shipped as `bymax-claude-code` until v2.
->
-> It is now **Bymax Agent Kit** — `bymaxone/bymax-agent-kit`. The name changed because the toolkit
-> is no longer Claude-only: the same procedures now ship as a **native Codex package** next to the
-> Claude Code marketplace, and the flagship review runs **both models against one pinned scope**.
-> A name that said "claude-code" described one of its two runtimes.
->
-> The old GitHub URL redirects. The **marketplace id does not** — it moved from
-> `@bymax-claude-code` to `@bymax-agent-kit`, so an existing install needs three commands:
-> see [Migrating from `bymax-claude-code`](#migrating-from-bymax-claude-code).
-
----
-
 ## ✨ Overview
 
 **Bymax Agent Kit** is a production-ready toolkit that turns a coding agent into a **disciplined
@@ -183,22 +170,6 @@ Every entrypoint and every capability boundary: [CODEX.md](./CODEX.md).
 python3 scripts/doctor.py --auth     # CLIs, runtime version, authentication — reports no credentials
 ./scripts/install-codex.sh --check
 ```
-
-### Migrating from `bymax-claude-code`
-
-The GitHub URL redirects, but the **marketplace id changed**, so Claude Code will not update the
-old entry into the new one. Re-point it once:
-
-```bash
-claude plugin marketplace remove bymax-claude-code
-claude plugin marketplace add bymaxone/bymax-agent-kit
-claude plugin install bymax-quality@bymax-agent-kit   # …and each plugin you had
-```
-
-Nothing else moves: plugin names, command names, hooks, your `~/.claude/settings.json` and any
-project's `.claude/` are untouched. `scripts/install-review-flow.py --local-plugin-overlay`
-resolves a cache installed under **either** id, so a development overlay keeps working across the
-rename.
 
 > 🤖 **AI agents**: installing this toolkit for a user? Follow the step-by-step runbook in [`llms-install.md`](./llms-install.md) — idempotent commands, verification after each step, and the DO-NOT list.
 

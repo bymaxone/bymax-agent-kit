@@ -239,22 +239,21 @@ class InstallTests(unittest.TestCase):
         (home / 'plugins/installed_plugins.json').write_text(json.dumps(registry))
         return registry
 
-    def test_overlay_finds_the_cache_under_either_marketplace_id(self):
-        """The marketplace id moved, and an install keyed by either one still overlays."""
-        for marketplace in ('bymax-agent-kit', 'bymax-claude-code'):
-            with self.subTest(marketplace=marketplace), tempfile.TemporaryDirectory() as tmp:
-                home = Path(tmp)
-                self._overlay_profile(home, marketplace)
-                result = subprocess.run(
-                    [sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
-                     '--claude-home', tmp, '--local-plugin-overlay'],
-                    capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                overlaid = home / 'plugins/cache' / marketplace / 'bymax-quality'
-                self.assertTrue((overlaid / 'commands/code-review.md').exists())
-                self.assertTrue((overlaid / 'scripts/review_flow.py').exists())
+    def test_overlay_finds_the_cache_under_the_marketplace_id(self):
+        """An install keyed by the bymax-agent-kit marketplace id is overlaid."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self._overlay_profile(home, 'bymax-agent-kit')
+            result = subprocess.run(
+                [sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
+                 '--claude-home', tmp, '--local-plugin-overlay'],
+                capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            overlaid = home / 'plugins/cache/bymax-agent-kit/bymax-quality'
+            self.assertTrue((overlaid / 'commands/code-review.md').exists())
+            self.assertTrue((overlaid / 'scripts/review_flow.py').exists())
 
-    def test_overlay_refuses_a_plugin_installed_under_both_marketplace_ids(self):
+    def test_overlay_refuses_a_plugin_installed_twice(self):
         """Two caches for one plugin is ambiguous, so the run ends before anything is written.
 
         The duplicate is the LAST name overlays() iterates: a run that validated and copied
@@ -264,10 +263,10 @@ class InstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             registry = self._overlay_profile(home, 'bymax-agent-kit')
-            legacy = home / 'plugins/cache/bymax-claude-code/bymax-pr'
+            legacy = home / 'plugins/cache/bymax-agent-kit/bymax-pr-copy'
             legacy.mkdir(parents=True)
-            registry['plugins']['bymax-pr@bymax-claude-code'] = [
-                dict(scope='user', installPath=str(legacy))]
+            registry['plugins']['bymax-pr@bymax-agent-kit'].append(
+                dict(scope='user', installPath=str(legacy)))
             (home / 'plugins/installed_plugins.json').write_text(json.dumps(registry))
             result = subprocess.run(
                 [sys.executable, str(ROOT / 'scripts/install-review-flow.py'),
