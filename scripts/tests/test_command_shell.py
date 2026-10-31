@@ -648,8 +648,8 @@ class ProseReferenceTests(unittest.TestCase):
         # the gate is blind where its subject is most written about — which it was.
         read = {str(path.relative_to(ROOT)) for path in self.sources()}
         # One statement, exact, and stated without consulting the derivation it checks. What
-        # this repository authors is every tracked .md and .py except the three trees it does
-        # not, and those three are written here as literals — the derivation's job is to arrive
+        # this repository authors is every tracked .md and .py except the trees it does not,
+        # and those are written here as literals — the derivation's job is to arrive
         # at the same answer from markers, which its own case proves separately.
         #
         # Four partial rules stood here before and each let something through. A floor of 100
@@ -676,7 +676,8 @@ class ProseReferenceTests(unittest.TestCase):
         self.assertTrue(every, 'git listed no documents or scripts, so the expected side of '
                                'this gate is empty and an empty gate would match it. git exit '
                                '%d: %s' % (listed.returncode, listed.stderr.decode()[:200]))
-        VENDORED = ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/bymax-codex/')
+        VENDORED = ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/bymax-codex/',
+                    'plugins/bymax-qa/skills/security-audit/')
         expected = {name for name in every
                     if not any(name.startswith(part) for part in VENDORED)}
         self.assertEqual(expected, read,
