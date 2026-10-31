@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Claude_Code-9_plugins-D97757?style=for-the-badge&logo=claude&logoColor=white&labelColor=000000" alt="Claude Code — 9 plugins" />
   &nbsp;
-  <img src="https://img.shields.io/badge/Codex-28_skills-10A37F?style=for-the-badge&logoColor=white&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxZW0iIGhlaWdodD0iMWVtIiB2aWV3Qm94PSIwIDAgMjQgMjQiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik0yMi4yODIgOS44MjFhNiA2IDAgMCAwLS41MTYtNC45MWE2LjA1IDYuMDUgMCAwIDAtNi41MS0yLjlBNi4wNjUgNi4wNjUgMCAwIDAgNC45ODEgNC4xOGE2IDYgMCAwIDAtMy45OTggMi45YTYuMDUgNi4wNSAwIDAgMCAuNzQzIDcuMDk3YTUuOTggNS45OCAwIDAgMCAuNTEgNC45MTFhNi4wNSA2LjA1IDAgMCAwIDYuNTE1IDIuOUE2IDYgMCAwIDAgMTMuMjYgMjRhNi4wNiA2LjA2IDAgMCAwIDUuNzcyLTQuMjA2YTYgNiAwIDAgMCAzLjk5Ny0yLjlhNi4wNiA2LjA2IDAgMCAwLS43NDctNy4wNzNNMTMuMjYgMjIuNDNhNC40OCA0LjQ4IDAgMCAxLTIuODc2LTEuMDRsLjE0MS0uMDgxbDQuNzc5LTIuNzU4YS44LjggMCAwIDAgLjM5Mi0uNjgxdi02LjczN2wyLjAyIDEuMTY4YS4wNy4wNyAwIDAgMSAuMDM4LjA1MnY1LjU4M2E0LjUwNCA0LjUwNCAwIDAgMS00LjQ5NCA0LjQ5NE0zLjYgMTguMzA0YTQuNDcgNC40NyAwIDAgMS0uNTM1LTMuMDE0bC4xNDIuMDg1bDQuNzgzIDIuNzU5YS43Ny43NyAwIDAgMCAuNzggMGw1Ljg0My0zLjM2OXYyLjMzMmEuMDguMDggMCAwIDEtLjAzMy4wNjJMOS43NCAxOS45NWE0LjUgNC41IDAgMCAxLTYuMTQtMS42NDZNMi4zNCA3Ljg5NmE0LjUgNC41IDAgMCAxIDIuMzY2LTEuOTczVjExLjZhLjc3Ljc3IDAgMCAwIC4zODguNjc3bDUuODE1IDMuMzU0bC0yLjAyIDEuMTY4YS4wOC4wOCAwIDAgMS0uMDcxIDBsLTQuODMtMi43ODZBNC41MDQgNC41MDQgMCAwIDEgMi4zNCA3Ljg3MnptMTYuNTk3IDMuODU1bC01LjgzMy0zLjM4N0wxNS4xMTkgNy4yYS4wOC4wOCAwIDAgMSAuMDcxIDBsNC44MyAyLjc5MWE0LjQ5NCA0LjQ5NCAwIDAgMS0uNjc2IDguMTA1di01LjY3OGEuNzkuNzkgMCAwIDAtLjQwNy0uNjY3bTIuMDEtMy4wMjNsLS4xNDEtLjA4NWwtNC43NzQtMi43ODJhLjc4Ljc4IDAgMCAwLS43ODUgMEw5LjQwOSA5LjIzVjYuODk3YS4wNy4wNyAwIDAgMSAuMDI4LS4wNjFsNC44My0yLjc4N2E0LjUgNC41IDAgMCAxIDYuNjggNC42NnptLTEyLjY0IDQuMTM1bC0yLjAyLTEuMTY0YS4wOC4wOCAwIDAgMS0uMDM4LS4wNTdWNi4wNzVhNC41IDQuNSAwIDAgMSA3LjM3NS0zLjQ1M2wtLjE0Mi4wOEw4LjcwNCA1LjQ2YS44LjggMCAwIDAtLjM5My42ODF6bTEuMDk3LTIuMzY1bDIuNjAyLTEuNWwyLjYwNyAxLjV2Mi45OTlsLTIuNTk3IDEuNWwtMi42MDctMS41WiIvPjwvc3ZnPg%3D%3D" alt="Codex — 28 skills" />
+  <img src="https://img.shields.io/badge/Codex-29_skills-10A37F?style=for-the-badge&logoColor=white&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxZW0iIGhlaWdodD0iMWVtIiB2aWV3Qm94PSIwIDAgMjQgMjQiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik0yMi4yODIgOS44MjFhNiA2IDAgMCAwLS41MTYtNC45MWE2LjA1IDYuMDUgMCAwIDAtNi41MS0yLjlBNi4wNjUgNi4wNjUgMCAwIDAgNC45ODEgNC4xOGE2IDYgMCAwIDAtMy45OTggMi45YTYuMDUgNi4wNSAwIDAgMCAuNzQzIDcuMDk3YTUuOTggNS45OCAwIDAgMCAuNTEgNC45MTFhNi4wNSA2LjA1IDAgMCAwIDYuNTE1IDIuOUE2IDYgMCAwIDAgMTMuMjYgMjRhNi4wNiA2LjA2IDAgMCAwIDUuNzcyLTQuMjA2YTYgNiAwIDAgMCAzLjk5Ny0yLjlhNi4wNiA2LjA2IDAgMCAwLS43NDctNy4wNzNNMTMuMjYgMjIuNDNhNC40OCA0LjQ4IDAgMCAxLTIuODc2LTEuMDRsLjE0MS0uMDgxbDQuNzc5LTIuNzU4YS44LjggMCAwIDAgLjM5Mi0uNjgxdi02LjczN2wyLjAyIDEuMTY4YS4wNy4wNyAwIDAgMSAuMDM4LjA1MnY1LjU4M2E0LjUwNCA0LjUwNCAwIDAgMS00LjQ5NCA0LjQ5NE0zLjYgMTguMzA0YTQuNDcgNC40NyAwIDAgMS0uNTM1LTMuMDE0bC4xNDIuMDg1bDQuNzgzIDIuNzU5YS43Ny43NyAwIDAgMCAuNzggMGw1Ljg0My0zLjM2OXYyLjMzMmEuMDguMDggMCAwIDEtLjAzMy4wNjJMOS43NCAxOS45NWE0LjUgNC41IDAgMCAxLTYuMTQtMS42NDZNMi4zNCA3Ljg5NmE0LjUgNC41IDAgMCAxIDIuMzY2LTEuOTczVjExLjZhLjc3Ljc3IDAgMCAwIC4zODguNjc3bDUuODE1IDMuMzU0bC0yLjAyIDEuMTY4YS4wOC4wOCAwIDAgMS0uMDcxIDBsLTQuODMtMi43ODZBNC41MDQgNC41MDQgMCAwIDEgMi4zNCA3Ljg3MnptMTYuNTk3IDMuODU1bC01LjgzMy0zLjM4N0wxNS4xMTkgNy4yYS4wOC4wOCAwIDAgMSAuMDcxIDBsNC44MyAyLjc5MWE0LjQ5NCA0LjQ5NCAwIDAgMS0uNjc2IDguMTA1di01LjY3OGEuNzkuNzkgMCAwIDAtLjQwNy0uNjY3bTIuMDEtMy4wMjNsLS4xNDEtLjA4NWwtNC43NzQtMi43ODJhLjc4Ljc4IDAgMCAwLS43ODUgMEw5LjQwOSA5LjIzVjYuODk3YS4wNy4wNyAwIDAgMSAuMDI4LS4wNjFsNC44My0yLjc4N2E0LjUgNC41IDAgMCAxIDYuNjggNC42NnptLTEyLjY0IDQuMTM1bC0yLjAyLTEuMTY0YS4wOC4wOCAwIDAgMS0uMDM4LS4wNTdWNi4wNzVhNC41IDQuNSAwIDAgMSA3LjM3NS0zLjQ1M2wtLjE0Mi4wOEw4LjcwNCA1LjQ2YS44LjggMCAwIDAtLjM5My42ODF6bTEuMDk3LTIuMzY1bDIuNjAyLTEuNWwyLjYwNyAxLjV2Mi45OTlsLTIuNTk3IDEuNWwtMi42MDctMS41WiIvPjwvc3ZnPg%3D%3D" alt="Codex — 29 skills" />
 </p>
 
 <h1 align="center">Bymax Agent Kit</h1>
@@ -62,7 +62,7 @@ senior engineer** — and it ships for both of the agents people actually run in
 <tr>
 <td valign="top">
 
-**9 plugins** on a public marketplace — 21 slash commands, 7 skills, 10 sub-agents, 4 hooks,
+**9 plugins** on a public marketplace — 21 slash commands, 8 skills, 10 sub-agents, 4 hooks,
 26 templates.
 
 ```bash
@@ -75,7 +75,7 @@ Full setup → [INSTALL.md](./INSTALL.md)
 </td>
 <td valign="top">
 
-**1 plugin, 28 native skills** — every first-party entrypoint in one install, with a native
+**1 plugin, 29 native skills** — every first-party entrypoint in one install, with a native
 Codex review procedure.
 
 ```bash
@@ -97,6 +97,7 @@ Instead of ad-hoc prompts, you get:
 - **Strict quality gates** — `/bymax-quality:tdd` (red-green-refactor), `/bymax-workflow:verify` (5 gates), and a `secret-scanner` hook that **blocks** writes containing credentials.
 - **Ten specialist sub-agents** — architect, code-reviewer, security-reviewer, typescript-reviewer, rust-reviewer, database-reviewer, planner, plus the QA trio (recon, hunter, verifier).
 - **A whole-system QA + security audit** (`/bymax-qa:audit`) that runs as the Security QA engineer of your agent team. Point it at a **Jira ticket** (acceptance criteria verified PASS/FAIL with evidence), a **branch or PR** (the hunt scoped to the change), or the **whole system**: a stack + threat map, read-only per-domain finders, live probes against allow-listed hosts only, and a finding admitted **only after an independent verifier reproduces it** — then handed to the owning agent, filed as a GitHub issue, or commented back on the ticket, and re-tested until it holds.
+- **Cloudflare's security-audit skill, included unchanged** (`/bymax-qa:security-audit`, `bymax-security-audit` in Codex) — the source-first vulnerability audit [published by Cloudflare](https://github.com/cloudflare/security-audit-skill) under the MIT license, shipped byte for byte with its license and pinned to an upstream commit. It answers security questions in guidance mode, and on an explicit audit request runs six phases: reconnaissance with a coverage ledger, coverage-led hunting, a fresh verifier for every candidate, validated `findings.json`, independent record verification, and a report written outside the target.
 - **A weekly standup written from evidence** (`/bymax-report:standup`) — what was asked (what you typed into Claude Code or Codex sessions on that repository) as a PROGRESS list, the undelivered ones marked in progress, and what shipped (`gh` PRs and `git` commits) as UPDATES grouped by the product area the team reads. No hash, PR number or file name reaches the report, and no Markdown either: plain text for the document you paste it into. The evidence is printed under it, and no file is left on disk.
 - **TypeScript _and_ Rust** — the quality + workflow skills are language-detecting: TypeScript rules for `package.json` projects, and a parallel **Rust track** (clippy/rustfmt with `-D warnings`, typed `thiserror` errors, `#![forbid(unsafe_code)]`, rustdoc, `cargo test` + `cargo llvm-cov`, `cargo deny`/`audit`/`vet`) for `Cargo.toml` projects.
 - **Project bootstrap** with strict TypeScript, ESLint flat-config (security plugin + import-order + suppression bans), Prettier, format-on-save VS Code, Husky + commitlint + lint-staged — for **Next.js, Expo / React Native, Vite + React, and Node backends (Express / Fastify / Hono / NestJS / plain Node)** stacks.
@@ -283,7 +284,7 @@ dual. macOS or Linux for that runtime — its file locks use Python's `fcntl`; o
 
 | Tool | Needed by | How to install |
 |---|---|---|
-| **Node.js ≥ 18** | plugin hooks (`secret-scanner`, `console-log-scan`, `check-agent-browser`), all `npx`-based tooling | `brew install node` (or `nvm`) — must be on the non-interactive shell's PATH |
+| **Node.js ≥ 18** | plugin hooks (`secret-scanner`, `console-log-scan`, `check-agent-browser`), the two validators of `/bymax-qa:security-audit`, all `npx`-based tooling | `brew install node` (or `nvm`) — must be on the non-interactive shell's PATH |
 | **`git` + `gh` CLI** (authenticated) | `bymax-report` — pull requests for `/bymax-report:standup` (without `gh` the report is built from commits and says so); `bymax-pr` — every GitHub operation in `/bymax-pr:babysit-pr` (PR checks, CI logs, thread resolution); `bymax-qa` — filing findings as issues or advisories and re-testing a claimed fix from a PR | `brew install gh && gh auth login` |
 | **Security scanners** — `semgrep`, `gitleaks`, `trufflehog`, `osv-scanner`, `trivy`, `nuclei`, `zap`, `sqlmap`, `jwt_tool` — **all optional** | `bymax-qa` — the deterministic layer of `/bymax-qa:audit` uses whichever are on PATH and records the rest as a coverage gap; none is bundled or required | install per tool as needed (e.g. `brew install semgrep gitleaks osv-scanner trivy`); run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/qa-tools.sh` inside an audit to see what is detected |
 | **`axe` + Lighthouse** — **optional** | `bymax-qa` frontend domain (accessibility + Core Web Vitals), driven through `bymax-web-verify` when a UI is present | `npm i -g @axe-core/cli lighthouse` |
@@ -356,7 +357,7 @@ graphify hook install
 ## 📦 Plugins
 
 For Claude Code the toolkit ships as **nine composable plugins** (plus a reference index) — use
-them à la carte. For Codex the same surface arrives as **one plugin with 28 native skills**; the
+them à la carte. For Codex the same surface arrives as **one plugin with 29 native skills**; the
 short name in the tables below maps to `bymax-codex:bymax-<name>` there, and the full mapping is
 in [CODEX.md](./CODEX.md#available-workflows-and-capability-boundaries).
 
@@ -497,9 +498,12 @@ The Security QA engineer of your agent team. Point `/bymax-qa:audit` at a **Jira
 | `/bymax-qa:audit <target>`         | Target is a ticket key, a branch, a range, a PR, or nothing (whole system); a free-text instruction after it steers focus. Modes `init`, `retest QA-NNN`, `status`. Flags `--domains`, `--depth`, `--live`, `--no-handoff`, `--no-issues`. |
 | `audit` skill + 18 references | Target resolution + Jira access, acceptance criteria, the security domains (auth, authz/tenant, injection, cache, database, transport), observability, architecture, frontend, supply chain, plus verification, the finding contract, hand-off and report templates. |
 | 3 sub-agents | `qa-recon` (map), `qa-hunter` (per-domain finder → candidates), `qa-verifier` (adversarial, opus). |
+| `/bymax-qa:security-audit` | The [security-audit skill](https://github.com/cloudflare/security-audit-skill) by Cloudflare, Inc., included unchanged (MIT): guidance for security questions, or a six-phase source-first audit with a coverage ledger, fresh verifiers and validated `findings.json`. Needs Node.js. |
 | `qa-guard` hook | While an audit runs, confines network probes to allow-listed hosts and writes to `.claude/qa/`. |
 
 Findings carry ASVS 5.0, CWE and API Top 10 references and a CVSS vector, and live in a `.claude/qa/` workspace that survives restarts. External scanners (`semgrep`, `gitleaks`, `osv-scanner`, `trivy`, `zap`, `axe`, Lighthouse) are used when present and never bundled.
+
+`/bymax-qa:security-audit` is not a Bymax procedure: it is the [security-audit skill](https://github.com/cloudflare/security-audit-skill) written and published by **Cloudflare, Inc.** under the MIT license, included without modification so it behaves exactly as the original. Its license and an attribution note travel with it in [`plugins/bymax-qa/skills/security-audit/`](./plugins/bymax-qa/skills/security-audit/), and `upstream.json` there records the upstream commit and the hash of every copied file, which a test checks. The Codex entrypoint adds only an adapter that maps the skill's platform-neutral terms. Use `/bymax-qa:audit` for a ticket, a branch or a live system with hand-off and retest; use `/bymax-qa:security-audit` for Cloudflare's source-first audit and its `findings.json` and report artifacts.
 
 ### 🎁 [`bymax-all`](./plugins/bymax-all/) — Reference index
 
@@ -626,7 +630,7 @@ bymax-agent-kit/
 │   ├── bymax-web-verify/               ← real-browser verification (needs agent-browser)
 │   ├── bymax-pr/                       ← push + autonomous PR babysitting (needs gh CLI)
 │   ├── bymax-pm/                       ← engineering PM for multi-agent development
-│   ├── bymax-qa/                       ← whole-system QA + security audit (3 agents, 18 refs)
+│   ├── bymax-qa/                       ← whole-system QA + security audit (3 agents, 18 refs) + Cloudflare's security-audit skill (unchanged, MIT)
 │   ├── bymax-report/                   ← weekly standup report from git, gh and your sessions
 │   └── bymax-all/                      ← reference index (no auto-install in Claude Code)
 │
@@ -634,7 +638,7 @@ bymax-agent-kit/
 │   ├── .agents/plugins/marketplace.json
 │   ├── plugins/bymax-codex/
 │   │   ├── .codex-plugin/plugin.json
-│   │   ├── skills/bymax-*/             ← 28 native Codex entrypoints
+│   │   ├── skills/bymax-*/             ← 29 native Codex entrypoints
 │   │   ├── scripts/review_scope.py     ← read-only Git scope capture
 │   │   └── references/
 │   │       ├── runtime.md · catalog.json · review-checklist.md
@@ -843,7 +847,7 @@ cd bymax-agent-kit
 # The two release gates — both run in CI, and each ends with its behavioral suite
 python3 -m pip install pyyaml   # the validators need it; shellcheck too, mandatory in CI
 ./scripts/validate.sh           # manifests, +x, shellcheck, frontmatter, files + scripts/tests
-./scripts/validate-codex.sh     # drift, 28 entrypoints, links, manifests + codex/tests
+./scripts/validate-codex.sh     # drift, 29 entrypoints, links, manifests + codex/tests
 
 # Test the Claude package locally
 claude plugin marketplace add ./
@@ -873,7 +877,11 @@ If you discover a security vulnerability (e.g., a regex bypass in `secret-scanne
 
 ## 🙏 Credits
 
-This repo bundles two MIT-licensed third-party skills as backup (not redistributed via the marketplace — see `vendor/README.md` for original sources):
+Both marketplaces redistribute one third-party skill, unchanged:
+
+- **[security-audit](https://github.com/cloudflare/security-audit-skill)** by **Cloudflare, Inc.** (MIT) — the source-first security audit available here as `/bymax-qa:security-audit` and, in Codex, `bymax-security-audit`. It is Cloudflare's own skill, included without modification; Cloudflare introduced it as the starting point of its vulnerability discovery harness in [Build your own vulnerability harness](https://blog.cloudflare.com/build-your-own-vulnerability-harness). Its original license and an [attribution note](./plugins/bymax-qa/skills/security-audit/ATTRIBUTION.md) ship with it. Thanks to Cloudflare for publishing it; feedback on the skill's own behaviour is best sent to the upstream repository.
+
+This repo also bundles two MIT-licensed third-party skills as backup (not redistributed via the marketplace — see `vendor/README.md` for original sources):
 
 - **[Everything Claude Code](https://github.com/affaan-m/everything-claude-code)** by Affaan Mustafa — domain skills (api-design, backend-patterns, postgres-patterns, etc.)
 - **[ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)** by nextlevelbuilder — UI/UX design intelligence
@@ -897,6 +905,8 @@ Inspired by:
 ## 📄 License
 
 [MIT](./LICENSE) © [Bymax One](https://github.com/bymaxone)
+
+Third-party files keep their own licenses: [`plugins/bymax-qa/skills/security-audit/`](./plugins/bymax-qa/skills/security-audit/LICENSE) is MIT © Cloudflare, Inc., and each folder under [`vendor/`](./vendor/) carries its upstream `LICENSE`.
 
 ---
 
