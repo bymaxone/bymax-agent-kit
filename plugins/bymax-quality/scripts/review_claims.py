@@ -226,8 +226,8 @@ def authored(name, cwd=None):
     The Codex mirror is a copy of the plugin sources, so every sentence in it exists twice by
     construction. Measured on this delta: reading it doubled every count and produced four
     removal claims that were each a file flagging its own mirror. A generated copy asserts
-    nothing of its own. A vendored tree is someone else's text, shipped unchanged and pinned by
-    a hash manifest: a pass that corrects its prose breaks that pin, and on a delta vendoring
+    nothing of its own. A vendored tree is someone else's text, shipped unchanged: a pass that
+    corrects its prose changes it, and on a delta vendoring
     twenty playbooks it was 87% of what a reader was handed.
     """
     return not name.startswith(GENERATED) and not name.startswith(foreign(cwd))

@@ -2,7 +2,7 @@
 
 A rebase rewrites every commit, so the frozen head stops being an ancestor of the new one and the
 ordinary rounds refuse it. What the reviewers read was a delta, not a commit id. When the rebased
-delta against the new base is byte for byte the delta they read and that candidate cleared, their
+delta against the new base is the delta they read and that candidate cleared, their
 reports still describe it, and only the declared gates run again on the new tree. When the rebase changed the delta (a
 conflict resolved, a commit dropped or added), the new delta is unreviewed and opens a round that
 reviews it in full from the new base.
@@ -23,8 +23,7 @@ KEPT = ('round', 'reviews', 'triage', 'previous_triage', 'retrospectives', 'answ
 def delta_id(base, head):
     """An id of the change base..head that identical deltas share, whatever commits carry them.
 
-    `--full-index` names every blob in full, so equal ids mean equal content; `--verbatim` keeps
-    whitespace, which the default patch-id normalises away.
+    `--verbatim` keeps whitespace, which the default patch-id normalises away.
     """
     diff = subprocess.run(['git', 'diff', '--no-ext-diff', '--no-renames', '--binary', '--full-index',
                            base, head], capture_output=True, check=True).stdout

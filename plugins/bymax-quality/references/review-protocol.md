@@ -74,7 +74,7 @@ fresh subagent with Edit and leaves a marker that it began on a clean tree; `pro
 verify` requires that marker. It proves the tree was clean when the task was handed out;
 the runtime does not observe who edited between the stages. A tree vendored from another
 project — a tracked `ATTRIBUTION.md` beside a tracked `LICENSE` — is neither handed to the
-reader nor editable by it: its text is someone else's, pinned unchanged, and `verify` refuses an
+reader nor editable by it: its text is someone else's, kept unchanged, and `verify` refuses an
 edit inside it. The CLI reader gets 15 minutes; a reviewer pass gets ten.
 
 Inside a checkout of this toolkit, `start` also says when the installed runtime differs from

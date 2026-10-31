@@ -1,7 +1,7 @@
 """Regression layer: the prose pass neither reads nor edits a tree vendored from another project.
 
 A vendored folder (a tracked ATTRIBUTION.md beside a tracked LICENSE) holds someone else's text,
-shipped unchanged and pinned by a hash manifest. The pass was handed that text — 87% of what one
+shipped unchanged. The pass was handed that text — 87% of what one
 reader got on a delta vendoring twenty playbooks — and nothing refused an edit to it.
 """
 from pathlib import Path
@@ -56,7 +56,7 @@ class ForeignTreeTests(unittest.TestCase):
         self.assertIn('docs/own.md', touched)
 
     def test_an_edit_inside_a_vendored_folder_leaves_the_envelope(self):
-        """A pass that corrects vendored prose breaks the pin the vendor test holds."""
+        """A pass that corrects vendored prose no longer ships it unchanged."""
         bench = Bench(self, files=VENDORED)
         bench.write('# Tool\n\nThe limit is eleven.\n', name='vendor/tool/README.md')
         self.assertIn('shipped unchanged from another project', ' | '.join(bench.offences()))
