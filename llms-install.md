@@ -11,10 +11,6 @@
 > Name mapping (the most common command-construction error):
 > - GitHub slug: `bymaxone/bymax-agent-kit`
 > - Marketplace name (used after `@` in install commands): `bymax-agent-kit`
-> - **Renamed from `bymax-claude-code`.** The GitHub URL redirects; the marketplace id does not. If
->   `claude plugin marketplace list` shows `bymax-claude-code`, run
->   `claude plugin marketplace remove bymax-claude-code` before Step 1, then reinstall each plugin
->   under the new id. Never mix the two suffixes in one install.
 > - Codex plugin: `bymax-codex@bymax-codex`, from the local `codex/` directory — not from a Git URL.
 
 Every step is idempotent — re-running is safe. After each step, run the **Verify** command; do not proceed on failure (see [Failure guidance](#failure-guidance)).
@@ -203,7 +199,7 @@ graphify hook install          # post-commit graph refresh
 ## Final verification checklist
 
 ```bash
-claude plugin marketplace list   # bymax-agent-kit present, and bymax-claude-code absent
+claude plugin marketplace list   # bymax-agent-kit present
 claude plugin list               # every chosen plugin present
 claude mcp list                  # every chosen MCP present (if Step 5 ran)
 gh auth status                   # exit 0 (only if bymax-pr, bymax-qa or bymax-report installed)
@@ -231,7 +227,7 @@ Report a pass/fail summary per step to the human. Done.
 | Symptom | Likely cause → action |
 |---|---|
 | `marketplace add` fails | Network/auth → retry once; still failing → report to human with the exact error |
-| `plugin install` fails | Marketplace-name typo — it is `@bymax-agent-kit` (hyphens), never `@bymax.agent-kit`; and never the old `@bymax-claude-code`, which no longer matches the registered marketplace |
+| `plugin install` fails | Marketplace-name typo — it is `@bymax-agent-kit` (hyphens), never `@bymax.agent-kit` |
 | `install-review-flow.py` exits nonzero naming another hook | A legacy guard chained to somebody else's command. It refuses rather than deleting it — **hand the exact stderr to the human**; do not edit `settings.json` yourself |
 | `doctor.py --auth` nonzero | It names the CLI/runtime that is missing, outdated or unauthenticated; `gh` counts, so a declined `gh` row is a nonzero exit with nothing wrong. `codex login` and `claude auth login` are interactive → HUMAN HANDOFF |
 | `install-codex.sh` stops on the marketplace name | A `bymax-codex` marketplace already points at another checkout. It refuses to replace it — ask the human which checkout is current |

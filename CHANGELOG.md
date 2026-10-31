@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The project's former name is gone from the docs and the installer** — the README notice and migration section, the install guides, the Codex guide, the design proposal and the changelog no longer name it, and `scripts/install-review-flow.py --local-plugin-overlay` resolves plugin caches under the `bymax-agent-kit` marketplace id only. A plugin installed twice under that id is still refused before anything is written.
+
 ### Added
 
 - **`bymax-qa` 1.2.0 and `bymax-codex` 1.27.0 add `/bymax-qa:security-playbooks` and an AI/LLM audit domain** — twenty defensive playbooks from [mukul975/Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills) (Apache-2.0), copied unchanged under `plugins/bymax-qa/references/acs/` and pinned by commit and file hash, cover CI/CD hardening, secret scanning and SAST, IaC and image scanning, SBOMs and signing, container hardening, API controls, LLM and agent security, data subject requests and EPSS prioritization. They are not registered as skills: one index skill (`bymax-security-playbooks` in Codex) loads a single playbook when a task calls for it, and a notes file lists which commands publish, send data to a third party, spend money or write secrets, each needing approval. `/bymax-qa:audit` gains an `ai-llm` domain that runs only when recon records LLM or agent tooling, script-injection, privileged-trigger and fork-exposure checks for GitHub Actions, an artifact-provenance recommendation, and routing to the Cloudflare attack-class references and the playbooks. Marketplace 2.28.0; the Codex package now has 30 skills.
@@ -97,15 +101,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Cut at `001831a`. This release covers everything after `v1.12.0`, including the work tagged
 `v1.13.1`, for which no section of its own was written.
 
-**Breaking:** the marketplace id moved from `bymax-claude-code` to `bymax-agent-kit`. The GitHub
-URL redirects; the id does not. An existing install runs
-`claude plugin marketplace remove bymax-claude-code`, adds `bymaxone/bymax-agent-kit`, and
-reinstalls each plugin under the `@bymax-agent-kit` suffix. Plugin names, command names, hooks and
+**Breaking:** the marketplace id is now `bymax-agent-kit`. An existing install removes the
+previous marketplace, adds `bymaxone/bymax-agent-kit`, and reinstalls each plugin under the
+`@bymax-agent-kit` suffix. Plugin names, command names, hooks and
 user settings are unchanged, and the Codex ids (`bymax-codex@bymax-codex`) are unaffected.
 
 ### Changed
 
-- **Renamed to Bymax Agent Kit: marketplace `2.0.0`, every plugin patched, Codex `1.1.1`** — the repository is `bymaxone/bymax-agent-kit` and the marketplace id is `bymax-agent-kit`. The project ships two packages built from one canonical `plugins/` tree — the Claude Code marketplace and the Codex plugin — so a name that said "claude-code" described one of its two runtimes. **Breaking for existing installs:** the GitHub URL redirects, the marketplace id does not. Run `claude plugin marketplace remove bymax-claude-code`, add `bymaxone/bymax-agent-kit`, and reinstall each plugin under the new `@bymax-agent-kit` suffix. Plugin names, command names, hooks and user settings are unchanged. `scripts/install-review-flow.py --local-plugin-overlay` now resolves a plugin cache installed under either marketplace id and refuses ambiguity when both exist, with regression tests for both cases; the Codex marketplace id `bymax-codex` is unaffected.
+- **Renamed to Bymax Agent Kit: marketplace `2.0.0`, every plugin patched, Codex `1.1.1`** — the repository is `bymaxone/bymax-agent-kit` and the marketplace id is `bymax-agent-kit`. The project ships two packages built from one canonical `plugins/` tree — the Claude Code marketplace and the Codex plugin — so a name that said "claude-code" described one of its two runtimes. **Breaking for existing installs:** remove the previous marketplace, add `bymaxone/bymax-agent-kit`, and reinstall each plugin under the new `@bymax-agent-kit` suffix. Plugin names, command names, hooks and user settings are unchanged. The Codex marketplace id `bymax-codex` is unaffected.
 
 - **Documentation rewritten for two runtimes** — the README leads with Claude Code *and* Codex (logo badges, a per-runtime quick start, a "what runs where" capability table that marks adaptation rather than claiming parity, and a migration section), promotes the bounded dual review from a stray tail section into the body with its real command sequence, and replaces the architecture tree with one that includes `codex/`, the review runtime under `plugins/bymax-quality/scripts/`, the root `scripts/` installers and gates, and the top-level docs. `AGENTS.md` now describes both packages and all four verification gates instead of `validate.sh` alone; `CONTRIBUTING.md` documents the bundle-then-bump rule, the behavioral suites and the Codex manifest bump; `llms-install.md` gains the review-runtime step, the Codex pointer and four failure rows; every plugin README names its Codex entrypoints. Corrected against the code: the pre-push checker is installed by **every** `start`, not only `start --autonomous`; the Codex CLI is **required for dual-review certification** rather than optional; the post-implementation chain reviews a committed candidate and verifies findings instead of applying every one.
 
@@ -807,7 +810,7 @@ Evaluated [Graphify-Labs/graphify](https://github.com/Graphify-Labs/graphify) (M
 ### Fixed — full-repo audit (three independent review passes)
 
 - **`/bymax-web-verify:verify` now actually exists** — the command file was `web-verify.md` (registering as `:web-verify`) while every documented invocation across 12 files said `:verify`; renamed the file to `verify.md`. `bymax-web-verify` bumped to `1.0.1`.
-- **Canonical repo slug** — replaced the legacy dotted slug `bymaxone/bymax.claude-code` (alive only via GitHub's rename redirect) with `bymaxone/bymax-claude-code` across 24 files (badges, plugin.json homepages, marketplace.json, CHANGELOG links, CONTRIBUTING, install.sh, templates, vendor attribution).
+- **Canonical repo slug** — replaced a legacy dotted repository slug (alive only via GitHub's rename redirect) with the canonical one across 24 files (badges, plugin.json homepages, marketplace.json, CHANGELOG links, CONTRIBUTING, install.sh, templates, vendor attribution).
 - **Stale ECC-era references scrubbed** — `tdd.md` no longer claims a nonexistent `tdd-guide` agent or points to `/build-fix`, `/test-coverage`, `/e2e`; `plan.md` now correctly credits the `planner` sub-agent to the `bymax-quality` plugin; dead "Related Agents" ECC sections removed.
 - **Portability** — `standards` §0 no longer hard-codes the author's machine layout (`~/Documents/MyApps/...`) or dangling "see the README" pointers inside the installable skill; org lib scope and sibling-repo locations are now declared per-project in `CLAUDE.md`.
 - **Docs accuracy** — CHANGELOG compare links completed (1.1.1→1.5.0, Unreleased repointed); broken VS16-emoji anchors fixed (`## 🧱 Architecture`, `## 🔖 Versioning`); `brew install claude` corrected to the real Claude Code install command; the unsupported `--scope` flag claim replaced with the `enabledPlugins` mechanism; `/security-review` labeled as the Claude Code built-in; CONTRIBUTING's dead Discussions link → Issues and its local-dev install list completed (6/6 plugins); SECURITY.md hook-wiring and `scripts/install.sh` path corrected; vendor README gained the missing `marketplace add` line and a current ECC star count; tester skill report now includes Profile F; `bymax-all` description names the `bymax-pr` plugin correctly.

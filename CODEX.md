@@ -5,10 +5,8 @@ marketplace. The Codex package contains 30 skills, bundled Bymax source referenc
 and a native code-review procedure. Installing it does not install Claude Code,
 change Claude settings, or register Claude hooks.
 
-The repository was renamed from `bymax-claude-code` to `bymax-agent-kit` because this
-Codex package exists: the toolkit now targets two runtimes from one canonical source.
-The old GitHub URL redirects. The Codex marketplace and plugin ids are unchanged
-(`bymax-codex@bymax-codex`) — only the checkout path moves. If a `bymax-codex`
+The toolkit targets two runtimes from one canonical source. The Codex marketplace and
+plugin ids are `bymax-codex@bymax-codex`. If a `bymax-codex`
 marketplace is registered against an old checkout, point it at the current one rather
 than keeping both; the installer refuses to replace a marketplace silently.
 
