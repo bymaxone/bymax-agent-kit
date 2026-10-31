@@ -3,7 +3,7 @@
 `plugins/bymax-qa/skills/security-audit/` ships the upstream files unchanged so that the
 installed skill does what the original does. This module pins that: every copied file must
 match the SHA-256 recorded in `upstream.json`, nothing may be added or dropped beside it, and
-the upstream validator suites must pass where they are installed.
+the upstream validator suites must pass where Node is installed.
 
 Run as a script with `--write-manifest <commit>` to rewrite `upstream.json` after a refresh.
 """
