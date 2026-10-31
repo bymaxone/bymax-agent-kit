@@ -33,7 +33,7 @@ def digest(path):
 def copied(skill=SKILL):
     """Every file under the skill folder that came from upstream, by path relative to it.
 
-    Recursive because the bundler copies the folder recursively: a file in a subfolder ships.
+    Recursive because a file in a subfolder ships.
     """
     files = {path.relative_to(skill).as_posix(): path for path in sorted(skill.rglob('*'))
              if path.is_file()}
