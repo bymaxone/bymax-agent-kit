@@ -20,6 +20,29 @@ claude plugin install bymax-qa@bymax-agent-kit
 
 The same procedures ship in the Codex package as `bymax-audit` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
 
+## Cloudflare's `security-audit` skill, included unchanged
+
+`/bymax-qa:security-audit` is the [security-audit skill](https://github.com/cloudflare/security-audit-skill)
+written and published by **Cloudflare, Inc.** under the MIT license. It is Cloudflare's own skill,
+not a Bymax adaptation: every file is copied byte for byte into `skills/security-audit/`, with
+its original `LICENSE`. It answers
+security questions and focused reviews in guidance mode, and on an explicit audit or pen-test
+request runs its six phases: reconnaissance with a coverage ledger, coverage-led hunting,
+validation by a fresh verifier, `findings.json` checked by its validators, independent record
+verification, and a report written outside the target. It needs Node.js for the two
+validators, and it runs target code only inside an OS-enforced sandbox.
+
+| | `audit` | `security-audit` |
+| --- | --- | --- |
+| Origin | this toolkit | Cloudflare, unchanged |
+| Target | ticket, branch, range, PR or signed whole-system scope | the repository, source first |
+| Live probes | allow-listed hosts with `--live` | never against deployed services |
+| Output | `.claude/qa/` registry with hand-off and retest | `findings.json`, `REPORT.md` and companions in an external run directory |
+
+In Codex it is `bymax-security-audit`, a short adapter in front of the same unmodified copy. The pinned upstream
+commit and file hashes are in `skills/security-audit/upstream.json`, and
+`skills/security-audit/ATTRIBUTION.md` says how to refresh it.
+
 ## Why it is a separate plugin
 
 `bymax-quality` reviews a diff for correctness and blocks a commit. `bymax-qa`

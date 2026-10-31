@@ -60,7 +60,7 @@ Default when the human didn't specify: install the **core pair** plus whatever t
 | `bymax-web-verify` | web projects only (needs Step 4's `agent-browser`) | `claude plugin install bymax-web-verify@bymax-agent-kit` |
 | `bymax-pr` | only if `gh` will be authenticated (Step 4) | `claude plugin install bymax-pr@bymax-agent-kit` |
 | `bymax-pm` | the human coordinates multiple Claude Code sessions | `claude plugin install bymax-pm@bymax-agent-kit` |
-| `bymax-qa` | the human wants a whole-system QA / security audit | `claude plugin install bymax-qa@bymax-agent-kit` |
+| `bymax-qa` | the human wants a whole-system QA / security audit, or Cloudflare's source-first `security-audit` skill (included unchanged, MIT) | `claude plugin install bymax-qa@bymax-agent-kit` |
 | `bymax-report` | the human writes a weekly standup or progress report | `claude plugin install bymax-report@bymax-agent-kit` |
 
 ⚠️ **Do NOT install `bymax-all`** — it is a documentation index; it installs no commands.

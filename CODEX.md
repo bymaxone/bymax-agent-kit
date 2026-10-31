@@ -1,7 +1,7 @@
 # Install and use Bymax Agent Kit in Codex
 
 This repository distributes a **separate Codex plugin** alongside its Claude Code
-marketplace. The Codex package contains 28 skills, bundled Bymax source references,
+marketplace. The Codex package contains 29 skills, bundled Bymax source references,
 and a native code-review procedure. Installing it does not install Claude Code,
 change Claude settings, or register Claude hooks.
 
@@ -124,6 +124,7 @@ The table uses short names. Installed skills are namespaced as
 | Orchestration | `bymax-pm`, `bymax-autopilot` | Available Codex worker coordination; durable continuation for unattended execution |
 | Reporting | `bymax-standup` | Git; authenticated `gh` for pull requests (reported as missing otherwise); the host's `~/.claude/projects` and `~/.codex/sessions` for the asks |
 | Audit | `bymax-audit` | Static work supported; independent verifier required to admit findings; live probes require explicit scope and suitable host controls |
+| Audit | `bymax-security-audit` | Cloudflare's skill, unchanged; Node.js for its validators; the full workflow needs host subagents, and target code runs only inside a sandbox that enforces every control the skill lists |
 
 PM, autopilot, browsers and monitoring adapt to capabilities available in the
 current Codex host. They do not install nonexistent APIs or promise continuation
@@ -171,7 +172,7 @@ python3 codex/scripts/bundle.py
 ```
 
 Development validation requires PyYAML as the existing Claude validator does.
-The Codex gate checks source drift, all 28 entrypoints, portable links, manifest
+The Codex gate checks source drift, all 29 entrypoints, portable links, manifest
 contracts and real Git regression scenarios. With the Codex CLI installed it also
 runs an isolated installation and actual `skills/list` discovery test. CI requires that CLI test explicitly. It does
 not bill a model call or change your real Codex/Claude configuration.
