@@ -209,10 +209,17 @@ def cleared(common, sha):
 
 
 def run_git(*args, cwd=None):
-    """A git read in `cwd`: its stripped output, or None when git refused or could not answer."""
+    """A git read in `cwd`: its stripped output, or None when git refused or could not answer.
+
+    History is read as it is, never as local replace refs or a graft file rewrite it: pack-objects
+    sends what the commits really are, so an ancestry a replacement invented would admit a commit
+    the remote does not hold.
+    """
     try:
         result = subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True,
-                                timeout=REMOTE_SECONDS, env=dict(os.environ, GIT_TERMINAL_PROMPT='0'))
+                                timeout=REMOTE_SECONDS,
+                                env=dict(os.environ, GIT_TERMINAL_PROMPT='0', GIT_NO_REPLACE_OBJECTS='1',
+                                         GIT_GRAFT_FILE=os.devnull))
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout.strip() if result.returncode == 0 else None

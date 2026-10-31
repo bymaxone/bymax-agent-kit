@@ -11,7 +11,7 @@ from review_git import git, require
 
 # What a replacement keeps of the candidate it replaces: the round and everything it was told.
 KEPT = ('round', 'review_base', 'previous_triage', 'retrospectives', 'answers', 'widen_scope',
-        'nit_round', 'after_archived', 'design_round', 'reopened')
+        'nit_round', 'after_archived', 'design_round', 'reopened', 'checks_corrected')
 
 
 def within_scope(extra, reason):

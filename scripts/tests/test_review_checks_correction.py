@@ -121,6 +121,23 @@ class ChecksCorrectionTests(FlowBench):
         self.assertEqual(state['required_checks'], self.good)
         self.assertEqual(state['checks_corrected']['before'], STALE)
 
+    def test_a_replacement_of_the_corrected_head_keeps_the_correction(self):
+        """The corrected gate failed in turn and the next head replaced that candidate in its
+        round: the replacement dropped the record, so the reviewers of the head they read were
+        never told the gates had changed, and neither head could be flagged again."""
+        self.start()
+        self.flow('check', '--', *STALE[0], ok=False)
+        self.git('commit', '-q', '--allow-empty', '-m', 'corrected gate')
+        failing = [[sys.executable, '-c', 'raise SystemExit(1)']]
+        self.declare(failing)
+        self.start_correcting()
+        self.flow('check', '--', *failing[0], ok=False)
+        self.git('commit', '-q', '--allow-empty', '-m', 'fix what the corrected gate found')
+        state = self.start()
+        self.assertEqual(len(state['replaced']), 2)
+        self.assertEqual(state['checks_corrected']['reason'], REASON)
+        self.assertEqual(state['checks_corrected']['after'], failing)
+
     def test_the_frozen_candidate_cannot_change_its_gates_in_place(self):
         """On the head already frozen the failed run stays on the record, so the correction is
         refused there and says what to do instead."""

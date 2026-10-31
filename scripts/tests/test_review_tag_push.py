@@ -147,6 +147,23 @@ class TagPushTests(PrePushBench):
                                  capture_output=True, text=True, env=self.env).stdout
         self.assertEqual(listing, '')
 
+    def test_a_replaced_or_grafted_ancestry_is_not_evidence(self):
+        """`git replace` of the default branch's tip with a merge that names an unpushed commit
+        made the ancestry check answer yes while git still sent that commit: the guard and the
+        hook let it land. The check reads the real history; a graft file is ignored too."""
+        fake = self.git('commit-tree', self.squash + '^{tree}', '-p', self.squash, '-p', self.unpushed,
+                        '-m', 'fake merge')
+        command = 'git push origin refs/tags/v9.9.9'
+        self.git('replace', self.squash, fake)
+        self.assertEqual(self.guard(command).returncode, 2)
+        self.assertNotEqual(self.attempt(command).returncode, 0)
+        self.assertFalse(self.remote_has(self.unpushed))
+        self.git('replace', '-d', self.squash)
+        (self.repo / '.git/info/grafts').write_text(self.squash + ' ' + self.base + ' ' + self.unpushed + '\n')
+        self.assertEqual(self.guard(command).returncode, 2)
+        self.attempt(command)
+        self.assertFalse(self.remote_has(self.unpushed))
+
     def test_a_tag_on_a_tree_is_refused(self):
         """Only a tag that peels to a commit on the default branch qualifies."""
         self.git('tag', 'tree-tag', self.squash + '^{tree}')
