@@ -31,9 +31,13 @@ def digest(path):
 
 
 def copied(skill=SKILL):
-    """Every file in the skill folder that came from upstream, by name."""
-    return {path.name: path for path in sorted(skill.iterdir())
-            if path.is_file() and path.name not in OWN}
+    """Every file under the skill folder that came from upstream, by path relative to it.
+
+    Recursive because the bundler copies the folder recursively: a file in a subfolder ships.
+    """
+    files = {path.relative_to(skill).as_posix(): path for path in sorted(skill.rglob('*'))
+             if path.is_file()}
+    return {name: path for name, path in files.items() if name not in OWN}
 
 
 def write_manifest(commit):
@@ -91,6 +95,26 @@ class SecurityAuditVendorTests(unittest.TestCase):
         recorded = self.manifest()['files']
         drifted = [name for name, path in copied(target).items() if digest(path) != recorded[name]]
         self.assertEqual(drifted, ['report-schema.json'])
+
+    def test_a_file_added_in_a_subfolder_is_caught(self):
+        """A file in a subfolder ships with the skill, so the file-set check has to see it.
+
+        The listing read only the top level, so a nested addition left the set equal to the
+        manifest and every case green.
+        """
+        scratch = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, scratch, True)
+        target = scratch / 'security-audit'
+        shutil.copytree(SKILL, target)
+        (target / 'extra').mkdir()
+        (target / 'extra' / 'NOTE.md').write_text('added\n')
+        # Only the top-level ATTRIBUTION.md and upstream.json are this repository's own; a file
+        # with either name deeper down is an addition like any other.
+        (target / 'extra' / 'ATTRIBUTION.md').write_text('added\n')
+        present = copied(target)
+        self.assertIn('extra/NOTE.md', present)
+        self.assertIn('extra/ATTRIBUTION.md', present)
+        self.assertNotEqual(sorted(present), sorted(self.manifest()['files']))
 
     def test_the_upstream_validator_suites_pass(self):
         """The validators the skill runs still pass their own suites.
