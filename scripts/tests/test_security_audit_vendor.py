@@ -252,8 +252,8 @@ class PlaybookApprovalTests(unittest.TestCase):
     def test_each_listed_spelling_of_a_remote_write_is_recognised(self):
         """The detector is a tripwire for refreshes, so each spelling it claims must trip it.
 
-        It began with `-X` for curl and four kubectl verbs, and reviewers found `curl --request`,
-        `docker trust sign` and `kubectl debug` in the shipped playbooks with no row.
+        Spellings the detector missed, `curl --request`, `docker trust sign` and `kubectl debug`,
+        shipped in the playbooks with no row.
         """
         for command in self.WRITES:
             with self.subTest(command=command):

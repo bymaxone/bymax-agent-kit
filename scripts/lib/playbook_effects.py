@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 # Common spellings of a command that changes state outside the project. An HTTP write is curl
-# with a write method, or with a body option that makes it a POST. A GitHub API write is
+# with a write method, or with a body or upload option. A GitHub API write is
 # gh api with a write method, or with a field or input that makes it a POST. Also a mutating
 # kubectl verb, helm or terraform change, a package or image publish, a signature, an
 # attestation, or a forced push. Reads such as `cosign verify`, `kubectl get` and a plain
