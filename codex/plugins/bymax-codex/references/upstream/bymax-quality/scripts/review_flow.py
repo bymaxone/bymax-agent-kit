@@ -1355,7 +1355,7 @@ def review_action(args, directory):
 def unlocked(args, directory):
     """Run an action that does not hold the campaign lock throughout; False for every other.
 
-    `range` only reads, and `check` takes the lock itself around the state it writes, never
+    Each only reads, except `check`, which takes the lock itself around the state it writes, never
     while the gate runs.
     """
     if args.action in ('range', 'outcomes'):

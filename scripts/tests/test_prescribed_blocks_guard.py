@@ -77,6 +77,9 @@ class PrescribedBlocksTests(unittest.TestCase):
                         # rest of the line vanished and this push skipped the hook.
                         'echo x#; git push --no-verify origin HEAD:main',
                         "# the PR's branch\ngit push --no-verify origin HEAD:f",
+                        # A line that starts with `#` inside a multi-line string is not a comment;
+                        # dropping it as one hid the push the shell ran after the string closed.
+                        '# it\'s\necho "\n#"; git push --no-verify origin HEAD:x\necho "',
                         "# the PR's branch\ngit -c core.hooksPath=/dev/null push origin HEAD:f"):
             with self.subTest(command=command):
                 self.assertIn('BLOCKED', verdict(command))
