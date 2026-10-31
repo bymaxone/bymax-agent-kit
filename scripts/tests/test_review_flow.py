@@ -1526,7 +1526,15 @@ class ReviewFlowTests(FlowBench):
         self.start()
         self.complete()
         self.push('git push origin HEAD')
-        self.flow('check', '--', str(self.root / 'absent-executable'), ok=False)
+        # Interrupted by the check's own bound: a program that cannot run at all is refused
+        # before anything is recorded (test_review_check_command), so it no longer stands in
+        # for a gate that started and never finished.
+        argv = [sys.executable, '-c', 'import sys; sys.path.insert(0, %r)\nimport review_flow\n'
+                'review_flow.CHECK_TIMEOUT = 1\nreview_flow.cli()' % str(FLOW.parent)]
+        interrupted = subprocess.run([*argv, 'check', '--', sys.executable, '-c', 'import time; time.sleep(30)'],
+                                     cwd=self.repo, capture_output=True, text=True, timeout=60)
+        self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
+        self.assertIsNone(self.flow('status')['checks'][-1]['exit_code'])
         self.flow('finish', ok=False)
         self.push('git push origin HEAD', ok=False)
 

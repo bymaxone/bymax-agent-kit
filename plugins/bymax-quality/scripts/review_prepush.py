@@ -24,6 +24,9 @@ import time
 # and cannot import it. test_review_prepush asserts the two agree.
 POLICY = 2
 DELETION = '0' * 40
+TAGS = 'refs/tags/'
+# Seconds the remote may take to say what its default branch holds before a tag push is refused.
+REMOTE_SECONDS = 10
 
 # A Codex the runtime could not run is waived, and the waiver is re-checked here rather
 # than trusted: it is evidence about a machine, and this is the machine, now.
@@ -205,14 +208,61 @@ def cleared(common, sha):
     return False, reason
 
 
+def run_git(*args, cwd=None):
+    """A git read in `cwd`: its stripped output, or None when git refused or could not answer."""
+    try:
+        result = subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True,
+                                timeout=REMOTE_SECONDS, env=dict(os.environ, GIT_TERMINAL_PROMPT='0'))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def tag_records(records):
+    """Whether a push writes tags and nothing else: every record a tag sent to a tag."""
+    return bool(records) and all(local.startswith(TAGS) and remote.startswith(TAGS) and sha != DELETION
+                                 for local, sha, remote, _ in records)
+
+
+def published(remote, url, targets, cwd=None):
+    """'' when every target peels to a commit already on `remote`'s default branch, else why not.
+
+    Such a tag publishes no source: a release tag on the squash commit GitHub wrote when it merged
+    a reviewed pull request is the case, and no receipt can name a commit GitHub made. The default
+    branch and its tip are read from `url`, the destination the push goes to, at push time; the
+    remote-tracking ref must hold that same tip, so the commits are present and current, and a
+    tracking ref moved by hand or left behind proves nothing. `remote` must be a configured remote:
+    a bare URL has no tracking ref to compare.
+    """
+    if not url or url.startswith('-') or run_git('config', '--get', 'remote.' + remote + '.url', cwd=cwd) is None:
+        return remote + ' is not a configured remote, so it has no remote-tracking branch to compare'
+    answer = run_git('ls-remote', '--symref', url, 'HEAD', cwd=cwd) or ''
+    lines = [line.split('\t') for line in answer.splitlines()]
+    branch = next((f[0][len('ref: '):] for f in lines if len(f) == 2 and f[0].startswith('ref: refs/heads/')
+                   and f[1] == 'HEAD'), None)
+    tip = next((f[0] for f in lines if len(f) == 2 and not f[0].startswith('ref: ') and f[1] == 'HEAD'), None)
+    if not branch or not tip:
+        return 'the default branch of ' + url + ' could not be read'
+    tracking = 'refs/remotes/' + remote + '/' + branch[len('refs/heads/'):]
+    if run_git('rev-parse', '--verify', '--quiet', '--end-of-options', tracking + '^{commit}', cwd=cwd) != tip:
+        return (tracking + ' is not the tip ' + url + ' holds now (' + tip[:12] + '); run git fetch '
+                + remote + ' first')
+    for target in targets:
+        commit = run_git('rev-parse', '--verify', '--quiet', '--end-of-options', target + '^{commit}', cwd=cwd)
+        if commit is None or run_git('merge-base', '--is-ancestor', commit, tip, cwd=cwd) is None:
+            return target[:12] + ' does not peel to a commit on ' + tracking
+    return ''
+
+
 def main():
-    """Fail closed on the first pushed commit without a receipt; allow ref deletions."""
+    """Fail closed on the first pushed commit without a receipt; allow ref deletions, and a push
+    of tags whose commits the remote's default branch already holds."""
     common = common_dir()
-    for line in sys.stdin:
-        fields = line.split()
-        if len(fields) != 4:
-            continue
-        local_ref, local_sha, remote_ref, _ = fields
+    records = [fields for fields in (line.split() for line in sys.stdin) if len(fields) == 4]
+    remote, url = (sys.argv[1:3] + ['', ''])[:2]
+    if tag_records(records) and not published(remote, url, [sha for _, sha, _, _ in records]):
+        return
+    for local_ref, local_sha, remote_ref, _ in records:
         if local_sha == DELETION:
             continue
         passed, reason = cleared(common, peeled(local_sha))

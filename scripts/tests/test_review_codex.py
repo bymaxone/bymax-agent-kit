@@ -4,6 +4,7 @@ machine cannot run, and the rounds that escalate to a better reviewer."""
 import importlib.util
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -42,6 +43,56 @@ class CodexPassTests(FlowBench):
         # difference is why this passed here and failed on a runner.
         self.locations = [binary]
         self.assertIn('budget exhausted', self.flow('codex', ok=False).stderr)
+
+    def killed_pass(self):
+        """A Codex pass whose wrapper killed it, launcher and child together, mid-review."""
+        self.start()
+        self.checks()
+        ready = self.root / 'codex-ready'
+        binary = self.fake_codex(f"#!{sys.executable}\nimport time, pathlib\n"
+                                 f"pathlib.Path({str(ready)!r}).touch()\ntime.sleep(60)\n")
+        process = subprocess.Popen([*self.sealed('review_flow', 'cli', [binary]), 'codex'], cwd=self.repo,
+                                   env=self.codex_env(), start_new_session=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(ready.exists())
+        self.assertTrue(self.flow('status')['codex_running'])
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=10)
+
+    def test_a_killed_codex_pass_is_reported_incomplete_not_running(self):
+        """A wrapper that killed `review_flow.py codex` on its timeout skipped the cleanup that
+        clears codex_running, so `status` reported the pass running forever. Nothing holds the
+        pass's lock once its processes are gone; status reads that, and calls the pass
+        incomplete, never a review."""
+        self.killed_pass()
+        state = self.flow('status')
+        self.assertFalse(state['codex_running'])
+        self.assertIn('incomplete', state['codex_pass'])
+        self.assertIn('no report', state['codex_pass'])
+        self.assertNotIn('codex', state['reviews'])
+        self.assertFalse(state['cleared'])
+        # The spent attempt stays spent: reading liveness resets no budget.
+        self.assertEqual(state['codex_attempts'], 1)
+
+    def test_a_pass_whose_lock_is_held_is_still_running(self):
+        """While the pass, or a child it left, holds the lock, it is running, and status says so."""
+        self.killed_pass()
+        directory = Path(self.flow('status')['directory'])
+        holder = subprocess.Popen([sys.executable, '-c', 'import fcntl, sys, time\n'
+                                   'f = open(sys.argv[1], "w"); fcntl.flock(f, fcntl.LOCK_EX)\n'
+                                   'print("held", flush=True); time.sleep(60)', str(directory / 'codex.lock')],
+                                  stdout=subprocess.PIPE, text=True)
+        try:
+            holder.stdout.readline()
+            state = self.flow('status')
+            self.assertTrue(state['codex_running'])
+            self.assertNotIn('codex_pass', state)
+        finally:
+            holder.kill()
+            holder.communicate()
 
     def test_a_gate_refusal_does_not_spend_a_reviewer_attempt(self):
         """Both adapters reserved the attempt before building the task, and the gate raises from

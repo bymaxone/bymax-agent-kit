@@ -13,6 +13,9 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | Stale/dirty review, incomplete reviewers, missing gates, bad triage | `scripts/tests/test_review_flow.py` |
 | Reopened finding, scope widening, changed/deleted tests, lost provenance | Review-flow behavioral tests |
 | A candidate its declared gate failed cannot be replaced, or a reviewed one can | `scripts/tests/test_review_replacement.py` |
+| A gate command recorded that can never run (one word holding a space, a wrong path), or declared gates that cannot be corrected | `scripts/tests/test_review_check_command.py` and `scripts/tests/test_review_checks_correction.py` |
+| husky regenerates its hooks directory and drops the receipt check | `scripts/tests/test_review_husky.py`, with actual pushes to isolated local remotes |
+| A tag on an already-published commit is refused, or a tag on an unpublished one lands | `scripts/tests/test_review_tag_push.py`, with actual pushes to isolated local remotes |
 | Shell push spelling, multiple refs/tags, worktrees, foreign/custom hooks | `scripts/tests/test_review_prepush.py` and `scripts/tests/test_review_hook.py`, including actual pushes to isolated local remotes |
 | Interrupted or concurrent model processes | Review-flow lock, child ownership, attempt and concurrent writer tests; the Codex pass's in `scripts/tests/test_review_codex.py` |
 | Counter renewal after completed campaign, retry or archive | `scripts/tests/test_review_delivery.py` |

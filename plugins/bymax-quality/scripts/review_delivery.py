@@ -88,8 +88,9 @@ def contents_of(context):
     return normalised(context)
 
 
-def scope_of(context):
-    """The part of a campaign context the scope guards compare.
+def scope_of(context, corrected=False):
+    """The part of a campaign context the scope guards compare; without its gates when a
+    correction of them was recorded (check_correction), which changes them and nothing else.
 
     `measured` is what the author ran against real data for the candidate in hand, so it
     changes as the candidate does — that is the field's whole purpose. Comparing it as scope
@@ -102,22 +103,67 @@ def scope_of(context):
     tell them apart stops the author from recording what the reading found — which is the one
     thing nobody else can supply later.
     """
-    return normalised(context, drop=('measured',))
+    return normalised(context, drop=('measured', 'checks') if corrected else ('measured',))
 
 
-def reserve(directory, head, base, context, old=None, extension=''):
+def checks_of(context):
+    """The gates a context declares, or None when it is not a JSON object."""
+    try:
+        data = json.loads(context)
+    except (TypeError, ValueError):
+        return None
+    return data.get('checks') if isinstance(data, dict) else None
+
+
+# Named by the refusal every scope guard raises when only the gates differ.
+CORRECTION_HINT = (' A declared gate that is wrong — one over a file this scope deletes, say — is '
+                   'corrected with --correct-checks "<why>", which changes the gates and nothing '
+                   'else, spends the budget as before and is recorded for both reviewers.')
+
+
+def check_correction(reason, before, context, head):
+    """The audit entry for a recorded correction of the declared gates, or a refusal.
+
+    `before` is the context whose gates are being corrected: the campaign's, or the ledger's
+    when the campaign was kept aside. The scope guards compare everything else as before, so
+    this is the one field a correction may change, and only with a reason on the record.
+    """
+    if not reason.strip():
+        raise ValueError('--correct-checks needs a reason: why the declared gates were wrong, '
+                         'and who decided the replacement.')
+    if before is None:
+        raise ValueError('There are no declared gates to correct: no campaign or delivery on this '
+                         'branch recorded any. A first campaign declares its gates in its context.')
+    if checks_of(before) == checks_of(context):
+        raise ValueError('The context declares the gates already recorded, so there is nothing to '
+                         'correct; drop --correct-checks.')
+    return dict(reason=reason.strip(), before=checks_of(before), after=checks_of(context), head=head)
+
+
+def reserve(directory, head, base, context, old=None, extension='', correction=''):
     """Count a frozen candidate once, retaining the budget across cleared campaigns.
 
     The caller holds the campaign lock. A reservation preceding a crashed state write
     is reusable only for that same head, so a crash neither spends a second slot nor
     creates an uncounted candidate. A new feature uses a new branch/delivery. A decision
     to continue past the budget is written here too, in the same write as the head it
-    authorises, so the ledger changes once and only when a candidate freezes.
+    authorises, so the ledger changes once and only when a candidate freezes. So is a recorded
+    correction of the declared gates (`correction`, its reason): it changes no count, and it is
+    the one write that may land on a head already counted, the head a kept-aside campaign froze.
     """
     ledger = load(directory) or dict(base=base, context=context, heads=[], used=0)
-    if ledger['base'] != base or scope_of(ledger['context']) != scope_of(context):
-        raise ValueError('Delivery scope changed. Keep its base/context for PR corrections; new work needs a new branch.')
-    if head not in ledger['heads']:
+    corrected = bool(correction)
+    if ledger['base'] != base or scope_of(ledger['context'], corrected) != scope_of(context, corrected):
+        raise ValueError('Delivery scope changed. Keep its base/context for PR corrections; new work '
+                         'needs a new branch.' + ('' if corrected or scope_of(ledger['context'], True)
+                                                   != scope_of(context, True) else CORRECTION_HINT))
+    if corrected:
+        ledger.setdefault('check_corrections', []).append(dict(
+            check_correction(correction, ledger['context'], context, head), at_used=ledger['used']))
+        ledger['context'] = context
+    if head in ledger['heads'] and corrected:
+        write(directory, ledger)
+    elif head not in ledger['heads']:
         used = max(ledger['used'], (old or {}).get('round', 0))
         if old and old['head'] == head:
             used = max(0, used - 1)
