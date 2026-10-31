@@ -80,7 +80,7 @@ class RebaseTests(FlowBench):
 
     def test_a_rebase_that_opens_a_round_answers_to_the_round_limit(self):
         """A rebase whose candidate had not cleared opens the next round; it opened round 4 of a
-        three-round campaign that a correction was refused, and the amended head then cleared."""
+        three-round campaign that refuses a correction, and the amended head then cleared."""
         self.start()
         for n in (1, 2):
             self.report('claude')
