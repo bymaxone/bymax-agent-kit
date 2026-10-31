@@ -55,7 +55,7 @@ class PrescribedBlocksTests(unittest.TestCase):
         self.assertTrue(any(BLOCK.findall(path.read_text()) for path in documents()))
 
     def test_every_prescribed_block_passes_the_push_guard(self):
-        """Twelve of ninety-three prescribed blocks were refused: a handoff path read through
+        """Prescribed blocks were refused: a handoff path read through
         `$(git rev-parse --git-dir)` counted as `git --git-dir=`, an apostrophe inside a comment
         made a block unparseable and so able to push, and babysit's rebase push named no refspec."""
         for path in documents():

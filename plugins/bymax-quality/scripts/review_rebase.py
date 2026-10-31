@@ -2,8 +2,8 @@
 
 A rebase rewrites every commit, so the frozen head stops being an ancestor of the new one and the
 ordinary rounds refuse it. What the reviewers read was a delta, not a commit id. When the rebased
-delta against the new base is byte for byte the delta they read, their reports still describe it,
-and only the declared gates run again on the new tree. When the rebase changed the delta (a
+delta against the new base is byte for byte the delta they read and that candidate cleared, their
+reports still describe it, and only the declared gates run again on the new tree. When the rebase changed the delta (a
 conflict resolved, a commit dropped or added), the new delta is unreviewed and opens a round that
 reviews it in full from the new base.
 
