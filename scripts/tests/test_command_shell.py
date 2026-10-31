@@ -677,7 +677,7 @@ class ProseReferenceTests(unittest.TestCase):
                                'this gate is empty and an empty gate would match it. git exit '
                                '%d: %s' % (listed.returncode, listed.stderr.decode()[:200]))
         VENDORED = ('vendor/ecc-skills/', 'vendor/ui-ux-pro-max/', 'codex/plugins/bymax-codex/',
-                    'plugins/bymax-qa/skills/security-audit/')
+                    'plugins/bymax-qa/skills/security-audit/', 'plugins/bymax-qa/references/acs/')
         expected = {name for name in every
                     if not any(name.startswith(part) for part in VENDORED)}
         self.assertEqual(expected, read,

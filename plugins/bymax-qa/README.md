@@ -18,7 +18,7 @@ claude plugin install bymax-qa@bymax-agent-kit
 
 ### Also in Codex
 
-The same procedures ship in the Codex package as `bymax-audit` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
+The same procedures ship in the Codex package as `bymax-audit`, `bymax-security-audit` and `bymax-security-playbooks` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
 
 ## Cloudflare's `security-audit` skill, included unchanged
 
@@ -42,6 +42,22 @@ validators, and it runs target code only inside an OS-enforced sandbox.
 In Codex it is `bymax-security-audit`, a short adapter in front of the same unmodified copy. The pinned upstream
 commit and file hashes are in `skills/security-audit/upstream.json`, and
 `skills/security-audit/ATTRIBUTION.md` says how to refresh it.
+
+## Security playbooks from Anthropic-Cybersecurity-Skills, included unchanged
+
+`/bymax-qa:security-playbooks` is an index over twenty defensive playbooks from
+[Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills), the catalogue
+maintained by **mukul975** with its contributors under the Apache License 2.0. Each playbook is
+copied byte for byte into `references/acs/` with its own licence; the folder also carries the
+upstream licence, `ATTRIBUTION.md` and an `upstream.json` pinning the commit and every file's hash.
+
+They cover GitHub Actions hardening, secret scanning and SAST, IaC and image scanning, SBOMs,
+signing and SLSA provenance, container hardening, API rate limiting, keys and schema validation,
+LLM and agent security, GDPR/LGPD data subject requests and EPSS prioritization. They are
+deliberately not registered as skills: the index is the one entry in the skill listing, a
+playbook's `SKILL.md` loads only when a task calls for it, and `references/security-playbook-notes.md`
+names the helper commands that publish, share data, spend money or write secrets, which run only
+after the user approves. In Codex the same index is `bymax-security-playbooks`.
 
 ## Why it is a separate plugin
 
@@ -142,8 +158,11 @@ Outside a run the hook is inert.
 - **`audit`** — `/bymax-qa:audit [init|run|retest QA-NNN|status]`. The
   orchestrator; the domain playbooks live in `skills/audit/references/` and load
   on demand.
+- **`security-audit`** — Cloudflare's skill, unchanged (see above).
+- **`security-playbooks`** — the on-demand index over the Anthropic-Cybersecurity-Skills
+  playbooks (see above).
 
-The 18 references under `skills/audit/references/` load on demand. Two govern
+The 19 references under `skills/audit/references/` load on demand. Two govern
 scoping — `targets.md` (ticket / branch / range / PR / whole-system resolution
 and the Jira access ladder) and `acceptance.md` (a ticket's criteria →
 PASS/FAIL/BLOCKED/NOT-VERIFIABLE). The domain playbooks cover **security**
@@ -151,7 +170,9 @@ PASS/FAIL/BLOCKED/NOT-VERIFIABLE). The domain playbooks cover **security**
 database/Postgres, transport/config), **observability** (log-leak, log forging,
 event coverage, store access), **architecture** (boundaries, coupling, failure
 modes), **frontend** (XSS, token storage, CSP, accessibility, Core Web Vitals),
-and **supply chain** (advisories, secrets in history, pipeline integrity). Each
+**supply chain** (advisories, secrets in history, pipeline integrity, artifact
+provenance), and **AI/LLM and agents** (tool authority, untrusted context, output handling,
+model spend), hunted only when recon finds LLM or agent tooling. Each
 one carries a "what to expect by stack" table and a "common non-findings" list,
 so a delegated or intentional control is not reported as a gap.
 
@@ -202,4 +223,5 @@ error.
 
 ## License
 
-MIT — see [root LICENSE](../../LICENSE).
+MIT — see [root LICENSE](../../LICENSE). `skills/security-audit/` is MIT © Cloudflare, Inc.,
+and `references/acs/` is Apache-2.0 © mukul975; each keeps its own licence file.
