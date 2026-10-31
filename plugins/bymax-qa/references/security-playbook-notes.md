@@ -5,9 +5,7 @@ row below says what a playbook does beyond reading the project, whether the comm
 procedure, its `references/` or its `scripts/`. Read only the rows for the playbook in hand,
 before its first command. Every command a procedure prescribes that writes to another system
 has a row under "Ask before running", which `scripts/tests/test_security_audit_vendor.py`
-checks; a playbook with no row publishes nothing and writes no secrets, though its helpers may
-write a report to the current directory and provenance verification reads the image's registry
-and the Rekor log.
+checks.
 
 These rules hold for all of them:
 

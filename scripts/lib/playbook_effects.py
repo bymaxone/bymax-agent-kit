@@ -41,7 +41,7 @@ def commands(text: str):
 
 def effect(command: str) -> str:
     """The word a notes row must carry for this remote write: the host an HTTP write goes to,
-    or the program that makes the change."""
+    or the command or flag that makes the change."""
     match = REMOTE_WRITE.search(command)
     if match.group(0).startswith('curl'):
         host = re.search(r'https?://([^/"\'\s]+)', command)
