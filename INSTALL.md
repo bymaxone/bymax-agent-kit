@@ -39,7 +39,7 @@ cd bymax-agent-kit
 
 ## Claude package
 
-Register the marketplace and install all nine components:
+Register the marketplace and install each component:
 
 ```bash
 claude plugin marketplace add bymaxone/bymax-agent-kit
