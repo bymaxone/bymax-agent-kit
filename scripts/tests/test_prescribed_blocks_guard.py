@@ -74,6 +74,8 @@ class PrescribedBlocksTests(unittest.TestCase):
                         # A variable split into words made rev-parse an option's value.
                         "X='. --namespace'; git -C $X rev-parse --git-dir /y push origin HEAD:f",
                         'git rev-parse --git-dir /y push origin HEAD:f',
+                        # The set-aside path is the handoff file's, never the hooks directory.
+                        'mv "$(git rev-parse --git-dir)/hooks" /tmp/h && git push origin HEAD:f',
                         'echo rev-parse x --git-dir && git --git-dir /x push origin HEAD:f',
                         'git -c core.hooksPath=/dev/null rev-parse --git-dir && git push origin HEAD:f',
                         # A `#` inside a word is not a comment to the shell; read as one, the

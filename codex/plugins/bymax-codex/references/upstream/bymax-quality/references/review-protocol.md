@@ -703,5 +703,4 @@ apostrophe in a comment is enough — counts as able to push and is scanned whol
 `$(git rev-parse --git-dir)` — how the commands locate their handoff files — is not read as
 `git --git-dir=`; any other spelling of that query is. A push
 hidden inside any other shape is stopped by the hook when git runs it.
-`scripts/tests/test_prescribed_blocks_guard.py` feeds every bash block the commands and skills
-prescribe through the adapter and requires each to pass, except a literal push template.
+`scripts/tests/test_prescribed_blocks_guard.py` checks the kit's own prescribed blocks against the adapter.

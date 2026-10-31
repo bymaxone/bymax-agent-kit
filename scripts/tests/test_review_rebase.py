@@ -52,6 +52,19 @@ class RebaseTests(FlowBench):
         self.assertTrue(self.flow('finish')['cleared'])
         self.push('git push origin HEAD:feature')
 
+    def test_a_rebind_leaves_the_frozen_candidates_gate_logs_alone(self):
+        """The rebound head keeps the round and starts its gates from none, and its first log
+        took the frozen candidate's file name, overwriting the evidence its receipt points to."""
+        self.cleared()
+        frozen_log = Path(self.flow('status')['checks'][-1]['log'])
+        before = frozen_log.read_text()
+        frozen, moved = self.move_base()
+        self.rebase_start(frozen, moved)
+        self.checks()
+        rebound_log = Path(self.flow('status')['checks'][-1]['log'])
+        self.assertNotEqual(rebound_log, frozen_log)
+        self.assertEqual(frozen_log.read_text(), before)
+
     def test_a_rebase_that_changed_the_delta_is_reviewed_again_in_full(self):
         """A rebase whose result differs from what was read is new code: both reviews again, from
         the new base, as the next round of the same delivery."""

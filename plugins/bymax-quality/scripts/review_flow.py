@@ -1248,7 +1248,8 @@ def check(args, directory):
         state = read_state(directory)
         current(state)
         # A replacement keeps the round and resets the checks: the heads it replaced keep their logs.
-        log = directory / f"check-{state['round']}-{len(state.get('replaced', []))}-{len(state['checks'])}.log"
+        log = directory / (f"check-{state['round']}-{len(state.get('replaced', []))}-{len(state['checks'])}"
+                           f"-{state['head'][:12]}.log")
         # Record the attempt before running it: a timeout or a missing executable raises out
         # of run_gate, and an unrecorded attempt would leave an earlier receipt cleared.
         state['checks'].append(dict(command=command, exit_code=None, log=str(log)))

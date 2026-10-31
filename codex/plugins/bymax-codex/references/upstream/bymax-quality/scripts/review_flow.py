@@ -591,8 +591,6 @@ def start(args, directory):
             '--answers is for a correction after a cleared candidate; this start opens a first round, '
             'which reviews the whole delta and has nothing to answer for.')
     branch = told or (old.get('base_branch', '') if old else '')
-    # A candidate its own gate failed before anyone read it is replaced in its round; any other
-    # new head opens the next one.
     state = candidate_state(args, old, head, directory, base, context, branch)
     kept = review_rebase.carried(state)
     state.update(policy=POLICY, base=base, context=context, reviews={}, checks=[],
@@ -1250,7 +1248,8 @@ def check(args, directory):
         state = read_state(directory)
         current(state)
         # A replacement keeps the round and resets the checks: the heads it replaced keep their logs.
-        log = directory / f"check-{state['round']}-{len(state.get('replaced', []))}-{len(state['checks'])}.log"
+        log = directory / (f"check-{state['round']}-{len(state.get('replaced', []))}-{len(state['checks'])}"
+                           f"-{state['head'][:12]}.log")
         # Record the attempt before running it: a timeout or a missing executable raises out
         # of run_gate, and an unrecorded attempt would leave an earlier receipt cleared.
         state['checks'].append(dict(command=command, exit_code=None, log=str(log)))
