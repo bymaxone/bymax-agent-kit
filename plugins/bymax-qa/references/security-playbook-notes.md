@@ -3,9 +3,13 @@
 The playbooks under `acs/` ship unchanged, so what their commands do is fixed upstream. Each
 row below says what a playbook does beyond reading the project, whether the command is in its
 procedure, its `references/` or its `scripts/`. Read only the rows for the playbook in hand,
-before its first command. Every command a procedure prescribes that writes to another system
-has a row under "Ask before running", which `scripts/tests/test_security_audit_vendor.py`
-checks.
+before its first command.
+
+The rows are the known cases, not the rule. The rule is the index's: any command that changes
+or publishes to something outside the project, or sends its data to a third party, is asked for
+first, whether a row names it or not. `scripts/tests/test_security_audit_vendor.py` fails when a
+playbook prescribes a common spelling of such a command that no row names; it cannot recognise
+every spelling, so a command missing from these rows is not cleared by its absence.
 
 These rules hold for all of them:
 
@@ -26,7 +30,7 @@ first and say which of these effects the command has.
 | `implementing-sigstore-for-software-signing` | the procedure's `cosign sign` and `cosign attest` commands, and the helper's `sign-blob` and `sign-container` (which pass `--yes`), record the signer's identity permanently in the public Rekor log and push signatures to the registry; contacts Fulcio and Rekor |
 | `generating-and-analyzing-sboms` | the procedure's `cosign attest` commands and the helper's `--attest-image` push an attestation to the registry and to Rekor |
 | `continuous-llm-red-teaming-with-promptfoo` | `promptfoo redteam run`, `deepteam run` and the helper's `run` send attack prompts to the target model (paid), and Promptfoo generates attacks through its cloud by default; `npx promptfoo@latest` runs an unpinned package |
-| `implementing-container-image-minimal-base-with-distroless` | pulls and runs the image under test; without `--image` or `--namespace`, `process.py` lists pods in every namespace of the current kube context, and `--image --format json` prints the image's environment variables |
+| `implementing-container-image-minimal-base-with-distroless` | pulls and runs the image under test; without `--image` or `--namespace`, `process.py` lists pods in every namespace of the current kube context, and `--image --format json` prints the image's environment variables; `kubectl exec` opens a shell in a running pod, and `kubectl debug` adds an ephemeral container that stays until the pod restarts |
 | `implementing-epss-score-for-vulnerability-prioritization` | sends the project's CVE ids to api.first.org (`process.py` also calls epss.cyentia.com and cisa.gov) |
 | `implementing-semgrep-for-custom-sast-rules`, `integrating-sast-into-github-actions-pipeline` | `--config auto` fetches rules from semgrep.dev and enables usage metrics; `semgrep ci` uploads findings when `SEMGREP_APP_TOKEN` is set |
 | `implementing-infrastructure-as-code-security-scanning` | Checkov fetches metadata from its vendor by default; `--custom-checks-dir` executes the Python checks in that directory; its pipeline description ends in `terraform apply`, which the playbook never needs run |
@@ -34,7 +38,7 @@ first and say which of these effects the command has.
 | `implementing-api-schema-validation-security` | its `curl` commands upload the OpenAPI document to api.cloudflare.com and switch the zone's schema validation to `block`, which rejects live traffic |
 | `implementing-api-rate-limiting-and-throttling` | its Kong example `POST`s a plugin to the admin API at localhost:8001, changing a running gateway |
 | `scanning-docker-images-with-trivy` | its workflow `POST`s the SBOM to a Dependency-Track server (dtrack.example.com in the example) and its `helm install` adds the Trivy operator to a cluster |
-| `hardening-docker-containers-for-production` | its example CI workflow runs `cosign sign --yes`, publishing the signer's identity to Rekor from CI |
+| `hardening-docker-containers-for-production` | its example CI workflow runs `cosign sign --yes`, publishing the signer's identity to Rekor from CI; the procedure's `docker trust sign` signs and pushes the image to the registry and its Notary server |
 | `implementing-secret-scanning-with-gitleaks` | cleaning history ends in `git push --force --all`, which rewrites every collaborator's history; only with the team's agreement |
 
 ## Writes that need care

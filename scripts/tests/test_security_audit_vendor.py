@@ -232,6 +232,36 @@ class PlaybookApprovalTests(unittest.TestCase):
         self.assertIn('--force', found['implementing-secret-scanning-with-gitleaks'])
         self.assertIn('cosign sign', found['implementing-sigstore-for-software-signing'])
 
+    # Every spelling the detector claims, and reads that resemble them. A refresh that brings
+    # a new spelling in adds a row here; the notes' rule, not this list, is what asks the user.
+    WRITES = ('curl -X POST https://api.example.org/v1', 'curl --request PUT https://api.example.org/v1',
+              'curl -s -d @body.json https://api.example.org/v1', 'curl --data-binary @f https://h/x',
+              'curl --json {} https://h/x', 'curl -F file=@a https://h/x', 'curl -T a.tgz https://h/x',
+              'gh api repos/o/r/branches/main/protection --method PUT',
+              'gh api repos/o/r/labels -f name=bug', 'gh api repos/o/r/hooks --input hook.json',
+              'kubectl apply -f deploy.yaml', 'kubectl debug -it pod --image=busybox --target=app',
+              'kubectl exec -it pod -- sh', 'kubectl rollout restart deploy/app',
+              'helm install op chart/op', 'helm rollback app 1', 'terraform apply', 'terraform import a.b id',
+              'docker push registry/app:1', 'docker trust sign registry/app:1', 'npm publish',
+              'cosign sign --yes registry/app@sha256:x', 'cosign attest --predicate s.json img',
+              'git push --force --all', 'git push -f origin main')
+    READS = ('curl -sSfL https://api.example.org/v1', 'curl -X GET https://h/x', 'cosign verify --key k img',
+             'kubectl get pods -A', 'gh api repos/o/r/pulls', 'helm template chart', 'terraform plan',
+             'docker pull registry/app:1', 'git push origin HEAD:feature', 'a cosign signature is checked')
+
+    def test_each_listed_spelling_of_a_remote_write_is_recognised(self):
+        """The detector is a tripwire for refreshes, so each spelling it claims must trip it.
+
+        It began with `-X` for curl and four kubectl verbs, and reviewers found `curl --request`,
+        `docker trust sign` and `kubectl debug` in the shipped playbooks with no row.
+        """
+        for command in self.WRITES:
+            with self.subTest(command=command):
+                self.assertIsNotNone(playbook_effects.REMOTE_WRITE.search(command))
+        for command in self.READS:
+            with self.subTest(command=command):
+                self.assertIsNone(playbook_effects.REMOTE_WRITE.search(command))
+
     def test_a_command_continued_on_the_next_line_is_read_whole(self):
         """A method flag on a continuation line belongs to the command above it."""
         scratch = Path(tempfile.mkdtemp())

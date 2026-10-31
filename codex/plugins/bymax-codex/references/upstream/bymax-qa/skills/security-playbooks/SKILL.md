@@ -54,10 +54,13 @@ the request, say so and stop; do not load a playbook that merely sounds close.
 
 - The playbook's commands and its `scripts/` helpers are run only when the user asked for the
   work, against this project and systems it owns, never a third-party or production target.
+- Ask the user before any command that changes or publishes to something outside the project —
+  a registry or transparency log, a cluster, a cloud or SaaS account, a remote repository or its
+  settings — or that sends project data to a third party, spends money, or writes a secret or
+  personal data. This holds whether or not the notes name the command.
 - Before the first command of a playbook, read its rows in
-  [the playbook notes](../../references/security-playbook-notes.md), and only those rows. It
-  lists what publishes, sends data to a third party, spends money or writes secrets, and each of
-  those needs the user's approval first.
+  [the playbook notes](../../references/security-playbook-notes.md), and only those rows. They
+  name the cases known in that playbook and what each one does.
 - Read a script before running it, and run it with the arguments the playbook gives.
 - Never install a tool, change global configuration, push, or call a paid API without asking.
   A missing scanner is reported with its install command.

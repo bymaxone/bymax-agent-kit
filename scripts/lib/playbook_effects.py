@@ -1,24 +1,33 @@
 """Library layer: which vendored playbooks prescribe a command that writes to another system.
 
-The security-playbooks notes are the list of commands that need the user's approval. A command
-a playbook's own procedure prescribes counts as much as one its helper scripts run, so this
-reads the procedure text (`SKILL.md` and `references/*.md`) rather than the scripts.
+The approval rule itself is general: the security-playbooks index asks before any command that
+changes or publishes outside the project, whether the notes list it or not, because no pattern
+recognises every spelling of such a command. This module is the tripwire under that rule. It
+reads each playbook's procedure text (`SKILL.md` and `references/*.md`, where the commands an
+agent is told to run live) for the common spellings, so that a refresh bringing a new one in
+fails the vendor test until the notes describe it.
 """
 import re
 from pathlib import Path
 
-# A command that changes state outside the project: an HTTP write, a GitHub API write, a
-# cluster, infrastructure or package change, a signature or attestation, or a rewritten
-# history. `cosign verify` and the word "signature" do not match.
+# Common spellings of a command that changes state outside the project. An HTTP write is curl
+# with a write method, or with a body option that makes it a POST. A GitHub API write is
+# gh api with a write method, or with a field or input that makes it a POST. Also a mutating
+# kubectl verb, helm or terraform change, a package or image publish, a signature, an
+# attestation, or a forced push. Reads such as `cosign verify`, `kubectl get` and a plain
+# `curl URL` do not match.
 REMOTE_WRITE = re.compile(
-    r'curl[^|\n]*-X ?(?:POST|PUT|PATCH|DELETE)\b'
-    r'|gh api[^|\n]*(?:--method|-X) ?(?:POST|PUT|PATCH|DELETE)\b'
-    r'|\bkubectl (?:apply|delete|create|patch)\b'
-    r'|\bhelm (?:install|upgrade|uninstall)\b'
-    r'|\bterraform (?:apply|destroy)\b'
-    r'|\bdocker push\b|\bnpm publish\b'
+    r'\bcurl\b[^|\n]*(?:(?:-X|--request)[ =]?(?:POST|PUT|PATCH|DELETE)\b'
+    r'|\s(?:-d|-F|-T|--data(?:-[a-z]+)?|--form|--json|--upload-file)(?=[\s=]))'
+    r'|\bgh api\b[^|\n]*(?:(?:--method|-X)[ =]?(?:POST|PUT|PATCH|DELETE)\b'
+    r'|\s(?:-f|-F|--field|--raw-field|--input)(?=[\s=]))'
+    r'|\bkubectl (?:apply|delete|create|patch|replace|edit|scale|rollout|set|label|annotate'
+    r'|debug|exec|run|cp|taint|drain|cordon)\b'
+    r'|\bhelm (?:install|upgrade|uninstall|rollback)\b'
+    r'|\bterraform (?:apply|destroy|import)\b'
+    r'|\bdocker (?:push|trust sign)\b|\bnpm publish\b'
     r'|\bcosign (?:sign|attest)\b'
-    r'|\bgit push\b[^\n]*--force')
+    r'|\bgit push\b[^\n]*(?:--force|\s-f\b)')
 
 
 def commands(text: str):
