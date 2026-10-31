@@ -31,8 +31,8 @@ DISARMS = ('no-verify', 'hooksPath', 'hooks-path', 'GIT_DIR', '--git-dir',
 # would let a refspec name a commit other than the literal one.
 EXPANSIONS = '*?[]{}~^+,!'
 ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
-# `git rev-parse --git-dir` prints where the git directory is; it points git nowhere. Every
-# handoff file the commands write lives at `$(git rev-parse --git-dir)/bymax-*`, so reading the
+# `git rev-parse --git-dir` prints where the git directory is; it points git nowhere. The
+# commands write handoff files at `$(git rev-parse --git-dir)/bymax-*`, so reading the
 # token there as `git --git-dir=` refused blocks the kit itself prescribes. Only that exact
 # query — git, an optional `-C <dir>`, rev-parse and its options, then `--git-dir` ending the
 # word — is set aside: `git --git-dir=X push`, `git --git-dir X push`, and a `rev-parse` that is
