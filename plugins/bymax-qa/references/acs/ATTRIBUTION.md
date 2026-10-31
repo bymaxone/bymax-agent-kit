@@ -15,7 +15,7 @@ this repository.
 
 ## Why only these playbooks
 
-The catalogue holds 818 skills, most written for security operations, forensics and red teams.
+Most of the catalogue is written for security operations, forensics and red teams.
 These are the defensive procedures that apply to a software project's own repository and
 pipeline: CI/CD hardening, secret scanning and SAST, IaC and image scanning, SBOMs and signing,
 container hardening, API controls, LLM and agent security, data subject requests and CVE

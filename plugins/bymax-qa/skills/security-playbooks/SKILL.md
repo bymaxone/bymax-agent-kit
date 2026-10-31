@@ -5,7 +5,7 @@ description: "Defensive security playbooks for the project in front of you, load
 
 # Security playbooks
 
-Twenty defensive procedures from [mukul975/Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills)
+Defensive procedures from [mukul975/Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills)
 (Apache-2.0), shipped unchanged under `references/acs/` of this plugin, with their licence and
 attribution beside them. Each one is a complete procedure written by its upstream authors.
 

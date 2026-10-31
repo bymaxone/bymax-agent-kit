@@ -45,7 +45,7 @@ commit and file hashes are in `skills/security-audit/upstream.json`, and
 
 ## Security playbooks from Anthropic-Cybersecurity-Skills, included unchanged
 
-`/bymax-qa:security-playbooks` is an index over twenty defensive playbooks from
+`/bymax-qa:security-playbooks` is an index over defensive playbooks from
 [Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills), the catalogue
 maintained by **mukul975** with its contributors under the Apache License 2.0. Each playbook is
 copied byte for byte into `references/acs/` with its own licence; the folder also carries the
@@ -162,7 +162,7 @@ Outside a run the hook is inert.
 - **`security-playbooks`** — the on-demand index over the Anthropic-Cybersecurity-Skills
   playbooks (see above).
 
-The 19 references under `skills/audit/references/` load on demand. Two govern
+The references under `skills/audit/references/` load on demand. Two govern
 scoping — `targets.md` (ticket / branch / range / PR / whole-system resolution
 and the Jira access ladder) and `acceptance.md` (a ticket's criteria →
 PASS/FAIL/BLOCKED/NOT-VERIFIABLE). The domain playbooks cover **security**

@@ -24,7 +24,7 @@ first and say which of these effects the command has.
 | `implementing-sigstore-for-software-signing` | `sign-blob` and `sign-container` pass `--yes`, which records the signer's identity permanently in the public Rekor log; contacts Fulcio and Rekor |
 | `generating-and-analyzing-sboms` | `--attest-image` pushes an attestation to the registry and to Rekor |
 | `continuous-llm-red-teaming-with-promptfoo` | `run` sends attack prompts to the target model (paid), and Promptfoo generates attacks through its cloud by default |
-| `implementing-container-image-minimal-base-with-distroless` | pulls and runs the image under test; without `--image`, `process.py` lists pods in every namespace of the current kube context and prints image environment variables |
+| `implementing-container-image-minimal-base-with-distroless` | pulls and runs the image under test; without `--image` or `--namespace`, `process.py` lists pods in every namespace of the current kube context, and `--image --format json` prints the image's environment variables |
 | `implementing-epss-score-for-vulnerability-prioritization` | sends the project's CVE ids to api.first.org (`process.py` also calls epss.cyentia.com and cisa.gov) |
 | `implementing-semgrep-for-custom-sast-rules`, `integrating-sast-into-github-actions-pipeline` | `--config auto` fetches rules from semgrep.dev and enables usage metrics; `semgrep ci` uploads findings when `SEMGREP_APP_TOKEN` is set |
 | `implementing-infrastructure-as-code-security-scanning` | Checkov fetches metadata from its vendor by default; `--custom-checks-dir` executes the Python checks in that directory |
