@@ -288,7 +288,7 @@ python3 ~/.claude/bymax-review/review_flow.py start --autonomous --base "$BASE" 
 
 - `"same_delta": true` — the rebase changed nothing the reviewers read. Run every declared gate
   with `review_flow.py check -- <command>`, then `review_flow.py finish`.
-- `"same_delta": false` — resolving the rebase changed the code, so it is reviewed again in full:
+- `"same_delta": false` — the rebase changed the code, or the frozen head had not cleared, so it is reviewed again in full:
   complete the `/bymax-quality:code-review` round (both reviewers, triage, gates, `finish`).
 
 Then push the rebased head, naming the PR's branch:

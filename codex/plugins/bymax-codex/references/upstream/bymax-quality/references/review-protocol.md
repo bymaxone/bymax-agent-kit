@@ -699,7 +699,7 @@ Every other command is read for one thing only, and only when it could reach a r
 holds a word spelling `push` (a path such as `hooks/pre-push` counts) and names a program able
 to start another (`git`, a shell, `env`, `xargs` and the like). Such a command is refused when it
 carries an option that would skip or redirect the hook. Comments are dropped before the command
-is read, so an apostrophe in one does not make the command unreadable, and `git rev-parse
+is split into words, so an apostrophe in one does not make the command unreadable, and `git rev-parse
 --git-dir` — how the commands locate their handoff files — is not read as `git --git-dir=`. A push
 hidden inside any other shape is stopped by the hook when git runs it.
 `scripts/tests/test_prescribed_blocks_guard.py` feeds every bash block the commands and skills
