@@ -7,7 +7,7 @@ the upstream validator suites must pass where Node is installed.
 
 Run as a script with `--write-manifest <commit>` to rewrite `upstream.json` after a refresh.
 """
-import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -20,24 +20,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / 'plugins/bymax-qa/skills/security-audit'
 MANIFEST = SKILL / 'upstream.json'
-# Written by this repository, not copied from upstream.
-OWN = frozenset({'ATTRIBUTION.md', 'upstream.json'})
 SUITES = ('validate-findings.test.cjs', 'validate-coverage-ledger.test.cjs')
-
-
-def digest(path):
-    """The SHA-256 of one file's bytes."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+_SPEC = importlib.util.spec_from_file_location('vendor_manifest',
+                                               ROOT / 'scripts/lib/vendor_manifest.py')
+vendor_manifest = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(vendor_manifest)
+digest = vendor_manifest.digest
 
 
 def copied(skill=SKILL):
-    """Every file under the skill folder that came from upstream, by path relative to it.
-
-    Recursive because a file in a subfolder ships.
-    """
-    files = {path.relative_to(skill).as_posix(): path for path in sorted(skill.rglob('*'))
-             if path.is_file()}
-    return {name: path for name, path in files.items() if name not in OWN}
+    """The upstream files of `skill`, the vendored folder by default."""
+    return vendor_manifest.copied(skill)
 
 
 def write_manifest(commit):
