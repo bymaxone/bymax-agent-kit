@@ -3,7 +3,8 @@
 The playbooks under `acs/` ship unchanged, so what their helpers do is fixed upstream. Each
 section below says what one playbook's commands and `scripts/` do beyond reading the project.
 Read only the section for the playbook in hand, before its first command. A playbook with no
-section here reads local files and changes nothing outside the paths you pass it.
+row here publishes nothing and writes no secrets; its helpers may still write a report to the
+current directory, and provenance verification reads the image's registry and the Rekor log.
 
 Two rules hold for all of them:
 
