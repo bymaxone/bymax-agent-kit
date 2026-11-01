@@ -33,6 +33,7 @@ detector, not a gate. Every check here is a command.
 """
 import ast
 import difflib
+import functools
 import io
 import re
 import subprocess
@@ -203,15 +204,32 @@ def marks(name, text):
 GENERATED = ('codex/plugins/bymax-codex/references/upstream/',)
 
 
-def authored(name):
-    """Whether this path is one the repository wrote rather than generated.
+@functools.lru_cache(maxsize=8)
+def foreign(cwd=None):
+    """Folders the repository ships unchanged from another project, as path prefixes.
+
+    The marker is the one the vendoring convention keeps for its own reasons: a tracked
+    ATTRIBUTION.md beside a tracked LICENSE. Read from the index, so a file dropped in untracked
+    cannot exempt a folder.
+    """
+    tracked = set(git('ls-files', '-z', cwd=cwd).split('\0'))
+    # A marker at the repository root names the project itself, not a folder inside it: its
+    # prefix would be empty, and every path starts with the empty string.
+    return tuple(name[:-len('ATTRIBUTION.md')] for name in sorted(tracked)
+                 if name.endswith('/ATTRIBUTION.md')
+                 and name[:-len('ATTRIBUTION.md')] + 'LICENSE' in tracked)
+
+
+def authored(name, cwd=None):
+    """Whether this path is one the repository wrote, rather than generated or vendored.
 
     The Codex mirror is a copy of the plugin sources, so every sentence in it exists twice by
     construction. Measured on this delta: reading it doubled every count and produced four
     removal claims that were each a file flagging its own mirror. A generated copy asserts
-    nothing of its own.
+    nothing of its own. A vendored tree is someone else's text, shipped unchanged: a pass that
+    corrects its prose changes it.
     """
-    return not name.startswith(GENERATED)
+    return not name.startswith(GENERATED) and not name.startswith(foreign(cwd))
 
 
 def touched(base, head, cwd=None):
@@ -222,7 +240,7 @@ def touched(base, head, cwd=None):
     read as removed at all.
     """
     listed = git('diff', '--name-only', '--no-renames', '-z', base, head, cwd=cwd)
-    return [n for n in listed.split('\0') if (markdown(n) or n.endswith('.py')) and authored(n)]
+    return [n for n in listed.split('\0') if (markdown(n) or n.endswith('.py')) and authored(n, cwd)]
 
 
 def opaque(base, head, cwd=None):
@@ -237,7 +255,7 @@ def opaque(base, head, cwd=None):
     """
     listed = git('diff', '--name-only', '--no-renames', '-z', base, head, cwd=cwd)
     return [n for n in listed.split('\0')
-            if n and not (markdown(n) or n.endswith('.py')) and authored(n)]
+            if n and not (markdown(n) or n.endswith('.py')) and authored(n, cwd)]
 
 
 def sides(name, base, head, cwd=None):
@@ -533,7 +551,7 @@ def mentions(base, head, cwd=None):
         # copy in only one of them leaves the other reporting a file that asserts nothing of
         # its own.
         for name in sorted({p.split(':', 1)[-1] for p in listed.split('\0')
-                            if p and authored(p.split(':', 1)[-1])
+                            if p and authored(p.split(':', 1)[-1], cwd)
                             and not historical(p.split(':', 1)[-1])}):
             for line in prose(name, git('show', '%s:%s' % (head, name), cwd=cwd)).split('\n'):
                 if re.search(r'\b%s\b' % token, line):
@@ -633,7 +651,7 @@ def unkept(base, head, cwd=None):
                 before = git('grep', '-z', '-Fl', '--', quote, base, cwd=cwd).count('\0')
                 hit = git('grep', '-z', '-Fl', '--', quote, head, cwd=cwd)
                 surviving = [p.split(':', 1)[-1] for p in hit.split('\0')
-                             if p and authored(p.split(':', 1)[-1])
+                             if p and authored(p.split(':', 1)[-1], cwd)
                              and p.split(':', 1)[-1] != name]
                 # The phrase must have existed before. Nothing can be removed that was never
                 # there, so a sentence quoting text this same delta wrote is narrating, not

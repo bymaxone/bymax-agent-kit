@@ -1,6 +1,6 @@
 {
   "name": "bymax-codex",
-  "version": "1.27.0",
+  "version": "1.28.0",
   "description": "Bymax workflows for Codex: evidence-based code review, planning, testing, PR management, QA and security audits, defensive security playbooks and capability-aware orchestration.",
   "author": {
     "name": "Bymax One",

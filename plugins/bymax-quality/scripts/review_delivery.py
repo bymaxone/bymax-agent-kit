@@ -140,7 +140,24 @@ def check_correction(reason, before, context, head):
     return dict(reason=reason.strip(), before=checks_of(before), after=checks_of(context), head=head)
 
 
-def reserve(directory, head, base, context, old=None, extension='', correction=''):
+def rebase_ledger(ledger, head, base, rebased):
+    """Move the delivery onto the base a verified rebase landed on.
+
+    The rebase was checked against the frozen campaign before this is reached, and the ledger's
+    base must be the one it moved from. A rebind (the same delta) spends no candidate, because
+    nothing new was read; it is recorded so the budget's history says where the base moved.
+    """
+    if not rebased or ledger['base'] != rebased['from_base']:
+        return False
+    ledger['base'] = base
+    ledger.setdefault('rebases', []).append(dict(from_head=rebased['from_head'], head=head,
+                                                 same_delta=rebased['same_delta']))
+    if rebased['same_delta'] and head not in ledger['heads']:
+        ledger['heads'].append(head)
+    return True
+
+
+def reserve(directory, head, base, context, old=None, extension='', correction='', rebased=None):
     """Count a frozen candidate once, retaining the budget across cleared campaigns.
 
     The caller holds the campaign lock. A reservation preceding a crashed state write
@@ -153,6 +170,8 @@ def reserve(directory, head, base, context, old=None, extension='', correction='
     """
     ledger = load(directory) or dict(base=base, context=context, heads=[], used=0)
     corrected = bool(correction)
+    if rebase_ledger(ledger, head, base, rebased) and rebased['same_delta']:
+        write(directory, ledger)
     if ledger['base'] != base or scope_of(ledger['context'], corrected) != scope_of(context, corrected):
         raise ValueError('Delivery scope changed. Keep its base/context for PR corrections; new work '
                          'needs a new branch.' + ('' if corrected or scope_of(ledger['context'], True)

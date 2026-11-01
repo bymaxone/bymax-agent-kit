@@ -263,13 +263,38 @@ if [ -z "$PR_NUMBER" ]; then
 fi
 BASE_BRANCH=$(gh pr view "$PR_NUMBER" --json baseRefName -q .baseRefName)
 git fetch origin "$BASE_BRANCH"
+# The review campaign froze this head. The certification after the rebase names it, and a
+# fresh shell cannot see this one's variables, so both values go to a file.
+printf '%s\n%s\n' "$(git rev-parse HEAD)" "$BASE_BRANCH" \
+  > "$(git rev-parse --git-dir)/bymax-babysit-prerebase"
 git rebase "origin/$BASE_BRANCH"
 ```
 
-**Rebase clean (exit 0):**
+**Rebase clean (exit 0):** certify the rebased head, then push it (below).
+
+The pushed commit needs a review receipt, and a rebase rewrites every commit. Tell the campaign
+the branch was rebased; it compares the rebased delta with the one its reviewers read:
 
 ```bash
-git push --force-with-lease
+PREVIOUS=$(sed -n 1p "$(git rev-parse --git-dir)/bymax-babysit-prerebase" 2>/dev/null || true)
+BASE_BRANCH=$(sed -n 2p "$(git rev-parse --git-dir)/bymax-babysit-prerebase" 2>/dev/null || true)
+if [ -z "$PREVIOUS" ] || [ -z "$BASE_BRANCH" ]; then
+  echo "No pre-rebase head recorded. Run the rebase block above, which records it." >&2
+  exit 1
+fi
+BASE=$(git merge-base -- "origin/$BASE_BRANCH" HEAD)
+python3 ~/.claude/bymax-review/review_flow.py start --autonomous --base "$BASE" --rebased-from "$PREVIOUS"
+```
+
+- `"same_delta": true` — the rebase changed nothing the reviewers read. Run every declared gate
+  with `review_flow.py check -- <command>`, then `review_flow.py finish`.
+- `"same_delta": false` — the rebase changed the code, or the frozen head had not cleared, so it is reviewed again in full:
+  complete the `/bymax-quality:code-review` round (both reviewers, triage, gates, `finish`).
+
+Then push the rebased head, naming the PR's branch:
+
+```bash
+git push --force-with-lease origin HEAD:<branch>
 ```
 
 Record `"lastRebase": "<timestamp>"` in state, continue to CI Monitoring.
@@ -293,13 +318,8 @@ After staging all resolutions:
 git rebase --continue
 ```
 
-Repeat per conflicted commit until the rebase completes, then:
-
-```bash
-git push --force-with-lease
-```
-
-Continue to CI Monitoring.
+Repeat per conflicted commit until the rebase completes, then certify the rebased head and push
+it exactly as for a clean rebase above. Continue to CI Monitoring.
 
 **If a conflict cannot be resolved** (same file re-conflicts after your best
 attempt, or rebase otherwise can't proceed):

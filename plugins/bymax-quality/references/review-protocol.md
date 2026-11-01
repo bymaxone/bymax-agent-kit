@@ -72,7 +72,13 @@ changed since the frozen head, and the frozen head itself is never edited. Insid
 session, which cannot start another Claude, `prose --stage prepare` prints the task for a
 fresh subagent with Edit and leaves a marker that it began on a clean tree; `prose --stage
 verify` requires that marker. It proves the tree was clean when the task was handed out;
-the runtime does not observe who edited between the stages.
+the runtime does not observe who edited between the stages. A tree vendored from another
+project — a tracked `ATTRIBUTION.md` beside a tracked `LICENSE` — is neither handed to the
+reader nor editable by it: its text is someone else's, kept unchanged, and `verify` refuses an
+edit inside it. The CLI reader gets 15 minutes; a reviewer pass gets ten.
+
+Inside a checkout of this toolkit, `start` also says when the installed runtime differs from
+the scripts the checkout ships, naming the files and the command that reinstalls it.
 
 ```bash
 python3 "$FLOW" status
@@ -292,6 +298,9 @@ The file is a JSON list with **every** report finding keyed by `claude::<id>`, `
 
 Use `[]` if both findings lists are empty. Use `rejected` only with concrete code/test
 counterevidence; `deferred` for nits or unrelated pre-existing work with a reason.
+A residue — a gap a reviewer argues is reachable and no real campaign has hit — is deferred with
+its reason and fixed when a campaign hits it, never in a pull request of its own: working off one
+tracker of 38 such residues produced 75 new findings while it was resolved.
 A finding whose subject is instruction prose — wording, an ordinal, a count, a comment
 naming a round — is deferred and batched, never corrected in a round of its own: only a
 finding with a concrete trigger in runtime code or in a gate blocks a receipt. Measured:
@@ -382,7 +391,12 @@ campaign state. Three things follow, all enforced by `start`:
   `{rule, enumeration, why, mutants:[{file, anchor, becomes, case}]}`: the anchor must occur
   exactly once in its file, the case must pass on the clean tree before the mutation, and a
   survivor stops the run. Subtest cases need pytest 9, or pytest-subtests 0.14.2 or later; on
-  older versions a node whose subtests skip reads as not run and is refused. Where a command derives the rule's case list, declare it and it is
+  older versions a node whose subtests skip reads as not run and is refused. A mutant of a file
+  under a `test`, `tests`, `spec` or `__tests__` directory, of a `conftest.py`, of an untracked
+  file or of one outside the tree is refused: a catch there measures the test, so a rule a test
+  guards lives in code the test imports. The matrix is required only for tests pytest collects;
+  where the suite is Jest, Cargo or another runner, the probe's `without_fix` entry is the
+  evidence that the new case fails without the fix. Where a command derives the rule's case list, declare it and it is
   executed — a list shorter than its own count is refused; where none does, say
   `not derivable by command` and say why. Set `PYTHONDONTWRITEBYTECODE=1` and clear
   `__pycache__` between mutants — CPython invalidates bytecode on `(int(mtime), size)`, so two
@@ -482,7 +496,9 @@ the same shapes in the context's `checks`.
 
 The helper captures command, exit code and output. A nonzero check cannot be cleared by
 running a different trivial command; rerun the same failed command successfully after
-fixing its cause. The helper requires every command declared in the context. It cannot infer whether that
+fixing its cause. A gate is stopped after 30 minutes, which records no exit status. It does not
+hold the campaign lock while it runs, so `status`, `record` and the reviewers go on meanwhile;
+a result for a candidate the campaign moved past is refused rather than recorded. The helper requires every command declared in the context. It cannot infer whether that
 list covers the project's requirements: check it against project docs before starting.
 
 `finish` requires both reports — `claude` and `codex`, or `claude` and `claude-b` where the
@@ -499,6 +515,34 @@ reports and `start` needs the triage. The exit is the same as for any stalled ca
 says so when it refuses. A stalled campaign has
 no automatic reset: explain the blockers and obtain a scope decision. Preserve its
 `state.json` and round files if a human authorizes archiving it and starting over.
+
+### After a rebase
+
+A rebase rewrites every commit, so the frozen head is no ancestor of the new one and the
+ordinary rounds refuse it. Tell the campaign which head it froze:
+
+```bash
+python3 "$FLOW" start --autonomous --base <new merge-base> --rebased-from <frozen head>
+```
+
+The frozen context and gates are kept, so `--context` is omitted. The runtime compares the
+rebased delta with the one the reviewers read, by `git patch-id --verbatim` over the whole diff:
+
+| The rebased delta | The campaign |
+|---|---|
+| identical, and the frozen candidate had cleared | keeps both reports and the triage; the gates run again on the new tree, then `finish`. No delivery candidate is spent. |
+| changed (a conflict resolved, a commit dropped or added), or the frozen candidate had not cleared | opens the next round, reviewing the new delta in full from the new base, on the terms a correction round meets: within the round limit, after both reviews and the triage of the frozen round, which is archived |
+
+A head that descends from the frozen one is a correction, not a rebase, and a head the campaign
+never froze is refused. The prose pass after a rebase reads from the base named with `--base`.
+
+### Measuring the campaign
+
+Every `triage` records each reviewer's findings by disposition, and every `finish` records the
+clearance, in `outcomes.jsonl` beside the campaign directories. `python3 "$FLOW" outcomes` reads
+them back: triaged rounds, cleared candidates, rounds to clear, and per reviewer how many
+findings were left open, rejected or deferred. Keeping or retiring a mechanism rests on these
+numbers, not on a recollection of a round.
 
 ## Push enforcement and limits
 
@@ -650,6 +694,13 @@ regressions introduced by fixes, scope growth and elapsed time before tuning the
 Issue one explicit `git push`, optionally preceded by `cd <literal-path> &&`.
 For the literal form the adapter checks, no command may follow the push in the same
 Bash invocation, and a leading `cd` takes exactly one non-option literal argument.
-Heredocs, quoted text and every other command shape need no special treatment: the
-adapter does not inspect them, so text may mention `git push` freely, and a push
-hidden inside one is stopped by the hook when git runs it.
+
+Every other command is read for one thing only, and only when it could reach a remote: it
+holds a word spelling `push` (a path such as `hooks/pre-push` counts) and names a program able
+to start another (`git`, a shell, `env`, `xargs` and the like). Such a command is refused when it
+carries an option that would skip or redirect the hook. A command that does not parse — an
+apostrophe in a comment is enough — counts as able to push and is scanned whole, and the literal
+`$(git rev-parse --git-dir)/bymax-` — the commands' handoff path — is not read as
+`git --git-dir=`; any other spelling of that query is. A push
+hidden inside any other shape is stopped by the hook when git runs it.
+`scripts/tests/test_prescribed_blocks_guard.py` checks the kit's own prescribed blocks against the adapter.

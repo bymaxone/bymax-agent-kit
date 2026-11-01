@@ -31,6 +31,15 @@ DISARMS = ('no-verify', 'hooksPath', 'hooks-path', 'GIT_DIR', '--git-dir',
 # would let a refspec name a commit other than the literal one.
 EXPANSIONS = '*?[]{}~^+,!'
 ASSIGNMENT = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=')
+# `git rev-parse --git-dir` prints where the git directory is; it points git nowhere. The
+# commands write handoff files at `$(git rev-parse --git-dir)/bymax-*`, so reading the token
+# there as `git --git-dir=` refused blocks the kit itself prescribes. Only that literal handoff
+# path is set aside, character for character: its content is fixed, so nothing a variable expands
+# to can turn it into another command, and `$(git rev-parse --git-dir)/hooks` is still read. A
+# pattern loose enough to accept `-C <dir>` or options was bypassed twice — by `rev-parse` as a
+# mere word on the line, and by `git -C $X rev-parse --git-dir /y push` with X holding
+# `. --namespace` — so every other spelling is read.
+GIT_DIR_QUERY = '$(git rev-parse --git-dir)/bymax-'
 
 
 # Programs that could start another program, so a command carrying one could reach a remote
@@ -83,6 +92,10 @@ def words_of(command):
     strictly beats reading one, and calling it "what the shell hands on" made the gap between
     them look closed when it is the residue this adapter has always had.
     """
+    # No comment handling, on purpose: deciding what is a comment needs the shell's own grammar
+    # (a `#` inside a word or inside a multi-line string is not one), and two readings that
+    # tried were each bypassed by a push the shell ran. A command that does not parse is read
+    # as able to push and scanned whole, which is safe, and the handoff query is set aside.
     try:
         return shlex.split(command)
     except ValueError:
@@ -107,6 +120,7 @@ def parse(command, cwd):
     # half of the previous round's fix, which moved the precondition to the words and left the
     # scan a line below it on the raw command.
     seen = lowered + '\n' + ' '.join(words).lower() if words is not None else lowered
+    seen = seen.replace(GIT_DIR_QUERY, '')
     require(not pushes or not any(token.lower() in seen for token in DISARMS),
             'That would disable or redirect the pre-push receipt check; run a plain git push. '
             'A command that only names one of these — reading a hook, grepping for the token — '
@@ -130,7 +144,7 @@ def parse(command, cwd):
     if words[:1] != ['push']:
         return None
     # The shape matched, so from here the command is a push and must be exactly one.
-    require(not any(c in tail for c in '$`;|&<>\n'), 'Use a literal git push in its own command.')
+    require(not any(c in tail.strip() for c in '$`;|&<>\n'), 'Use a literal git push in its own command.')
     return cwd, words[1:]
 
 

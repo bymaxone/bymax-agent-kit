@@ -56,6 +56,22 @@ class ReplacementTests(FlowBench):
         self.checks()
         self.assertIn('already ran on this candidate and passed', self.text('prompt'))
 
+    def test_the_prose_pass_on_a_replacement_reads_from_the_rounds_review_base(self):
+        """The replacement is read from its round's review base, so its prose pass must read from
+        there too. It read from the failed head instead, and start then found no record of the
+        replacement's prose and refused it."""
+        self.red()
+        self.start(autonomous=True)
+        self.gate_fails()
+        (self.repo / 'code.txt').write_text('the gate passes now\n')
+        (self.repo / 'notes.md').write_text('# Notes\n\nThe gate reads code.txt.\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'fix the gate and say why')
+        self.prose('--stage', 'prepare', nested=True)
+        self.prose('--stage', 'verify', nested=True)
+        state = self.start(autonomous=True)
+        self.assertEqual((state['round'], state['review_base']), (1, self.base))
+
     def test_an_amended_candidate_replaces_the_one_its_gate_failed(self):
         """An amend rewrites the failed candidate rather than descending from it. No reviewer read
         what it rewrites, so it replaces that candidate rather than being refused as rewritten

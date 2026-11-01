@@ -12,7 +12,13 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | The suite runner in `validate.sh` passes while a module fails, or while no module ran | `scripts/tests/test_validate_runner.py` |
 | Stale/dirty review, incomplete reviewers, missing gates, bad triage | `scripts/tests/test_review_flow.py` |
 | Reopened finding, scope widening, changed/deleted tests, lost provenance | Review-flow behavioral tests |
-| A candidate its declared gate failed cannot be replaced, or a reviewed one can | `scripts/tests/test_review_replacement.py` |
+| A candidate its declared gate failed cannot be replaced, or a reviewed one can; the prose pass on a replacement reads from a different base than start | `scripts/tests/test_review_replacement.py` |
+| A rebased candidate loses its reviews though its delta is unchanged, keeps them though the rebase changed it, or something other than a rebase of the frozen head is accepted | `scripts/tests/test_review_rebase.py` |
+| The push guard refuses a bash block a command or skill prescribes, or stops refusing a disarming option beside a handoff read | `scripts/tests/test_prescribed_blocks_guard.py` |
+| The prose pass is handed vendored text, or may edit it | `scripts/tests/test_review_prose_foreign.py` |
+| A running gate blocks `status`, or its result lands on a candidate the campaign moved past | `scripts/tests/test_review_check_lock.py` |
+| A triaged round or a clearance goes unmeasured | `scripts/tests/test_review_outcomes.py` |
+| A campaign in a checkout of this toolkit runs a stale installed runtime without saying so | `scripts/tests/test_review_install_drift.py` |
 | A gate command recorded that can never run (one word holding a space, a wrong path), or declared gates that cannot be corrected | `scripts/tests/test_review_check_command.py` and `scripts/tests/test_review_checks_correction.py` |
 | husky regenerates its hooks directory and drops the receipt check | `scripts/tests/test_review_husky.py`, with actual pushes to isolated local remotes |
 | A tag on an already-published commit is refused, or a tag on an unpublished one lands | `scripts/tests/test_review_tag_push.py`, with actual pushes to isolated local remotes |
