@@ -4,11 +4,14 @@ in full; anything that is not a rebase of the frozen candidate is refused."""
 import json
 from pathlib import Path
 import sys
+import time
 import unittest
 
 # The bench is test_review_flow's, imported whether this file is run by path or by module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_review_flow import FlowBench
+from test_review_flow import FLOW, FlowBench
+sys.path.insert(0, str(FLOW.parent))
+import review_prepush
 
 
 class RebaseTests(FlowBench):
@@ -64,6 +67,27 @@ class RebaseTests(FlowBench):
         rebound_log = Path(self.flow('status')['checks'][-1]['log'])
         self.assertNotEqual(rebound_log, frozen_log)
         self.assertEqual(frozen_log.read_text(), before)
+
+    def test_a_rebind_carries_claude_quota_evidence_to_the_rebased_head(self):
+        """Quota evidence is bound to a head; carried unchanged, it named the frozen one, so a
+        delivery cleared on codex and codex-b needed claude after the rebase and finish refused."""
+        self.start(autonomous=True)
+        self.checks()
+        path = Path(self.flow('status')['directory']) / 'state.json'
+        state = json.loads(path.read_text())
+        state['claude_waiver'] = dict(reason='quota', at=int(time.time()), round=1, head=state['head'],
+                                      binary=review_prepush.resolve_claude())
+        path.write_text(json.dumps(state))
+        self.report('codex')
+        self.report('codex-b')
+        self.triage()
+        self.assertTrue(self.flow('finish')['cleared'])
+        frozen, moved = self.move_base()
+        self.rebase_start(frozen, moved)
+        self.checks()
+        final = self.flow('finish')
+        self.assertTrue(final['cleared'])
+        self.assertEqual(set(final['reviews']), {'codex', 'codex-b'})
 
     def test_a_rebase_that_changed_the_delta_is_reviewed_again_in_full(self):
         """A rebase whose result differs from what was read is new code: both reviews again, from
