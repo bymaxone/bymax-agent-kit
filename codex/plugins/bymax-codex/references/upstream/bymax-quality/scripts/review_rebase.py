@@ -58,8 +58,7 @@ def rebased(args, old, head, base, branch):
         state = {key: old[key] for key in KEPT if key in old}
         state.update(head=head, review_base=base, base_branch=branch, rebased=record)
         # Claude quota evidence names the candidate it was measured on, and the carried reviews
-        # are that delta's, so it moves to the rebased head; its date, binary and round are kept
-        # and still checked as before.
+        # are that delta's, so it moves to the rebased head.
         waiver = old.get('claude_waiver')
         if isinstance(waiver, dict) and waiver.get('head') == old['head']:
             state['claude_waiver'] = dict(waiver, head=head)
