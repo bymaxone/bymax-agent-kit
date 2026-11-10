@@ -203,8 +203,8 @@ class DayGeneratorTest(unittest.TestCase):
         self.assertEqual([('review.yaml' in p.read_text()) for p in written], [False, True, False])
 
     def test_a_regenerated_plan_leaves_no_day_of_the_previous_one_to_run(self):
-        """A shorter plan left its old last day behind, and 100 days regenerated as 30 left
-        both p4-001.yaml and p4-01.yaml, so the runner repeated days with the clock going back."""
+        """A shorter plan left its old tail, and 100 days regenerated as 30 left two widths
+        of one day's file, so the runner repeated days with the clock going back."""
         folder = self.config(plan=['N'] * 100, extras={})
         self.generate(folder)
         flows = folder / 'flows'
@@ -288,7 +288,7 @@ class DayRunnerTest(unittest.TestCase):
 
     def test_a_project_relative_maestro_wrapper_runs_from_where_the_runner_was_started(self):
         """The runner changed into the flows folder first, so the documented
-        MAESTRO='bash scripts/maestro.sh' failed on day 1 with No such file or directory."""
+        MAESTRO='bash scripts/maestro.sh' failed on the first day with No such file or directory."""
         (self.folder / 'scripts').mkdir()
         (self.folder / 'scripts/maestro.sh').write_text(f'exec "{self.fake}" "$@"\n')
         result = self.run_days(MAESTRO='bash scripts/maestro.sh')
