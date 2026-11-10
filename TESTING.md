@@ -30,6 +30,7 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | `scripts/install.sh` lays a vendored skill out where Claude Code never loads it, or writes through a link already at its path | `scripts/tests/test_install_vendor.py` |
 | The shipped Cloudflare `security-audit` skill drifts from its pinned upstream bytes, gains or loses a file, or its validators fail their own suites (required in CI) | `scripts/tests/test_security_audit_vendor.py` |
 | A shipped Anthropic-Cybersecurity-Skills playbook drifts from its pinned upstream bytes, gains or loses a file, loses its licence, or the security-playbooks index names a playbook that does not ship (or misses one that does) | `scripts/tests/test_security_audit_vendor.py` |
+| The persona helpers store a reviewer's name, page past an empty review feed, skip a retry, let a malformed id into a URL, write day flows out of order, make a tap optional by default, or run days out of order or past a failed one | `scripts/tests/test_persona_scripts.py` |
 | Codex misses staged/untracked changes or pins wrong revisions | `codex/tests/test_review_scope.py` |
 | Standup collector admits a harness-written line as a request, misses a worktree session, or loses a commit to git's `--since` cutoff | `scripts/tests/test_report_collect.py` |
 | Standup skill block reads another run's arguments, runs the collect with no temporary directory, or leaves a failed collect's directory behind | `scripts/tests/test_report_skill_block.py` |
