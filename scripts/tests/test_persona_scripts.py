@@ -221,7 +221,7 @@ class DayGeneratorTest(unittest.TestCase):
 
     def test_a_regeneration_that_fails_leaves_the_previous_flows_as_they_were(self):
         """Old day files were removed before the new plan was checked, so a plan naming an
-        unknown action on any day left the persona with no flows at all."""
+        unknown action on any day lost the persona's previous flows."""
         folder = self.config()
         self.generate(folder)
         flows = folder / 'flows'
