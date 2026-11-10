@@ -9,8 +9,10 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import tempfile
+import threading
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -119,6 +121,40 @@ class StoreCollectorTest(unittest.TestCase):
         self.assertIsNone(client.get('https://itunes.apple.com/lookup?id=1'))
         self.assertEqual((len(fake.calls), pauses), (1, []))
 
+    def test_a_body_cut_short_counts_as_no_response_instead_of_crashing_the_run(self):
+        """A reply that promised 100 bytes and sent 5 raised IncompleteRead, which is no OSError,
+        and the run died before lookup.json or reviews.json were written."""
+        server = socket.socket()
+        server.bind(('127.0.0.1', 0))
+        server.listen(1)
+
+        def answer():
+            connection, _ = server.accept()
+            connection.recv(65536)
+            connection.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nshort')
+            connection.close()
+
+        worker = threading.Thread(target=answer)
+        worker.start()
+        try:
+            status, body = stores.http_get(f'http://127.0.0.1:{server.getsockname()[1]}/', timeout=5)
+        finally:
+            worker.join(5)
+            server.close()
+        self.assertEqual((status, body), (0, b''))
+
+    def test_a_listing_that_fails_on_a_later_run_keeps_the_one_already_stored(self):
+        """A refused lookup on a re-run wrote null over the listing an earlier run had stored."""
+        table = {stores.LOOKUP: (200, {'results': [{'trackName': 'Rival'}]}),
+                 'https://itunes.apple.com/br/rss/customerreviews/page=1/': (200, feed('r1'))}
+        _, out, _, _ = self.run_main(['reviews', '--countries', 'br', '--apps', '1', '--pages', '1'], table)
+        with open(os.devnull, 'w') as sink, contextlib.redirect_stdout(sink):
+            stores.main(['reviews', '--countries', 'br', '--apps', '1', '--pages', '1', '--retries', '1',
+                         '--out', str(out)], fetch=FakeStore({stores.LOOKUP: (503, None)}),
+                        sleep=lambda seconds: None)
+        self.assertEqual(json.loads((out / 'lookup.json').read_text())['1']['br']['name'], 'Rival')
+        self.assertEqual(len(json.loads((out / 'reviews.json').read_text())), 1)
+
 
 class DayGeneratorTest(unittest.TestCase):
     def config(self, **extra):
@@ -185,6 +221,7 @@ class DayRunnerTest(unittest.TestCase):
         self.fake.write_text('#!/bin/bash\n'
                              f'echo "$*" >> "{self.calls}"\n'
                              'flow="${@: -1}"\n'
+                             'if [ -n "${EAT_STDIN:-}" ]; then cat > /dev/null; fi\n'
                              'printf png > "$(basename "$flow" .yaml).png"\n'
                              'if [ -n "${FAIL_ON:-}" ] && [[ "$flow" == *"$FAIL_ON"* ]]; then echo "FAILED"; exit 1; fi\n')
         self.fake.chmod(0o755)
@@ -219,6 +256,17 @@ class DayRunnerTest(unittest.TestCase):
         result = self.run_days(PERSONA_BEFORE_DAY='[ "$PERSONA_DAY" != 2 ]')
         self.assertEqual(result.returncode, 1)
         self.assertFalse(self.calls.exists(), 'maestro ran after the before-day hook failed')
+
+    def test_a_hook_or_maestro_that_reads_stdin_does_not_swallow_the_remaining_days(self):
+        """The day list was the loop's stdin, so an `adb shell` hook ate it: one day ran and the
+        runner exited 0 as if the run were complete."""
+        for env in ({'PERSONA_BEFORE_DAY': 'cat > /dev/null'}, {'EAT_STDIN': '1'}):
+            with self.subTest(env=env):
+                if self.calls.exists():
+                    self.calls.unlink()
+                result = self.run_days(**env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.called(), ['p1-02.yaml', 'p1-03.yaml', 'p1-10.yaml', 'p1-11.yaml'])
 
     def test_bad_arguments_are_refused(self):
         self.assertEqual(self.run_days('x').returncode, 2)

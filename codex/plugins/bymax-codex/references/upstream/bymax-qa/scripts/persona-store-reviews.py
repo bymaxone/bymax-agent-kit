@@ -13,6 +13,7 @@ Usage:
 """
 import argparse
 import datetime
+import http.client
 import json
 import pathlib
 import re
@@ -40,7 +41,7 @@ def http_get(url, timeout):
             return response.status, response.read()
     except urllib.error.HTTPError as error:
         return error.code, b''
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError):
         return 0, b''
 
 
@@ -187,7 +188,9 @@ def collect_reviews(client, out, apps, countries, pages):
     for app_id in apps:
         for country in countries:
             listing = lookup(client, app_id, country)
-            listings.setdefault(app_id, {})[country] = listing
+            stored = listings.setdefault(app_id, {})
+            if listing is not None or stored.get(country) is None:
+                stored[country] = listing
             name = (listing or {}).get('name') or ''
             found = reviews_of(client, app_id, name, country, pages) if listing else []
             counts[(app_id, country)] = len(found)
