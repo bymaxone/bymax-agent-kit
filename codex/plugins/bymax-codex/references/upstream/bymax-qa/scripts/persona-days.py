@@ -114,6 +114,12 @@ def write_days(config, out_dir):
     start = datetime.date.fromisoformat(config['first_date'])
     width = max(2, len(str(first_day + len(config['plan']) - 1)))
     written = []
+    # The runner runs every day file in the folder, so a day of an earlier plan left here
+    # would run again: a shorter plan keeps its old tail, a change of name width keeps both.
+    own = re.compile(re.escape(config['persona']) + r'-[0-9]+\.yaml')
+    for stale in out_dir.iterdir():
+        if own.fullmatch(stale.name):
+            stale.unlink()
     for offset, plan in enumerate(config['plan']):
         number = first_day + offset
         date = start + datetime.timedelta(days=offset)

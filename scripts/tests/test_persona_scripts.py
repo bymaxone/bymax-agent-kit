@@ -202,6 +202,23 @@ class DayGeneratorTest(unittest.TestCase):
         written = self.generate(self.config())
         self.assertEqual([('review.yaml' in p.read_text()) for p in written], [False, True, False])
 
+    def test_a_regenerated_plan_leaves_no_day_of_the_previous_one_to_run(self):
+        """A shorter plan left its old last day behind, and 100 days regenerated as 30 left
+        both p4-001.yaml and p4-01.yaml, so the runner repeated days with the clock going back."""
+        folder = self.config(plan=['N'] * 100, extras={})
+        self.generate(folder)
+        flows = folder / 'flows'
+        for keep in ('pin.yaml', 'p40-01.yaml', 'p4-notes.yaml'):
+            (flows / keep).write_text('kept\n')
+        (folder / 'days.json').write_text(json.dumps(dict(json.loads((folder / 'days.json').read_text()),
+                                                          plan=['N'] * 30)))
+        written = self.generate(folder)
+        self.assertEqual(sorted(p.name for p in flows.glob('p4-*.yaml')),
+                         sorted([p.name for p in written] + ['p4-notes.yaml']))
+        self.assertEqual(len(written), 30)
+        for keep in ('pin.yaml', 'p40-01.yaml', 'p4-notes.yaml'):
+            self.assertTrue((flows / keep).exists(), keep)
+
     def test_bad_configs_are_refused(self):
         for bad in ({'plan': ['NZ']}, {'persona': '../x'}, {'clock': '7h'}, {'offset': '-3'},
                     {'actions': {'nn': {'id': 'x'}}}, {'first_date': '05/11/2026'}):
@@ -227,9 +244,10 @@ class DayRunnerTest(unittest.TestCase):
         self.fake.chmod(0o755)
 
     def run_days(self, *args, **env):
-        environment = dict(os.environ, MAESTRO=str(self.fake), HOME=str(self.folder), **env)
+        environment = dict(os.environ, MAESTRO=str(self.fake), HOME=str(self.folder))
+        environment.update(env)
         return subprocess.run(['bash', str(SCRIPTS / 'persona-run-days.sh'), str(self.flows), *args],
-                              capture_output=True, text=True, env=environment, timeout=60)
+                              capture_output=True, text=True, env=environment, timeout=60, cwd=self.folder)
 
     def called(self):
         return [line.split()[-1].rsplit('/', 1)[-1] for line in self.calls.read_text().splitlines()]
@@ -267,6 +285,17 @@ class DayRunnerTest(unittest.TestCase):
                 result = self.run_days(**env)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.called(), ['p1-02.yaml', 'p1-03.yaml', 'p1-10.yaml', 'p1-11.yaml'])
+
+    def test_a_project_relative_maestro_wrapper_runs_from_where_the_runner_was_started(self):
+        """The runner changed into the flows folder first, so the documented
+        MAESTRO='bash scripts/maestro.sh' failed on day 1 with No such file or directory."""
+        (self.folder / 'scripts').mkdir()
+        (self.folder / 'scripts/maestro.sh').write_text(f'exec "{self.fake}" "$@"\n')
+        result = self.run_days(MAESTRO='bash scripts/maestro.sh')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.called(), ['p1-02.yaml', 'p1-03.yaml', 'p1-10.yaml', 'p1-11.yaml'])
+        self.assertEqual(len(list((self.flows / 'shots').glob('*.png'))), 4)
+        self.assertEqual(list(self.folder.glob('*.png')), [], 'a screenshot was left in the project folder')
 
     def test_bad_arguments_are_refused(self):
         self.assertEqual(self.run_days('x').returncode, 2)
