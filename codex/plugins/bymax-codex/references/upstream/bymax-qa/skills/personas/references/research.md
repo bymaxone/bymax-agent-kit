@@ -74,7 +74,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/persona-store-reviews.py" reviews \
 
 `reviews` reads each app's listing (`lookup.json`: rating, rating count,
 price, version, languages) and its most recent reviews from Apple's public
-review feed, up to ten pages of fifty per storefront, into `reviews.json`. An
+review feed, per storefront, into `reviews.json`. An
 empty page is retried with a growing pause, since the feed answers an empty
 page both when it rate-limits and when there are no more reviews; every
 attempt is a line in `collection-log.tsv`. Reviewer names are dropped.

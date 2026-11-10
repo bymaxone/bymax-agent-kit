@@ -2,7 +2,7 @@
 """Write one Maestro flow per simulated day of a persona, from a compact day plan.
 
 Layer: plugin helper script of /bymax-qa:personas (scripted days of a mobile run).
-Each day pins the app's clock through the project's own pin flow, screenshots the
+Each day pins the app's clock through the config's pin flow, screenshots the
 screen, performs the day's actions in the order the screen lists the pending items,
 and screenshots again. The config format is in skills/personas/references/mobile-run.md.
 
@@ -58,7 +58,7 @@ def load(config_path):
 
 
 def pin_steps(config, date, late):
-    """The day's opening: pin the clock through the project's own flow."""
+    """The day's opening: pin the clock through the config's pin flow."""
     clock = config['late_clock'] if late else config['clock']
     stamp = f"{date.isoformat()}T{clock}:00{config['offset']}"
     return [

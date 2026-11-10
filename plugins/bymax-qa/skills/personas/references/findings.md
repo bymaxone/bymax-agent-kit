@@ -67,7 +67,7 @@ Use `templates/finding.template.md` with these substitutions:
   marked "suspected";
 - **reproduction**: the persona's settings, the state before, the steps as
   the persona did them, what they expected, what the screen showed;
-- **evidence**: the screenshot paths under `personas/runs/P<n>/shots/`;
+- **evidence**: the screenshot paths under `personas/runs/P<n>/`;
 - **impact**: what it costs this persona, in one or two sentences;
 - **remediation**: the expected behaviour, and a fix direction only when the
   cause is plain; the owner decides how;

@@ -4,7 +4,7 @@ Every choice the repository cannot settle is asked, never assumed. Ask with
 `AskUserQuestion`: at most four questions per call, two to four options each,
 the recommended option first with "(Recommended)" at the end of its label,
 and a one-line description saying what the choice costs or covers. The human
-can always answer "Other". Where no question tool exists (Codex, a headless
+can always answer "Other". Where no question tool exists (a headless
 run), ask in plain text with numbered options and wait for the reply.
 
 Before asking, read the repository so the options are this app's options, not
