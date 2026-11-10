@@ -219,6 +219,21 @@ class DayGeneratorTest(unittest.TestCase):
         for keep in ('pin.yaml', 'p40-01.yaml', 'p4-notes.yaml'):
             self.assertTrue((flows / keep).exists(), keep)
 
+    def test_a_regeneration_that_fails_leaves_the_previous_flows_as_they_were(self):
+        """Old day files were removed before the new plan was checked, so a plan naming an
+        unknown action on any day left the persona with no flows at all."""
+        folder = self.config()
+        self.generate(folder)
+        flows = folder / 'flows'
+        before = {p.name: p.read_text() for p in flows.iterdir()}
+        good = json.loads((folder / 'days.json').read_text())
+        for plan in (['NZ'], ['N', 'N', 'NZ']):
+            with self.subTest(plan=plan):
+                (folder / 'days.json').write_text(json.dumps(dict(good, plan=plan)))
+                with self.assertRaises(ValueError):
+                    self.generate(folder)
+                self.assertEqual({p.name: p.read_text() for p in flows.iterdir()}, before)
+
     def test_bad_configs_are_refused(self):
         for bad in ({'plan': ['NZ']}, {'persona': '../x'}, {'clock': '7h'}, {'offset': '-3'},
                     {'actions': {'nn': {'id': 'x'}}}, {'first_date': '05/11/2026'}):

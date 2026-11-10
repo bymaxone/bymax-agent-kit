@@ -108,7 +108,7 @@ Generate the flows, then run them one by one:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/persona-days.py" \
-  .claude/qa/personas/runs/P4/days.json .claude/qa/personas/runs/P4/flows
+  .claude/qa/personas/runs/P4/days.json .claude/qa/personas/runs/P4/flows &&
 caffeinate -dims bash "${CLAUDE_PLUGIN_ROOT}/scripts/persona-run-days.sh" \
   .claude/qa/personas/runs/P4/flows
 ```

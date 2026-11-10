@@ -109,25 +109,27 @@ def day_flow(config, number, date, plan, extras):
 def write_days(config, out_dir):
     """Write every day's flow; returns the written paths in day order."""
     out_dir = pathlib.Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     first_day = int(config.get('first_day', 1))
     start = datetime.date.fromisoformat(config['first_date'])
     width = max(2, len(str(first_day + len(config['plan']) - 1)))
-    written = []
+    # Every day is rendered before the folder is touched, so a plan that fails on any day
+    # leaves the previous flows as they were.
+    flows = []
+    for offset, plan in enumerate(config['plan']):
+        number = first_day + offset
+        date = start + datetime.timedelta(days=offset)
+        flow = day_flow(config, number, date, plan, config['extras'].get(number, []))
+        flows.append((out_dir / f"{config['persona']}-{number:0{width}d}.yaml", flow))
+    out_dir.mkdir(parents=True, exist_ok=True)
     # The runner runs every day file in the folder, so a day of an earlier plan left here
     # would run again: a shorter plan keeps its old tail, a change of name width keeps both.
     own = re.compile(re.escape(config['persona']) + r'-[0-9]+\.yaml')
     for stale in out_dir.iterdir():
         if own.fullmatch(stale.name):
             stale.unlink()
-    for offset, plan in enumerate(config['plan']):
-        number = first_day + offset
-        date = start + datetime.timedelta(days=offset)
-        flow = day_flow(config, number, date, plan, config['extras'].get(number, []))
-        path = out_dir / f"{config['persona']}-{number:0{width}d}.yaml"
+    for path, flow in flows:
         path.write_text(flow, encoding='utf-8')
-        written.append(path)
-    return written
+    return [path for path, _ in flows]
 
 
 def main(argv=None):
