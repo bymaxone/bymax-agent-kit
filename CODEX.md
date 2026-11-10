@@ -1,7 +1,7 @@
 # Install and use Bymax Agent Kit in Codex
 
 This repository distributes a **separate Codex plugin** alongside its Claude Code
-marketplace. The Codex package contains 30 skills, bundled Bymax source references,
+marketplace. The Codex package contains 31 skills, bundled Bymax source references,
 and a native code-review procedure. Installing it does not install Claude Code,
 change Claude settings, or register Claude hooks.
 
@@ -123,6 +123,7 @@ The table uses short names. Installed skills are namespaced as
 | Reporting | `bymax-standup` | Git; authenticated `gh` for pull requests (reported as missing otherwise); the host's `~/.claude/projects` and `~/.codex/sessions` for the asks |
 | Audit | `bymax-audit` | Static work supported; independent verifier required to admit findings; live probes require explicit scope and suitable host controls |
 | Audit | `bymax-security-audit` | Cloudflare's skill, unchanged; Node.js for its validators; the full workflow needs host subagents, and target code runs only inside a sandbox that enforces every control the skill lists |
+| Audit | `bymax-personas` | Xcode/simulator or Android SDK/emulator plus Maestro for mobile; a host browser tool, agent-browser or the project's Playwright for web; the Claude QA guard is absent, so the never-edit-source rule is the only write control |
 | Hardening | `bymax-security-playbooks` | Anthropic-Cybersecurity-Skills playbooks, unchanged; one playbook loads on demand; each helper's scanner must be installed, and commands that publish, share data, spend money or write secrets need the user's approval |
 
 PM, autopilot, browsers and monitoring adapt to capabilities available in the

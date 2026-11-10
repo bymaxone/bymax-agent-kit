@@ -1,7 +1,7 @@
 # Install, update and verify Bymax Agent Kit
 
 This checkout contains two independent plugin packages: nine Claude Code plugins and
-one Codex plugin with 30 skills. A plugin installation supplies instructions, not the
+one Codex plugin with 31 skills. A plugin installation supplies instructions, not the
 project's dependencies, accounts, simulator or browser. This guide covers the complete
 setup for autonomous dual-review shipping and the optional skill families.
 
@@ -118,6 +118,7 @@ No Claude global hooks are installed by the Codex installer itself.
 | iOS simulator | macOS, Xcode, selected command-line tools, an installed simulator runtime, and the target Expo/React Native dependencies |
 | Android simulator | Android SDK, emulator/system image and `adb`; the target Expo/React Native dependencies |
 | QA audit | Explicit scope, independent verifier capability; static tools as available. Live probes require approved non-production hosts and `--live`; Codex has no Claude QA hook parity |
+| Persona usability QA | Mobile: Xcode and an iOS simulator, or the Android SDK and an emulator, plus the Maestro CLI and the app's development build. Web: the app reachable on a non-production host and a browser driver (the Claude Browser pane, `agent-browser` or the project's Playwright). Python 3 for the helpers; network access to Apple's public App Store endpoints for the research |
 | Security audit (Cloudflare's `security-audit`, included unchanged) | Node.js for its two validators; subagents for the full workflow; an OS-enforced sandbox with every control the skill lists before any target code runs, otherwise the lead stays `needs_validation`; a writable run directory outside the target |
 | Security playbooks (Anthropic-Cybersecurity-Skills, included unchanged) | The scanner each chosen playbook names (Trivy, Gitleaks, Semgrep, Checkov, Syft/Grype, cosign, Promptfoo…), installed only with the user's approval; Python 3 for its helper scripts |
 | Secret/config hooks and QA shell helpers | Bash and each helper's prerequisites, including `jq` where used; scanners are capability-dependent, not bundled |

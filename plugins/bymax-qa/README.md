@@ -18,7 +18,35 @@ claude plugin install bymax-qa@bymax-agent-kit
 
 ### Also in Codex
 
-The same procedures ship in the Codex package as `bymax-audit`, `bymax-security-audit` and `bymax-security-playbooks` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
+The same procedures ship in the Codex package as `bymax-audit`, `bymax-personas`, `bymax-security-audit` and `bymax-security-playbooks` (namespaced `bymax-codex:<name>`). Install it with `./scripts/install-codex.sh` from a checkout — see [CODEX.md](../../CODEX.md) for the entrypoints and the capability boundaries, which are not full parity.
+
+## Persona-based usability QA
+
+`/bymax-qa:personas` finds what real people would hit: bugs, flows that are broken or
+tiring, design errors, accessibility failures and confusing copy. It works in stages, and
+each stops for your approval:
+
+1. **`init`** asks first: where the personas use the app (iPhone Simulator, Android
+   emulator, both, or a browser), how many personas, which markets and how deep the research
+   goes. Every question offers suggested answers and marks one as recommended. It then
+   researches who would use the app: the project's own research, trusted studies and
+   statistics, platform guidelines (Apple HIG, Material, WCAG 2.2), forums, and the App
+   Store listings and reviews of competing apps, collected by `persona-store-reviews.py`.
+   Every claim carries an evidence label. It writes the personas (device, settings,
+   routine, what they will type, a failure script by day) and a coverage matrix of every
+   flow.
+2. **`plan`** asks how to run them: the simulator or emulator model, the build, and for a
+   web app where it runs, which browser drives it, how a persona signs in and how time
+   moves. It checks for a dev-only clock control that moves time without touching data,
+   and hands off a request when there is none, since the skill never edits the app.
+3. **`run`** uses the app as one persona at a time, from a clean install, day by day: a
+   screenshot before each action, taps on what the persona can see, their settings and
+   their slips. Scripted days go through `persona-days.py` and `persona-run-days.sh`, one
+   Maestro call per day, in order. Every finding has a day, a screen, a screenshot and the
+   rule it breaks, and goes to the shared registry with `axis: persona`, then to the owner,
+   then through a re-test.
+
+Workspace: `.claude/qa/personas/`, next to the audit's. In Codex it is `bymax-personas`.
 
 ## Cloudflare's `security-audit` skill, included unchanged
 
@@ -158,6 +186,9 @@ Outside a run the hook is inert.
 - **`audit`** — `/bymax-qa:audit [init|run|retest QA-NNN|status]`. The
   orchestrator; the domain playbooks live in `skills/audit/references/` and load
   on demand.
+- **`personas`** — `/bymax-qa:personas [init|plan|run [P<n>]|retest QA-NNN|status]`.
+  Persona-based usability QA (see above); its references live in
+  `skills/personas/references/` and its helpers in `scripts/persona-*`.
 - **`security-audit`** — Cloudflare's skill, unchanged (see above).
 - **`security-playbooks`** — the on-demand index over the Anthropic-Cybersecurity-Skills
   playbooks (see above).

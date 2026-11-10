@@ -7,6 +7,7 @@
   "bymax-checkpoint": "bymax-workflow/commands/checkpoint.md",
   "bymax-code-review": "bymax-quality/commands/code-review.md",
   "bymax-codex-setup": "bymax-quality/commands/codex-setup.md",
+  "bymax-personas": "bymax-qa/skills/personas/SKILL.md",
   "bymax-phase-tasks": "bymax-workflow/commands/phase-tasks.md",
   "bymax-plan": "bymax-workflow/commands/plan.md",
   "bymax-pm": "bymax-pm/skills/pm/SKILL.md",
