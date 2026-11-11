@@ -49,7 +49,7 @@ senior engineer** — and it ships for both of the agents people actually run in
 <tr>
 <td valign="top">
 
-**9 plugins** on a public marketplace — 21 slash commands, 9 skills, 10 sub-agents, 4 hooks,
+**9 plugins** on a public marketplace — 21 slash commands, 10 skills, 10 sub-agents, 4 hooks,
 26 templates.
 
 ```bash
@@ -62,7 +62,7 @@ Full setup → [INSTALL.md](./INSTALL.md)
 </td>
 <td valign="top">
 
-**1 plugin, 30 native skills** — every first-party entrypoint in one install, with a native
+**1 plugin, 31 native skills** — every first-party entrypoint in one install, with a native
 Codex review procedure.
 
 ```bash
@@ -333,7 +333,7 @@ graphify hook install
 ## 📦 Plugins
 
 For Claude Code the toolkit ships as **nine composable plugins** (plus a reference index) — use
-them à la carte. For Codex the same surface arrives as **one plugin with 30 native skills**; the
+them à la carte. For Codex the same surface arrives as **one plugin with 31 native skills**; the
 short name in the tables below maps to `bymax-codex:bymax-<name>` there, and the full mapping is
 in [CODEX.md](./CODEX.md#available-workflows-and-capability-boundaries).
 
@@ -618,7 +618,7 @@ bymax-agent-kit/
 │   ├── .agents/plugins/marketplace.json
 │   ├── plugins/bymax-codex/
 │   │   ├── .codex-plugin/plugin.json
-│   │   ├── skills/bymax-*/             ← 30 native Codex entrypoints
+│   │   ├── skills/bymax-*/             ← 31 native Codex entrypoints
 │   │   ├── scripts/review_scope.py     ← read-only Git scope capture
 │   │   └── references/
 │   │       ├── runtime.md · catalog.json · review-checklist.md
