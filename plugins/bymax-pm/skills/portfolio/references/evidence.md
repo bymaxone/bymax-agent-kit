@@ -39,7 +39,7 @@ if [ ! -f "$SHIP" ]; then
   echo "No ship.txt at ${SHIP}: write one line per deliverable first." >&2
   exit 1
 fi
-while IFS='|' read -r TYPE TARGET VERSION EXTRA HEALTH; do
+while IFS='|' read -r TYPE TARGET VERSION EXTRA HEALTH || [ -n "$TYPE" ]; do
   BAD=""
   for FIELD in "$TARGET" "$VERSION" "$EXTRA" "$HEALTH"; do
     case "$FIELD" in

@@ -1,8 +1,9 @@
-"""Gate layer: the ship-evidence block /bymax-pm:portfolio tells a model to run reads its record whole.
+"""Gate layer: the blocks /bymax-pm:portfolio tells a model to run read their record lists whole.
 
-The block in `references/evidence.md` is run as written, with `gh`, `npm` and `curl` replaced by
-stubs that answer only for the exact arguments the block should send. So a record read into the
-wrong fields shows up as a wrong verdict, never as a lucky one. No test reaches the network.
+The ship-evidence block in `references/evidence.md` and the collector block in
+`references/review.md` are run as written, with the tools they call (`gh`, `npm`, `curl`,
+the collector) replaced by stubs that answer only for the arguments the block should send.
+So a record read into the wrong fields shows up as a wrong verdict, never as a lucky one. No test reaches the network.
 """
 import os
 from pathlib import Path
@@ -39,11 +40,12 @@ def evidence_block():
     return found[0]
 
 
-def run_rows(rows, **env):
+def run_rows(rows, final_newline=True, **env):
     """Run the block over `rows` and return its output lines.
 
     The record's file name and field delimiter are the ones the block itself declares, so
-    the test follows the documented format instead of repeating it.
+    the test follows the documented format instead of repeating it. `final_newline=False`
+    writes the file the way the file tool does when handed text with no trailing newline.
     """
     block = evidence_block()
     name = re.search(r'\.run/([A-Za-z0-9_.]+)"', block).group(1)
@@ -52,7 +54,8 @@ def run_rows(rows, **env):
         root = Path(tmp)
         run = root / 'work/.claude/portfolio/.run'
         run.mkdir(parents=True)
-        (run / name).write_text(''.join(delimiter.join(row) + '\n' for row in rows))
+        text = '\n'.join(delimiter.join(row) for row in rows)
+        (run / name).write_text(text + ('\n' if final_newline else ''))
         bin_dir = root / 'bin'
         bin_dir.mkdir()
         for tool, body in STUBS.items():
@@ -117,12 +120,72 @@ class ShipEvidenceBlockTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertTrue(lines[0].startswith('REFUSED'), lines[0])
 
+    def test_a_last_record_without_a_final_newline_is_still_read(self):
+        """`read` returns non-zero on an unterminated last line, so a bare `while read` loop
+        skipped it and the deliverable vanished from the output instead of being reported."""
+        lines, _ = run_rows([('npm', 'pkg', '1.0.0', '', ''), ('npm', 'pkg', '9.9.9', '', '')],
+                            final_newline=False)
+        self.assertEqual(lines, ['SHIPPED npm pkg@1.0.0', 'NOT-SHIPPED npm pkg@9.9.9'])
+
     def test_a_health_url_must_be_http(self):
         """curl would read a `file:` URL from disk, so only an http(s) URL is requested."""
         lines, _ = run_rows([('deployment', 'acme/app', '', 'staging', 'file:///etc/hostname')],
                             STUB_NO_DEPLOYMENTS='1')
         self.assertEqual(len(lines), 1)
         self.assertTrue(lines[0].startswith('REFUSED'), lines[0])
+
+
+REVIEW = ROOT / 'plugins/bymax-pm/skills/portfolio/references/review.md'
+
+
+def run_collector_block(repos, final_newline=True):
+    """Run the review collector block over `repos` with a stub collector; return its status rows.
+
+    The stub sits where the block looks for the sibling `bymax-report` plugin, and writes its
+    `--out` file, so the block's own wiring (period, list, status file) is what is exercised.
+    A repository is a directory with a `.git` entry; one named `broken` makes the stub fail.
+    """
+    blocks = [b for b in BLOCK.findall(REVIEW.read_text()) if 'while IFS= read -r REPO' in b]
+    assert len(blocks) == 1, f'expected one collector block, found {len(blocks)}'
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        plugin = root / 'cache/market/bymax-pm/1.1.0'
+        plugin.mkdir(parents=True)
+        collector = root / 'cache/market/bymax-report/1.2.0/scripts/collect.py'
+        collector.parent.mkdir(parents=True)
+        collector.write_text(
+            'import sys\nout = sys.argv[sys.argv.index("--out") + 1]\n'
+            'open(out, "w").write("{}")\n'
+            'sys.exit(1 if "broken" in sys.argv[sys.argv.index("--repo") + 1] else 0)\n')
+        run = root / 'work/.claude/portfolio/.run'
+        run.mkdir(parents=True)
+        paths = []
+        for name in repos:
+            if name != 'missing':
+                (root / name / '.git').mkdir(parents=True)
+            paths.append(str(root / name))
+        (run / 'period.txt').write_text('last-week\n')
+        (run / 'repos.txt').write_text('\n'.join(paths) + ('\n' if final_newline else ''))
+        environment = {**os.environ, 'HOME': str(root), 'BYMAX_PORTFOLIO_DIR': str(root / 'work'),
+                       'CLAUDE_PLUGIN_ROOT': str(plugin)}
+        subprocess.run(['bash', '-c', blocks[0]], env=environment, capture_output=True, text=True)
+        status = run / 'collect/status.tsv'
+        rows = [line.split('\t') for line in status.read_text().splitlines()] if status.exists() else []
+    return [(row[0], Path(row[1]).name, row[2]) for row in rows]
+
+
+class ReviewCollectorBlockTests(unittest.TestCase):
+    """What the review collector block records for each repository in its list."""
+
+    def test_each_repository_gets_a_status_row_and_unreadable_ones_are_named(self):
+        """A checkout the machine lacks and a collector that fails are rows, never silence."""
+        self.assertEqual(run_collector_block(['alpha', 'missing', 'broken']),
+                         [('1', 'alpha', 'ok'), ('2', 'missing', 'no-checkout'), ('3', 'broken', 'failed')])
+
+    def test_a_last_repository_without_a_final_newline_is_still_collected(self):
+        """An unterminated last line made `read` fail, so that repository got no row at all."""
+        self.assertEqual(run_collector_block(['alpha', 'beta'], final_newline=False),
+                         [('1', 'alpha', 'ok'), ('2', 'beta', 'ok')])
 
 
 if __name__ == '__main__':

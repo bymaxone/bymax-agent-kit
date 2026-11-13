@@ -72,7 +72,7 @@ fi
 mkdir -p "${RUN}/collect"
 : > "${RUN}/collect/status.tsv"
 N=0
-while IFS= read -r REPO; do
+while IFS= read -r REPO || [ -n "$REPO" ]; do
   N=$((N + 1))
   if [ ! -d "$REPO/.git" ] && [ ! -f "$REPO/.git" ]; then
     printf '%s\t%s\t%s\n' "$N" "$REPO" "no-checkout" >> "${RUN}/collect/status.tsv"
