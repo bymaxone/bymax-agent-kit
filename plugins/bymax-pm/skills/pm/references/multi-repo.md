@@ -35,6 +35,11 @@ Track (a section in `board.md` or the project hub note) which repo consumes whic
 - **Version alignment** — at release readiness, every consumer pins versions that
   actually contain the changes it needs.
 
+When `.claude/portfolio/portfolio.md` exists in the coordination directory, its
+`## Dependency map` is this same map: read it from there instead of keeping a second
+copy on the board, and add a new edge there through `/bymax-pm:portfolio`, not here. The portfolio also fixes which product is in focus, which decides the
+critical path when priorities compete.
+
 ## API contract changes — the standing rule
 
 Any task that changes an exported surface (function signatures, wire formats, event

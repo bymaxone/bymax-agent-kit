@@ -1,7 +1,7 @@
 # Install and use Bymax Agent Kit in Codex
 
 This repository distributes a **separate Codex plugin** alongside its Claude Code
-marketplace. The Codex package contains 31 skills, bundled Bymax source references,
+marketplace. The Codex package contains 32 skills, bundled Bymax source references,
 and a native code-review procedure. Installing it does not install Claude Code,
 change Claude settings, or register Claude hooks.
 
@@ -120,6 +120,7 @@ The table uses short names. Installed skills are namespaced as
 | Web | `bymax-web-setup`, `bymax-web-test`, `bymax-web-verify`, `bymax-web-record` | Available Codex browser tools or installed agent-browser CLI |
 | Mobile | `bymax-sim-ios`, `bymax-sim-android` | Xcode/simulator or Android SDK/emulator plus the app's dependencies |
 | Orchestration | `bymax-pm`, `bymax-autopilot` | Available Codex worker coordination; durable continuation for unattended execution |
+| Orchestration | `bymax-portfolio` | Git; authenticated `gh` and `npm` for the ship reads (a read that cannot run is reported as unread); the bundled `bymax-report` collector for the activity read; no worker coordination is used, since the portfolio never messages a worker |
 | Reporting | `bymax-standup` | Git; authenticated `gh` for pull requests (reported as missing otherwise); the host's `~/.claude/projects` and `~/.codex/sessions` for the asks |
 | Audit | `bymax-audit` | Static work supported; independent verifier required to admit findings; live probes require explicit scope and suitable host controls |
 | Audit | `bymax-security-audit` | Cloudflare's skill, unchanged; Node.js for its validators; the full workflow needs host subagents, and target code runs only inside a sandbox that enforces every control the skill lists |
