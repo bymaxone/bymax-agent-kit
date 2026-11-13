@@ -115,3 +115,37 @@ Had the human asked for `web-console` while `0.5.0` was unpublished, the skill w
 have refused until they gave a reason for leaving the deliverable unshipped, and
 would have recorded that reason as the decision. Had the move made two products in
 focus beyond the limit, it would have refused and named the one that must leave.
+
+## 6. A two-lane week
+
+Two workstreams, declared in `config.md`: **lane A** (Platform, owner `laptop-1`,
+limit 1 + 1) and **lane B** (Apps, owner `alice`, limit 3). Every product has
+`Lane:`. Every name is invented, and the owners are whatever `config.md` says.
+
+`now.md` holds two blocks. Lane B's focus is the set `app-one, app-two, app-three`,
+one deliverable: the three apps in the stores, in that order.
+
+- `focus B +app-four` is refused: the set would be four products against lane B's
+  limit of three, and the answer names the limit. `focus A app-two`, where `app-two`
+  belongs to lane B, is refused and offers `lanes move`. Changing lane B's focus
+  leaves lane A's block byte for byte as it was.
+- Tuesday, in a session set to lane B (`lanes use B`), the work opens
+  `platform-template` (lane A) and runs `check fix the logger import`:
+
+  ```
+  OTHER_LANE: this repository belongs to lane A (Platform), this session works for lane B (Apps). (a) proceed and log a deviation, or (b) park it under Later.
+  ```
+
+  They proceed; one line names both lanes in `activity.md`. `sync` there writes
+  `Lane: B` and `Owner lane: A` in the inbox file.
+- Sunday's unattended `review` writes the per-lane sections. Lane B: `app-one` and
+  `app-two` have `HUMAN-CONFIRMED` store records, `app-three` does not: "2 of 3
+  shipped", not Shipped. WIP held in both lanes, each against its own limit.
+  Cross-lane lists one dependency (`app-two` waits on lane A's `platform-template`
+  release) and one ownership mismatch (the Tuesday inbox file). It asks nothing and
+  changes no focus.
+
+**The same two lanes from a single machine, no lane set.** With no
+`$BYMAX_PORTFOLIO_LANE` and no `lane` in the pointer file, `check` and `sync` take the
+lane from the repository: in a lane B repository the session works for lane B, in a
+lane A repository for lane A, and `OTHER_LANE` is never answered. Nothing needs setting up.

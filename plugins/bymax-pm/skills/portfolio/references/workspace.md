@@ -8,9 +8,9 @@ next to `.claude/pm/`. Commit it to git if you want it versioned; it holds no se
 
 ```
 .claude/portfolio/
-  config.md         owner, WIP limit, repository discovery source, review cadence, report language
+  config.md         owner, WIP limit, repository discovery source, review cadence, report language, optional lanes table
   portfolio.md      one entry per product, plus the repository dependency map
-  now.md            the current focus: product(s), next deliverable, its ship evidence, started date
+  now.md            the current focus (one block per lane when lanes are declared): product(s), next deliverable, its ship evidence, started date
   roadmap.md        Now / Next / Later / Frozen, with the critical path stated
   done.md           the definition of done per ship type (the read lives in evidence.md)
   decisions.md      append-only, same entry format as the PM's decision log
@@ -36,7 +36,11 @@ Ship target:  <package name | owner/repo + tag | owner/repo + environment (+ hea
 Ship version: <the version or tag the deliverable names, empty until decided>
 Depends on:   <product or repository, comma separated>
 State:        in-focus | next | later | frozen | shipped
+Lane:         <lane id>   (required when lanes are declared; omitted otherwise)
 ```
+
+A repository belongs to the lane of the product that lists it. A repository in no
+product is `UNASSIGNED`.
 
 Below the entries, `## Dependency map`, one edge per line, in the shape
 `pm/references/multi-repo.md` describes:
@@ -47,7 +51,40 @@ backend-template -> nest-logger, nest-config
 
 There is one map, not two.
 
+### Lanes
+
+`config.md` may carry a lanes table. **No table means one implicit lane `default`
+with the WIP limit already in `config.md`, and everything in this directory reads as
+it did before lanes existed.**
+
+```
+## Lanes
+| Lane | Name     | Owner (optional) | WIP limit (products) | Enabling limit |
+| ---- | -------- | ---------------- | -------------------- | -------------- |
+| A    | Platform | laptop-1         | 1                    | 1              |
+| B    | Apps     | alice            | 3                    | 0              |
+```
+
+A lane's focus is a **set of products** that together make one deliverable, within
+that lane's WIP limit. A product is in at most one lane's focus, and in exactly one
+lane.
+
+### Which lane is this session working for
+
+First hit wins, and the skill says which one it used:
+
+1. `$BYMAX_PORTFOLIO_LANE`
+2. `"lane"` in `~/.claude/bymax-portfolio.json` (`{"dir": "...", "lane": "B"}`), written by `init` or `lanes use`
+3. none: `sync` and `check` use the current repository's owner lane and say so;
+   `status` shows all lanes. This is the normal path for one machine running several
+   lanes, and it never produces `OTHER_LANE`.
+
+A lane id that is not in the lanes table is a miss that says so, never a guess.
+The owner column is free text read from `config.md`.
+
 ### `now.md`
+
+Without lanes, one block:
 
 ```
 Focus:        <product> (+ <enabling item>)
@@ -57,6 +94,30 @@ Ship target:  <as in portfolio.md>
 Ship version: <as in portfolio.md>
 Started:      YYYY-MM-DD
 ```
+
+With lanes, one block per lane, each in the same field format, and `Focus:` lists
+the set:
+
+```
+## Lane A
+Focus:        platform-template (+ enabling: shared-lib)
+Deliverable:  ...
+Ship type:    github-release
+Ship target:  owner/repo
+Ship version: v1.0.0
+Started:      YYYY-MM-DD
+
+## Lane B
+Focus:        app-one, app-two, app-three
+Deliverable:  the three apps published in the stores, in this order: app-one, app-two, app-three
+Ship type:    store-build
+Ship target:  per product, in portfolio.md
+Ship version:
+Started:      YYYY-MM-DD
+```
+
+A write for one lane edits **only that lane's block**, so two sessions changing
+different lanes on the same day merge cleanly.
 
 ### Entry formats
 
@@ -71,24 +132,33 @@ Decision:   <chosen>
 Rationale:  <the evidence>
 Approved:   <the human, with the date>
 Affects:    <products>
+Lanes:      <ids>   (only when lanes are declared)
 Revisit if: <the condition that reopens it>
 ```
 
 `activity.md`: `YYYY-MM-DD HH:MM <actor> <verb> <subject> (<proof>)`, one line each.
+With lanes the actor carries its lane: `<actor>[B]`.
 
 ## Writers
 
 | File | Written by |
 | --- | --- |
-| `config.md`, `portfolio.md`, `now.md`, `roadmap.md`, `done.md` | `init`, `focus`, `review`. No other mode. |
-| `decisions.md`, `activity.md` | the three above, and `check` (a deviation line in `activity.md` only) |
+| `config.md`, `portfolio.md`, `now.md`, `roadmap.md`, `done.md` | `init`, `focus`, `review`, and `lanes` (its changing forms only, after confirmation). No other mode. |
+| `decisions.md`, `activity.md` | those modes, and `check` (a deviation line in `activity.md` only) |
 | `inbox/<file>` | `sync` only, one new file per call, never edited afterwards |
 | `reports/<week>.md` | `review` only |
 
-There is one writer at a time for every curated file. `sync` runs from *other*
+There is one writer at a time for every curated file; with lanes, one writer at a
+time for every lane's block of `now.md`. `sync` runs from *other*
 sessions in worker repositories, which is why it writes only a **new file with a
 unique name** and nothing else: two sessions can never collide, and `review` is the
 one consumer that folds the inbox into the curated files.
+
+Sessions on several machines may write the same coordination repository. `focus`, `lanes` and the
+writing part of `review` run `git pull --rebase` on it first when it is a git
+checkout, and **refuse on a conflict in a curated file, reporting it instead of
+resolving it**. `sync` keeps writing one uniquely named inbox file, so it never
+conflicts.
 
 ## Locating the workspace
 

@@ -11,7 +11,8 @@ A scheduled run has no human to answer. So, in an unattended run:
   Pick the documented default and record that you did.
 - **Never change the focus.** `now.md` and `roadmap.md` order are read, not edited,
   except for the state changes `Folding` below allows (a `shipped` state with its proof).
-- Write the full report, put any decision in section 7, and end.
+- Write the full report, put any decision in the last section, and end. With lanes
+  the same holds for every lane: nothing asked, no lane's focus changed.
 
 In an interactive run the same report is written first; only then may the one
 "Decision needed" be put to the human as a question with its options.
@@ -94,6 +95,22 @@ empty there and `coverage.claude` says so: the report states that PROGRESS from
 asks is unavailable, and builds every other section from commits, pull requests
 and the inbox.
 
+## Lanes
+
+With a `## Lanes` table in `config.md`, sections 1 to 5 below are written **once per
+lane**, under a `### Lane <id> — <name>` heading inside each section, and a
+**Cross-lane** section follows WIP. Coverage and Decision needed stay one section
+for the whole report. A workspace with no lanes table writes the report exactly as
+below, with no lane headings and no Cross-lane section.
+
+Each product and repository is read against its own lane: a commit is classified
+against **its repository's owner lane focus** (`references/focus-rules.md`), so lane
+B commits to lane B's focus set are `IN_FOCUS` even though lane A's focus is
+different. WIP is measured per lane against that lane's own limit: no violation is
+reported for a lane within its limit, and one is for a lane over it. Run `git pull
+--rebase` on the coordination repository before the writing part when it is a git
+checkout, and report a conflict in a curated file instead of resolving it.
+
 ## Output: `reports/YYYY-Www.md`
 
 Sections, in this order, with these headings. Omit nothing; a section with
@@ -101,7 +118,9 @@ nothing to say says "none" and why.
 
 1. **Shipped.** Deliverables with verified ship evidence, each with its proof: the
    `SHIPPED` line from `evidence.md`, or the `HUMAN-CONFIRMED` record with its date.
-   A line without a proof does not appear.
+   A line without a proof does not appear. A deliverable made of several products
+   is shipped only when every product in the set has its evidence; otherwise it is
+   reported as "2 of 3 shipped", per product, under section 3, never here.
 2. **Focus check.** Per product: its share of the period's commits and the number of
    days with a commit, split into in focus, enabling and out of focus
    (`references/focus-rules.md` § Classification). Count commits from `collect.json`
@@ -117,13 +136,21 @@ nothing to say says "none" and why.
 5. **WIP.** Whether the limit held: the number of products with activity classified in
    focus plus enabling against the limit in `config.md`, and every deviation line
    `check` recorded in `activity.md` in the period.
-6. **Coverage.** Every repository that could not be read, named with the reason: no
+6. **Cross-lane** (only with lanes declared). Three lists, each line with its read:
+   dependencies between lanes (a product of one lane waiting on a deliverable of
+   another, from the dependency map and the other lane's ship read); ownership
+   violations (an inbox entry whose `Lane` differs from its `Owner lane`, and the
+   work recorded for one lane in a repository of another, with the file name or
+   record as the evidence); and `UNASSIGNED` repositories. Each list says
+   "none" when empty.
+7. **Coverage.** Every repository that could not be read, named with the reason: no
    local checkout, no access, `gh` missing or signed out, collector missing or failed,
-   no session logs in a cloud run, a ship read that came back `UNREAD`. A gap is
+   no session logs in a cloud run, a ship read that came back `UNREAD`. With lanes,
+   one section for all lanes, naming the lane of each unread repository. A gap is
    reported, never hidden and never read as "no activity".
-7. **Decision needed.** At most one: the options, a recommendation, and the evidence
+8. **Decision needed.** At most one: the options, a recommendation, and the evidence
    for it. With none, the section says "none". Candidates, strongest first: a focus
-   deliverable shipped and the next focus is unchosen; effort concentrated outside the
+   deliverable shipped and the next focus is unchosen (of one lane, named); effort concentrated outside the
    focus for the whole period; a frozen product with new activity.
 
 ## Folding the inbox
@@ -163,7 +190,8 @@ Pair each reportable state with the read that proved it, in the report itself:
 
 | State | The read |
 | --- | --- |
-| shipped | the `SHIPPED` line, or the `HUMAN-CONFIRMED` record |
+| shipped | the `SHIPPED` line, or the `HUMAN-CONFIRMED` record; for a multi-product deliverable, one per product |
+| cross-lane | the dependency edge and the other lane's ship read, or the inbox file name showing `Lane` against `Owner lane` |
 | advanced | the merged or open PR in `collect.json`, by its number in the evidence column |
 | stalled | the newest record found for the product, with its date, or "none found in <repositories read>" |
 | unread | the status row or error that stopped the read |
