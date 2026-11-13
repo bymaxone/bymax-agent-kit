@@ -157,7 +157,7 @@ Follow `references/focus-rules.md` for `check` and `focus`. `sync`:
    Also resolve the lane this session works for (Step 0) and the repository's owner lane
    (`portfolio.md`). A mismatch is recorded in the file, never refused.
 3. Write **one new file** `inbox/YYYY-MM-DDTHHMM-<repo>-<short-random>.md` under the
-   workspace with `Lane: <id>` and `Owner lane: <id>` (omitted with no lanes), those three lists and a one-paragraph summary of the session's work
+   workspace with `Lane: <id>` and `Owner lane: <id>` (omitted with no lanes), those lists and a one-paragraph summary of the session's work
    written from them. Write it with the file tool in a single call to a name that did
    not exist; two sessions syncing at once produce two files and never touch the same
    one. Write nothing else, in the workspace or in the repository.

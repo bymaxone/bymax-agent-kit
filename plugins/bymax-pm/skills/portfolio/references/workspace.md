@@ -80,7 +80,7 @@ First hit wins, and the skill says which one it used:
    lanes, and it never produces `OTHER_LANE`.
 
 A lane id that is not in the lanes table is a miss that says so, never a guess.
-The owner column is free text read from `config.md`; nothing else in this skill names one.
+The owner column is free text read from `config.md`.
 
 ### `now.md`
 
@@ -144,7 +144,7 @@ With lanes the actor carries its lane: `<actor>[B]`.
 | File | Written by |
 | --- | --- |
 | `config.md`, `portfolio.md`, `now.md`, `roadmap.md`, `done.md` | `init`, `focus`, `review`, and `lanes` (its changing forms only, after confirmation). No other mode. |
-| `decisions.md`, `activity.md` | the three above, and `check` (a deviation line in `activity.md` only) |
+| `decisions.md`, `activity.md` | those modes, and `check` (a deviation line in `activity.md` only) |
 | `inbox/<file>` | `sync` only, one new file per call, never edited afterwards |
 | `reports/<week>.md` | `review` only |
 
