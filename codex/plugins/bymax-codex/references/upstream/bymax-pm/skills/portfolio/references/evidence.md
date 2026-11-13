@@ -163,6 +163,16 @@ A release whose evidence predates the deliverable (a tag older than `Started:` i
 `now.md`) is a different release: the read proves the deliverable only when the
 version in `Ship version:` is the one named for it.
 
+## A deliverable of several products
+
+A lane may focus several products that together make one deliverable (three apps
+released together). It is **shipped only when every product in the set has its ship
+evidence**, each product by its own ship type and read. Report partial progress per
+product and as a count ("2 of 3 shipped: app-one, app-two; app-three NOT-SHIPPED"), never as
+shipped, and never move the set to `shipped` in `now.md` or `portfolio.md` before the
+last product's proof exists. A product's `Ship target` for this case lives in its
+`portfolio.md` entry.
+
 ## What a store build needs
 
 The store dashboard is outside the agent's reach, so the agent never marks one shipped

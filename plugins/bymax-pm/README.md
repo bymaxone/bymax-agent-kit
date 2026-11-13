@@ -91,6 +91,21 @@ a priority order with a recommendation, and writes nothing before you approve. `
 also writes `~/.claude/bymax-portfolio.json` so a session in any worker repository can
 find the workspace (or set `BYMAX_PORTFOLIO_DIR`).
 
+**Lanes.** Declare lanes when you run separate workstreams at once: several machines or agent
+accounts, a small team with a workstream per person, or two tracks on one machine.
+`config.md` gets a lanes table (id, name, an optional owner, a WIP limit in
+products, an enabling limit); each product in
+`portfolio.md` gets `Lane:`; and `now.md` holds one block per lane. A lane's focus is
+a **set** of products you choose, which together make one deliverable:
+`/bymax-pm:portfolio focus B app-one,app-two,app-three`, then `focus B +app-four` / `focus B -app-three`
+to edit it, each within that lane's own limit. Setting the lane a session works for is optional
+(`$BYMAX_PORTFOLIO_LANE`, or `"lane"` in `~/.claude/bymax-portfolio.json` via
+`/bymax-pm:portfolio lanes use B`); unset, the repository's own lane is used, so one
+machine running several lanes needs no setup. `check` answers `OTHER_LANE` in a
+repository owned by the other lane, and `review` reports per lane plus a Cross-lane
+section. A multi-product deliverable is shipped only when every product has its
+evidence. With no lanes table nothing changes.
+
 **The `sync` habit.** At the end of each development session, run
 `/bymax-pm:portfolio sync` in that repository. It writes one new file under
 `inbox/` and nothing else, so two sessions finishing together never collide. Before
@@ -124,11 +139,11 @@ messages agents; it offers to start `/bymax-pm:pm` on the new focus and leaves t
 ```
 skills/pm/SKILL.md            → /bymax-pm:pm [status|standup|release-check]; the five laws,
                                  the operating loop, boundaries
-skills/portfolio/SKILL.md     → /bymax-pm:portfolio [init|status|check|sync|review|focus]; the five
+skills/portfolio/SKILL.md     → /bymax-pm:portfolio [init|status|lanes|check|sync|review|focus]; the five
                                  laws, the modes, the boundaries
 skills/portfolio/references/
   workspace.md                → .claude/portfolio/ layout, writers, locating it, recovery
-  review.md                   → the weekly review: inputs, seven sections, folding, unattended rules
+  review.md                   → the weekly review: inputs, the sections (per lane), folding, unattended rules
   focus-rules.md              → WIP limit, the check classification, the focus-change protocol
   evidence.md                 → what counts as shipped and the read that proves it
   example.md                  → an end-to-end week
