@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Claude_Code-9_plugins-D97757?style=for-the-badge&logo=claude&logoColor=white&labelColor=000000" alt="Claude Code — 9 plugins" />
   &nbsp;
-  <img src="https://img.shields.io/badge/Codex-31_skills-10A37F?style=for-the-badge&logoColor=white&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxZW0iIGhlaWdodD0iMWVtIiB2aWV3Qm94PSIwIDAgMjQgMjQiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik0yMi4yODIgOS44MjFhNiA2IDAgMCAwLS41MTYtNC45MWE2LjA1IDYuMDUgMCAwIDAtNi41MS0yLjlBNi4wNjUgNi4wNjUgMCAwIDAgNC45ODEgNC4xOGE2IDYgMCAwIDAtMy45OTggMi45YTYuMDUgNi4wNSAwIDAgMCAuNzQzIDcuMDk3YTUuOTggNS45OCAwIDAgMCAuNTEgNC45MTFhNi4wNSA2LjA1IDAgMCAwIDYuNTE1IDIuOUE2IDYgMCAwIDAgMTMuMjYgMjRhNi4wNiA2LjA2IDAgMCAwIDUuNzcyLTQuMjA2YTYgNiAwIDAgMCAzLjk5Ny0yLjlhNi4wNiA2LjA2IDAgMCAwLS43NDctNy4wNzNNMTMuMjYgMjIuNDNhNC40OCA0LjQ4IDAgMCAxLTIuODc2LTEuMDRsLjE0MS0uMDgxbDQuNzc5LTIuNzU4YS44LjggMCAwIDAgLjM5Mi0uNjgxdi02LjczN2wyLjAyIDEuMTY4YS4wNy4wNyAwIDAgMSAuMDM4LjA1MnY1LjU4M2E0LjUwNCA0LjUwNCAwIDAgMS00LjQ5NCA0LjQ5NE0zLjYgMTguMzA0YTQuNDcgNC40NyAwIDAgMS0uNTM1LTMuMDE0bC4xNDIuMDg1bDQuNzgzIDIuNzU5YS43Ny43NyAwIDAgMCAuNzggMGw1Ljg0My0zLjM2OXYyLjMzMmEuMDguMDggMCAwIDEtLjAzMy4wNjJMOS43NCAxOS45NWE0LjUgNC41IDAgMCAxLTYuMTQtMS42NDZNMi4zNCA3Ljg5NmE0LjUgNC41IDAgMCAxIDIuMzY2LTEuOTczVjExLjZhLjc3Ljc3IDAgMCAwIC4zODguNjc3bDUuODE1IDMuMzU0bC0yLjAyIDEuMTY4YS4wOC4wOCAwIDAgMS0uMDcxIDBsLTQuODMtMi43ODZBNC41MDQgNC41MDQgMCAwIDEgMi4zNCA3Ljg3MnptMTYuNTk3IDMuODU1bC01LjgzMy0zLjM4N0wxNS4xMTkgNy4yYS4wOC4wOCAwIDAgMSAuMDcxIDBsNC44MyAyLjc5MWE0LjQ5NCA0LjQ5NCAwIDAgMS0uNjc2IDguMTA1di01LjY3OGEuNzkuNzkgMCAwIDAtLjQwNy0uNjY3bTIuMDEtMy4wMjNsLS4xNDEtLjA4NWwtNC43NzQtMi43ODJhLjc4Ljc4IDAgMCAwLS43ODUgMEw5LjQwOSA5LjIzVjYuODk3YS4wNy4wNyAwIDAgMSAuMDI4LS4wNjFsNC44My0yLjc4N2E0LjUgNC41IDAgMCAxIDYuNjggNC42NnptLTEyLjY0IDQuMTM1bC0yLjAyLTEuMTY0YS4wOC4wOCAwIDAgMS0uMDM4LS4wNTdWNi4wNzVhNC41IDQuNSAwIDAgMSA3LjM3NS0zLjQ1M2wtLjE0Mi4wOEw4LjcwNCA1LjQ2YS44LjggMCAwIDAtLjM5My42ODF6bTEuMDk3LTIuMzY1bDIuNjAyLTEuNWwyLjYwNyAxLjV2Mi45OTlsLTIuNTk3IDEuNWwtMi42MDctMS41WiIvPjwvc3ZnPg%3D%3D" alt="Codex — 31 skills" />
+  <img src="https://img.shields.io/badge/Codex-32_skills-10A37F?style=for-the-badge&logoColor=white&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxZW0iIGhlaWdodD0iMWVtIiB2aWV3Qm94PSIwIDAgMjQgMjQiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik0yMi4yODIgOS44MjFhNiA2IDAgMCAwLS41MTYtNC45MWE2LjA1IDYuMDUgMCAwIDAtNi41MS0yLjlBNi4wNjUgNi4wNjUgMCAwIDAgNC45ODEgNC4xOGE2IDYgMCAwIDAtMy45OTggMi45YTYuMDUgNi4wNSAwIDAgMCAuNzQzIDcuMDk3YTUuOTggNS45OCAwIDAgMCAuNTEgNC45MTFhNi4wNSA2LjA1IDAgMCAwIDYuNTE1IDIuOUE2IDYgMCAwIDAgMTMuMjYgMjRhNi4wNiA2LjA2IDAgMCAwIDUuNzcyLTQuMjA2YTYgNiAwIDAgMCAzLjk5Ny0yLjlhNi4wNiA2LjA2IDAgMCAwLS43NDctNy4wNzNNMTMuMjYgMjIuNDNhNC40OCA0LjQ4IDAgMCAxLTIuODc2LTEuMDRsLjE0MS0uMDgxbDQuNzc5LTIuNzU4YS44LjggMCAwIDAgLjM5Mi0uNjgxdi02LjczN2wyLjAyIDEuMTY4YS4wNy4wNyAwIDAgMSAuMDM4LjA1MnY1LjU4M2E0LjUwNCA0LjUwNCAwIDAgMS00LjQ5NCA0LjQ5NE0zLjYgMTguMzA0YTQuNDcgNC40NyAwIDAgMS0uNTM1LTMuMDE0bC4xNDIuMDg1bDQuNzgzIDIuNzU5YS43Ny43NyAwIDAgMCAuNzggMGw1Ljg0My0zLjM2OXYyLjMzMmEuMDguMDggMCAwIDEtLjAzMy4wNjJMOS43NCAxOS45NWE0LjUgNC41IDAgMCAxLTYuMTQtMS42NDZNMi4zNCA3Ljg5NmE0LjUgNC41IDAgMCAxIDIuMzY2LTEuOTczVjExLjZhLjc3Ljc3IDAgMCAwIC4zODguNjc3bDUuODE1IDMuMzU0bC0yLjAyIDEuMTY4YS4wOC4wOCAwIDAgMS0uMDcxIDBsLTQuODMtMi43ODZBNC41MDQgNC41MDQgMCAwIDEgMi4zNCA3Ljg3MnptMTYuNTk3IDMuODU1bC01LjgzMy0zLjM4N0wxNS4xMTkgNy4yYS4wOC4wOCAwIDAgMSAuMDcxIDBsNC44MyAyLjc5MWE0LjQ5NCA0LjQ5NCAwIDAgMS0uNjc2IDguMTA1di01LjY3OGEuNzkuNzkgMCAwIDAtLjQwNy0uNjY3bTIuMDEtMy4wMjNsLS4xNDEtLjA4NWwtNC43NzQtMi43ODJhLjc4Ljc4IDAgMCAwLS43ODUgMEw5LjQwOSA5LjIzVjYuODk3YS4wNy4wNyAwIDAgMSAuMDI4LS4wNjFsNC44My0yLjc4N2E0LjUgNC41IDAgMCAxIDYuNjggNC42NnptLTEyLjY0IDQuMTM1bC0yLjAyLTEuMTY0YS4wOC4wOCAwIDAgMS0uMDM4LS4wNTdWNi4wNzVhNC41IDQuNSAwIDAgMSA3LjM3NS0zLjQ1M2wtLjE0Mi4wOEw4LjcwNCA1LjQ2YS44LjggMCAwIDAtLjM5My42ODF6bTEuMDk3LTIuMzY1bDIuNjAyLTEuNWwyLjYwNyAxLjV2Mi45OTlsLTIuNTk3IDEuNWwtMi42MDctMS41WiIvPjwvc3ZnPg%3D%3D" alt="Codex — 32 skills" />
 </p>
 
 <h1 align="center">Bymax Agent Kit</h1>
@@ -49,7 +49,7 @@ senior engineer** — and it ships for both of the agents people actually run in
 <tr>
 <td valign="top">
 
-**9 plugins** on a public marketplace — 21 slash commands, 10 skills, 10 sub-agents, 4 hooks,
+**9 plugins** on a public marketplace — 21 slash commands, 11 skills, 10 sub-agents, 4 hooks,
 26 templates.
 
 ```bash
@@ -62,7 +62,7 @@ Full setup → [INSTALL.md](./INSTALL.md)
 </td>
 <td valign="top">
 
-**1 plugin, 31 native skills** — every first-party entrypoint in one install, with a native
+**1 plugin, 32 native skills** — every first-party entrypoint in one install, with a native
 Codex review procedure.
 
 ```bash
@@ -87,6 +87,7 @@ Instead of ad-hoc prompts, you get:
 - **Cloudflare's security-audit skill, included unchanged** (`/bymax-qa:security-audit`, `bymax-security-audit` in Codex) — the source-first vulnerability audit [published by Cloudflare](https://github.com/cloudflare/security-audit-skill) under the MIT license, shipped byte for byte with its license and pinned to an upstream commit. It answers security questions in guidance mode, and on an explicit audit request runs six phases: reconnaissance with a coverage ledger, coverage-led hunting, a fresh verifier for every candidate, validated `findings.json`, independent record verification, and a report written outside the target.
 - **Defensive security playbooks on demand** (`/bymax-qa:security-playbooks`, `bymax-security-playbooks` in Codex) — procedures from the [Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills) catalogue by mukul975 and its contributors (Apache-2.0), shipped unchanged: GitHub Actions hardening, secret scanning and SAST, IaC and image scanning, SBOMs, signing and SLSA provenance, container hardening, API rate limiting, keys and schema validation, LLM and agent security, GDPR/LGPD data subject requests and EPSS prioritization. One index entry stands in the skill listing; a playbook loads only when a task calls for it, and commands that publish, share data, spend money or write secrets ask first.
 - **Persona-based usability QA** (`/bymax-qa:personas`, `bymax-personas` in Codex) — it asks first (how many personas, iPhone Simulator, Android emulator or browser, how to reach a web app, markets, days), each question with suggested answers, then researches who would use the app from trusted studies, platform guidelines and the App Store reviews of competing apps, and writes evidence-labelled personas with devices, accessibility settings and a failure script. After you approve them, each persona uses the app through its screens only, from a clean install, day by day on a pinned clock, and every bug, tiring flow, design error, accessibility failure and confusing sentence it meets is recorded with a screenshot, handed to the owner and re-tested. It never edits the app.
+- **A portfolio layer above the PM** (`/bymax-pm:portfolio`, `bymax-portfolio` in Codex) — it keeps one product in focus under a WIP limit, says in one line whether a task is in focus (never blocking it), records each session's work, and writes a weekly review that counts only a verified release as shipped, with the npm or REST read that proves it. Merged PRs are reported as progress, every repository it could not read is named, and the review runs unattended without asking or changing the focus.
 - **A weekly standup written from evidence** (`/bymax-report:standup`) — what was asked (what you typed into Claude Code or Codex sessions on that repository) as a PROGRESS list, the undelivered ones marked in progress, and what shipped (`gh` PRs and `git` commits) as UPDATES grouped by the product area the team reads. No hash, PR number or file name reaches the report, and no Markdown either: plain text for the document you paste it into. The evidence is printed under it, and no file is left on disk.
 - **TypeScript _and_ Rust** — the quality + workflow skills are language-detecting: TypeScript rules for `package.json` projects, and a parallel **Rust track** (clippy/rustfmt with `-D warnings`, typed `thiserror` errors, `#![forbid(unsafe_code)]`, rustdoc, `cargo test` + `cargo llvm-cov`, `cargo deny`/`audit`/`vet`) for `Cargo.toml` projects.
 - **Project bootstrap** with strict TypeScript, ESLint flat-config (security plugin + import-order + suppression bans), Prettier, format-on-save VS Code, Husky + commitlint + lint-staged — for **Next.js, Expo / React Native, Vite + React, and Node backends (Express / Fastify / Hono / NestJS / plain Node)** stacks.
@@ -192,6 +193,7 @@ says, summarised.
 | Bootstrap / upgrade-standards | ✅ | ✅ | Same templates |
 | Push + PR babysitting | ✅ | ✅ | `gh` authenticated; the babysitter never merges |
 | PM, autopilot | ✅ | ⚠️ | Adapts to the host's worker coordination and durable continuation; no promise without a real scheduling response |
+| Portfolio focus and weekly review | ✅ | ✅ | `/bymax-pm:portfolio` and `bymax-portfolio` share one workspace and one procedure; it needs `git`, authenticated `gh` and `npm` for the ship reads, and the `bymax-report` collector for activity. It never messages a worker, so no host coordination API is involved |
 | Web verify / test / record | ✅ | ⚠️ | Codex uses its host browser tools or the `agent-browser` CLI |
 | Mobile simulators | ✅ | ✅ | Xcode / Android SDK on the machine, either way |
 | QA audit | ✅ | ⚠️ | Static hunting works in both; the `qa-guard` **hook** and probe wrapper are Claude-only, so a workflow that depends on them is blocked explicitly rather than silently downgraded |
@@ -333,7 +335,7 @@ graphify hook install
 ## 📦 Plugins
 
 For Claude Code the toolkit ships as **nine composable plugins** (plus a reference index) — use
-them à la carte. For Codex the same surface arrives as **one plugin with 31 native skills**; the
+them à la carte. For Codex the same surface arrives as **one plugin with 32 native skills**; the
 short name in the tables below maps to `bymax-codex:bymax-<name>` there, and the full mapping is
 in [CODEX.md](./CODEX.md#available-workflows-and-capability-boundaries).
 
@@ -448,6 +450,8 @@ Turns one session into the PM/TPM above your other Claude Code sessions. You tal
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `/bymax-pm:pm`            | Operate as PM: decompose, delegate to named peer sessions, verify evidence, unblock, report. Modes: `status`, `standup`, `release-check`. |
 | `pm` skill + 8 references | Peer protocol, task contracts, lifecycle + gates, escalation, reporting, persistence, multi-repo coordination, worked example. |
+| `/bymax-pm:portfolio` | The layer above the PM: a WIP-limited focus across products, an out-of-focus nudge, a per-session `sync`, and a weekly `review` that counts only verified releases as shipped and names every repository it could not read. Modes: `init`, `status`, `check`, `sync`, `review`, `focus`. |
+| `portfolio` skill + 5 references | Workspace, review, focus rules, ship evidence, worked week. |
 
 Start workers with names (`claude --name nest-logger`) — the name is the address. Workers need nothing installed; the PM's messages carry their own reply instructions.
 
@@ -609,7 +613,7 @@ bymax-agent-kit/
 │   ├── bymax-mobile/                   ← iOS Simulator + Android Emulator
 │   ├── bymax-web-verify/               ← real-browser verification (needs agent-browser)
 │   ├── bymax-pr/                       ← push + autonomous PR babysitting (needs gh CLI)
-│   ├── bymax-pm/                       ← engineering PM for multi-agent development
+│   ├── bymax-pm/                       ← engineering PM for multi-agent development + the portfolio layer above it
 │   ├── bymax-qa/                       ← whole-system QA + security audit (3 agents, 19 refs) + persona usability QA (7 refs, 3 helpers) + Cloudflare's security-audit skill (unchanged, MIT) + 20 Anthropic-Cybersecurity-Skills playbooks (unchanged, Apache-2.0)
 │   ├── bymax-report/                   ← weekly standup report from git, gh and your sessions
 │   └── bymax-all/                      ← reference index (no auto-install in Claude Code)
@@ -618,7 +622,7 @@ bymax-agent-kit/
 │   ├── .agents/plugins/marketplace.json
 │   ├── plugins/bymax-codex/
 │   │   ├── .codex-plugin/plugin.json
-│   │   ├── skills/bymax-*/             ← 31 native Codex entrypoints
+│   │   ├── skills/bymax-*/             ← 32 native Codex entrypoints
 │   │   ├── scripts/review_scope.py     ← read-only Git scope capture
 │   │   └── references/
 │   │       ├── runtime.md · catalog.json · review-checklist.md
@@ -827,7 +831,7 @@ cd bymax-agent-kit
 # The two release gates — both run in CI, and each ends with its behavioral suite
 python3 -m pip install pyyaml   # the validators need it; shellcheck too, mandatory in CI
 ./scripts/validate.sh           # manifests, +x, shellcheck, frontmatter, files + scripts/tests
-./scripts/validate-codex.sh     # drift, 31 entrypoints, links, manifests + codex/tests
+./scripts/validate-codex.sh     # drift, 32 entrypoints, links, manifests + codex/tests
 
 # Test the Claude package locally
 claude plugin marketplace add ./

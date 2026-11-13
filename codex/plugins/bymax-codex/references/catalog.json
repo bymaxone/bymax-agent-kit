@@ -11,6 +11,7 @@
   "bymax-phase-tasks": "bymax-workflow/commands/phase-tasks.md",
   "bymax-plan": "bymax-workflow/commands/plan.md",
   "bymax-pm": "bymax-pm/skills/pm/SKILL.md",
+  "bymax-portfolio": "bymax-pm/skills/portfolio/SKILL.md",
   "bymax-push": "bymax-pr/commands/push.md",
   "bymax-review-md": "bymax-quality/commands/review-md.md",
   "bymax-roadmap": "bymax-workflow/commands/roadmap.md",

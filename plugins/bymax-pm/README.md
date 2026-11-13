@@ -1,6 +1,7 @@
 # bymax-pm
 
-Engineering Project Manager for multi-agent development. One Claude Code session —
+Engineering Project Manager for multi-agent development, and the portfolio layer above
+it. One Claude Code session —
 the PM — coordinates independent Claude Code peer sessions across repositories:
 structured task contracts, evidence-based completion, independent review, blocker
 resolution, and a persistent board that survives restarts. The human talks to the
@@ -68,6 +69,47 @@ agents, re-subscribes idle notices, and continues — the board, not the previou
 conversation, is the source of truth. Workers that died can be restarted under the
 same names at any time.
 
+## Portfolio layer
+
+`/bymax-pm:portfolio` sits above the PM. The PM delivers one program with several
+agents; the portfolio decides **which product gets the attention this week** and
+reports, from evidence, whether the work lands there and whether anything shipped.
+It exists for the owner of many repositories who can push to most of them in a week
+and release almost nothing.
+
+| Level | Question | Owner |
+| --- | --- | --- |
+| **Portfolio** | Which product is in focus? What is frozen? Did anything ship? | `/bymax-pm:portfolio` |
+| Program | How do I deliver the current focus with several agents? | `/bymax-pm:pm` |
+| Project | What is the spec, roadmap and phase plan of one product? | `bymax-workflow`, `/bymax-workflow:autopilot` |
+| Repository | What shipped this week in one repository? | `/bymax-report:standup` |
+
+**Setup.** It uses the coordination directory from step 1 above, next to `.claude/pm/`:
+it keeps `.claude/portfolio/` there (focus, product map, decisions, an inbox, one report
+per week). Run `/bymax-pm:portfolio init` from that directory; it interviews you, proposes
+a priority order with a recommendation, and writes nothing before you approve. `init`
+also writes `~/.claude/bymax-portfolio.json` so a session in any worker repository can
+find the workspace (or set `BYMAX_PORTFOLIO_DIR`).
+
+**The `sync` habit.** At the end of each development session, run
+`/bymax-pm:portfolio sync` in that repository. It writes one new file under
+`inbox/` and nothing else, so two sessions finishing together never collide. Before
+starting something, `/bymax-pm:portfolio check <task>` says in one line whether it is
+in focus; it never blocks.
+
+**Scheduling `review`.** `review` writes the weekly report and is safe to run
+unattended: it asks nothing and changes no focus. Schedule it weekly, for example as a
+Claude Code routine started from the coordination repository. A cloud run has no
+local session logs and no local checkouts of repositories that were not cloned there;
+the report names every repository it could not read under Coverage instead of
+counting it as quiet. It needs `bymax-report` installed beside `bymax-pm` (it reuses
+that plugin's collector) and, for the ship reads, authenticated `gh` and `npm`.
+
+Only a verified release counts as shipped: a published package version, a deployment,
+a tagged release, or a store build you confirmed yourself. Merged PRs and green CI are
+progress and are reported separately. The skill never edits a worker repository and never
+messages agents; it offers to start `/bymax-pm:pm` on the new focus and leaves that to you.
+
 ## Requirements
 
 - Claude Code with cross-session messaging (2.1.236+ for idle notifications).
@@ -82,6 +124,14 @@ same names at any time.
 ```
 skills/pm/SKILL.md            → /bymax-pm:pm [status|standup|release-check]; the five laws,
                                  the operating loop, boundaries
+skills/portfolio/SKILL.md     → /bymax-pm:portfolio [init|status|check|sync|review|focus]; the five
+                                 laws, the modes, the boundaries
+skills/portfolio/references/
+  workspace.md                → .claude/portfolio/ layout, writers, locating it, recovery
+  review.md                   → the weekly review: inputs, seven sections, folding, unattended rules
+  focus-rules.md              → WIP limit, the check classification, the focus-change protocol
+  evidence.md                 → what counts as shipped and the read that proves it
+  example.md                  → an end-to-end week
 skills/pm/references/
   peer-protocol.md            → discovery, message types, idle notices, stuck peers
   task-contract.md            → contract template, acks, risk & priority models
