@@ -15,21 +15,43 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = ROOT / 'plugins/bymax-pm/skills/portfolio/references/evidence.md'
 BLOCK = re.compile(r'```bash\n(.*?)```', re.S)
-# gh answers only the endpoints a correct read asks for. A deployment lookup for any
-# environment other than `prod` finds nothing, which is what a mis-split record produces.
+# The stubs answer only the endpoints a correct read asks for, apply the block's own `--jq`
+# expression with the real jq (an expression that is wrong for an empty list fails here as it
+# would against GitHub), and fail the way the real tools do: `gh` with "HTTP 404" for a missing
+# object and another status for a service it cannot reach, `npm` with E404 for a missing version.
 STUBS = {
     'gh': r'''#!/bin/bash
-case "$2" in
-  repos/acme/app) echo main ;;
-  repos/acme/app/releases/tags/v1.0.0) echo v1.0.0 ;;
-  repos/acme/app/compare/main...v1.0.0) echo behind ;;
+endpoint="$2"; expr=""
+while [ $# -gt 0 ]; do [ "$1" = "--jq" ] && expr="$2"; shift; done
+fail() { echo "$1" >&2; exit "$2"; }
+[ -n "$STUB_GH_DOWN" ] && fail "gh: authentication required" 4
+case "$endpoint" in
+  repos/acme/app) json='{"default_branch":"main"}' ;;
+  repos/acme/app/releases/tags/v1.0.0)
+    [ -n "$STUB_NO_RELEASE" ] && fail "gh: Not Found (HTTP 404)" 1
+    json='{"tag_name":"v1.0.0"}' ;;
+  repos/acme/app/compare/main...v1.0.0) json="{\"status\":\"${STUB_COMPARE:-behind}\"}" ;;
   "repos/acme/app/deployments?environment=prod&per_page=1")
-    [ -n "$STUB_NO_DEPLOYMENTS" ] || echo 42 ;;
-  "repos/acme/app/deployments/42/statuses?per_page=1") echo success ;;
+    if [ -n "$STUB_NO_DEPLOYMENTS" ]; then json='[]'; else json='[{"id":42}]'; fi ;;
+  "repos/acme/app/deployments/42/statuses?per_page=1")
+    [ -n "$STUB_STATUS_DOWN" ] && fail "gh: HTTP 502" 1
+    json="[{\"state\":\"${STUB_DEPLOY_STATE:-success}\"}]" ;;
+  *) fail "gh: Not Found (HTTP 404)" 1 ;;
 esac
+if [ -n "$expr" ]; then echo "$json" | jq -r "$expr"; else echo "$json"; fi
 ''',
-    'npm': '#!/bin/bash\n[ "$2" = "pkg@1.0.0" ] && echo 1.0.0\nexit 0\n',
-    'curl': '#!/bin/bash\n[ "${!#}" = "https://acme.test/health" ] && printf 200 || printf 000\n',
+    'npm': r'''#!/bin/bash
+case "$STUB_NPM" in
+  down) exit 127 ;;
+  e404) echo "npm error code E404" >&2; exit 1 ;;
+esac
+if [ "$2" = "pkg@1.0.0" ]; then echo 1.0.0; exit 0; fi
+echo "npm error code E404" >&2; exit 1
+''',
+    'curl': r'''#!/bin/bash
+if [ -n "$STUB_CURL_DOWN" ]; then printf 000; exit 7; fi
+if [ "${!#}" = "https://acme.test/health" ]; then printf 200; else printf 000; fi
+''',
 }
 
 
@@ -126,6 +148,58 @@ class ShipEvidenceBlockTests(unittest.TestCase):
         lines, _ = run_rows([('npm', 'pkg', '1.0.0', '', ''), ('npm', 'pkg', '9.9.9', '', '')],
                             final_newline=False)
         self.assertEqual(lines, ['SHIPPED npm pkg@1.0.0', 'NOT-SHIPPED npm pkg@9.9.9'])
+
+    def test_a_read_that_cannot_run_is_unread_never_a_verdict(self):
+        """npm that fails to run left an empty answer, and an empty answer equals an empty
+        version: the block printed SHIPPED with no release behind it, or NOT-SHIPPED for a
+        version it never looked up. A failed read is a gap in coverage, not a verdict."""
+        lines, _ = run_rows([('npm', 'pkg', '1.0.0', '', '')], STUB_NPM='down')
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith('UNREAD npm'), lines[0])
+
+    def test_only_a_not_found_answer_is_a_negative_verdict(self):
+        """A registry or API that answers "not found" is a read that ran, so it is NOT-SHIPPED."""
+        lines, _ = run_rows([('npm', 'pkg', '9.9.9', '', ''), ('github-release', 'acme/app', 'v1.0.0', '', '')],
+                            STUB_NPM='e404', STUB_NO_RELEASE='1')
+        self.assertEqual(lines, ['NOT-SHIPPED npm pkg@9.9.9',
+                                 'NOT-SHIPPED github-release acme/app@v1.0.0: no release for the tag'])
+
+    def test_a_deliverable_with_no_version_is_undecided_not_read(self):
+        """A deliverable with no version has nothing to look up, so nothing is read."""
+        rows = [('npm', 'pkg', '', '', ''), ('github-release', 'acme/app', '', '', '')]
+        lines, _ = run_rows(rows)
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            self.assertTrue(line.startswith('UNDECIDED'), line)
+
+    def test_a_service_that_cannot_be_reached_is_unread_for_releases_and_deployments(self):
+        """With gh unable to answer, no release or deployment verdict is derived from the silence."""
+        lines, _ = run_rows([('github-release', 'acme/app', 'v1.0.0', '', ''),
+                             ('deployment', 'acme/app', '', 'prod', '')], STUB_GH_DOWN='1')
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            self.assertTrue(line.startswith('UNREAD'), line)
+
+    def test_a_tag_not_on_the_default_branch_is_not_shipped(self):
+        """A tag that is ahead of or diverged from the default branch is not part of its history."""
+        lines, _ = run_rows([('github-release', 'acme/app', 'v1.0.0', '', '')], STUB_COMPARE='ahead')
+        self.assertEqual(lines, ['NOT-SHIPPED github-release acme/app@v1.0.0: the tag is not on main\'s history'])
+
+    def test_a_status_read_that_fails_is_unread_and_a_failing_state_is_not_shipped(self):
+        """A deployment whose status cannot be read is a gap; one whose latest state is not
+        success is a read that ran and found it unshipped."""
+        down, _ = run_rows([('deployment', 'acme/app', '', 'prod', '')], STUB_STATUS_DOWN='1')
+        self.assertTrue(down[0].startswith('UNREAD deployment'), down[0])
+        failed, _ = run_rows([('deployment', 'acme/app', '', 'prod', '')], STUB_DEPLOY_STATE='failure')
+        self.assertEqual(failed, ['NOT-SHIPPED deployment acme/app prod: latest state failure'])
+
+    def test_no_deployment_and_no_health_url_is_not_shipped_but_an_unreachable_health_url_is_unread(self):
+        """An empty deployment list is an answer; a health URL that does not respond is not one."""
+        none, _ = run_rows([('deployment', 'acme/app', '', 'prod', '')], STUB_NO_DEPLOYMENTS='1')
+        self.assertEqual(none, ['NOT-SHIPPED deployment acme/app prod: no deployment for the environment'])
+        down, _ = run_rows([('deployment', 'acme/app', '', 'prod', 'https://acme.test/health')],
+                           STUB_NO_DEPLOYMENTS='1', STUB_CURL_DOWN='1')
+        self.assertTrue(down[0].startswith('UNREAD deployment'), down[0])
 
     def test_a_health_url_must_be_http(self):
         """curl would read a `file:` URL from disk, so only an http(s) URL is requested."""
