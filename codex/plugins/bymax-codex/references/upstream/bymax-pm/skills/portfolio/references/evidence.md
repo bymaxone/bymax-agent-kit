@@ -17,11 +17,16 @@ REST endpoints only. GraphQL is unavailable in some Claude Code cloud sessions, 
 
 ## Running the reads
 
-Write one line per deliverable to `.claude/portfolio/.run/ship.tsv` with the file
-tool: `<type>`, `<target>`, `<version or tag>`, `<environment>`, `<health URL>`, the last
-two empty when the type has none, separated by tabs. The block reads it and prints one result line per deliverable.
+Write one line per deliverable to `.claude/portfolio/.run/ship.txt` with the file
+tool: `<type>|<target>|<version or tag>|<environment>|<health URL>`, always five fields,
+the ones a type does not use left empty (a deployment has no version:
+`deployment|owner/repo||production|https://example.test/health`). The separator is `|`
+because a tab is whitespace to `read`, which merges adjacent tabs and would shift every
+field after an empty one; a value containing `|` is refused. The block reads the file and
+prints one result line per deliverable.
 Values are quoted arguments read from the file, never pasted into command text, and a
-value starting with `-` is refused:
+value starting with `-` is refused. A health URL must start with `http://` or
+`https://`:
 
 ```bash
 PDIR=$(python3 -c 'import json, os; p = os.path.expanduser("~/.claude/bymax-portfolio.json"); print(os.environ.get("BYMAX_PORTFOLIO_DIR") or (json.load(open(p)).get("dir", "") if os.path.exists(p) else ""))')
@@ -29,15 +34,26 @@ if [ -z "$PDIR" ]; then
   echo "No portfolio workspace: set BYMAX_PORTFOLIO_DIR or write ~/.claude/bymax-portfolio.json." >&2
   exit 1
 fi
-SHIP="${PDIR}/.claude/portfolio/.run/ship.tsv"
+SHIP="${PDIR}/.claude/portfolio/.run/ship.txt"
 if [ ! -f "$SHIP" ]; then
-  echo "No ship.tsv at ${SHIP}: write one line per deliverable first." >&2
+  echo "No ship.txt at ${SHIP}: write one line per deliverable first." >&2
   exit 1
 fi
-while IFS="$(printf '\t')" read -r TYPE TARGET VERSION EXTRA HEALTH; do
-  case "${TARGET}${VERSION}${EXTRA}${HEALTH}" in
-    -*) echo "REFUSED ${TARGET}: a value starts with a dash"; continue ;;
+while IFS='|' read -r TYPE TARGET VERSION EXTRA HEALTH; do
+  BAD=""
+  for FIELD in "$TARGET" "$VERSION" "$EXTRA" "$HEALTH"; do
+    case "$FIELD" in
+      -*|*'|'*) BAD="a value starts with a dash or holds a separator" ;;
+    esac
+  done
+  case "$HEALTH" in
+    ""|http://*|https://*) ;;
+    *) BAD="the health URL is not http(s)" ;;
   esac
+  if [ -n "$BAD" ]; then
+    echo "REFUSED ${TARGET}: ${BAD}"
+    continue
+  fi
   case "$TYPE" in
     npm)
       GOT=$(npm view "${TARGET}@${VERSION}" version 2>/dev/null)
