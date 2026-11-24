@@ -165,8 +165,10 @@ GIT_FLAGS = frozenset({'-p', '-P', '--paginate', '--no-pager', '--bare', '--no-r
                        '--icase-pathspecs', '--no-optional-locks', '--no-lazy-fetch'})
 HEREDOC = re.compile(r'<<(?!<)-?\s*(["\']?)([A-Za-z_][A-Za-z0-9_]*)\1')
 SHELLS = re.compile(r'\b(?:sh|bash|zsh|dash|ksh|eval|source)\b')
-# A shell, or a program that runs its input as commands (eval, source, xargs), that the body is piped into: `cat <<EOF | sh`.
-PIPED_SHELL = re.compile(r'\|\s*(?:\S*/)?(?:sh|bash|zsh|dash|ksh|fish|eval|source|xargs)\b')
+# A program that follows a pipe, a process substitution or a list separator on the line that opens a heredoc.
+# A program, then a process substitution among its words: `sh <(echo ...)` reads what the inner command prints.
+SUBSTITUTED = re.compile(r'(?:^|[;&|({]\s*)(?:\w+=\S*\s+)*([^\s;&|(){}<>]+)[^;&|()\n]*<\(([^)]*)\)')
+FED_PROGRAM = re.compile(r'(?:\||>\(|<\(|;|&&)\s*(?:(?:\w+=\S*|!)\s+)*([^\s|;&()<>]+)')
 WORD_EDGE = r'(?:^|$|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
 
 
@@ -211,11 +213,22 @@ def heredocs(text):
                 return None
             index += 1
             blob = '\n'.join(body)
-            if SHELLS.search(line[:found.start()]) or PIPED_SHELL.search(line[found.end():]):
+            if SHELLS.search(line[:found.start()]) or fed_to_program(line[found.end():]):
                 runs.append(blob)
             elif not found.group(1):
                 runs += re.findall(r'\$\(([^)]*)\)', blob) + re.findall(r'`([^`]*)`', blob)
     return '\n'.join(main), runs
+
+
+def fed_to_program(rest):
+    """Whether the text after a heredoc operator hands its input to a program that may run it."""
+    return any(Path(name).name not in PASSIVE for name in FED_PROGRAM.findall(rest))
+
+
+def fed_by_substitution(text):
+    """Whether a program that may run its input is given a process substitution that names a push."""
+    return any(Path(name).name not in PASSIVE and re.search(WORD_EDGE + 'push' + WORD_EDGE, inner.lower())
+               for name, inner in SUBSTITUTED.findall(text))
 
 
 def git_pushes(tokens):
@@ -274,6 +287,8 @@ def runs_push(command, depth=0):
         return re.search(WORD_EDGE + 'push' + WORD_EDGE, command.lower()) is not None
     main, runs = cut
     if any(runs_push(body, depth + 1) for body in runs):
+        return True
+    if fed_by_substitution(main):
         return True
     for part in segments(main):
         try:

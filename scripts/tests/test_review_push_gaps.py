@@ -90,7 +90,14 @@ class CompoundPushTests(AdapterBench):
                         'my-wrapper --flag git push origin HEAD:f',
                         'sh <<< "git push origin HEAD:f"',
                         'cat <<EOF | sh\ngit push origin HEAD:f\nEOF',
-                        "cat <<'EOF' | bash\ngit push origin HEAD:f\nEOF"):
+                        "cat <<'EOF' | bash\ngit push origin HEAD:f\nEOF",
+                        'cat <<EOF | command sh\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF | env bash\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF | nice sh\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF | xargs sh -c\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF | tee >(sh)\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF | eval\ngit push origin HEAD:f\nEOF',
+                        'sh <(echo git push origin HEAD:f)'):
             with self.subTest(command=command):
                 status, error = self.guard(command)
                 self.assertEqual(status, 2, error)
@@ -120,6 +127,9 @@ class CompoundPushTests(AdapterBench):
                         'git help push',
                         'cat <<EOF\ngit push origin HEAD:f\nEOF',
                         'cat <<EOF > sh.txt\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF | grep x\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF | tee out.txt\ngit push origin HEAD:f\nEOF',
+                        'diff <(echo git push a) <(echo git push b)',
                         'echo git push origin HEAD:f'):
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command)[0], 0)
