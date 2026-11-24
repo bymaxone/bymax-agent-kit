@@ -305,7 +305,7 @@ class Frame:
         self.held = ''              # what the outermost open compound command was fed
         self.dynamic = False        # a word of the current command is not known before it runs
         self.dynamic_in = False     # the current command's input is a substitution or a here-string not known before it runs
-        self.subs = ''              # the text of the substitutions among the current command's words
+        self.subs = ''              # the text of the groups and substitutions among the current command's words
 
     def stdin(self):
         if self.piped is not None:
