@@ -153,6 +153,20 @@ class CompoundPushTests(AdapterBench):
                         'A="git push origin HEAD:f"; eval "$A"',
                         "printf 'git push\\n' | sh",
                         'printf "git push\\n" | bash',
+                        # `subtree push` pushes, and a subcommand the shell has not expanded yet may be `push`.
+                        'git subtree push --prefix=x origin main',
+                        'git -C d subtree push --prefix=x origin main',
+                        'git subtree split --prefix=x -b y; git subtree push --prefix=x origin y',
+                        'git $(echo push) origin HEAD:f',
+                        'git `echo push` origin HEAD:f',
+                        'git $x origin HEAD:f; git log --grep push',
+                        'git ${x:-push} origin HEAD:f',
+                        'git log --grep push; git "$x" origin HEAD:f',
+                        'git -C d $(echo push) origin HEAD:f',
+                        '$(echo git) push origin HEAD:f',
+                        'sh -c "$(echo git push)"',
+                        'eval "git $(echo push)"',
+                        's=push; eval "git $s"',
                         # Text the shell could not read is refused rather than guessed at.
                         "echo 'git push origin HEAD:f | sh"):
             with self.subTest(command=command):
@@ -192,6 +206,13 @@ class CompoundPushTests(AdapterBench):
                         'git log --grep push | xargs git show',
                         'git log --oneline | grep push | wc -l',
                         'git log --grep push; ls .',
+                        # A subcommand that is written out, or a substitution that is only an argument, is not a push.
+                        'git subtree split --prefix=x -b y; git log --grep push',
+                        'git subtree add --prefix=x origin main; git log --grep push',
+                        'git commit -m "$(cat msg)"; git log --grep push',
+                        'git -C "$dir" log --oneline --grep push',
+                        'git log --grep "$(echo push)"',
+                        'git diff "$(git merge-base a b)" HEAD; git log --grep push',
                         # An argument that is named like a sink is text; only the program run is a sink.
                         'git log --grep push | ls .',
                         'git log --grep push | cp a .',
@@ -238,6 +259,23 @@ class ReaderTests(unittest.TestCase):
         for command in ("echo 'git push origin HEAD:f | sh", 'echo git push origin HEAD:f | (sh'):
             with self.subTest(command=command):
                 self.assertTrue(self.review_push.runs_push(command))
+
+
+class CodexCopyTests(unittest.TestCase):
+    """The Codex package ships its own copy of the guard; a stale copy lets through what the plugin refuses."""
+
+    UPSTREAM = Path(__file__).resolve().parents[2] / 'codex' / 'plugins' / 'bymax-codex' / 'references'
+
+    def test_the_codex_copy_of_the_guard_is_the_plugin_file_byte_for_byte(self):
+        copy = self.UPSTREAM / 'upstream' / 'bymax-quality' / 'scripts' / 'review_push.py'
+        self.assertEqual(copy.read_bytes(), (FLOW.parent / 'review_push.py').read_bytes(),
+                         'run python3 codex/scripts/bundle.py')
+
+    def test_the_hash_that_pins_the_codex_copy_is_the_hash_of_the_file(self):
+        import hashlib
+        pins = json.loads((self.UPSTREAM / 'upstream-sha256.json').read_text())
+        digest = hashlib.sha256((FLOW.parent / 'review_push.py').read_bytes()).hexdigest()
+        self.assertIn(digest, json.dumps(pins), 'run python3 codex/scripts/bundle.py')
 
 
 class HookGapTests(AdapterBench):

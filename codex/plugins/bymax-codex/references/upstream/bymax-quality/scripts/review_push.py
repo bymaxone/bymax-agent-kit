@@ -467,6 +467,10 @@ def git_pushes(tokens):
         elif token.startswith('-'):
             return True  # an option this reader does not know could take the next word
         else:
+            if any(mark in token for mark in '$`('):
+                return True  # the subcommand is not known until the shell expands it
+            if token == 'subtree':
+                return any(word.strip().lower() == 'push' or any(mark in word for mark in '$`(') for word in tokens[index + 1:])
             return token == 'push'
     return False
 
@@ -515,7 +519,8 @@ def runs_push(command, depth=0):
         return True
     if reaches_program(main):
         return True
-    for part in segments(main):
+    # A backtick substitution is read like `$(...)`, so the word before it keeps the mark that says it is not literal.
+    for part in segments(re.sub(r'`([^`]*)`', r'$(\1)', main)):
         try:
             tokens = shlex.split(part)
         except ValueError:
