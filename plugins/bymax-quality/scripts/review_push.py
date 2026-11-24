@@ -3,7 +3,7 @@
 
 The enforcement boundary is the git pre-push hook that review_flow.py installs, which
 receives the pushed SHAs from git itself and therefore holds however the push command
-was spelled. This adapter does three smaller jobs before git runs: it recognises the exact
+was spelled. This adapter does smaller jobs before git runs: it recognises the exact
 `[cd <path> &&] [VAR=value ...] git [-C <dir>] push <remote> <refspec>...` form so a
 missing receipt is reported with a useful message, it refuses the few options that would
 disable or redirect that hook, and it refuses a push written inside a longer command or
@@ -24,7 +24,7 @@ from review_flow import POLICY, require
 from review_hook import HOOK_MARKER, HUSKY_STUB
 from review_prepush import TAGS, explain, orphaned, published, satisfied
 
-# Seconds a probe of the hook may take: under the 15 s Claude Code gives this adapter, so a hook that
+# Seconds a probe of the hook may take: under the time Claude Code gives this adapter, so a hook that
 # does not answer is dropped here, not the whole adapter.
 PROBE_SECONDS = 10
 
@@ -255,7 +255,7 @@ def runs_push(command, depth=0):
     """Whether any simple command in this text runs git push.
 
     could_push answers a wider question (any word holding the letters, beside any program that can
-    start another), and `git log --grep push`, `grep push src/` and `docker push` answer yes to it.
+    start another), and `git log --grep push` answers yes to it.
     This one reads each simple command and asks whether git is the program and push its
     subcommand, so a word that is only text, or another program's verb, is not a push. Comments are
     dropped where `decommented` can; whatever cannot be read word by word is read as its raw text.

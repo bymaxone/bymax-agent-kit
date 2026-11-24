@@ -312,7 +312,7 @@ class ReviewFlowTests(FlowBench):
             self.push(other)
         # A push written inside a longer command would be passed on to the hook alone, so the adapter
         # refuses it and asks for the literal form. A heredoc body read by `cat` is text, not a command,
-        # so it passes; one read by a shell is refused (test_review_push_gaps).
+        # so it passes; one read by a shell is refused.
         for disguised in ('eval git push origin HEAD', 'if true; then git push origin HEAD; fi',
                           "bash <<'EOF'\ngit push origin HEAD\nEOF\n"):
             self.push(disguised, ok=False)
