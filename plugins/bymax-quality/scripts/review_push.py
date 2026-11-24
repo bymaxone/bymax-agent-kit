@@ -202,7 +202,7 @@ def heredocs(text):
     """(the text without heredoc bodies, the bodies that run), or None when a body is unterminated.
 
     A body is text to the shell, so `git push` written in one is not a push. It runs where the
-    command reading it is a shell, or a non-passive program follows the operator on the line, or, for an
+    command reading it is a shell, or what follows the operator hands it to a program not known to only print, or, for an
     unquoted delimiter, where it holds `$( )` or backticks (only those substitutions run).
     """
     lines, main, runs, index = text.split('\n'), [], [], 0

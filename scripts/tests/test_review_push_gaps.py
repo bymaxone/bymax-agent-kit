@@ -147,11 +147,13 @@ class CompoundPushTests(AdapterBench):
                         'echo git push origin HEAD:f | grep push',
                         'echo git push origin HEAD:f | tee log | wc -l',
                         'git log --grep push | xargs git show',
-                        # A pipe, a `;` or a `|` inside quotes or escaped is text, not an operator.
+                        # A pipe or a `;` inside quotes or escaped is text, not an operator.
                         "echo 'git push origin HEAD:f | sh'",
                         'echo "git push origin HEAD:f; sh"',
                         'echo git push origin HEAD:f \\| sh',
+                        # Real pipes, and every command in them only prints, or the producer is not text.
                         'printf "push\\n" | sort | uniq',
+                        'git log | grep push | sh',
                         'echo git push origin HEAD:f'):
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command)[0], 0)
