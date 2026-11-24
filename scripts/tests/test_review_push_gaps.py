@@ -63,8 +63,8 @@ class CompoundPushTests(AdapterBench):
                         'echo ${x:-a #b}; git push origin HEAD:f',
                         # `#` inside a word is literal to the shell; only a word that starts with it is a comment.
                         'echo a#b; git push origin HEAD:f',
-                        # The shell ends a word only at whitespace and ; & | ( ) < >, so a `#` after any other
-                        # character, a closing quote or a backslash is still inside its word.
+                        # A `#` after any other character, a closing quote or a backslash is still
+                        # inside its word.
                         'echo {#x; git push origin HEAD:f',
                         'echo }#x; git push origin HEAD:f',
                         'echo a=#b; git push origin HEAD:f',

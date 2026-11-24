@@ -86,7 +86,7 @@ def could_push(command):
 # word `push` once these are trimmed, and `x&&git push` likewise.
 PUNCTUATION = ';&|(){}'
 # The characters after which the shell starts a new word, so a `#` there begins a comment. `{` and
-# `}` are ordinary word characters to the shell, which is why this is narrower than PUNCTUATION.
+# `}` are ordinary word characters to the shell, which is why they are not here.
 COMMENT_START = ';&|()<>'
 
 
