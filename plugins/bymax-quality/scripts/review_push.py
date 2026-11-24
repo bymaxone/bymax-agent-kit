@@ -165,6 +165,9 @@ CLOSERS = frozenset({'fi', 'done', 'esac'})
 # What can run the text it is given.
 SHELL_SINKS = frozenset({'sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'fish'})
 CODE_SINKS = frozenset({'eval', 'source', '.'})
+# Programs that start the program they are given, so the sink may stand anywhere after them.
+LAUNCHERS = frozenset({'env', 'sudo', 'doas', 'command', 'exec', 'nohup', 'xargs', 'time', 'nice', 'timeout', 'stdbuf',
+                       'builtin', 'setsid'})
 # Stands for input whose text is not known before the command runs.
 UNKNOWN = '\x00'
 GIT_WITH_VALUE = frozenset({'-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env'})
@@ -312,9 +315,18 @@ class Frame:
             return self.piped
         return self.held if self.depth else self.inherited
 
+    def program_names(self):
+        """What may be the program run: the command word as written, and every word after a launcher."""
+        if not self.name:
+            return set()
+        names = {self.name, Path(self.name).name}
+        if Path(self.name).name in LAUNCHERS:
+            names |= {Path(word).name for word in self.words} | set(self.words)
+        return names
+
     def runs_unknown(self):
         """Whether the current command is a sink that may run a push."""
-        names = {Path(word).name for word in self.words} | set(self.words)
+        names = self.program_names()
         if self.name and ('$' in self.name or '`' in self.name):
             return True
         unknown_in = UNKNOWN in self.stdin() or self.dynamic_in
