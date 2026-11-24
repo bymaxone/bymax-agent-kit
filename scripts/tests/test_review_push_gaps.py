@@ -82,7 +82,7 @@ class CompoundPushTests(AdapterBench):
                         'git -c alias.p=push p origin',
                         'if true; then git push origin HEAD:f; fi',
                         '! git push origin HEAD:f',
-                        # Programs that launch what follows them, and a heredoc piped into a shell.
+                        # Any program not known to only print its words, a here-string into a shell, and a heredoc piped into a shell.
                         'git commit -m x; command git push origin HEAD:f',
                         'builtin git push origin HEAD:f',
                         'stdbuf -oL git push origin HEAD:f',
