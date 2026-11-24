@@ -915,6 +915,20 @@ class ReviewFlowTests(FlowBench):
         self.assertIn('codex::guard:other', result.stderr)
         self.assertNotIn('Missing: codex::guard:one', result.stderr)
 
+    def test_two_open_ids_that_read_alike_each_need_their_own_resolution(self):
+        """`a_b` and `a-b` are two open findings; one resolution answers one of them."""
+        self.reopened_with(['codex::guard:a_b', 'codex::guard:a-b'])
+        result = self.report('claude', resolutions=[dict(id='codex::guard:a-b', evidence='Fixed')], ok=False)
+        self.assertIn('Recheck every previous open finding', result.stderr)
+        self.report('claude', resolutions=[dict(id='codex::guard:a-b', evidence='Fixed'),
+                                           dict(id='codex::guard:a_b', evidence='Fixed')])
+
+    def test_one_respelled_resolution_cannot_answer_two_open_ids(self):
+        """Neither open id is spelled exactly; the one resolution that reads like both is used once."""
+        self.reopened_with(['codex::guard:x_y-z', 'codex::guard:x-y_z'])
+        result = self.report('claude', resolutions=[dict(id='codex::guard:x_y_z', evidence='Fixed')], ok=False)
+        self.assertIn('Recheck every previous open finding', result.stderr)
+
     def test_test_path_classification(self):
         """Jest's __tests__ and Python's test_ files count; a spec document does not. Whether
         a case can be named in one is the demand's business rather than this rule's."""

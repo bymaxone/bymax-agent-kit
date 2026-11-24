@@ -1119,17 +1119,25 @@ def record(args, directory, state):
     untriggered_notice(args.reviewer, report)
     # Every open disposition needs its own resolution: claude::x and codex::x are two
     # verifications, not one. bare() is for reopened-invariant matching, not here.
-    unresolved = {resolution_key(i['id']): full_key(i['id'])
-                  for i in state['previous_triage'] if i['status'] == 'open'}
+    unresolved = {full_key(i['id']) for i in state['previous_triage'] if i['status'] == 'open'}
     resolutions = report.get('resolutions', [])
     require(isinstance(resolutions, list), 'Invalid previous-finding resolutions.')
-    resolved = {resolution_key(i['id']): full_key(i['id']) for i in resolutions
+    resolved = {full_key(i['id']) for i in resolutions
                 if isinstance(i.get('id'), str) and isinstance(i.get('evidence'), str) and i['evidence'].strip()}
-    missing = sorted(unresolved[k] for k in unresolved.keys() - resolved.keys())
+    # Ids that differ only in _ against - are matched, but each open finding needs a resolution of its own:
+    # an exact match is used first and the rest are paired by reading _ and - alike.
+    leftover = sorted(resolved - unresolved)
+    missing = []
+    for open_key in sorted(unresolved - resolved):
+        match = next((k for k in leftover if resolution_key(k) == resolution_key(open_key)), None)
+        if match is None:
+            missing.append(open_key)
+        else:
+            leftover.remove(match)
     require(not missing,
             'Recheck every previous open finding, with evidence, including any still open. '
             f'Missing a resolution: {", ".join(missing)}. '
-            f'Resolutions that match no open finding: {", ".join(sorted(resolved[k] for k in resolved.keys() - unresolved.keys())) or "none"}.')
+            f'Resolutions that match no open finding: {", ".join(leftover) or "none"}.')
     require(args.reviewer not in state['reviews'], 'Reviewer already recorded for this candidate; reuse it.')
     substitute_allowed(state, args.reviewer)
     state['reviews'][args.reviewer] = report
