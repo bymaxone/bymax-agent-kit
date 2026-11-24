@@ -676,6 +676,23 @@ def resolution_key(disposition_key):
     return reviewer + separator + rest.replace('_', '-') if separator else reviewer.replace('_', '-')
 
 
+def unanswered(unresolved, resolved):
+    """The open keys with no resolution, and the resolutions that answer no open key.
+
+    Ids that differ only in _ against - are matched, but each open finding needs a resolution of its own:
+    an exact match is used first and the rest are paired by reading _ and - alike.
+    """
+    leftover = sorted(resolved - unresolved)
+    missing = []
+    for open_key in sorted(unresolved - resolved):
+        match = next((k for k in leftover if resolution_key(k) == resolution_key(open_key)), None)
+        if match is None:
+            missing.append(open_key)
+        else:
+            leftover.remove(match)
+    return missing, leftover
+
+
 def bare(finding_id):
     """The finding id with one copied reviewer key prefix removed and whitespace trimmed.
 
@@ -1124,16 +1141,7 @@ def record(args, directory, state):
     require(isinstance(resolutions, list), 'Invalid previous-finding resolutions.')
     resolved = {full_key(i['id']) for i in resolutions
                 if isinstance(i.get('id'), str) and isinstance(i.get('evidence'), str) and i['evidence'].strip()}
-    # Ids that differ only in _ against - are matched, but each open finding needs a resolution of its own:
-    # an exact match is used first and the rest are paired by reading _ and - alike.
-    leftover = sorted(resolved - unresolved)
-    missing = []
-    for open_key in sorted(unresolved - resolved):
-        match = next((k for k in leftover if resolution_key(k) == resolution_key(open_key)), None)
-        if match is None:
-            missing.append(open_key)
-        else:
-            leftover.remove(match)
+    missing, leftover = unanswered(unresolved, resolved)
     require(not missing,
             'Recheck every previous open finding, with evidence, including any still open. '
             f'Missing a resolution: {", ".join(missing)}. '
