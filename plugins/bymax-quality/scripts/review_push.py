@@ -84,7 +84,7 @@ def could_push(command):
 
 # Shell punctuation that can sit against a word without being part of it: `a; git push` reads as the
 # word `push` once these are trimmed, and `x&&git push` likewise.
-PUNCTUATION = ';&|(){}'
+PUNCTUATION = ';&|(){}`'
 # The characters after which the shell starts a new word, so a `#` there begins a comment. `{` and
 # `}` are ordinary word characters to the shell, which is why they are not here.
 COMMENT_START = ';&|()<>'
@@ -100,8 +100,8 @@ def uncommented(command):
     or `((` keeps its comment text and is read whole. A quote left open — including by an
     apostrophe in a comment the shell would skip — is None as well, and comments are kept.
     """
-    if '${' in command or '((' in command:
-        return None
+    if '${' in command or '((' in command or '<<' in command:
+        return None  # a heredoc body is text to the shell, `#` included
     # The shell starts a comment only at the start of an unquoted word (`echo a#b` prints a#b), and
     # shlex.split cuts none, so the comments are cut here by the shell's rule.
     kept, quote, start, comment, escaped = [], '', True, False, False

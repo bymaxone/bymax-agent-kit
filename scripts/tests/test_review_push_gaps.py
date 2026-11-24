@@ -69,7 +69,10 @@ class CompoundPushTests(AdapterBench):
                         'echo }#x; git push origin HEAD:f',
                         'echo a=#b; git push origin HEAD:f',
                         'echo "a"#b; git push origin HEAD:f',
-                        'echo a\\#b; git push origin HEAD:f'):
+                        'echo a\\#b; git push origin HEAD:f',
+                        # A heredoc body is text to the shell, `#` included, and an unquoted one still runs `$( )`.
+                        'cat <<EOF\n #x $(git push origin HEAD:f)\nEOF',
+                        'cat <<EOF\n #x `git push origin HEAD:f`\nEOF'):
             with self.subTest(command=command):
                 status, error = self.guard(command)
                 self.assertEqual(status, 2, error)
