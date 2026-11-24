@@ -615,7 +615,7 @@ records share: the pushes raise the floor a kept hook must clear, they do not ce
 A receipt completed under another policy does not authorise its commit: the hook and
 the adapter require the current policy.
 
-`review_push.py` is a Claude **PreToolUse Bash adapter** in front of that hook, with two
+`review_push.py` is a Claude **PreToolUse Bash adapter** in front of that hook, with three
 narrow jobs. It recognises exactly `[cd <path> &&] [VAR=value ...] git [-C <dir>] push
 <remote> <refspec>...` and performs the receipt lookup for that form, so a missing receipt
 is reported with a useful message before git runs; for that form, implicit, wildcard,
@@ -637,6 +637,14 @@ hook **through git** is the exception and is refused: `git log -- <hook path>` n
 the path itself spells `push`. That is a false refusal of the class this section exists to remove,
 left standing deliberately rather than closed by another rule about what a word means; it is
 recorded as a deferral of this campaign.
+
+The third job is the push itself. A command that runs `git push` inside a longer command (after
+`;`, `&&`, a pipe, a subshell, `sh -c`, or in a heredoc a shell reads) is refused with "Use a literal
+git push in its own command", read per simple command: `git log --grep push` and `docker push` run
+no git push and pass. Before a literal push with a receipt is allowed, the hook git will run is
+resolved (`core.hooksPath`, else the common directory's hooks) and probed with a push of a commit
+no receipt names; a hook that is missing, not executable or accepts that push is refused with the
+remedy that is true for it, and one that does not answer within 10 s is no verdict.
 
 **It does not defend the hook file, and says so rather than appearing to.** Two rounds of this
 campaign were spent trying. The first exempted "commands that only read" by listing the programs

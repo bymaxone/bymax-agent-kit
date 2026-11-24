@@ -311,11 +311,12 @@ class ReviewFlowTests(FlowBench):
                       'grep -rn "git push" docs/', 'python3 -c "print(1 << 3)"', 'git stash push', 'FOO=bar'):
             self.push(other)
         # A push written inside a longer command would be passed on to the hook alone, so the adapter
-        # refuses it and asks for the literal form. A heredoc body cannot be told from commands
-        # without a shell parser, so it is refused too: the conservative side.
+        # refuses it and asks for the literal form. A heredoc body read by `cat` is text, not a command,
+        # so it passes; one read by a shell is refused (test_review_push_gaps).
         for disguised in ('eval git push origin HEAD', 'if true; then git push origin HEAD; fi',
-                          "cat <<'EOF' > f\ngit push origin HEAD\nEOF\n"):
+                          "bash <<'EOF'\ngit push origin HEAD\nEOF\n"):
             self.push(disguised, ok=False)
+        self.push("cat <<'EOF' > f\ngit push origin HEAD\nEOF\n")
 
     def test_the_guard_lets_a_command_that_only_reads_name_the_hook(self):
         """A guard that blocks reading protects nothing: no rev-parse reaches a remote, and

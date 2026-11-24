@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import unittest
 
 from test_review_prepush import FLOW, PrePushBench
@@ -72,7 +73,15 @@ class CompoundPushTests(AdapterBench):
                         'echo a\\#b; git push origin HEAD:f',
                         # A heredoc body is text to the shell, `#` included, and an unquoted one still runs `$( )`.
                         'cat <<EOF\n #x $(git push origin HEAD:f)\nEOF',
-                        'cat <<EOF\n #x `git push origin HEAD:f`\nEOF'):
+                        'cat <<EOF\n #x `git push origin HEAD:f`\nEOF',
+                        # A program that starts git, or a shell reading a heredoc, still runs the push.
+                        'env X=1 git push origin HEAD:f',
+                        'timeout 5 git push origin HEAD:f',
+                        'bash <<EOF\ngit push origin HEAD:f\nEOF',
+                        '{ git push origin HEAD:f; }',
+                        'git -c alias.p=push p origin',
+                        'if true; then git push origin HEAD:f; fi',
+                        '! git push origin HEAD:f'):
             with self.subTest(command=command):
                 status, error = self.guard(command)
                 self.assertEqual(status, 2, error)
@@ -88,7 +97,19 @@ class CompoundPushTests(AdapterBench):
                         'git status # git push origin HEAD:f',
                         'git status;# git push origin HEAD:f',
                         'grep -rn "git push" docs/',
-                        "# the PR's branch\ngit status"):
+                        "# the PR's branch\ngit status",
+                        # `push` is an argument here, or another program's verb: git is not pushing.
+                        'git grep push',
+                        "git grep -n 'push'",
+                        'git log --grep push',
+                        'git log -S push --oneline',
+                        'git log --oneline | grep push',
+                        'git branch -vv | grep push',
+                        'git status && git log -1 --format=%s | grep -i push',
+                        'grep -rn push src/ && git status',
+                        'docker push img:tag && git status',
+                        'git help push',
+                        'cat <<EOF\ngit push origin HEAD:f\nEOF'):
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command)[0], 0)
 
@@ -109,7 +130,8 @@ class HookGapTests(AdapterBench):
         self.husky()
         status, error = self.guard(command)
         self.assertEqual(status, 2, error)
-        self.assertIn('does not call the receipt check', error)
+        self.assertIn('accepted a push of a commit with no receipt', error)
+        self.assertIn('chains the check back into husky', error)
         self.assertIn(str(FLOW) + ' status', error)
 
     def test_the_reinstall_command_restores_the_push(self):
@@ -167,6 +189,73 @@ class HookGapTests(AdapterBench):
         slow.write_text('#!/bin/sh\nsleep 5\nexit 1\n')
         slow.chmod(0o755)
         self.assertIsNone(review_push.probe_problem(slow, self.repo, str(self.repo), seconds=1))
+
+    def test_a_comment_before_or_after_a_literal_push_does_not_make_it_another_shape(self):
+        """The receipt lookup is for the literal push; a comment around it used to hide the shape."""
+        command = self.pushable()
+        for text in ('# a comment\n' + command, "# the PR's branch\n" + command, command + ' # why'):
+            with self.subTest(text=text):
+                self.assertEqual(self.guard(text), (0, ''))
+        missing = f'git push origin {self.dangling("unreceipted")}:refs/heads/x'
+        self.assertIn('No completed review', self.guard('# a comment\n' + missing)[1])
+
+    def test_an_enforcing_hook_in_a_custom_hooks_path_is_judged_by_what_it_does(self):
+        """A hook that hands the push to its own checker carries no marker and still enforces."""
+        command = self.pushable()
+        directory = self.repo / '.githooks'
+        directory.mkdir()
+        (directory / 'receipt-check').write_text('#!/bin/sh\nexit 1\n')
+        (directory / 'receipt-check').chmod(0o755)
+        (directory / 'pre-push').write_text('#!/bin/sh\nexec "$(dirname "$0")/receipt-check" "$@"\n')
+        (directory / 'pre-push').chmod(0o755)
+        self.git('config', 'core.hooksPath', '.githooks')
+        self.assertEqual(self.guard(command), (0, ''))
+
+    def test_a_hook_with_no_interpreter_line_is_run_the_way_git_runs_it(self):
+        """git runs a hook without a shebang through sh; the probe did not, and raised."""
+        command = self.pushable()
+        hook = self.repo / '.git/hooks/pre-push'
+        for body, expected in (('exit 1\n', 0), ('exit 0\n', 2)):
+            with self.subTest(body=body):
+                hook.write_text(body)
+                hook.chmod(0o755)
+                self.assertEqual(self.guard(command)[0], expected)
+
+    def test_a_hook_that_outruns_the_probe_is_stopped_with_what_it_started(self):
+        """A kill of the hook alone left its children running; the probe also has to end inside the 15 s Claude Code allows."""
+        sys.path.insert(0, str(FLOW.parent))
+        try:
+            import review_push
+        finally:
+            sys.path.remove(str(FLOW.parent))
+        self.assertLess(review_push.PROBE_SECONDS, 15)
+        marker = self.repo / 'child.pid'
+        slow = self.repo / 'slow-hook'
+        slow.write_text(f'#!/bin/sh\nsleep 60 &\necho $! > {marker}\nwait\n')
+        slow.chmod(0o755)
+        self.assertIsNone(review_push.probe_problem(slow, self.repo, str(self.repo), seconds=1))
+        child = int(marker.read_text())
+        for _ in range(50):
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.1)
+        os.kill(child, 9)
+        self.fail('the hook\'s child outlived the probe')
+
+    def test_the_remedy_is_the_one_that_is_true_for_the_hook(self):
+        """`status` fixes a husky stub; for a missing hook it is the wrong command."""
+        command = self.pushable()
+        (self.repo / '.git/hooks/pre-push').unlink()
+        error = self.guard(command)[1]
+        self.assertIn('Run `start`', error)
+        self.assertNotIn(str(FLOW) + ' status', error)
+        (self.repo / '.githooks').mkdir()
+        self.git('config', 'core.hooksPath', '.githooks')
+        error = self.guard(command)[1]
+        self.assertIn('which `start` never writes into', error)
+        self.assertNotIn(str(FLOW) + ' status', error)
 
     def test_a_missing_or_unexecutable_hook_refuses_the_push(self):
         """git skips a hook that is not executable, which is no hook at all."""

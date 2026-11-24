@@ -3,24 +3,30 @@
 
 The enforcement boundary is the git pre-push hook that review_flow.py installs, which
 receives the pushed SHAs from git itself and therefore holds however the push command
-was spelled. This adapter does two smaller jobs before git runs: it recognises the exact
+was spelled. This adapter does three smaller jobs before git runs: it recognises the exact
 `[cd <path> &&] [VAR=value ...] git [-C <dir>] push <remote> <refspec>...` form so a
-missing receipt is reported with a useful message, and it refuses the few options that
-would disable or redirect that hook. Every other command passes through untouched.
-A push deliberately spelled so that neither check sees it is outside what a local guard
-can prevent; review-protocol.md names CI as the boundary for that.
+missing receipt is reported with a useful message, it refuses the few options that would
+disable or redirect that hook, and it refuses a push written inside a longer command or
+ahead of a hook that accepts an unreceipted push. A command that runs no git push passes
+untouched. A push deliberately spelled so that no check sees it is outside what a local
+guard can prevent; review-protocol.md names CI as the boundary for that.
 """
 import json
 import os
 from pathlib import Path
 import re
 import shlex
+import signal
 import subprocess
 import sys
 
 from review_flow import POLICY, require
 from review_hook import HOOK_MARKER, HUSKY_STUB
 from review_prepush import TAGS, explain, orphaned, published, satisfied
+
+# Seconds a probe of the hook may take: under the 15 s Claude Code gives this adapter, so a hook that
+# does not answer is dropped here, not the whole adapter.
+PROBE_SECONDS = 10
 
 # Anything that would skip the pre-push hook or point git at another repository, plus
 # husky's own skip switch (its dispatcher exits before the tracked hook when HUSKY=0).
@@ -91,20 +97,28 @@ COMMENT_START = ';&|()<>'
 
 
 def uncommented(command):
-    """The command's words with shell comments dropped, or None when that cannot be done safely.
+    """The command's words with shell comments dropped, or None when that cannot be done safely."""
+    text = decommented(command)
+    try:
+        return None if text is None else shlex.split(text)
+    except ValueError:
+        return None
+
+
+def decommented(command):
+    """The command text with shell comments dropped, or None when that cannot be done safely.
 
     A comment line that says "is there a remote to push to?" is not a push, and the kit's own
     prescribed blocks carry such comments. Dropping them is only safe where this reading and the
-    shell's agree on what a comment is: inside `${...}` a `#` after a space is literal to the shell
-    but starts a comment here, which would hide a push the shell runs, so any command holding `${`
-    or `((` keeps its comment text and is read whole. A quote left open — including by an
-    apostrophe in a comment the shell would skip — is None as well, and comments are kept.
+    shell's agree on what a comment is: inside `${...}` a `#` after a space is literal to the shell,
+    so none starts there, and a command holding `((` or a heredoc keeps its comment text and is
+    read whole (None), the heredoc body being text to the shell, `#` included.
     """
-    if '${' in command or '((' in command or '<<' in command:
-        return None  # a heredoc body is text to the shell, `#` included
+    if '((' in command or '<<' in command:
+        return None
     # The shell starts a comment only at the start of an unquoted word (`echo a#b` prints a#b), and
     # shlex.split cuts none, so the comments are cut here by the shell's rule.
-    kept, quote, start, comment, escaped = [], '', True, False, False
+    kept, quote, start, comment, escaped, depth = [], '', True, False, False, 0
     for char in command:
         if comment:
             if char != '\n':
@@ -118,52 +132,151 @@ def uncommented(command):
             escaped, start = True, False
             kept.append(char)
             continue
-        elif char == '#' and start and not quote:
+        elif char == '#' and start and not quote and not depth:
             comment = True
             continue
+        if char == '{' and kept and kept[-1] == '$' and quote != "'":
+            depth += 1
+        elif char == '}' and depth and quote != "'":
+            depth -= 1
         if quote:
             quote = '' if char == quote else quote
         elif char in '\'"':
             quote = char
         start = not quote and (char.isspace() or char in COMMENT_START)
         kept.append(char)
-    try:
-        return shlex.split(''.join(kept))
-    except ValueError:
-        return None
+    return ''.join(kept)
 
 
-def names_push(command, words):
-    """Whether a push is written into this command as a word of its own.
+# Where the shell ends one simple command and starts another.
+SPLIT = ';&|()\n`{}'
+WRAPPERS = RUNNERS - {'git'}
+# Words that open a clause (`then git push`, `! git push`): the command is the word after.
+KEYWORDS = frozenset({'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', 'time'})
+GIT_WITH_VALUE = frozenset({'-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env'})
+GIT_FLAGS = frozenset({'-p', '-P', '--paginate', '--no-pager', '--bare', '--no-replace-objects',
+                       '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs',
+                       '--icase-pathspecs', '--no-optional-locks', '--no-lazy-fetch'})
+HEREDOC = re.compile(r'<<(?!<)-?\s*(["\']?)([A-Za-z_][A-Za-z0-9_]*)\1')
+SHELLS = re.compile(r'\b(?:sh|bash|zsh|dash|ksh|eval|source)\b')
+WORD_EDGE = r'(?:^|$|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
+
+
+def segments(text):
+    """The text cut into simple commands at every unquoted separator."""
+    parts, buffer, quote, escaped = [], [], '', False
+    for char in text:
+        if escaped:
+            escaped = False
+        elif char == '\\' and quote != "'":
+            escaped = True
+        elif quote:
+            quote = '' if char == quote else quote
+        elif char in '\'"':
+            quote = char
+        elif char in SPLIT:
+            parts.append(''.join(buffer))
+            buffer = []
+            continue
+        buffer.append(char)
+    parts.append(''.join(buffer))
+    return parts
+
+
+def heredocs(text):
+    """(the text without heredoc bodies, the bodies that run), or None when a body is unterminated.
+
+    A body is text to the shell, so `git push` written in one is not a push. It runs where the
+    command reading it is a shell, or, for an unquoted delimiter, where it holds `$( )` or backticks.
+    """
+    lines, main, runs, index = text.split('\n'), [], [], 0
+    while index < len(lines):
+        line = lines[index]
+        main.append(line)
+        index += 1
+        for found in HEREDOC.finditer(line):
+            body = []
+            while index < len(lines) and lines[index].strip() != found.group(2):
+                body.append(lines[index])
+                index += 1
+            if index >= len(lines):
+                return None
+            index += 1
+            blob = '\n'.join(body)
+            if SHELLS.search(line[:found.start()]):
+                runs.append(blob)
+            elif not found.group(1):
+                runs += re.findall(r'\$\(([^)]*)\)', blob) + re.findall(r'`([^`]*)`', blob)
+    return '\n'.join(main), runs
+
+
+def git_pushes(tokens):
+    """Whether git, given these words after its own name, runs the push subcommand (or cannot be ruled out)."""
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == '-c':
+            if index + 1 >= len(tokens) or 'push' in tokens[index + 1].lower():
+                return True  # an alias to push is a push
+            index += 2
+        elif token in GIT_WITH_VALUE:
+            index += 2
+        elif token in GIT_FLAGS or (token.startswith('--') and '=' in token):
+            index += 1
+        elif token.startswith('-'):
+            return True  # an option this reader does not know could take the next word
+        else:
+            return token == 'push'
+    return False
+
+
+def segment_pushes(tokens, depth):
+    """Whether one simple command's words run git push."""
+    while tokens and (ASSIGNMENT.match(tokens[0]) or tokens[0] in KEYWORDS):
+        tokens = tokens[1:]
+    if not tokens:
+        return False
+    program = Path(tokens[0]).name
+    if any(mark in tokens[0] for mark in '$`') and any(word.strip().lower() == 'push' for word in tokens):
+        return True  # the program is not known until the shell expands it
+    if program == 'git':
+        return git_pushes(tokens[1:])
+    if program not in WRAPPERS:
+        return False
+    # A wrapper starts another program: a quoted word with a whole command in it, `sh -c "..."`, or
+    # a git named later on the line (`env X=1 git push`, `timeout 5 git push`).
+    if any(len(word.split()) > 1 and runs_push(word, depth + 1) for word in tokens[1:]):
+        return True
+    named = next((i for i, word in enumerate(tokens[1:], 1) if Path(word).name == 'git'), None)
+    return named is not None and git_pushes(tokens[named + 1:])
+
+
+def runs_push(command, depth=0):
+    """Whether any simple command in this text runs git push.
 
     could_push answers a wider question (any word holding the letters, beside any program that can
-    start another), and a commit message that says "push" answers yes to it. This one asks for the
-    verb itself: a word that is `push` once shell punctuation is trimmed, or one quoted word that
-    holds a whole command, `sh -c "git push ..."`, with a program and the verb both in it. Comments
-    are not read where `uncommented` can drop them. A command that cannot be read word by word is
-    read as its raw text.
+    start another), and `git log --grep push`, `grep push src/` and `docker push` answer yes to it.
+    This one reads each simple command and asks whether git is the program and push its
+    subcommand, so a word that is only text, or another program's verb, is not a push. Comments are
+    dropped where `decommented` can; whatever cannot be read word by word is read as its raw text.
     """
-    edge = r'(?:^|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
-    read = uncommented(command)
-    words = words if read is None else read
-    if words is None:
-        return re.search(edge + 'push' + edge.replace('^', '$'), command.lower()) is not None
-    # `echo git push > notes` prints text and runs nothing. That holds only for a command with no
-    # separator, substitution or newline in it: `echo x; git push` is a push after an echo.
-    if words[:1] in (['echo'], ['printf']) and not any(c in command for c in ';&|(){}$`\n<'):
-        return False
-    previous = ''
-    for word in words:
-        spelled = word.strip(PUNCTUATION).lower()
-        if spelled == 'push' and previous != 'stash':  # `git stash push` saves changes, it publishes none
+    text = decommented(command)
+    cut = heredocs(command if text is None else text)
+    if depth > 4 or cut is None:
+        return re.search(WORD_EDGE + 'push' + WORD_EDGE, command.lower()) is not None
+    main, runs = cut
+    if any(runs_push(body, depth + 1) for body in runs):
+        return True
+    for part in segments(main):
+        try:
+            tokens = shlex.split(part)
+        except ValueError:
+            if 'push' in part.lower():
+                return True
+            continue
+        if segment_pushes(tokens, depth) or any(('$(' in word or '`' in word) and runs_push(word, depth + 1)
+                                                for word in tokens):
             return True
-        pieces = [piece.lower() for piece in re.split(r'[\s' + re.escape(PUNCTUATION) + r']+', word) if piece]
-        # A whole command in one word runs only as the argument of a shell's -c or of eval/exec;
-        # anywhere else it is a pattern or a message that merely quotes one.
-        if (len(pieces) > 1 and 'push' in pieces and any(Path(piece).name in RUNNERS for piece in pieces)
-                and (re.fullmatch(r'-[a-z]*c', previous) or previous in ('eval', 'exec'))):
-            return True
-        previous = spelled
     return False
 
 
@@ -181,10 +294,11 @@ def words_of(command):
     strictly beats reading one, and calling it "what the shell hands on" made the gap between
     them look closed when it is the residue this adapter has always had.
     """
-    # No comment handling, on purpose: deciding what is a comment needs the shell's own grammar
-    # (a `#` inside a word or inside a multi-line string is not one), and two readings that
-    # tried were each bypassed by a push the shell ran. A command that does not parse is read
-    # as able to push and scanned whole, which is safe, and the handoff query is set aside.
+    # No comment handling here, on purpose: deciding what is a comment needs the shell's own grammar
+    # (a `#` inside a word or inside a multi-line string is not one), and the readings that
+    # tried it here were each bypassed by a push the shell ran. `decommented` is the one reader
+    # that cuts comments, and only where it agrees with the shell. A command that does not parse
+    # is read as able to push and scanned whole, which is safe.
     try:
         return shlex.split(command)
     except ValueError:
@@ -199,7 +313,7 @@ def unchecked(command, words, pushes):
     the pre-push hook as the only check, and a hook that has been regenerated checks nothing, so a
     command that could reach a remote and names the verb is refused instead of passed on.
     """
-    require(not (pushes and names_push(command, words)), 'Use a literal git push in its own command.')
+    require(not (pushes and runs_push(command)), 'Use a literal git push in its own command.')
     return None
 
 
@@ -212,8 +326,11 @@ def parse(command, cwd):
     """
     # Case-insensitive: git reads config keys and most of these options that way too.
     lowered = command.lower()
-    words = words_of(command)
     pushes = could_push(command)
+    cut = decommented(command)
+    if cut is not None and cut.strip():
+        command = cut.strip()  # a comment line before a literal push does not make it another shape
+    words = words_of(command)
     # Both forms, for one reachable reason: a token split across quotes — core.hooks""Path — is
     # absent from the raw text and present once the shell has parsed it. The converse cannot
     # happen, because quote removal only deletes characters and so never breaks a token the raw
@@ -273,24 +390,30 @@ def hook_gap(cwd):
             return None
         directory = Path(common.stdout.strip()) / 'hooks'
     hook = directory / 'pre-push'
-    runtime = Path(__file__).with_name('review_flow.py')
-    remedy = ('Reinstall it with: cd ' + shlex.quote(top.stdout.strip()) + ' && python3 ' + shlex.quote(str(runtime))
-              + " status  (it chains the check back into husky's generated hook; `start` installs it elsewhere).")
+    remedy = hook_remedy(hook, top.stdout.strip(), custom.returncode == 0)
     if not hook.is_file() or not os.access(hook, os.X_OK):
         return ('The pre-push hook git will run, ' + str(hook) + ', is missing or not executable, so this push '
                 'would be checked by nothing. ' + remedy)
-    text = hook.read_text(errors='replace')
-    if HUSKY_STUB.search(text) and len(text.splitlines()) <= 2:
-        tracked = directory.parent / 'pre-push'
-        text = tracked.read_text(errors='replace') if tracked.is_file() else ''
-    if HOOK_MARKER not in text and 'review_prepush' not in text:
-        return ('The pre-push hook git will run, ' + str(hook) + ', does not call the receipt check (husky '
-                'regenerates it on install). ' + remedy)
     problem = probe_problem(hook, cwd, top.stdout.strip())
     return None if problem is None else 'The pre-push hook git will run, ' + str(hook) + ', ' + problem + ' ' + remedy
 
 
-def probe_problem(hook, cwd, top, seconds=30):
+def hook_remedy(hook, top, custom):
+    """How to put the receipt check back, in the words that are true for this hook."""
+    runtime = Path(__file__).with_name('review_flow.py')
+    text = hook.read_text(errors='replace') if hook.is_file() else ''
+    if HUSKY_STUB.search(text) and len(text.splitlines()) <= 2 or hook.parent.name == '_':
+        return ('Reinstall it with: cd ' + shlex.quote(top) + ' && python3 ' + shlex.quote(str(runtime))
+                + " status  (it chains the check back into husky's generated hook).")
+    checker = runtime.with_name('review_prepush.py')
+    if custom:
+        return ('core.hooksPath names ' + str(hook.parent) + ', which `start` never writes into: point ' + str(hook)
+                + ' at ' + str(checker) + ', keeping any check you merged in.')
+    return ('Run `start` from ' + shlex.quote(top) + ' (python3 ' + shlex.quote(str(runtime))
+            + ' start ...) to install the bundled hook, or point ' + str(hook) + ' at ' + str(checker) + '.')
+
+
+def probe_problem(hook, cwd, top, seconds=PROBE_SECONDS):
     """What a probe push says is wrong with the hook, or None.
 
     A marker in the text is a claim: a hook can carry the words and exit 0. The hook is run on a
@@ -313,13 +436,36 @@ def probe_problem(hook, cwd, top, seconds=30):
     require(made.returncode == 0, 'Could not build the commit used to probe the pre-push hook: ' + made.stderr.strip())
     record = 'refs/heads/receipt-probe ' + made.stdout.strip() + ' refs/heads/receipt-probe ' + '0' * 40 + '\n'
     try:
-        ran = subprocess.run([str(hook), 'origin', 'origin'], input=record, cwd=top,
-                             capture_output=True, text=True, timeout=seconds)
-    except subprocess.TimeoutExpired:
-        return None
-    if ran.returncode == 0:
+        status = run_probe(hook, record, top, seconds)
+    except OSError as error:
+        return 'could not be run (' + str(error.strerror) + '), so git would not run it either.'
+    if status == 0:
         return 'accepted a push of a commit with no receipt, so it does not enforce receipts.'
     return None
+
+
+def run_probe(hook, record, top, seconds):
+    """The hook's exit status on one push record, or None when it did not answer within `seconds`.
+
+    The hook runs in its own process group, so that a timeout stops what it started as well: a
+    husky hook that runs a test suite leaves grandchildren a plain kill does not reach.
+    """
+    shebang = hook.read_bytes().startswith(b'#!')  # git runs a hook without one through sh
+    child = subprocess.Popen([*([] if shebang else ['sh']), str(hook), 'origin', 'origin'], stdin=subprocess.PIPE,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=top, text=True,
+                             start_new_session=True)
+    try:
+        child.communicate(record, timeout=seconds)
+    except subprocess.TimeoutExpired:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(child.pid, sig)
+                child.wait(timeout=2)
+                break
+            except (subprocess.TimeoutExpired, ProcessLookupError):
+                continue
+        return None
+    return child.returncode
 
 
 def sources(words):
