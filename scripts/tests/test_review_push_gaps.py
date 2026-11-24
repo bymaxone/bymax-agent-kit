@@ -110,6 +110,7 @@ class CompoundPushTests(AdapterBench):
                         'echo git push origin HEAD:x | (read l; eval $l)',
                         'echo git push origin HEAD:x | { read l; eval $l; }',
                         'cat <<EOF |\ngit push origin HEAD:f\nEOF\nsh',
+                        'cat <<< "git push origin HEAD:f" | sh',
                         # Text the shell could not read is refused rather than guessed at.
                         "echo 'git push origin HEAD:f | sh"):
             with self.subTest(command=command):
@@ -171,9 +172,14 @@ class ReaderTests(unittest.TestCase):
     def test_an_operator_inside_quotes_or_escaped_is_text_and_not_a_command_boundary(self):
         """`echo 'git push x | sh'` printed a message; the pipe inside the quotes started nothing."""
         for command in ("echo 'git push origin HEAD:f | sh'", 'echo "git push origin HEAD:f; sh"',
-                        'echo git push origin HEAD:f \\| sh', "printf '%s' 'git push origin HEAD:f | bash'"):
+                        'echo git push origin HEAD:f \\| sh', "printf '%s' 'git push origin HEAD:f | bash'",
+                        "echo git push origin HEAD:f '|' sh"):
             with self.subTest(command=command):
                 self.assertFalse(self.review_push.runs_push(command))
+
+    def test_text_that_cannot_be_tokenised_is_reported_as_unreadable_and_a_heredoc_behind_it_runs(self):
+        self.assertIsNone(self.review_push.reaches_program("echo 'git push origin HEAD:f | sh"))
+        self.assertTrue(self.review_push.fed_to_program("| 'unterminated"))
 
     def test_text_that_cannot_be_tokenised_and_names_a_push_is_read_as_a_push(self):
         for command in ("echo 'git push origin HEAD:f | sh", 'echo git push origin HEAD:f | (sh'):
