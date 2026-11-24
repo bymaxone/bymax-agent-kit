@@ -165,9 +165,9 @@ GIT_FLAGS = frozenset({'-p', '-P', '--paginate', '--no-pager', '--bare', '--no-r
                        '--icase-pathspecs', '--no-optional-locks', '--no-lazy-fetch'})
 HEREDOC = re.compile(r'<<(?!<)-?\s*(["\']?)([A-Za-z_][A-Za-z0-9_]*)\1')
 SHELLS = re.compile(r'\b(?:sh|bash|zsh|dash|ksh|eval|source)\b')
-# A program that follows a pipe, a process substitution or a list separator on the line that opens a heredoc.
 # A program, then a process substitution among its words: `sh <(echo ...)` reads what the inner command prints.
 SUBSTITUTED = re.compile(r'(?:^|[;&|({]\s*)(?:\w+=\S*\s+)*([^\s;&|(){}<>]+)[^;&|()\n]*<\(([^)]*)\)')
+# A program that follows a pipe, a process substitution, `;` or `&&` on the line that opens a heredoc.
 FED_PROGRAM = re.compile(r'(?:\||>\(|<\(|;|&&)\s*(?:(?:\w+=\S*|!)\s+)*([^\s|;&()<>]+)')
 WORD_EDGE = r'(?:^|$|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
 
@@ -221,7 +221,7 @@ def heredocs(text):
 
 
 def fed_to_program(rest):
-    """Whether the text after a heredoc operator hands its input to a program that may run it."""
+    """Whether the text after a heredoc operator names a non-passive program after a pipe, process substitution, `;` or `&&`."""
     return any(Path(name).name not in PASSIVE for name in FED_PROGRAM.findall(rest))
 
 
