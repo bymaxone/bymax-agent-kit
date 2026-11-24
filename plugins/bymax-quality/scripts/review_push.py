@@ -99,8 +99,33 @@ def uncommented(command):
     """
     if '${' in command or '((' in command:
         return None
+    # shlex ends a word at any `#`, quoted or not; the shell does so only at the start of an unquoted
+    # word (`echo a#b` prints a#b), so the comments are cut here by the shell's rule, not shlex's.
+    kept, quote, start, comment, escaped = [], '', True, False, False
+    for char in command:
+        if comment:
+            if char != '\n':
+                continue
+            comment = False
+        elif escaped:
+            escaped, start = False, False
+            kept.append(char)
+            continue
+        elif char == '\\' and quote != "'":
+            escaped, start = True, False
+            kept.append(char)
+            continue
+        elif char == '#' and start and not quote:
+            comment = True
+            continue
+        if quote:
+            quote = '' if char == quote else quote
+        elif char in '\'"':
+            quote = char
+        start = not quote and (char.isspace() or char in PUNCTUATION)
+        kept.append(char)
     try:
-        return shlex.split(command, comments=True)
+        return shlex.split(''.join(kept))
     except ValueError:
         return None
 
@@ -258,6 +283,28 @@ def hook_gap(cwd):
     if HOOK_MARKER not in text and 'review_prepush' not in text:
         return ('The pre-push hook git will run, ' + str(hook) + ', does not call the receipt check (husky '
                 'regenerates it on install). ' + remedy)
+    problem = probe_problem(hook, cwd, top.stdout.strip())
+    return None if problem is None else 'The pre-push hook git will run, ' + str(hook) + ', ' + problem + ' ' + remedy
+
+
+def probe_problem(hook, cwd, top):
+    """What a probe push says is wrong with the hook, or None.
+
+    A marker in the text is a claim: a hook can carry the words and exit 0. The hook is run on a
+    push of a commit no receipt can name, the way git would, and must refuse it.
+    """
+    made = subprocess.run(['git', '-C', str(cwd), 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'receipt probe'],
+                          capture_output=True, text=True)
+    if made.returncode != 0:
+        return None  # no commit to build the probe on: nothing here can be pushed either
+    record = 'refs/heads/receipt-probe ' + made.stdout.strip() + ' refs/heads/receipt-probe ' + '0' * 40 + '\n'
+    try:
+        ran = subprocess.run([str(hook), 'origin', 'origin'], input=record, cwd=top,
+                             capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return 'did not answer a probe push within 30 seconds.'
+    if ran.returncode == 0:
+        return 'accepted a push of a commit with no receipt, so it does not enforce receipts.'
     return None
 
 

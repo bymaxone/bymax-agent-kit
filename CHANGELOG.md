@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`bymax-quality` 1.35.1, `bymax-workflow` 1.8.2 and `bymax-codex` 1.31.1 close two gaps in the Claude push guard** — a commit reached a remote with no receipt:
+  - **A push written inside a longer command is refused.** `git commit ...; git push ...`, `x && git push ...`, a pipe, a subshell or `sh -c "git push ..."` were passed on to the hook alone; the guard now asks for a literal `git push` in its own command. Commands that only mention the word, and every block the kit prescribes, still pass. The two autopilot blocks that deleted a branch with `git push origin --delete` use the API instead.
+  - **The hook git will run is checked before a push.** `pnpm install` lets husky regenerate `_/pre-push` without the receipt check. The guard resolves `core.hooksPath` (husky's wrapper included), runs the hook on a probe push of an unreceipted commit, and refuses with the reinstall command when it is missing, not executable or accepts it.
+
 - **The project's former name is gone from the docs and the installer** — the README notice and migration section, the install guides, the Codex guide, the design proposal and the changelog no longer name it, and `scripts/install-review-flow.py --local-plugin-overlay` resolves plugin caches under the `bymax-agent-kit` marketplace id only. A plugin installed twice under that id is still refused before anything is written.
 
 ### Added

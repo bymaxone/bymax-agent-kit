@@ -35,7 +35,10 @@ class AdapterBench(PrePushBench):
         """Point core.hooksPath at a husky 9 generated directory whose pre-push is `hook`."""
         generated = self.repo / '.husky/_'
         generated.mkdir(parents=True)
-        (generated / 'h').write_text('#!/usr/bin/env sh\nexit 0\n')
+        # husky's dispatcher runs the tracked hook of the same name, which is what a stub delegates to.
+        (generated / 'h').write_text('#!/usr/bin/env sh\nn=$(basename "$0")\n'
+                                     '[ -f "$(dirname "$0")/../$n" ] && exec sh "$(dirname "$0")/../$n" "$@"\n'
+                                     'exit 0\n')
         (generated / '.gitignore').write_text('*\n')
         (generated / 'pre-push').write_text(hook)
         (generated / 'pre-push').chmod(0o755)
@@ -57,7 +60,9 @@ class CompoundPushTests(AdapterBench):
                         'sh -c "git push origin HEAD:f"',
                         "echo it's; git push origin HEAD:f",
                         # `#` after a space inside ${...} is literal to the shell, so this push runs.
-                        'echo ${x:-a #b}; git push origin HEAD:f'):
+                        'echo ${x:-a #b}; git push origin HEAD:f',
+                        # `#` inside a word is literal to the shell; only a word that starts with it is a comment.
+                        'echo a#b; git push origin HEAD:f'):
             with self.subTest(command=command):
                 status, error = self.guard(command)
                 self.assertEqual(status, 2, error)
@@ -107,8 +112,22 @@ class HookGapTests(AdapterBench):
 
     def test_a_tracked_husky_hook_that_carries_the_check_counts(self):
         """The stub delegates to `.husky/pre-push`; a check there is the check git runs."""
-        self.husky(tracked='#!/bin/sh\npython3 "' + str(FLOW.with_name('review_prepush.py')) + '"\n')
+        self.husky(tracked='#!/bin/sh\npython3 "' + str(FLOW.with_name('review_prepush.py')) + '" "$@"\n')
         self.assertEqual(self.guard(self.pushable())[0], 0)
+
+    def test_a_hook_that_only_carries_the_marker_and_accepts_everything_refuses_the_push(self):
+        """The marker and the checker's name are text; the hook is judged by what it does with a push."""
+        command = self.pushable()
+        modules = self.modules()
+        marker = modules['review_hook'].HOOK_MARKER
+        hook = self.repo / '.git/hooks/pre-push'
+        for body in (f'#!/bin/sh\n# {marker}\nexit 0\n', '#!/bin/sh\n# review_prepush\nexit 0\n'):
+            with self.subTest(body=body):
+                hook.write_text(body)
+                hook.chmod(0o755)
+                status, error = self.guard(command)
+                self.assertEqual(status, 2, error)
+                self.assertIn('accepted a push of a commit with no receipt', error)
 
     def test_a_missing_or_unexecutable_hook_refuses_the_push(self):
         """git skips a hook that is not executable, which is no hook at all."""
