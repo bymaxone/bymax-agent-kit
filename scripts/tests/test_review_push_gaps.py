@@ -103,7 +103,15 @@ class CompoundPushTests(AdapterBench):
                         'cat <<EOF | { sh; }\ngit push origin HEAD:f\nEOF',
                         'cat <(echo git push origin HEAD:f) | sh',
                         'echo git push origin HEAD:f | sh',
-                        "printf 'git push origin HEAD:f' |& bash"):
+                        "printf 'git push origin HEAD:f' |& bash",
+                        # Command positions the first word of a pipe segment does not show.
+                        'FOO=x echo git push origin HEAD:f | sh',
+                        'A=1 B=2 printf "git push origin HEAD:f" | env -i sh',
+                        'echo git push origin HEAD:x | (read l; eval $l)',
+                        'echo git push origin HEAD:x | { read l; eval $l; }',
+                        'cat <<EOF |\ngit push origin HEAD:f\nEOF\nsh',
+                        # Text the shell could not read is refused rather than guessed at.
+                        "echo 'git push origin HEAD:f | sh"):
             with self.subTest(command=command):
                 status, error = self.guard(command)
                 self.assertEqual(status, 2, error)
@@ -139,9 +147,36 @@ class CompoundPushTests(AdapterBench):
                         'echo git push origin HEAD:f | grep push',
                         'echo git push origin HEAD:f | tee log | wc -l',
                         'git log --grep push | xargs git show',
+                        # A pipe, a `;` or a `|` inside quotes or escaped is text, not an operator.
+                        "echo 'git push origin HEAD:f | sh'",
+                        'echo "git push origin HEAD:f; sh"',
+                        'echo git push origin HEAD:f \\| sh',
+                        'printf "push\\n" | sort | uniq',
                         'echo git push origin HEAD:f'):
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command)[0], 0)
+
+
+class ReaderTests(unittest.TestCase):
+    """runs_push read directly: where the adapter's wide gate would not have asked."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(FLOW.parent))
+        import review_push
+        cls.review_push = review_push
+
+    def test_an_operator_inside_quotes_or_escaped_is_text_and_not_a_command_boundary(self):
+        """`echo 'git push x | sh'` printed a message; the pipe inside the quotes started nothing."""
+        for command in ("echo 'git push origin HEAD:f | sh'", 'echo "git push origin HEAD:f; sh"',
+                        'echo git push origin HEAD:f \\| sh', "printf '%s' 'git push origin HEAD:f | bash'"):
+            with self.subTest(command=command):
+                self.assertFalse(self.review_push.runs_push(command))
+
+    def test_text_that_cannot_be_tokenised_and_names_a_push_is_read_as_a_push(self):
+        for command in ("echo 'git push origin HEAD:f | sh", 'echo git push origin HEAD:f | (sh'):
+            with self.subTest(command=command):
+                self.assertTrue(self.review_push.runs_push(command))
 
 
 class HookGapTests(AdapterBench):

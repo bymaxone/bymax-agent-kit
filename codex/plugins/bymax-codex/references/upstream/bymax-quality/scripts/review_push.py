@@ -165,14 +165,16 @@ GIT_FLAGS = frozenset({'-p', '-P', '--paginate', '--no-pager', '--bare', '--no-r
                        '--icase-pathspecs', '--no-optional-locks', '--no-lazy-fetch'})
 HEREDOC = re.compile(r'<<(?!<)-?\s*(["\']?)([A-Za-z_][A-Za-z0-9_]*)\1')
 SHELLS = re.compile(r'\b(?:sh|bash|zsh|dash|ksh|eval|source)\b')
-# A program, then a process substitution among its words: `sh <(echo ...)` reads what the inner command prints.
-SUBSTITUTED = re.compile(r'(?:^|[;&|({]\s*)(?:\w+=\S*\s+)*([^\s;&|(){}<>]+)[^;&|()\n]*<\(([^)]*)\)')
-# The first word after a pipe, `|&`, a process substitution, `<<<`, `;` or `&&`, skipping what may stand between
-# the operator and the program (a subshell, braces, `&`, a negation) and any leading assignments.
-FED_PROGRAM = re.compile(r'(?:\|&?|>\(|<\(|<<<|;|&&)[\s(){}&!]*(?:\w+=\S*\s+)*([^\s|;&()<>{}]+)')
-# A pipe or `|&`: where one command's output becomes the next one's input.
-PIPE = re.compile(r'\|&?')
 WORD_EDGE = r'(?:^|$|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
+# What the shell reads as an operator, longest first so that `<<<` is not `<<` and `<`.
+OPERATORS = ('<<<', '<<-', '<<', '<(', '>(', '>>', '>&', '<&', '&>', '>|', '<>', '|&', '||', '&&', ';;', ';&')
+OPERATOR_CHARS = ';&|()<>'
+# Operators that take the word after them (a file, a delimiter, a here-string's text) and start no command.
+REDIRECTS = frozenset({'<<<', '<<-', '<<', '>>', '>&', '<&', '&>', '>|', '<>', '<', '>'})
+# An operator character that is quoted or escaped is swapped for a private mark before the words are read, so it
+# stays inside its word instead of being read as an operator.
+MARKS = {char: chr(0xE000 + number) for number, char in enumerate(OPERATOR_CHARS)}
+UNMARK = str.maketrans({mark: char for char, mark in MARKS.items()})
 
 
 def segments(text):
@@ -217,39 +219,182 @@ def heredocs(text):
                 return None
             index += 1
             blob = '\n'.join(body)
-            if SHELLS.search(line[:found.start()]) or fed_to_program(line[found.end():]):
+            later = '\n'.join(lines[index:])
+            if SHELLS.search(line[:found.start()]) or fed_to_program(line[found.end():] + '\n' + later):
                 runs.append(blob)
             elif not found.group(1):
                 runs += re.findall(r'\$\(([^)]*)\)', blob) + re.findall(r'`([^`]*)`', blob)
     return '\n'.join(main), runs
 
 
+def names_push(text):
+    """Whether the text has `push` as a word of its own."""
+    return re.search(WORD_EDGE + 'push' + WORD_EDGE, text.lower()) is not None
+
+
+def masked(text):
+    """The text with each quoted or escaped operator character marked, and each newline that ends a command a `;`.
+
+    A newline after a pipe or `&&` continues the command, so it is only a space.
+    """
+    out, quote, escaped = [], '', False
+    for char in text:
+        if escaped:
+            escaped = False
+            out.append(MARKS.get(char, char))
+        elif char == '\\' and quote != "'":
+            escaped = True
+            out.append(char)
+        elif quote:
+            quote = '' if char == quote else quote
+            out.append(MARKS.get(char, char))
+        elif char in '\'"':
+            quote = char
+            out.append(char)
+        elif char == '\n':
+            out.append(' ' if ''.join(out[-64:]).rstrip().endswith(('|', '&&')) else ' ; ')
+        else:
+            out.append(char)
+    return ''.join(out)
+
+
+def tokens_of(text):
+    """The text as (kind, token) pairs, `word` or `op`, with quotes honoured; None when the shell could not read it."""
+    lexer = shlex.shlex(masked(text), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ''
+    try:
+        raw = list(lexer)
+    except ValueError:
+        return None
+    tokens = []
+    for token in raw:
+        if all(char in OPERATOR_CHARS for char in token):
+            while token:
+                size = next((len(operator) for operator in OPERATORS if token.startswith(operator)), 1)
+                tokens.append(('op', token[:size]))
+                token = token[size:]
+        else:
+            tokens.append(('word', token.translate(UNMARK)))
+    return tokens
+
+
+class Frame:
+    """What one group of commands (the whole text, a subshell, a brace group, a substitution) has shown so far."""
+
+    def __init__(self, closer, inherited):
+        self.closer = closer
+        self.inherited = inherited  # what the group's standard input holds; '' when nothing is fed to it
+        self.found = False          # text naming a push reached a program that is not known to only print
+        self.shown = []             # every word of the group
+        self.quiet = True           # every command so far only prints
+        self.piped = None           # what the pipe into the current command holds; None when no pipe leads to it
+        self.pipeline = ''          # what the passive commands of this pipeline printed; None once one is not passive
+        self.name = None            # the current command's program
+        self.words = []             # the current command's words
+        self.printing = True        # the current command only prints
+
+    def stdin(self):
+        return self.inherited if self.piped is None else self.piped
+
+    def close_command(self):
+        self.shown += self.words
+        self.quiet = self.quiet and self.printing
+        self.name, self.words, self.printing = None, [], True
+
+    def absorb(self, child):
+        """Take in a group that stands where a command would."""
+        self.found = self.found or child.found
+        self.words.append(' '.join(child.shown))
+        self.printing = self.printing and child.quiet
+
+
+class Reach:
+    """Finds where text that names a push is handed to a program that is not known to only print.
+
+    A command is fed when a pipe leads to it, or when it stands inside a group that a pipe leads to,
+    whatever separates it from the group's first command: `echo git push | (read l; eval $l)`.
+    """
+
+    def __init__(self, tokens):
+        self.tokens, self.pos = tokens, 0
+
+    def next_word(self):
+        """The word after a redirection, consumed; None when an operator follows it instead."""
+        if self.pos < len(self.tokens) and self.tokens[self.pos][0] == 'word':
+            self.pos += 1
+            return self.tokens[self.pos - 1][1]
+        return None
+
+    def group(self, closer, inherited):
+        """Walk to the end of one group and return its Frame."""
+        frame = Frame(closer, inherited)
+        while self.pos < len(self.tokens):
+            kind, token = self.tokens[self.pos]
+            self.pos += 1
+            if (self.word if kind == 'word' else self.operator)(frame, token):
+                break
+        frame.close_command()
+        return frame
+
+    def word(self, frame, token):
+        """Apply one word; True when it closes a brace group."""
+        if frame.name is None:
+            if ASSIGNMENT.match(token) or token in KEYWORDS:
+                return False
+            if token == '}' and frame.closer == '}':
+                return True
+            frame.name = token
+            if token == '{':
+                frame.absorb(self.group('}', frame.stdin()))
+                return False
+            frame.printing = Path(token).name in PASSIVE
+            frame.found = frame.found or (not frame.printing and names_push(frame.stdin()))
+        frame.words.append(token)
+        return False
+
+    def operator(self, frame, token):
+        """Apply one operator; True when it closes a group."""
+        if token in ('|', '|&'):
+            quiet = frame.printing and frame.pipeline is not None
+            frame.pipeline = frame.pipeline + ' ' + ' '.join(frame.words) if quiet else None
+            frame.piped = frame.pipeline or ''
+            frame.close_command()
+        elif token in ('(', '<(', '>('):
+            self.substitution(frame, token)
+        elif token in REDIRECTS:
+            word = self.next_word()
+            if token == '<<<' and word is not None:
+                frame.words.append(word)
+        elif token == ')' and frame.closer == ')':
+            return True
+        else:
+            frame.close_command()
+            frame.piped, frame.pipeline = None, ''
+        return False
+
+    def substitution(self, frame, token):
+        """A subshell, or a process substitution that reads from or feeds the command it is given to."""
+        if token == '(':
+            child = self.group(')', frame.stdin() if frame.name is None else '')
+            frame.absorb(child)
+            return
+        printed = ' '.join([frame.stdin(), *frame.words]) if token == '>(' and frame.printing and frame.name else ''
+        child = self.group(')', printed)
+        text = ' '.join(child.shown)
+        frame.found = frame.found or child.found or (token == '<(' and not frame.printing and names_push(text))
+        frame.words.append(text)
+
+
+def reaches_program(text, carried=''):
+    """Whether text naming a push is handed to a program that may run it; None when the text cannot be read."""
+    tokens = tokens_of(text)
+    return None if tokens is None else Reach(tokens).group(None, carried).found
+
+
 def fed_to_program(rest):
-    """Whether the text after a heredoc operator reaches a non-passive program."""
-    return any(Path(name).name not in PASSIVE for name in FED_PROGRAM.findall(rest))
-
-
-def text_to_consumer(text):
-    """Whether words naming a push are printed by passive programs into a pipe that reaches a non-passive one."""
-    for line in text.split('\n'):
-        printed = ''
-        for part in PIPE.split(line):
-            word = re.sub(r'^[\s(){}&!]+', '', part).split(None, 1)
-            name = Path(word[0]).name if word else ''
-            if name not in PASSIVE and printed:
-                if re.search(WORD_EDGE + 'push' + WORD_EDGE, printed.lower()):
-                    return True
-                break
-            if name not in PASSIVE:
-                break
-            printed += ' ' + part
-    return False
-
-
-def fed_by_substitution(text):
-    """Whether a program that may run its input is given a process substitution that names a push."""
-    return any(Path(name).name not in PASSIVE and re.search(WORD_EDGE + 'push' + WORD_EDGE, inner.lower())
-               for name, inner in SUBSTITUTED.findall(text))
+    """Whether what follows a heredoc operator hands the body to a program that may run it."""
+    return reaches_program('cat push ' + rest) is not False
 
 
 def git_pushes(tokens):
@@ -309,7 +454,8 @@ def runs_push(command, depth=0):
     main, runs = cut
     if any(runs_push(body, depth + 1) for body in runs):
         return True
-    if fed_by_substitution(main) or text_to_consumer(main):
+    flow = reaches_program(main)
+    if flow or (flow is None and names_push(main)):
         return True
     for part in segments(main):
         try:
