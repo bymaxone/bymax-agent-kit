@@ -454,8 +454,7 @@ def runs_push(command, depth=0):
     main, runs = cut
     if any(runs_push(body, depth + 1) for body in runs):
         return True
-    flow = reaches_program(main)
-    if flow or (flow is None and names_push(main)):
+    if reaches_program(main):
         return True
     for part in segments(main):
         try:
