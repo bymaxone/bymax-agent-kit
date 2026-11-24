@@ -483,7 +483,7 @@ def segment_pushes(tokens, depth):
 
 
 def inner(word):
-    """A word's substitutions as subshells, so that the word's own text is not read as a command name."""
+    """A word with its substitutions rewritten as subshells, so that what they hold is read as commands."""
     return re.sub(r'`([^`]*)`', r'(\1)', word.replace('$(', '('))
 
 
