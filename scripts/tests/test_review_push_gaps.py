@@ -111,6 +111,30 @@ class CompoundPushTests(AdapterBench):
                         'echo git push origin HEAD:x | { read l; eval $l; }',
                         'cat <<EOF |\ngit push origin HEAD:f\nEOF\nsh',
                         'cat <<< "git push origin HEAD:f" | sh',
+                        # Input that is not known before it runs, handed to anything that runs it, may be a push.
+                        # `git log | grep push | sh` was allowed until this rule: grep keeps the lines that name
+                        # a push and sh runs them, so the pipeline cannot be shown not to push.
+                        'git log | grep push | sh',
+                        "git config alias.s 'git push origin HEAD:f'; git config --get alias.s | sh",
+                        "git config alias.s 'git push origin HEAD:f'; git config --get alias.s | xargs sh -c",
+                        "git config alias.s 'git push origin HEAD:f'; git config --get alias.s | { read l; eval $l; }",
+                        "git config alias.s 'git push origin HEAD:f'; git config --get alias.s | (read l; eval $l)",
+                        'echo git push origin HEAD:x | while read l; do eval "$l"; done',
+                        'echo git push origin HEAD:x | if true; then sh; fi',
+                        'echo git push origin HEAD:x | until false; do sh; done',
+                        'echo git push origin HEAD:x | for x in 1; do sh; done',
+                        'echo git push origin HEAD:x | case x in x) sh;; esac',
+                        'git log --format=%s | while read l; do case $l in *push*) eval "$l";; esac; done',
+                        'git config alias.s "git push origin HEAD:f"; eval "$(git config --get alias.s)"',
+                        'git config alias.s "git push origin HEAD:f"; sh -c "$(git config --get alias.s)"',
+                        'git config alias.s "git push origin HEAD:f"; bash <(git config --get alias.s)',
+                        'git config alias.s "git push origin HEAD:f"; source <(git config --get alias.s)',
+                        'git config alias.s "git push origin HEAD:f"; sh <<< "$(git config --get alias.s)"',
+                        'git config alias.s "git push origin HEAD:f"; eval `git config --get alias.s`',
+                        'A="git push origin HEAD:f"; sh -c "$A"',
+                        'A="git push origin HEAD:f"; eval "$A"',
+                        "printf 'git push\\n' | sh",
+                        'printf "git push\\n" | bash',
                         # Text the shell could not read is refused rather than guessed at.
                         "echo 'git push origin HEAD:f | sh"):
             with self.subTest(command=command):
@@ -148,13 +172,15 @@ class CompoundPushTests(AdapterBench):
                         'echo git push origin HEAD:f | grep push',
                         'echo git push origin HEAD:f | tee log | wc -l',
                         'git log --grep push | xargs git show',
+                        'git log --oneline | grep push | wc -l',
+                        'git log --format=%s | xargs git show',
+                        'bash scripts/build.sh $TARGET && git log --grep push',
                         # A pipe or a `;` inside quotes or escaped is text, not an operator.
                         "echo 'git push origin HEAD:f | sh'",
                         'echo "git push origin HEAD:f; sh"',
                         'echo git push origin HEAD:f \\| sh',
                         # Real pipes, and every command in them only prints, or the producer is not text.
                         'printf "push\\n" | sort | uniq',
-                        'git log | grep push | sh',
                         'echo git push origin HEAD:f'):
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command)[0], 0)

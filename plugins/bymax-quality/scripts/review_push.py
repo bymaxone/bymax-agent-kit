@@ -158,14 +158,22 @@ PASSIVE = frozenset({'echo', 'printf', 'cat', 'grep', 'egrep', 'fgrep', 'rg', 'a
                      'sort', 'uniq', 'cut', 'tr', 'basename', 'dirname', 'realpath', 'jq', 'tee', 'read',
                      'cd', 'export', 'unset', 'set', 'alias', 'unalias', 'local', 'declare', 'return', 'exit'})
 # Words that open a clause (`then git push`, `! git push`): the command is the word after.
-KEYWORDS = frozenset({'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', 'time'})
+KEYWORDS = frozenset({'then', 'else', 'elif', 'do', '!', 'time'})
+# A compound command that a pipe feeds as a whole: every command inside it may read what was piped.
+OPENERS = frozenset({'if', 'while', 'until', 'for', 'case', 'select'})
+CLOSERS = frozenset({'fi', 'done', 'esac'})
+# What can run the text it is given. A sink that is handed text that is not known to be harmless is read as a push.
+SHELL_SINKS = frozenset({'sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'fish'})
+CODE_SINKS = frozenset({'eval', 'source', '.'})
+# Stands for input whose text is not known before the command runs.
+UNKNOWN = '\x00'
 GIT_WITH_VALUE = frozenset({'-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env'})
 GIT_FLAGS = frozenset({'-p', '-P', '--paginate', '--no-pager', '--bare', '--no-replace-objects',
                        '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs',
                        '--icase-pathspecs', '--no-optional-locks', '--no-lazy-fetch'})
 HEREDOC = re.compile(r'<<(?!<)-?\s*(["\']?)([A-Za-z_][A-Za-z0-9_]*)\1')
 SHELLS = re.compile(r'\b(?:sh|bash|zsh|dash|ksh|eval|source)\b')
-WORD_EDGE = r'(?:^|$|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
+WORD_EDGE = r'(?:^|$|[\s' + re.escape(PUNCTUATION) + r'\'"`\\])'
 # What the shell reads as an operator, longest first so that `<<<` is not `<<` and `<`.
 OPERATORS = ('<<<', '<<-', '<<', '<(', '>(', '>>', '>&', '<&', '&>', '>|', '<>', '|&', '||', '&&', ';;', ';&')
 OPERATOR_CHARS = ';&|()<>'
@@ -293,11 +301,30 @@ class Frame:
         self.name = None            # the current command's program
         self.words = []             # the current command's words
         self.printing = True        # the current command only prints
+        self.depth = 0              # compound commands (while, if, ...) open around the current command
+        self.held = ''              # what the outermost open compound command was fed
+        self.dynamic = False        # a word of the current command is not known before it runs
+        self.dynamic_in = False     # the current command's input is a substitution or a here-string not known before it runs
+        self.subs = ''              # the text of the substitutions among the current command's words
 
     def stdin(self):
-        return self.inherited if self.piped is None else self.piped
+        if self.piped is not None:
+            return self.piped
+        return self.held if self.depth else self.inherited
+
+    def runs_unknown(self):
+        """Whether the current command can run text that is not known before it runs."""
+        names = {Path(word).name for word in self.words}
+        unknown_in = UNKNOWN in self.stdin() or self.dynamic_in
+        if names & CODE_SINKS:
+            return unknown_in or self.dynamic or names_push(self.subs)
+        flagged = any(word.startswith('-') and 'c' in word for word in self.words)
+        return bool(names & SHELL_SINKS) and (unknown_in or (flagged and (self.dynamic or names_push(self.subs))))
 
     def close_command(self):
+        self.found = self.found or (bool(self.words) and self.runs_unknown())
+        self.dynamic = self.dynamic_in = False
+        self.subs = ''
         self.shown += self.words
         self.quiet = self.quiet and self.printing
         self.name, self.words, self.printing = None, [], True
@@ -306,6 +333,8 @@ class Frame:
         """Take in a group that stands where a command would."""
         self.found = self.found or child.found
         self.words.append(' '.join(child.shown))
+        self.dynamic = self.dynamic or not child.quiet
+        self.subs += ' ' + ' '.join(child.shown)
         self.printing = self.printing and child.quiet
 
 
@@ -340,6 +369,13 @@ class Reach:
     def word(self, frame, token):
         """Apply one word; True when it closes a brace group."""
         if frame.name is None:
+            if token in OPENERS:
+                frame.held = frame.stdin() if not frame.depth else frame.held
+                frame.depth += 1
+                return False
+            if token in CLOSERS and frame.depth:
+                frame.depth -= 1
+                return False
             if ASSIGNMENT.match(token) or token in KEYWORDS:
                 return False
             if token == '}' and frame.closer == '}':
@@ -350,6 +386,8 @@ class Reach:
                 return False
             frame.printing = Path(token).name in PASSIVE
             frame.found = frame.found or (not frame.printing and names_push(frame.stdin()))
+        elif '$' in token or '`' in token:
+            frame.dynamic = True
         frame.words.append(token)
         return False
 
@@ -358,7 +396,7 @@ class Reach:
         if token in ('|', '|&'):
             quiet = frame.printing and frame.pipeline is not None
             frame.pipeline = frame.pipeline + ' ' + ' '.join(frame.words) if quiet else None
-            frame.piped = frame.pipeline or ''
+            frame.piped = UNKNOWN if frame.pipeline is None else frame.pipeline
             frame.close_command()
         elif token in ('(', '<(', '>('):
             self.substitution(frame, token)
@@ -366,6 +404,7 @@ class Reach:
             word = self.next_word()
             if token == '<<<' and word is not None:
                 frame.words.append(word)
+                frame.dynamic_in = frame.dynamic_in or '$' in word or '`' in word
         elif token == ')' and frame.closer == ')':
             return True
         else:
@@ -383,6 +422,8 @@ class Reach:
         child = self.group(')', printed)
         text = ' '.join(child.shown)
         frame.found = frame.found or child.found or (token == '<(' and not frame.printing and names_push(text))
+        frame.dynamic_in = frame.dynamic_in or (token == '<(' and not child.quiet)
+        frame.subs += ' ' + text
         frame.words.append(text)
 
 
