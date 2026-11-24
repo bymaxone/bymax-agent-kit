@@ -157,6 +157,7 @@ class CompoundPushTests(AdapterBench):
                         'git subtree push --prefix=x origin main',
                         'git -C d subtree push --prefix=x origin main',
                         'git subtree split --prefix=x -b y; git subtree push --prefix=x origin y',
+                        'git subtree $(echo push) --prefix=x origin main',
                         'git $(echo push) origin HEAD:f',
                         'git `echo push` origin HEAD:f',
                         'git $x origin HEAD:f; git log --grep push',
