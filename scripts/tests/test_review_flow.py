@@ -306,12 +306,17 @@ class ReviewFlowTests(FlowBench):
         for literal in ('git push origin HEAD', 'FOO=1 git push origin HEAD', 'git -C . push origin HEAD',
                         'cd . && git push origin HEAD', 'git pu""sh origin HEAD'):
             self.push(literal, ok=False)
-        # Any other arrangement is not this adapter's call: it passes, and pre-push decides.
-        for other in ('eval git push origin HEAD', 'if true; then git push origin HEAD; fi',
-                      'git log --grep=push --format=$FORMAT', 'echo git push > notes.txt',
-                      'grep -rn "git push" docs/', 'python3 -c "print(1 << 3)"',
-                      "cat <<'EOF' > f\ngit push origin HEAD\nEOF\n", 'git stash push', 'FOO=bar'):
+        # A command that merely mentions the verb is not this adapter's call: it passes.
+        for other in ('git log --grep=push --format=$FORMAT', 'echo git push > notes.txt',
+                      'grep -rn "git push" docs/', 'python3 -c "print(1 << 3)"', 'git stash push', 'FOO=bar'):
             self.push(other)
+        # A push written inside a longer command would be passed on to the hook alone, so the adapter
+        # refuses it and asks for the literal form. A heredoc body read by `cat` is text, not a command,
+        # so it passes; one read by a shell is refused.
+        for disguised in ('eval git push origin HEAD', 'if true; then git push origin HEAD; fi',
+                          "bash <<'EOF'\ngit push origin HEAD\nEOF\n"):
+            self.push(disguised, ok=False)
+        self.push("cat <<'EOF' > f\ngit push origin HEAD\nEOF\n")
 
     def test_the_guard_lets_a_command_that_only_reads_name_the_hook(self):
         """A guard that blocks reading protects nothing: no rev-parse reaches a remote, and
