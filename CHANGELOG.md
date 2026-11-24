@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`bymax-quality` 1.35.1 and `bymax-codex` 1.31.1: `record` matches a previous finding's resolution when the id differs only in `-` against `_`** — a reviewer that copied an id back with its hyphens respelled was refused with "Recheck every previous open finding" and no hint of which id was missing. `record` now reads `_` and `-` in an id as one character (the reviewer prefix still decides which reviewer's finding it answers), and the refusal names each open finding that has no resolution and each resolution that matches none. The report itself is never edited.
+
 - **The project's former name is gone from the docs and the installer** — the README notice and migration section, the install guides, the Codex guide, the design proposal and the changelog no longer name it, and `scripts/install-review-flow.py --local-plugin-overlay` resolves plugin caches under the `bymax-agent-kit` marketplace id only. A plugin installed twice under that id is still refused before anything is written.
 
 ### Added
