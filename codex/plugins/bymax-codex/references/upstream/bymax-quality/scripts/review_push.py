@@ -150,12 +150,13 @@ def decommented(command):
 
 # Where the shell ends one simple command and starts another.
 SPLIT = ';&|()\n`{}'
-# Programs that start the program named after their options. RUNNERS is what could_push asks about;
-# these are the ones whose later `git` is run, as opposed to `echo git push`, which only prints it.
-LAUNCHERS = frozenset({'command', 'builtin', 'busybox', 'stdbuf', 'setsid', 'ionice', 'chrt', 'taskset', 'flock',
-                       'caffeinate', 'unbuffer', 'watch', 'parallel', 'find', 'script', 'strace', 'ltrace', 'chroot',
-                       'su', 'runuser', 'pkexec', 'login', 'then', 'else', 'do'})
-WRAPPERS = (RUNNERS - {'git'}) | LAUNCHERS
+# Programs that only print, read or search the words they are given and never start one of them, so
+# `echo git push` is a mention. Any other program may start a later `git`, and is read as if it does:
+# the list of launchers is open-ended (command, stdbuf, setsid, a script of the user's own), this one is not.
+PASSIVE = frozenset({'echo', 'printf', 'cat', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'man', 'which', 'whereis',
+                     'type', 'head', 'tail', 'wc', 'less', 'more', 'diff', 'ls', 'test', '[', 'true', 'false',
+                     'sort', 'uniq', 'cut', 'tr', 'basename', 'dirname', 'realpath', 'jq', 'tee', 'read',
+                     'cd', 'export', 'unset', 'set', 'alias', 'unalias', 'local', 'declare', 'return', 'exit'})
 # Words that open a clause (`then git push`, `! git push`): the command is the word after.
 KEYWORDS = frozenset({'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', 'time'})
 GIT_WITH_VALUE = frozenset({'-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env'})
@@ -248,7 +249,7 @@ def segment_pushes(tokens, depth):
         return True  # the program is not known until the shell expands it
     if program == 'git':
         return git_pushes(tokens[1:])
-    if program not in WRAPPERS:
+    if program in PASSIVE:
         return False
     # A wrapper starts another program: a quoted word with a whole command in it, `sh -c "..."`, or
     # a git named later on the line (`env X=1 git push`, `timeout 5 git push`).

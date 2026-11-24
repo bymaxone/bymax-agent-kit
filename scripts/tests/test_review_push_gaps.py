@@ -87,6 +87,8 @@ class CompoundPushTests(AdapterBench):
                         'builtin git push origin HEAD:f',
                         'stdbuf -oL git push origin HEAD:f',
                         'setsid git push origin HEAD:f',
+                        'my-wrapper --flag git push origin HEAD:f',
+                        'sh <<< "git push origin HEAD:f"',
                         'cat <<EOF | sh\ngit push origin HEAD:f\nEOF',
                         "cat <<'EOF' | bash\ngit push origin HEAD:f\nEOF"):
             with self.subTest(command=command):
