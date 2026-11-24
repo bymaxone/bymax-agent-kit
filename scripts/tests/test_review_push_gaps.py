@@ -222,6 +222,8 @@ class CompoundPushTests(AdapterBench):
                         'git subtree split --prefix push',
                         'git subtree split --prefix x -b push',
                         'git subtree split --prefix x --branch push',
+                        'git subtree -P x add --prefix x o r; git log --grep push',
+                        'git subtree split --prefix x $(echo -b push)',
                         'git commit -m "$(cat msg)"; git log --grep push',
                         'git -C "$dir" log --oneline --grep push',
                         'git log --grep "$(echo push)"',

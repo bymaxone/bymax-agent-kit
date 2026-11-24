@@ -475,7 +475,7 @@ def git_pushes(tokens):
                 # first settles it; any other start (an option, a substitution, an unknown word)
                 # cannot be told from a value and keeps the any-word rule.
                 if rest and rest[0] in ('add', 'merge', 'split', 'pull'):
-                    return any(any(mark in word for mark in '$`(') for word in rest[1:])
+                    return False
                 return any(word.strip().lower() == 'push' or any(mark in word for mark in '$`(') for word in rest)
             return token == 'push'
     return False
