@@ -99,8 +99,8 @@ def uncommented(command):
     """
     if '${' in command or '((' in command:
         return None
-    # shlex ends a word at any `#`, quoted or not; the shell does so only at the start of an unquoted
-    # word (`echo a#b` prints a#b), so the comments are cut here by the shell's rule, not shlex's.
+    # The shell starts a comment only at the start of an unquoted word (`echo a#b` prints a#b), and
+    # shlex.split cuts none, so the comments are cut here by the shell's rule.
     kept, quote, start, comment, escaped = [], '', True, False, False
     for char in command:
         if comment:
