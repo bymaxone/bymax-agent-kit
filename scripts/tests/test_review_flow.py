@@ -310,10 +310,9 @@ class ReviewFlowTests(FlowBench):
         for other in ('git log --grep=push --format=$FORMAT', 'echo git push > notes.txt',
                       'grep -rn "git push" docs/', 'python3 -c "print(1 << 3)"', 'git stash push', 'FOO=bar'):
             self.push(other)
-        # Flipped on purpose (see test_review_push_gaps): a push written inside a longer command was
-        # passed on to the hook alone, and reached a remote when the hook no longer checked receipts.
-        # The adapter now refuses it and asks for the literal form. A heredoc body cannot be told
-        # from commands without a shell parser, so it is refused too: the conservative side.
+        # A push written inside a longer command would be passed on to the hook alone, so the adapter
+        # refuses it and asks for the literal form. A heredoc body cannot be told from commands
+        # without a shell parser, so it is refused too: the conservative side.
         for disguised in ('eval git push origin HEAD', 'if true; then git push origin HEAD; fi',
                           "cat <<'EOF' > f\ngit push origin HEAD\nEOF\n"):
             self.push(disguised, ok=False)

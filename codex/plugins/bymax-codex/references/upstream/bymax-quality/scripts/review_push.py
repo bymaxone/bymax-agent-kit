@@ -95,7 +95,7 @@ def uncommented(command):
     shell's agree on what a comment is: inside `${...}` a `#` after a space is literal to the shell
     but starts a comment here, which would hide a push the shell runs, so any command holding `${`
     or `((` keeps its comment text and is read whole. A quote left open — including by an
-    apostrophe in a comment the shell would skip — is None as well, and the caller reads the raw text.
+    apostrophe in a comment the shell would skip — is None as well, and comments are kept.
     """
     if '${' in command or '((' in command:
         return None
