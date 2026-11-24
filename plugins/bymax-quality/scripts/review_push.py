@@ -230,6 +230,8 @@ def heredocs(text):
             later = '\n'.join(lines[index:])
             if SHELLS.search(line[:found.start()]) or fed_to_program(line[found.end():] + '\n' + later):
                 runs.append(blob)
+                if not found.group(1):
+                    runs.append('\n'.join('eval ' + line for line in body))
             elif not found.group(1):
                 runs += re.findall(r'\$\(([^)]*)\)', blob) + re.findall(r'`([^`]*)`', blob)
     return '\n'.join(main), runs
@@ -314,7 +316,9 @@ class Frame:
 
     def runs_unknown(self):
         """Whether the current command is a sink that may run a push."""
-        names = {Path(word).name for word in self.words}
+        names = {Path(word).name for word in self.words} | set(self.words)
+        if self.name and ('$' in self.name or '`' in self.name):
+            return True
         unknown_in = UNKNOWN in self.stdin() or self.dynamic_in
         if names & CODE_SINKS:
             return unknown_in or self.dynamic or names_push(self.subs)
@@ -472,10 +476,15 @@ def segment_pushes(tokens, depth):
         return False
     # A wrapper starts another program: a quoted word with a whole command in it, `sh -c "..."`, or
     # a git named later on the line (`env X=1 git push`, `timeout 5 git push`).
-    if any(len(word.split()) > 1 and runs_push(word, depth + 1) for word in tokens[1:]):
+    if any(len(word.split()) > 1 and runs_push(inner(word), depth + 1) for word in tokens[1:]):
         return True
     named = next((i for i, word in enumerate(tokens[1:], 1) if Path(word).name == 'git'), None)
     return named is not None and git_pushes(tokens[named + 1:])
+
+
+def inner(word):
+    """A word's substitutions as subshells, so that the word's own text is not read as a command name."""
+    return re.sub(r'`([^`]*)`', r'(\1)', word.replace('$(', '('))
 
 
 def runs_push(command, depth=0):
@@ -503,7 +512,7 @@ def runs_push(command, depth=0):
             if 'push' in part.lower():
                 return True
             continue
-        if segment_pushes(tokens, depth) or any(('$(' in word or '`' in word) and runs_push(word, depth + 1)
+        if segment_pushes(tokens, depth) or any(('$(' in word or '`' in word) and runs_push(inner(word), depth + 1)
                                                 for word in tokens):
             return True
     return False
