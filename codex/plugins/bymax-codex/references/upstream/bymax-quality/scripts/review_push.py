@@ -470,7 +470,13 @@ def git_pushes(tokens):
             if any(mark in token for mark in '$`('):
                 return True  # the subcommand is not known until the shell expands it
             if token == 'subtree':
-                return any(word.strip().lower() == 'push' or any(mark in word for mark in '$`(') for word in tokens[index + 1:])
+                rest = tokens[index + 1:]
+                # git-subtree takes the verb as its first non-option word, so a verb written first
+                # that is not push settles it; any other start (an option, a substitution, an unknown
+                # word) cannot be told from a value and keeps the any-word rule.
+                if rest and rest[0] in ('add', 'merge', 'split', 'pull'):
+                    return any(any(mark in word for mark in '$`(') for word in rest[1:])
+                return any(word.strip().lower() == 'push' or any(mark in word for mark in '$`(') for word in rest)
             return token == 'push'
     return False
 
