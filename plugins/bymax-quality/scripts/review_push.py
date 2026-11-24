@@ -167,9 +167,10 @@ HEREDOC = re.compile(r'<<(?!<)-?\s*(["\']?)([A-Za-z_][A-Za-z0-9_]*)\1')
 SHELLS = re.compile(r'\b(?:sh|bash|zsh|dash|ksh|eval|source)\b')
 # A program, then a process substitution among its words: `sh <(echo ...)` reads what the inner command prints.
 SUBSTITUTED = re.compile(r'(?:^|[;&|({]\s*)(?:\w+=\S*\s+)*([^\s;&|(){}<>]+)[^;&|()\n]*<\(([^)]*)\)')
-# The first word after a pipe, `|&`, a process substitution, `<<<`, `;` or `&&`, whatever opens the clause before it.
+# The first word after a pipe, `|&`, a process substitution, `<<<`, `;` or `&&`, skipping what may stand between
+# the operator and the program (a subshell, braces, `&`, a negation) and any leading assignments.
 FED_PROGRAM = re.compile(r'(?:\|&?|>\(|<\(|<<<|;|&&)[\s(){}&!]*(?:\w+=\S*\s+)*([^\s|;&()<>{}]+)')
-# What may stand between an operator and the program it reaches: a subshell, braces, `&`, a negation.
+# A pipe or `|&`: where one command's output becomes the next one's input.
 PIPE = re.compile(r'\|&?')
 WORD_EDGE = r'(?:^|$|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
 
@@ -199,7 +200,8 @@ def heredocs(text):
     """(the text without heredoc bodies, the bodies that run), or None when a body is unterminated.
 
     A body is text to the shell, so `git push` written in one is not a push. It runs where the
-    command reading it is a shell, or, for an unquoted delimiter, where it holds `$( )` or backticks.
+    command reading it is a shell, or a non-passive program follows the operator on the line, or, for an
+    unquoted delimiter, where it holds `$( )` or backticks (only those substitutions run).
     """
     lines, main, runs, index = text.split('\n'), [], [], 0
     while index < len(lines):
