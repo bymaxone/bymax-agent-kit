@@ -19,6 +19,7 @@ import subprocess
 import sys
 
 from review_flow import POLICY, require
+from review_hook import HOOK_MARKER, HUSKY_STUB
 from review_prepush import TAGS, explain, orphaned, published, satisfied
 
 # Anything that would skip the pre-push hook or point git at another repository, plus
@@ -75,7 +76,67 @@ def could_push(command):
     # reached the remote with the hook in place and never invoked.
     if not any('push' in word.lower() for word in words):
         return False
-    return any(Path(word).name in RUNNERS for word in words)
+    # A program written against shell punctuation, `(git push ...)` or `true&&git push ...`, is the
+    # word `(git` or `true&&git` to shlex; its pieces are what the shell runs.
+    return any(Path(piece).name in RUNNERS for word in words
+               for piece in re.split('[' + re.escape(PUNCTUATION) + ']+', word) if piece)
+
+
+# Shell punctuation that can sit against a word without being part of it: `a; git push` reads as the
+# word `push` once these are trimmed, and `x&&git push` likewise.
+PUNCTUATION = ';&|(){}'
+
+
+def uncommented(command):
+    """The command's words with shell comments dropped, or None when that cannot be done safely.
+
+    A comment line that says "is there a remote to push to?" is not a push, and the kit's own
+    prescribed blocks carry such comments. Dropping them is only safe where this reading and the
+    shell's agree on what a comment is: inside `${...}` a `#` after a space is literal to the shell
+    but starts a comment here, which would hide a push the shell runs, so any command holding `${`
+    or `((` keeps its comment text and is read whole. A quote left open — including by an
+    apostrophe in a comment the shell would skip — is None as well, and the caller reads the raw text.
+    """
+    if '${' in command or '((' in command:
+        return None
+    try:
+        return shlex.split(command, comments=True)
+    except ValueError:
+        return None
+
+
+def names_push(command, words):
+    """Whether a push is written into this command as a word of its own.
+
+    could_push answers a wider question (any word holding the letters, beside any program that can
+    start another), and a commit message that says "push" answers yes to it. This one asks for the
+    verb itself: a word that is `push` once shell punctuation is trimmed, or one quoted word that
+    holds a whole command, `sh -c "git push ..."`, with a program and the verb both in it. Comments
+    are not read where `uncommented` can drop them. A command that cannot be read word by word is
+    read as its raw text.
+    """
+    edge = r'(?:^|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
+    read = uncommented(command)
+    words = words if read is None else read
+    if words is None:
+        return re.search(edge + 'push' + edge.replace('^', '$'), command.lower()) is not None
+    # `echo git push > notes` prints text and runs nothing. That holds only for a command with no
+    # separator, substitution or newline in it: `echo x; git push` is a push after an echo.
+    if words[:1] in (['echo'], ['printf']) and not any(c in command for c in ';&|(){}$`\n<'):
+        return False
+    previous = ''
+    for word in words:
+        spelled = word.strip(PUNCTUATION).lower()
+        if spelled == 'push' and previous != 'stash':  # `git stash push` saves changes, it publishes none
+            return True
+        pieces = [piece.lower() for piece in re.split(r'[\s' + re.escape(PUNCTUATION) + r']+', word) if piece]
+        # A whole command in one word runs only as the argument of a shell's -c or of eval/exec;
+        # anywhere else it is a pattern or a message that merely quotes one.
+        if (len(pieces) > 1 and 'push' in pieces and any(Path(piece).name in RUNNERS for piece in pieces)
+                and (re.fullmatch(r'-[a-z]*c', previous) or previous in ('eval', 'exec'))):
+            return True
+        previous = spelled
+    return False
 
 
 def git(cwd, *args):
@@ -102,11 +163,24 @@ def words_of(command):
         return None
 
 
+def unchecked(command, words, pushes):
+    """None for a command that is not the literal push shape, unless it is a push in disguise.
+
+    `git commit ...; git push ...` and `x && git push ...` carry a push the receipt lookup never
+    sees, because only a command that starts with git push is read for one. Letting them run left
+    the pre-push hook as the only check, and a hook that has been regenerated checks nothing, so a
+    command that could reach a remote and names the verb is refused instead of passed on.
+    """
+    require(not (pushes and names_push(command, words)), 'Use a literal git push in its own command.')
+    return None
+
+
 def parse(command, cwd):
     """Return (directory, push arguments) for the literal shape; None for anything else.
 
     None means this adapter has no opinion: the command is run and the pre-push hook
-    decides. Only the literal shape earns a receipt lookup here.
+    decides. Only the literal shape earns a receipt lookup here. A command that could push
+    and names the verb without being that shape is refused, not passed on (see `unchecked`).
     """
     # Case-insensitive: git reads config keys and most of these options that way too.
     lowered = command.lower()
@@ -129,7 +203,7 @@ def parse(command, cwd):
             'hooks/pre-push counts) and a program able to start another, git among them, so '
             'a read that shares a line with a git command is refused: run the read as its own command.')
     if words is None:
-        return None
+        return unchecked(command, words, pushes)
     tail = command
     if words[:1] == ['cd'] and len(words) > 3 and words[2] == '&&':
         cwd = (Path(cwd) / words[1]).resolve()
@@ -137,15 +211,54 @@ def parse(command, cwd):
     while words and ASSIGNMENT.match(words[0]):
         words = words[1:]
     if not words or Path(words[0]).name != 'git':
-        return None
+        return unchecked(command, words, pushes)
     words = words[1:]
     if words[:1] == ['-C'] and len(words) > 1:
         cwd, words = (Path(cwd) / words[1]).resolve(), words[2:]
     if words[:1] != ['push']:
-        return None
+        return unchecked(command, words, pushes)
     # The shape matched, so from here the command is a push and must be exactly one.
     require(not any(c in tail.strip() for c in '$`;|&<>\n'), 'Use a literal git push in its own command.')
     return cwd, words[1:]
+
+
+def hook_gap(cwd):
+    """Why the pre-push hook git will run for this repository does not check receipts; None when it does.
+
+    The hook is the enforcement boundary, and `pnpm install` can replace it: husky regenerates its
+    `_/pre-push` on every install, dropping the check, after which a push is judged by nothing. The
+    hook git runs is the one in core.hooksPath (relative to the worktree root) or else the common
+    directory's hooks, so that file is read, not the one this runtime last wrote. A husky stub
+    delegates to the tracked `<hooks dir>/../pre-push`, which counts when it carries the check.
+    """
+    top = subprocess.run(['git', '-C', str(cwd), 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
+    if top.returncode != 0:
+        return None  # not a repository: the push itself fails, and there is no hook to read
+    custom = subprocess.run(['git', '-C', str(cwd), 'config', '--get', 'core.hooksPath'],
+                            capture_output=True, text=True)
+    if custom.returncode == 0:
+        directory = Path(top.stdout.strip()) / Path(custom.stdout.strip()).expanduser()
+    else:
+        common = subprocess.run(['git', '-C', str(cwd), 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+                                capture_output=True, text=True)
+        if common.returncode != 0:
+            return None
+        directory = Path(common.stdout.strip()) / 'hooks'
+    hook = directory / 'pre-push'
+    runtime = Path(__file__).with_name('review_flow.py')
+    remedy = ('Reinstall it with: cd ' + shlex.quote(top.stdout.strip()) + ' && python3 ' + shlex.quote(str(runtime))
+              + " status  (it chains the check back into husky's generated hook; `start` installs it elsewhere).")
+    if not hook.is_file() or not os.access(hook, os.X_OK):
+        return ('The pre-push hook git will run, ' + str(hook) + ', is missing or not executable, so this push '
+                'would be checked by nothing. ' + remedy)
+    text = hook.read_text(errors='replace')
+    if HUSKY_STUB.search(text) and len(text.splitlines()) <= 2:
+        tracked = directory.parent / 'pre-push'
+        text = tracked.read_text(errors='replace') if tracked.is_file() else ''
+    if HOOK_MARKER not in text and 'review_prepush' not in text:
+        return ('The pre-push hook git will run, ' + str(hook) + ', does not call the receipt check (husky '
+                'regenerates it on install). ' + remedy)
+    return None
 
 
 def sources(words):
@@ -239,6 +352,10 @@ def main():
             raise MissingReceipt(str(missing) + '. A push of tags only needs no receipt when each '
                                  "tag's commit is already on " + remote + "'s default branch, and "
                                  'here ' + unpublished + '.') from None
+        # Last, so a push that lacks a receipt still hears about the receipt: a receipt the hook
+        # will not look for is the second thing wrong with it, not the first.
+        gap = hook_gap(cwd)
+        require(gap is None, str(gap))
 
 
 def cli():

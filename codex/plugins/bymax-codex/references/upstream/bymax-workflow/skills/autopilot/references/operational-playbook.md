@@ -178,7 +178,7 @@ gh api graphql -f query='mutation{resolveReviewThread(input:{threadId:"<FRESH_ID
   git switch <default-branch> && git pull
   git worktree remove <path> --force        # if still present
   git branch -D "$BR" 2>/dev/null || true
-  git push origin --delete "$BR" 2>/dev/null || true
+  gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/$BR" 2>/dev/null || true
   git ls-remote --heads origin "$BR"        # MUST print nothing
   git branch --list "$BR"                   # MUST print nothing
   git worktree prune
