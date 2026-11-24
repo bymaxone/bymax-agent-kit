@@ -150,7 +150,12 @@ def decommented(command):
 
 # Where the shell ends one simple command and starts another.
 SPLIT = ';&|()\n`{}'
-WRAPPERS = RUNNERS - {'git'}
+# Programs that start the program named after their options. RUNNERS is what could_push asks about;
+# these are the ones whose later `git` is run, as opposed to `echo git push`, which only prints it.
+LAUNCHERS = frozenset({'command', 'builtin', 'busybox', 'stdbuf', 'setsid', 'ionice', 'chrt', 'taskset', 'flock',
+                       'caffeinate', 'unbuffer', 'watch', 'parallel', 'find', 'script', 'strace', 'ltrace', 'chroot',
+                       'su', 'runuser', 'pkexec', 'login', 'then', 'else', 'do'})
+WRAPPERS = (RUNNERS - {'git'}) | LAUNCHERS
 # Words that open a clause (`then git push`, `! git push`): the command is the word after.
 KEYWORDS = frozenset({'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', 'time'})
 GIT_WITH_VALUE = frozenset({'-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env'})
@@ -159,6 +164,8 @@ GIT_FLAGS = frozenset({'-p', '-P', '--paginate', '--no-pager', '--bare', '--no-r
                        '--icase-pathspecs', '--no-optional-locks', '--no-lazy-fetch'})
 HEREDOC = re.compile(r'<<(?!<)-?\s*(["\']?)([A-Za-z_][A-Za-z0-9_]*)\1')
 SHELLS = re.compile(r'\b(?:sh|bash|zsh|dash|ksh|eval|source)\b')
+# A shell the body is piped into after the operator: `cat <<EOF | sh`.
+PIPED_SHELL = re.compile(r'\|\s*(?:\S*/)?(?:sh|bash|zsh|dash|ksh|fish|eval|source|xargs)\b')
 WORD_EDGE = r'(?:^|$|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
 
 
@@ -203,7 +210,7 @@ def heredocs(text):
                 return None
             index += 1
             blob = '\n'.join(body)
-            if SHELLS.search(line[:found.start()]):
+            if SHELLS.search(line[:found.start()]) or PIPED_SHELL.search(line[found.end():]):
                 runs.append(blob)
             elif not found.group(1):
                 runs += re.findall(r'\$\(([^)]*)\)', blob) + re.findall(r'`([^`]*)`', blob)

@@ -81,7 +81,14 @@ class CompoundPushTests(AdapterBench):
                         '{ git push origin HEAD:f; }',
                         'git -c alias.p=push p origin',
                         'if true; then git push origin HEAD:f; fi',
-                        '! git push origin HEAD:f'):
+                        '! git push origin HEAD:f',
+                        # Programs that launch what follows them, and a heredoc piped into a shell.
+                        'git commit -m x; command git push origin HEAD:f',
+                        'builtin git push origin HEAD:f',
+                        'stdbuf -oL git push origin HEAD:f',
+                        'setsid git push origin HEAD:f',
+                        'cat <<EOF | sh\ngit push origin HEAD:f\nEOF',
+                        "cat <<'EOF' | bash\ngit push origin HEAD:f\nEOF"):
             with self.subTest(command=command):
                 status, error = self.guard(command)
                 self.assertEqual(status, 2, error)
@@ -109,7 +116,9 @@ class CompoundPushTests(AdapterBench):
                         'grep -rn push src/ && git status',
                         'docker push img:tag && git status',
                         'git help push',
-                        'cat <<EOF\ngit push origin HEAD:f\nEOF'):
+                        'cat <<EOF\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF > sh.txt\ngit push origin HEAD:f\nEOF',
+                        'echo git push origin HEAD:f'):
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command)[0], 0)
 
