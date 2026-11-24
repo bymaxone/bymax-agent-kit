@@ -230,8 +230,6 @@ def heredocs(text):
             later = '\n'.join(lines[index:])
             if SHELLS.search(line[:found.start()]) or fed_to_program(line[found.end():] + '\n' + later):
                 runs.append(blob)
-                if not found.group(1):
-                    runs.append('\n'.join('eval ' + line for line in body))
             elif not found.group(1):
                 runs += re.findall(r'\$\(([^)]*)\)', blob) + re.findall(r'`([^`]*)`', blob)
     return '\n'.join(main), runs
