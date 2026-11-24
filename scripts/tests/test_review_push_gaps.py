@@ -131,6 +131,8 @@ class CompoundPushTests(AdapterBench):
                         'git config alias.s "git push origin HEAD:f"; source <(git config --get alias.s)',
                         'git config alias.s "git push origin HEAD:f"; sh <<< "$(git config --get alias.s)"',
                         'git config alias.s "git push origin HEAD:f"; eval `git config --get alias.s`',
+                        'git config alias.s "git push origin HEAD:f"; eval $(git config --get alias.s)',
+                        'git config alias.s "git push origin HEAD:f"; sh -c $(git config --get alias.s)',
                         'A="git push origin HEAD:f"; sh -c "$A"',
                         'A="git push origin HEAD:f"; eval "$A"',
                         "printf 'git push\\n' | sh",
