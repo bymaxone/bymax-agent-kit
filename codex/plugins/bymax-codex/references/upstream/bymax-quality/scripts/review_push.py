@@ -85,6 +85,9 @@ def could_push(command):
 # Shell punctuation that can sit against a word without being part of it: `a; git push` reads as the
 # word `push` once these are trimmed, and `x&&git push` likewise.
 PUNCTUATION = ';&|(){}'
+# The characters after which the shell starts a new word, so a `#` there begins a comment. `{` and
+# `}` are ordinary word characters to the shell, which is why this is narrower than PUNCTUATION.
+COMMENT_START = ';&|()<>'
 
 
 def uncommented(command):
@@ -122,7 +125,7 @@ def uncommented(command):
             quote = '' if char == quote else quote
         elif char in '\'"':
             quote = char
-        start = not quote and (char.isspace() or char in PUNCTUATION)
+        start = not quote and (char.isspace() or char in COMMENT_START)
         kept.append(char)
     try:
         return shlex.split(''.join(kept))
@@ -287,22 +290,33 @@ def hook_gap(cwd):
     return None if problem is None else 'The pre-push hook git will run, ' + str(hook) + ', ' + problem + ' ' + remedy
 
 
-def probe_problem(hook, cwd, top):
+def probe_problem(hook, cwd, top, seconds=30):
     """What a probe push says is wrong with the hook, or None.
 
     A marker in the text is a claim: a hook can carry the words and exit 0. The hook is run on a
-    push of a commit no receipt can name, the way git would, and must refuse it.
+    push of a commit no receipt can name, the way git would, and must refuse it. A hook that does
+    not answer in time is no verdict: a husky hook may run a test suite first, and the installed
+    hook still decides at the push.
     """
-    made = subprocess.run(['git', '-C', str(cwd), 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'receipt probe'],
+    parent = subprocess.run(['git', '-C', str(cwd), 'rev-parse', '--verify', '-q', 'HEAD'],
+                            capture_output=True, text=True)
+    tree = subprocess.run(['git', '-C', str(cwd), 'rev-parse', '--verify', '-q', 'HEAD^{tree}'],
                           capture_output=True, text=True)
-    if made.returncode != 0:
-        return None  # no commit to build the probe on: nothing here can be pushed either
+    if parent.returncode != 0 or tree.returncode != 0:
+        return None  # no commit yet: nothing here can be pushed
+    # Written as an object, not with commit-tree: that needs the user's identity and may sign.
+    body = ('tree ' + tree.stdout.strip() + '\nparent ' + parent.stdout.strip() + '\n'
+            'author probe <probe@example.invalid> 0 +0000\ncommitter probe <probe@example.invalid> 0 +0000\n\n'
+            'receipt probe\n')
+    made = subprocess.run(['git', '-C', str(cwd), 'hash-object', '-t', 'commit', '-w', '--stdin'], input=body,
+                          capture_output=True, text=True)
+    require(made.returncode == 0, 'Could not build the commit used to probe the pre-push hook: ' + made.stderr.strip())
     record = 'refs/heads/receipt-probe ' + made.stdout.strip() + ' refs/heads/receipt-probe ' + '0' * 40 + '\n'
     try:
         ran = subprocess.run([str(hook), 'origin', 'origin'], input=record, cwd=top,
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, text=True, timeout=seconds)
     except subprocess.TimeoutExpired:
-        return 'did not answer a probe push within 30 seconds.'
+        return None
     if ran.returncode == 0:
         return 'accepted a push of a commit with no receipt, so it does not enforce receipts.'
     return None

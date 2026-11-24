@@ -62,7 +62,14 @@ class CompoundPushTests(AdapterBench):
                         # `#` after a space inside ${...} is literal to the shell, so this push runs.
                         'echo ${x:-a #b}; git push origin HEAD:f',
                         # `#` inside a word is literal to the shell; only a word that starts with it is a comment.
-                        'echo a#b; git push origin HEAD:f'):
+                        'echo a#b; git push origin HEAD:f',
+                        # The shell ends a word only at whitespace and ; & | ( ) < >, so a `#` after any other
+                        # character, a closing quote or a backslash is still inside its word.
+                        'echo {#x; git push origin HEAD:f',
+                        'echo }#x; git push origin HEAD:f',
+                        'echo a=#b; git push origin HEAD:f',
+                        'echo "a"#b; git push origin HEAD:f',
+                        'echo a\\#b; git push origin HEAD:f'):
             with self.subTest(command=command):
                 status, error = self.guard(command)
                 self.assertEqual(status, 2, error)
@@ -75,6 +82,8 @@ class CompoundPushTests(AdapterBench):
                         'git log --oneline -3',
                         'git stash push -m wip',
                         'echo git push > notes.txt',
+                        'git status # git push origin HEAD:f',
+                        'git status;# git push origin HEAD:f',
                         'grep -rn "git push" docs/',
                         "# the PR's branch\ngit status"):
             with self.subTest(command=command):
@@ -128,6 +137,33 @@ class HookGapTests(AdapterBench):
                 status, error = self.guard(command)
                 self.assertEqual(status, 2, error)
                 self.assertIn('accepted a push of a commit with no receipt', error)
+
+    def test_a_hook_is_probed_even_when_the_user_cannot_make_commits(self):
+        """A user with no commit identity made the probe commit fail, and a failed probe passed."""
+        command = self.pushable()
+        for key in [key for key in self.env if key.startswith(('GIT_AUTHOR_', 'GIT_COMMITTER_'))]:
+            del self.env[key]
+        self.git('config', 'user.useConfigOnly', 'true')
+        for key in ('user.name', 'user.email'):
+            subprocess.run(['git', 'config', '--unset', key], cwd=self.repo, env=self.env)
+        hook = self.repo / '.git/hooks/pre-push'
+        hook.write_text('#!/bin/sh\n# review_prepush\nexit 0\n')
+        hook.chmod(0o755)
+        status, error = self.guard(command)
+        self.assertEqual(status, 2, error)
+        self.assertIn('accepted a push of a commit with no receipt', error)
+
+    def test_a_hook_too_slow_to_answer_the_probe_is_not_called_unchecked(self):
+        """A husky hook that runs a test suite before the check is slow, not absent: no verdict, no refusal."""
+        sys.path.insert(0, str(FLOW.parent))
+        try:
+            import review_push
+        finally:
+            sys.path.remove(str(FLOW.parent))
+        slow = self.repo / 'slow-hook'
+        slow.write_text('#!/bin/sh\nsleep 5\nexit 1\n')
+        slow.chmod(0o755)
+        self.assertIsNone(review_push.probe_problem(slow, self.repo, str(self.repo), seconds=1))
 
     def test_a_missing_or_unexecutable_hook_refuses_the_push(self):
         """git skips a hook that is not executable, which is no hook at all."""
