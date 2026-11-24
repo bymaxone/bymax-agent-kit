@@ -167,8 +167,10 @@ HEREDOC = re.compile(r'<<(?!<)-?\s*(["\']?)([A-Za-z_][A-Za-z0-9_]*)\1')
 SHELLS = re.compile(r'\b(?:sh|bash|zsh|dash|ksh|eval|source)\b')
 # A program, then a process substitution among its words: `sh <(echo ...)` reads what the inner command prints.
 SUBSTITUTED = re.compile(r'(?:^|[;&|({]\s*)(?:\w+=\S*\s+)*([^\s;&|(){}<>]+)[^;&|()\n]*<\(([^)]*)\)')
-# A program that follows a pipe, a process substitution, `;` or `&&` on the line that opens a heredoc.
-FED_PROGRAM = re.compile(r'(?:\||>\(|<\(|;|&&)\s*(?:(?:\w+=\S*|!)\s+)*([^\s|;&()<>]+)')
+# The first word after a pipe, `|&`, a process substitution, `<<<`, `;` or `&&`, whatever opens the clause before it.
+FED_PROGRAM = re.compile(r'(?:\|&?|>\(|<\(|<<<|;|&&)[\s(){}&!]*(?:\w+=\S*\s+)*([^\s|;&()<>{}]+)')
+# What may stand between an operator and the program it reaches: a subshell, braces, `&`, a negation.
+PIPE = re.compile(r'\|&?')
 WORD_EDGE = r'(?:^|$|[\s' + re.escape(PUNCTUATION) + r'\'"`])'
 
 
@@ -221,8 +223,25 @@ def heredocs(text):
 
 
 def fed_to_program(rest):
-    """Whether the text after a heredoc operator names a non-passive program after a pipe, process substitution, `;` or `&&`."""
+    """Whether the text after a heredoc operator reaches a non-passive program."""
     return any(Path(name).name not in PASSIVE for name in FED_PROGRAM.findall(rest))
+
+
+def text_to_consumer(text):
+    """Whether words naming a push are printed by passive programs into a pipe that reaches a non-passive one."""
+    for line in text.split('\n'):
+        printed = ''
+        for part in PIPE.split(line):
+            word = re.sub(r'^[\s(){}&!]+', '', part).split(None, 1)
+            name = Path(word[0]).name if word else ''
+            if name not in PASSIVE and printed:
+                if re.search(WORD_EDGE + 'push' + WORD_EDGE, printed.lower()):
+                    return True
+                break
+            if name not in PASSIVE:
+                break
+            printed += ' ' + part
+    return False
 
 
 def fed_by_substitution(text):
@@ -288,7 +307,7 @@ def runs_push(command, depth=0):
     main, runs = cut
     if any(runs_push(body, depth + 1) for body in runs):
         return True
-    if fed_by_substitution(main):
+    if fed_by_substitution(main) or text_to_consumer(main):
         return True
     for part in segments(main):
         try:

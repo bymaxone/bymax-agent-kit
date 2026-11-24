@@ -97,7 +97,13 @@ class CompoundPushTests(AdapterBench):
                         'cat <<EOF | xargs sh -c\ngit push origin HEAD:f\nEOF',
                         'cat <<EOF | tee >(sh)\ngit push origin HEAD:f\nEOF',
                         'cat <<EOF | eval\ngit push origin HEAD:f\nEOF',
-                        'sh <(echo git push origin HEAD:f)'):
+                        'sh <(echo git push origin HEAD:f)',
+                        'cat <<EOF | (sh)\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF |& sh\ngit push origin HEAD:f\nEOF',
+                        'cat <<EOF | { sh; }\ngit push origin HEAD:f\nEOF',
+                        'cat <(echo git push origin HEAD:f) | sh',
+                        'echo git push origin HEAD:f | sh',
+                        "printf 'git push origin HEAD:f' |& bash"):
             with self.subTest(command=command):
                 status, error = self.guard(command)
                 self.assertEqual(status, 2, error)
@@ -130,6 +136,9 @@ class CompoundPushTests(AdapterBench):
                         'cat <<EOF | grep x\ngit push origin HEAD:f\nEOF',
                         'cat <<EOF | tee out.txt\ngit push origin HEAD:f\nEOF',
                         'diff <(echo git push a) <(echo git push b)',
+                        'echo git push origin HEAD:f | grep push',
+                        'echo git push origin HEAD:f | tee log | wc -l',
+                        'git log --grep push | xargs git show',
                         'echo git push origin HEAD:f'):
             with self.subTest(command=command):
                 self.assertEqual(self.guard(command)[0], 0)
