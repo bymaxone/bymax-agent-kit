@@ -519,7 +519,7 @@ def runs_push(command, depth=0):
         return True
     if reaches_program(main):
         return True
-    # A backtick substitution is read like `$(...)`, so the word before it keeps the mark that says it is not literal.
+    # A backtick substitution is rewritten as `$(...)`, so the word holding it carries the mark that says it is not literal.
     for part in segments(re.sub(r'`([^`]*)`', r'$(\1)', main)):
         try:
             tokens = shlex.split(part)
