@@ -885,6 +885,55 @@ class ReviewFlowTests(FlowBench):
         self.assertIn('Reopened after a claimed fix: guard:spelling', result.stderr)
         self.assertEqual(self.start(correction=True, design=True)['reopened'], ['guard:spelling'])
 
+    def reopened_with(self, open_ids):
+        """Open these dispositions on a candidate, commit a correction and start the next round."""
+        self.start()
+        found = {'claude': [], 'codex': []}
+        for open_id in open_ids:
+            reviewer, bare_id = open_id.split('::', 1)
+            found[reviewer].append(dict(id=bare_id, kind='defect', priority='P1', evidence='Bypass'))
+        self.report('claude', found['claude'])
+        self.report('codex', found['codex'])
+        self.triage([dict(id=open_id, status='open', evidence='Reproduced') for open_id in open_ids])
+        self.commit('correction')
+        self.start(correction=True)
+
+    def test_resolution_ids_that_differ_only_in_hyphen_or_underscore_are_one_id(self):
+        """A model copying `text_to_consumer-x` back wrote `text-to-consumer-x`; that is the same id."""
+        self.reopened_with(['codex::guard:text_to_consumer-leading', 'claude::guard:text-to-consumer-quoted'])
+        resolutions = [dict(id='codex::guard:text-to-consumer-leading', evidence='Fixed'),
+                       dict(id='claude::guard:text_to_consumer-quoted', evidence='Fixed')]
+        self.report('claude', resolutions=resolutions)
+
+    def test_a_reviewer_prefix_is_not_normalised_away(self):
+        """`claude::x` and `codex::x` stay two verifications even when the id is spelled differently."""
+        self.reopened_with(['codex::guard:a_b'])
+        result = self.report('claude', resolutions=[dict(id='claude::guard:a-b', evidence='Fixed')], ok=False)
+        self.assertIn('Recheck every previous open finding', result.stderr)
+
+    def test_a_missing_resolution_is_named_in_the_error(self):
+        """The operator is told which open ids have no resolution and which resolutions match none."""
+        self.reopened_with(['codex::guard:one', 'codex::guard:two'])
+        result = self.report('claude', resolutions=[dict(id='codex::guard:one', evidence='Fixed'),
+                                                   dict(id='codex::guard:other', evidence='Fixed')], ok=False)
+        self.assertIn('codex::guard:two', result.stderr)
+        self.assertIn('codex::guard:other', result.stderr)
+        self.assertNotIn('Missing: codex::guard:one', result.stderr)
+
+    def test_two_open_ids_that_read_alike_each_need_their_own_resolution(self):
+        """`a_b` and `a-b` are two open findings; one resolution answers one of them."""
+        self.reopened_with(['codex::guard:a_b', 'codex::guard:a-b'])
+        result = self.report('claude', resolutions=[dict(id='codex::guard:a-b', evidence='Fixed')], ok=False)
+        self.assertIn('Recheck every previous open finding', result.stderr)
+        self.report('claude', resolutions=[dict(id='codex::guard:a-b', evidence='Fixed'),
+                                           dict(id='codex::guard:a_b', evidence='Fixed')])
+
+    def test_one_respelled_resolution_cannot_answer_two_open_ids(self):
+        """Neither open id is spelled exactly; the one resolution that reads like both is used once."""
+        self.reopened_with(['codex::guard:x_y-z', 'codex::guard:x-y_z'])
+        result = self.report('claude', resolutions=[dict(id='codex::guard:x_y_z', evidence='Fixed')], ok=False)
+        self.assertIn('Recheck every previous open finding', result.stderr)
+
     def test_test_path_classification(self):
         """Jest's __tests__ and Python's test_ files count; a spec document does not. Whether
         a case can be named in one is the demand's business rather than this rule's."""
