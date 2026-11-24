@@ -112,8 +112,8 @@ class CompoundPushTests(AdapterBench):
                         'cat <<EOF |\ngit push origin HEAD:f\nEOF\nsh',
                         'cat <<< "git push origin HEAD:f" | sh',
                         # Input that is not known before it runs, handed to anything that runs it, may be a push.
-                        # `git log | grep push | sh` was allowed until this rule: grep keeps the lines that name
-                        # a push and sh runs them, so the pipeline cannot be shown not to push.
+                        # grep keeps the lines that name a push and sh runs them, so `git log | grep push | sh`
+                        # cannot be shown not to push.
                         'git log | grep push | sh',
                         "git config alias.s 'git push origin HEAD:f'; git config --get alias.s | sh",
                         "git config alias.s 'git push origin HEAD:f'; git config --get alias.s | xargs sh -c",

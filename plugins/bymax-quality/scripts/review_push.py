@@ -162,7 +162,7 @@ KEYWORDS = frozenset({'then', 'else', 'elif', 'do', '!', 'time'})
 # A compound command that a pipe feeds as a whole: every command inside it may read what was piped.
 OPENERS = frozenset({'if', 'while', 'until', 'for', 'case', 'select'})
 CLOSERS = frozenset({'fi', 'done', 'esac'})
-# What can run the text it is given. A sink that is handed text that is not known to be harmless is read as a push.
+# What can run the text it is given.
 SHELL_SINKS = frozenset({'sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'fish'})
 CODE_SINKS = frozenset({'eval', 'source', '.'})
 # Stands for input whose text is not known before the command runs.
@@ -313,7 +313,7 @@ class Frame:
         return self.held if self.depth else self.inherited
 
     def runs_unknown(self):
-        """Whether the current command can run text that is not known before it runs."""
+        """Whether the current command is a sink that may run a push."""
         names = {Path(word).name for word in self.words}
         unknown_in = UNKNOWN in self.stdin() or self.dynamic_in
         if names & CODE_SINKS:
