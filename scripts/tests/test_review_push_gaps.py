@@ -122,6 +122,8 @@ class CompoundPushTests(AdapterBench):
                         'echo git push origin HEAD:x | while read l; do eval "$l"; done',
                         'echo git push origin HEAD:x | if true; then sh; fi',
                         'echo git push origin HEAD:x | until false; do sh; done',
+                        "git config alias.s 'git push origin HEAD:f'; git config --get alias.s | while read l; do sh; done",
+                        "git config alias.s 'git push origin HEAD:f'; git config --get alias.s | if true; then bash; fi",
                         'echo git push origin HEAD:x | for x in 1; do sh; done',
                         'echo git push origin HEAD:x | case x in x) sh;; esac',
                         'git log --format=%s | while read l; do case $l in *push*) eval "$l";; esac; done',

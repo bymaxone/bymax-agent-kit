@@ -333,7 +333,6 @@ class Frame:
         """Take in a group that stands where a command would."""
         self.found = self.found or child.found
         self.words.append(' '.join(child.shown))
-        self.dynamic = self.dynamic or not child.quiet
         self.subs += ' ' + ' '.join(child.shown)
         self.printing = self.printing and child.quiet
 
