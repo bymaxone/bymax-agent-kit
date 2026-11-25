@@ -16,6 +16,7 @@ and local remotes; ordinary test execution must not incur model costs or push pu
 | A rebased candidate loses its reviews though its delta is unchanged, keeps them though the rebase changed it, or something other than a rebase of the frozen head is accepted | `scripts/tests/test_review_rebase.py` |
 | The push guard refuses a bash block a command or skill prescribes, or stops refusing a disarming option beside a handoff read | `scripts/tests/test_prescribed_blocks_guard.py` |
 | The prose pass is handed vendored text, or may edit it | `scripts/tests/test_review_prose_foreign.py` |
+| A command a test runs leaves a process behind after a timeout or a return, such as a push spelling that never ends | `scripts/tests/test_bounded_run.py` |
 | A running gate blocks `status`, or its result lands on a candidate the campaign moved past | `scripts/tests/test_review_check_lock.py` |
 | A triaged round or a clearance goes unmeasured | `scripts/tests/test_review_outcomes.py` |
 | A campaign in a checkout of this toolkit runs a stale installed runtime without saying so | `scripts/tests/test_review_install_drift.py` |

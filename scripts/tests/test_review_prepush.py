@@ -23,6 +23,7 @@ FLOW = ROOT / 'plugins/bymax-quality/scripts/review_flow.py'
 sys.path.insert(0, str(FLOW.parent))
 # The bound on a fixture `start`, and the measurement behind it, are test_review_flow's.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bounded_run import run_bounded
 from test_review_flow import CAMPAIGN_TIMEOUT
 
 # Every form found across the review campaigns that ever reached git with argv `push`
@@ -55,6 +56,9 @@ SPELLINGS = [
     'bash -c "git push origin HEAD:feature"',
     'bash -c "true;git push origin HEAD:feature"',
     "bash -c 'git pu\"\"sh origin HEAD:feature'",
+    # A line continuation inside a word is invisible to the adapter; git still gets `push`, and the hook decides.
+    'git \\\npush origin HEAD:feature',
+    'git pu\\\nsh origin HEAD:feature',
     '$(which git) push origin HEAD:feature',
     '"$(which git)" push origin HEAD:feature',
     '`which git` push origin HEAD:feature',
@@ -122,8 +126,7 @@ class PrePushBench(unittest.TestCase):
 
     def attempt(self, spelling):
         """Run one push spelling through bash exactly as the Bash tool would."""
-        return subprocess.run(['bash', '-c', spelling], cwd=self.repo, env=self.env,
-                              capture_output=True, text=True, timeout=30)
+        return run_bounded(['bash', '-c', spelling], cwd=self.repo, env=self.env, timeout=30)
 
     def modules(self):
         """Load the runtime, its hook installer and the self-contained checker beside them, as
@@ -216,7 +219,7 @@ class PrePushInvariantTests(PrePushBench):
                          '$(which git) push origin HEAD:feature', 'bash -c "git push origin HEAD:feature"',
                          '! git push origin HEAD:feature', '( git push origin HEAD:feature )',
                          'echo x | git push origin HEAD:feature', "git $'pu\\x73h' origin HEAD:feature",
-                         'if true; then git -C . push origin HEAD:feature; fi'):
+                         'if true; then git -C . push origin HEAD:feature; fi', 'git \\\npush origin HEAD:feature'):
             with self.subTest(spelling=spelling):
                 result = self.attempt(spelling)
                 self.assertIn('cannot be pushed: no completed review', result.stderr, spelling)
