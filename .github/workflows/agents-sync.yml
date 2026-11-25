@@ -22,9 +22,10 @@ permissions:
 
 jobs:
   sync:
-    # Referenced by the moving alias rather than pinned, which is the convention
-    # for first-party reusables and the rule the shared block itself states.
-    uses: bymaxone/.github/.github/workflows/agents-sync.yml@v1
+    # Pinned to a release commit, unlike the other first-party reusables, which use the `@v1` alias:
+    # this one is handed the sync App's private key, so what runs with it is a reviewed commit and not
+    # a tag that moves (the exception the README of bymaxone/.github states under `agents-sync`).
+    uses: bymaxone/.github/.github/workflows/agents-sync.yml@ac7b0d4081a57aa5382430c0e4ad8e03600c9fcb # v1.12.10
     permissions:
       contents: write
       pull-requests: write
