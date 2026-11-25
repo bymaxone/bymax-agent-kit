@@ -674,7 +674,8 @@ local design closes is a hook-skipping option spelled so the adapter's substring
 cannot see it, since git itself provides that escape; the tests document it, and CI is
 the boundary for deliberate evasion. A command that removes the hook is no longer refused,
 and nothing local refuses the push after it either when that push is spelled in a shape this
-adapter does not recognise. That residue is named here rather than papered over, because two
+adapter does not recognise. One such shape is a line continuation inside the command: `git \<newline>push origin HEAD:f` and
+`git sub\<newline>tree push` read as words that are not a push, so the adapter lets them through and only the hook stops them. That residue is named here rather than papered over, because two
 attempts to close it locally were each bypassed in the round after they shipped. A completed review is evidence of coverage, not a
 guarantee that the code has no bugs.
 
